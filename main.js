@@ -17,7 +17,7 @@ import { monthName, S0 } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
-import { drawOverlay, turned } from './src/render/overlay.js';
+import { drawOverlay, turned, morphed, matchLines } from './src/render/overlay.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
@@ -93,7 +93,7 @@ function palette() {
   return { canvas: T.canvas, text: T.text, accent: T.accent, ocean: T.ocean, land: T.land, muted: T.textMuted, inks: T.inks, tint, dark };
 }
 
-let lastStepDt = PLATE_STEP, riversSteps = -1, riversT = 0, surfaceFromStep = false;
+let lastStepDt = PLATE_STEP, riversSteps = -1, riversT = 0, linesT = 0, surfaceFromStep = false;
 function refreshSurface() {
   const Pp = grid.pos, nbrOff = grid.nbrOff, nbr = grid.nbr;
   // Drawn relief is the model's, eased once toward its neighbours' mean: a
@@ -167,8 +167,23 @@ function refreshSurface() {
       lakeDraw[i] = 0.4 * tfTmp[i] + 0.6 * s / (e - o);
     }
   }
+  // Each new line remembers its predecessor (and when that was traced), to morph from.
+  const oldLines = lines, oldT = linesT;
   lines = traceBoundaries(tec);
-  if (land.steps !== riversSteps) { rivers = traceRivers(grid, land); riversSteps = land.steps; riversT = tec.t; }
+  linesT = tec.t;
+  matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
+  for (const l of lines) {
+    if (surfaceFromStep) { l.prevT = oldT; continue; }
+    // Retraced without a step (the sea moved): keep morphing from the same predecessor.
+    const m = l.prev;
+    l.prev = m ? m.prev : null; l.prevT = m ? m.prevT : linesT;
+  }
+  if (land.steps !== riversSteps) {
+    const old = rivers, oldRT = riversT;
+    rivers = traceRivers(grid, land); riversSteps = land.steps; riversT = tec.t;
+    matchLines(old, rivers, r => r.plate);
+    for (const r of rivers) r.prevT = oldRT;
+  }
   seaDrawn = tec.seaLevel;
   figuresDirty = true;
   if (!globe) return;
@@ -289,7 +304,7 @@ function refreshWeather(force) {
   }
   if (globe) globe.setWeather(wxDraw);
   const now = performance.now();
-  if (wxLive > 0 && now - lastChart > 250) {
+  if (wxLive > 0 && now - lastChart > 150) {
     lastChart = now;
     const pc = new Float64Array(wx.n);
     for (let i = 0; i < wx.n; i++) pc[i] = 0;
@@ -740,12 +755,24 @@ function frame(now) {
     // lines turn with their plates to the same moment.
     const L0 = scheduler.layers[0], phi = Math.min(1, Math.max(0, L0.bank / L0.step));
     const tShow = tec.t - (1 - phi) * lastStepDt / 1e6;
+    // Each line is turned with its plates to the shown moment and morphed from its
+    // predecessor's course (rivers over the landscape's own step).
     if (lines) for (const ln of lines) {
       const a = tec.plates[ln.left], b = tec.plates[ln.right];
       const w = [0.5 * (a.w[0] + b.w[0]), 0.5 * (a.w[1] + b.w[1]), 0.5 * (a.w[2] + b.w[2])];
-      ln.shown = turned(ln.P, w, tShow - tec.t); ln.shownL = turned(ln.L, w, tShow - tec.t);
+      const cur = turned(ln.P, w, tShow - linesT);
+      ln.shown = ln.prev ? morphed(turned(ln.prev.P, w, tShow - ln.prevT), cur, phi) : cur;
+      ln.shownL = turned(ln.L, w, tShow - linesT);
     }
-    if (rivers) for (const rv of rivers) { const pl = tec.plates[rv.plate]; rv.shown = pl && pl.alive ? turned(rv.P, pl.w, tShow - riversT) : rv.P; }
+    if (rivers) {
+      const phiL = Math.min(1, ((P.landBank || 0) + phi * lastStepDt) / 2.5e5);
+      for (const rv of rivers) {
+        const pl = tec.plates[rv.plate];
+        if (!pl || !pl.alive) { rv.shown = rv.P; continue; }
+        const cur = turned(rv.P, pl.w, tShow - riversT);
+        rv.shown = rv.prev ? morphed(turned(rv.prev.P, pl.w, tShow - rv.prevT), cur, phiL) : cur;
+      }
+    }
     globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi });
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view, chart, chartFade: wxLive, wxNow: wx.t }, pal);
     drawDirty = false;

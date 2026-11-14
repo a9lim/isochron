@@ -158,7 +158,7 @@ function ridgeLines(g, f, ok, q = 0.85) {
     const L = j => gf[3 * j] * ev[3 * j] + gf[3 * j + 1] * ev[3 * j + 1] + gf[3 * j + 2] * ev[3 * j + 2];
     return [L(a), sgn(b) * L(b), sgn(c) * L(c)];
   };
-  return trace(g, null, okR, local).map(chain => chaikin(chain.map(c => c.p)));
+  return trace(g, null, okR, local).map(chain => chaikin(relax(chain.map(c => c.p.slice()), 6), 3));
 }
 
 /** Join chains whose ends meet (within `gap` rad) and line up; chains are arrays of {p}. */
@@ -187,6 +187,19 @@ function bridge(chains, gap) {
     }
   }
   return chains;
+}
+
+/** Laplacian relaxation of a chain's positions (ends held), before corner-cutting. */
+function relax(P, passes = 3) {
+  for (let pass = 0; pass < passes; pass++) {
+    const Q = P.map(q => q.slice());
+    for (let k = 1; k < P.length - 1; k++) {
+      const x = 0.5 * Q[k][0] + 0.25 * (Q[k - 1][0] + Q[k + 1][0]), y = 0.5 * Q[k][1] + 0.25 * (Q[k - 1][1] + Q[k + 1][1]), z = 0.5 * Q[k][2] + 0.25 * (Q[k - 1][2] + Q[k + 1][2]);
+      const r = Math.hypot(x, y, z);
+      P[k][0] = x / r; P[k][1] = y / r; P[k][2] = z / r;
+    }
+  }
+  return P;
 }
 
 function chaikin(P, passes = 2) {
@@ -261,7 +274,7 @@ export function chartLines(wx, pres) {
   // typical value: low-level flow runs nearly along the isotherms in this model,
   // so an absolute threshold would call almost every front stationary.
   const traced = bridge(trace(g, T.loc, okF), 0.045).map(chain => {
-    const P = chaikin(chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; }));
+    const P = chaikin(relax(chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; }), 4));
     const V = [];
     const adv = P.map(q => {
       const a = Math.round(q[3]), b = Math.round(q[4]), t = q[5];
@@ -303,7 +316,8 @@ export function chartLines(wx, pres) {
   // Pairs of stretches lying side by side, ~400 km apart or closer: a cold one
   // against a warm one is a cold front that has caught its warm front, so they
   // merge into an occluded front along their shared course; two of one type are
-  // one front found twice, and the shorter goes.
+  // one front found twice, and the shorter goes; so does any stretch lying right on
+// a longer one, whatever its type.
   const near = (A, B, D) => {
     const c = Math.cos(D);
     const hit = new Uint8Array(A.P.length), mate = new Int32Array(A.P.length).fill(-1);
@@ -319,7 +333,7 @@ export function chartLines(wx, pres) {
   const kept = [];
   for (const r of runs) {
     let drop = false;
-    for (const k of kept) if (k.type === r.type && near(r, k, 0.045).share > 0.6) { drop = true; break; }
+    for (const k of kept) if ((k.type === r.type || near(r, k, 0.03).share > 0.6) && near(r, k, 0.045).share > 0.6) { drop = true; break; }
     if (!drop) kept.push(r);
   }
   const occluded = [];
@@ -370,7 +384,7 @@ export function chartLines(wx, pres) {
   const q80 = percentile(Q.G, okD, 0.85), tq = percentile(Q.tfp, i => okD(i) && Q.G[i] > q80, 0.4);
   const okDry = i => okD(i) && Q.G[i] > q80 && Q.tfp[i] > tq && T.G[i] < g70;
   for (const chain of trace(g, Q.loc, okDry)) {
-    let P = chaikin(chain.map(c => c.p));
+    let P = chaikin(relax(chain.map(c => c.p.slice()), 4));
     const pts = new Float32Array(3 * P.length), side = new Float32Array(3 * P.length), V = new Float32Array(3 * P.length);
     P.forEach((q, k) => {
       pts[3 * k] = q[0]; pts[3 * k + 1] = q[1]; pts[3 * k + 2] = q[2];
@@ -383,7 +397,7 @@ export function chartLines(wx, pres) {
   // Troughs and ridges of pressure, and subtropical shear lines (vorticity ridges
   // where temperature barely changes). Troughs that a front already marks aren't
   // drawn twice.
-  const pS = smoothField(g, Float64Array.from(pres), 3);
+  const pS = smoothField(g, Float64Array.from(pres), 5);
   const velAt = P => { const V = new Float32Array(P.length * 3); P.forEach((q, k) => V.set(lerp3(vel, Math.round(q[3]), Math.round(q[4]), q[5]), 3 * k)); return V; };
   const pack = P => { const a = new Float32Array(3 * P.length); P.forEach((q, k) => { a[3 * k] = q[0]; a[3 * k + 1] = q[1]; a[3 * k + 2] = q[2]; }); return a; };
   const fronted = (P) => {
@@ -413,13 +427,29 @@ const withAlpha = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${p
 
 /** Draw the chart's symbols: fronts (cold triangles in prussian, warm semicircles in sienna,
  * stationary alternating), dry lines (ochre scallops toward the moist side), H and L. */
-/** A line's points carried by their wind for dt seconds (between charts). */
+/**
+ * A line carried whole by its mean wind for dt seconds (between charts): moving
+ * each point by its own wind folds the line, so the line keeps its shape and
+ * translates, turned about the axis r × v̄ through the line's middle.
+ */
 function drift(P, V, dt) {
   if (!V || !(dt > 0)) return P;
-  const out = new Float32Array(P.length), k = dt / 6.371e6;
+  const n = P.length / 3;
+  let vx = 0, vy = 0, vz = 0, cx = 0, cy = 0, cz = 0;
+  for (let i = 0; i < P.length; i += 3) { vx += V[i]; vy += V[i + 1]; vz += V[i + 2]; cx += P[i]; cy += P[i + 1]; cz += P[i + 2]; }
+  vx /= n; vy /= n; vz /= n;
+  const cr = Math.hypot(cx, cy, cz) || 1; cx /= cr; cy /= cr; cz /= cr;
+  // Rotation axis r × v, angle |v| dt / a.
+  let ax = cy * vz - cz * vy, ay = cz * vx - cx * vz, az = cx * vy - cy * vx;
+  const am = Math.hypot(ax, ay, az), ang = Math.hypot(vx, vy, vz) * dt / 6.371e6;
+  if (!(am > 0) || !(ang > 0)) return P;
+  ax /= am; ay /= am; az /= am;
+  const c = Math.cos(ang), s = Math.sin(ang), C = 1 - c, out = new Float32Array(P.length);
   for (let i = 0; i < P.length; i += 3) {
-    const x = P[i] + k * V[i], y = P[i + 1] + k * V[i + 1], z = P[i + 2] + k * V[i + 2], m = Math.hypot(x, y, z);
-    out[i] = x / m; out[i + 1] = y / m; out[i + 2] = z / m;
+    const x = P[i], y = P[i + 1], z = P[i + 2], d = ax * x + ay * y + az * z;
+    out[i] = x * c + (ay * z - az * y) * s + ax * d * C;
+    out[i + 1] = y * c + (az * x - ax * z) * s + ay * d * C;
+    out[i + 2] = z * c + (ax * y - ay * x) * s + az * d * C;
   }
   return out;
 }
@@ -428,7 +458,7 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   if (!chart0 || fade <= 0.01) return;
   // Between charts every line and centre drifts with its wind, so the chart moves
   // continuously; each new chart corrects it.
-  const dtw = wxNow != null ? Math.min(6 * 3600, Math.max(0, wxNow - chart0.t)) : 0;
+  const dtw = wxNow != null ? Math.min(3 * 3600, Math.max(0, wxNow - chart0.t)) : 0;
   const mv = L => L.map(l => ({ ...l, P: drift(l.P, l.V, dtw) }));
   const chart = { ...chart0, fronts: mv(chart0.fronts), dry: mv(chart0.dry), troughs: mv(chart0.troughs || []), ridges: mv(chart0.ridges || []), shear: mv(chart0.shear || []),
     highs: chart0.highs.map(h => ({ ...h, p: h.V ? Array.from(drift(Float32Array.from(h.p), Float32Array.from(h.V), dtw)) : h.p })),

@@ -218,3 +218,52 @@ function withAlpha(hex, a) {
   const h = hex.replace('#', '');
   return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`;
 }
+
+/** A line resampled to `m` points evenly along its length (on the sphere's chords). */
+function resample(P, m) {
+  const n = P.length / 3;
+  if (n === m) return P;
+  const cum = new Float64Array(n);
+  for (let k = 1; k < n; k++) cum[k] = cum[k - 1] + Math.hypot(P[3 * k] - P[3 * k - 3], P[3 * k + 1] - P[3 * k - 2], P[3 * k + 2] - P[3 * k - 1]);
+  const out = new Float32Array(3 * m), L = cum[n - 1] || 1;
+  let j = 0;
+  for (let k = 0; k < m; k++) {
+    const s = m > 1 ? L * k / (m - 1) : 0;
+    while (j < n - 2 && cum[j + 1] < s) j++;
+    const t = cum[j + 1] > cum[j] ? Math.min(1, Math.max(0, (s - cum[j]) / (cum[j + 1] - cum[j]))) : 0;
+    for (let c = 0; c < 3; c++) out[3 * k + c] = P[3 * j + c] + t * (P[3 * j + 3 + c] - P[3 * j + c]);
+  }
+  return out;
+}
+
+/**
+ * Between retraces a line morphs from its predecessor's course to its own:
+ * both resampled to the same number of points along their length and blended
+ * by φ, so a boundary or river changes shape continuously rather than snapping.
+ */
+export function morphed(prev, cur, phi) {
+  if (!prev || phi >= 1) return cur;
+  const m = cur.length / 3, A = resample(prev, m), out = new Float32Array(cur.length);
+  for (let k = 0; k < cur.length; k += 3) {
+    const x = A[k] + phi * (cur[k] - A[k]), y = A[k + 1] + phi * (cur[k + 1] - A[k + 1]), z = A[k + 2] + phi * (cur[k + 2] - A[k + 2]), r = Math.hypot(x, y, z) || 1;
+    out[k] = x / r; out[k + 1] = y / r; out[k + 2] = z / r;
+  }
+  return out;
+}
+
+/** For each new line, its predecessor among the old: the nearest by middle point, of the same key. */
+export function matchLines(prev, cur, key) {
+  if (!prev) return;
+  const mid = P => { const k = 3 * Math.floor(P.length / 6); return [P[k], P[k + 1], P[k + 2]]; };
+  const byKey = new Map();
+  for (const l of prev) { const k = key(l); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(l); }
+  for (const l of cur) {
+    const cands = byKey.get(key(l));
+    l.prev = null;
+    if (!cands) continue;
+    const m = mid(l.P);
+    let best = Math.cos(0.08), bl = null;
+    for (const c of cands) { const q = mid(c.P), d = m[0] * q[0] + m[1] * q[1] + m[2] * q[2]; if (d > best) { best = d; bl = c; } }
+    l.prev = bl;
+  }
+}

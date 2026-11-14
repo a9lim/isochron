@@ -105,6 +105,10 @@ Third round (2026-11-15): continuity through time; troughs, ridges, shear lines 
 - **Fronts**: only maxima of TFP (the minima were the second, back-to-back front), duplicates of one type dropped, and occlusion when a cold stretch closes within ~380 km of a warm one (the near-a-low rule is gone).
 - **Troughs, ridges and shear lines** drawn; a trowal needs the air's structure aloft and squall lines need convection, neither of which a two-layer QG model has, so they're left out rather than faked.
 
+Fourth round (2026-11-15): the chart got messy between charts, and boundaries and rivers still snapped.
+- **Lines drift whole** with their mean wind (moving each point by its own wind folded them), for at most three model hours, with charts every 150 ms; chart lines are relaxed before corner-cutting; any stretch lying right on a longer one goes, whatever its type.
+- **Boundaries and rivers morph** from their predecessor's course between retraces: turning them with their plates kept their position continuous, but their shapes, re-traced from the grid each step, had snapped.
+
 ## Registering on the site
 
 When the social card is made (a9's session):
