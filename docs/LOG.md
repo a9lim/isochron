@@ -109,6 +109,16 @@ Fourth round (2026-11-15): the chart got messy between charts, and boundaries an
 - **Lines drift whole** with their mean wind (moving each point by its own wind folded them), for at most three model hours, with charts every 150 ms; chart lines are relaxed before corner-cutting; any stretch lying right on a longer one goes, whatever its type.
 - **Boundaries and rivers morph** from their predecessor's course between retraces: turning them with their plates kept their position continuous, but their shapes, re-traced from the grid each step, had snapped.
 
+## Next: resolution (a9, 2026-11-15, after a compaction)
+
+a9 wants an optimization pass and then finer grids: the fronts fragment because the weather runs at 220 km. Measured costs to start from (M5 Max, Chrome; headless node is similar):
+- **Weather** (level 5, 10,242 cells): ~8 ms a 20-minute step (two warm-started PCG inversions dominate, ~30 iterations each); live to ~1 day/s. At level 6 the cost is ~4× per step and the step must halve (CFL), so ~8× per model day: it needs multigrid on the nested levels (`src/grid/transfer.js` has the transfer operators) or a GPU compute port, and probably a worker.
+- **Chart** (`chartLines`): ~16–22 ms each, every 150 ms.
+- **Plates** ~6 ms a step, **boundary tracing** ~6 ms, **landscape** ~7 ms, **sea-level solve** ~5 ms (48 bisections over all cells: a sorted-hypsometry solve would be ~0.5 ms), **refreshSurface** ~5–10 ms; at ~10 plate steps a second.
+- **Climate** cycle ~360 ms warm (the EBM on level 5 with COCG, six moisture phases by fast sweeping on level 6, the ocean every third cycle), spread at 5 ms a frame.
+- Everything runs on the main thread. The plan's architecture (a module worker with shared buffers; the site is cross-origin isolated) is the lever for all of it.
+- Candidates: the sea-level solve by sorted hypsometry; multigrid for the weather and the EBM; the weather (and maybe the chart) in a worker; the weather at level 6, or the chart's fields at level 6 by prolongation with sub-grid front placement; level 7 for crust and landscape last.
+
 ## Registering on the site
 
 When the social card is made (a9's session):
