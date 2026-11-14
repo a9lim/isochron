@@ -1,7 +1,7 @@
 ---
 name: Isochron
 title: Isochron — Planet Simulator
-description: Run an Earth-like planet from plate tectonics to climate on one globe: seafloor that spreads and sinks, rivers that wear down mountains, and climate zones that follow the continents.
+description: Run an Earth-like planet from plate tectonics to climate on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, and a carbon thermostat.
 updated: 2026-11-14
 ---
 
@@ -35,6 +35,26 @@ The circulation follows a template rather than solving the atmosphere's equation
 
 Water vapour evaporates from the sea, faster where it's warm and windy, and travels with the winds. Rain rises steeply with the air's humidity, so it falls where moist air converges, where it cools on its way poleward, and where it's lifted up a mountain's slope. The lee side of a range lies in its rain shadow. Land returns part of its rain to the air.
 
+## Ice
+
+Where snow outlasts the summer it builds into ice sheets, which flow outward under their own weight, faster where they are thick and steep. Snow falls where the month is below freezing at the ice's surface, and melts by how far and how long the days rise above it; a high ice sheet keeps itself cold, because the air is colder with height. Ice presses the crust down, and the crust rises again thousands of years after the ice melts. The water the ice holds is taken from the sea.
+
+## The orbit
+
+The planet's orbit changes in slow cycles: its eccentricity over about 100 and 400 thousand years, its tilt over about 41 thousand, and the season of its closest approach to the sun over about 22 thousand. Together they change how much sunlight summer brings to high latitudes, which decides whether winter snow survives. Running fast, the globe shows the climate of the average orbit; slowed to thousands of years a second, the cycles come through.
+
+## Carbon
+
+Volcanoes at ridges and above sinking slabs release carbon dioxide, and the weathering of rock on land takes it back into the sea floor's sediments. Weathering runs faster where it's warm and wet and where erosion keeps fresh rock exposed, so a warmer planet draws down its carbon dioxide and cools: a thermostat that works over hundreds of thousands of years. Faster plates outgas more and warm the planet; new mountains weather more and cool it.
+
+## Plumes
+
+Columns of hot mantle rise beneath the plates at fixed points. Each builds volcanic crust on whatever passes over it, leaving chains of seamounts and islands, oldest farthest away, and lifts the surface around itself. Every few tens of millions of years a new plume's head arrives: a flood of basalt across a region a thousand kilometres wide, a pulse of carbon dioxide, and, under a continent, the rift that splits it.
+
+## Experiments
+
+Each experiment starts from the opening planet and has one knob. Snowball turns down the sunlight: below a threshold the ice runs to the equator, and turning the sunlight back up doesn't thaw it until well past where it froze. Ice ages holds the carbon dioxide and lets the orbit drive the ice. High stand turns up the mantle's heat: faster plates make younger, shallower ocean floor, and the sea floods the continents. Thermostat turns up the volcanoes' outgassing and compares the carbon dioxide the planet settles at with the balance the weathering law predicts.
+
 ## Climate zones
 
 The zones follow Köppen's classes, which are thresholds on monthly temperature and rainfall: tropical (A), arid (B), temperate (C), continental (D) and polar (E), with a second letter for when the dry season falls. Here each threshold is soft, standing for the variation from year to year, so each place holds a mixture of classes. The Climate view draws the mixture as a mosaic, so the boundary between two climates is a band where both appear.
@@ -45,6 +65,8 @@ Depth is shaded in blue and height in brown, with a contour every kilometre. The
 
 In the Climate view each class is its group's colour in a pattern for its second letter: solid where it's wet all year, hatched one way or the other where the dry season falls in winter or in summer, cross-hatched for monsoon climates, stippled for deserts (densely) and steppes (sparsely), finely ruled for tundra, and bare for ice caps. The key lists each class with its share of the land.
 
-The margin's figures are drawn from the same state: temperature and rainfall by latitude, with the year's range of temperature, the band the rain belt sweeps through the year and the edges of the Hadley cells; the share of the surface at each height and depth; and the record of the field's reversals.
+Ice sheets are bare paper ruled along their flow, the lines closer where the ice moves faster. Hotspots are red rings, and a province erupting is a red stippled disc.
+
+The margin's figures are drawn from the same state: the planet's record of temperature, carbon dioxide, sea level, ice, land and ridge activity on a time axis that follows the dial; the orbit's cycles and the July sunlight at 65°N; temperature and rainfall by latitude, with the year's range of temperature, the band the rain belt sweeps through the year and the edges of the Hadley cells; the share of the surface at each height and depth; and the record of the field's reversals.
 
 Below a few years a second the globe shows the season, and the caption names the month. Drag to turn the globe, scroll to zoom, and set the rate with the dial.

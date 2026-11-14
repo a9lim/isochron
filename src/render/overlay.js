@@ -9,7 +9,9 @@
 //   transform    a lighter rule with paired half-arrows giving the sense of slip
 //   inactive     a dotted rule (the plates hardly move against each other)
 // Under them, rivers in the sea's ink, their weight the discharge. The Climate
-// view keeps the rivers, lighter, and drops the tectonic symbols.
+// view keeps the rivers, lighter, and drops the tectonic symbols. Hotspots are
+// red points ringed, and a province in eruption a red stippled disc: the
+// mantle at the surface.
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 
 const TOOTH_GAP = 13, TOOTH = 3.2;
@@ -43,6 +45,33 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
   }
 }
 
+function drawPlumes(ctx, cx, cy, r, camera, plumes, palette) {
+  const v = [0, 0, 0];
+  ctx.fillStyle = palette.accent;
+  ctx.strokeStyle = palette.accent;
+  ctx.lineWidth = 1;
+  for (const p of plumes.hot) {
+    camera.view(p[0], p[1], p[2], v);
+    if (v[2] < 0.05) continue;
+    const x = cx + v[0] * r, y = cy - v[1] * r;
+    ctx.beginPath(); ctx.arc(x, y, 1.9, 0, 2 * Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 4.6, 0, 2 * Math.PI); ctx.stroke();
+  }
+  for (const L of plumes.lips) {
+    camera.view(L.p[0], L.p[1], L.p[2], v);
+    if (v[2] < 0.1) continue;
+    const x = cx + v[0] * r, y = cy - v[1] * r, rad = L.radius * r;
+    const fade = Math.max(0, 1 - L.age / 3);
+    ctx.globalAlpha = 0.35 + 0.65 * fade;
+    ctx.beginPath(); ctx.ellipse(x, y, rad * Math.max(0.2, v[2]), rad, Math.atan2(-v[1], v[0]), 0, 2 * Math.PI); ctx.stroke();
+    for (let a = -rad; a <= rad; a += 5) for (let b = -rad; b <= rad; b += 5) {
+      if (a * a + b * b > rad * rad * 0.85) continue;
+      ctx.fillRect(x + a + ((b / 5) % 2 ? 2.5 : 0) - 0.6, y + b - 0.6, 1.2, 1.2);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
@@ -56,6 +85,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.stroke();
   const climate = layers.view === 'climate';
   if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : 0.9);
+  if (!climate && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
   const lines = climate ? null : layers.boundaries;
   if (!lines) return;
 

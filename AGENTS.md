@@ -6,25 +6,28 @@ It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9
 
 ## Status
 
-Phases 1 (the tectonic globe) and 2 (surface and climate) are built, apart from the items below.
+Phases 1 (the tectonic globe), 2 (surface and climate) and 3 (ice and carbon) are built, apart from the items below.
 
 - **Phase 1:** the grid, the clock and scheduler, plates with exact rigid motion, gaps and overlaps, slabs and arcs, collisions and merges, rifting, passive-margin subduction initiation, boundary relaxation, the torque balance, isostasy, solved sea level, the polarity record, and the WebGPU globe with stripes, ridge axes, hillshade, coastline and contours. Plate boundaries are traced into smooth, classified lines and drawn in tectonic-map symbols.
 - **Phase 2:** the landscape (routing, stream power, sediment, crustal diffusion), the seasonal energy-balance model, the circulation template, moisture and rain, the soft Köppen zones, the Climate view, the margin's figures (zonal means, hypsometry, polarity) and the zones' key. The dial runs from 1 yr/s to 10 Myr/s; below a few years a second the globe shows the season.
-- **Not built:** hotspots and large igneous provinces, rifting through a plume, the engine in a worker, level 7.
+- **Phase 3:** the orbit's seeded cycles (averaged over what the dial passes in ~2 s), ice sheets (shallow ice, degree-day mass balance, the bed's load, the sea's loss), the carbon thermostat, hotspots and large igneous provinces (with rifting through a plume head), Figs. 2 (the record) and 3 (the orbit), and the Experiments tab: Earth-like, Snowball, Ice ages, High stand, Thermostat, each with one knob in the figure bar and its number in the caption.
+- **Not built:** the engine in a worker, level 7; phases 4 (ocean and weather) and 5.
 
 ## Running and checking
 
 Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet. `window.__isochron` exposes `{ grid, tec, polarity, camera, scheduler, setPlaying }`.
 
 ```bash
-node --test tests/                       # grid, clock, plates, landscape, climate (34 checks)
+node --test tests/                       # grid, clock, plates, landscape, climate, ice, carbon (36 checks)
+node tools/planet-run.mjs earthlike 600 1000 10 '{"CARBON":{"FIXED":220}}'   # the coupled planet: 600 kyr of ice ages
+node tools/ice-check.mjs earthlike 80     # ice grown under the climate and orbit
 node tools/survey.mjs '{}' 600 b         # 300 Myr of plates and landscape: continents, land, sea level, erosion, speeds
 node tools/climate-check.mjs earthlike   # the climate on a seeded planet: means, zonal profile, zone shares, land seasons
 node tools/plates-survey.mjs '{}' 600 b  # plates alone
 for f in main.js colors.js src/*.js src/*/*.js; do node --check "$f"; done
 ```
 
-`window.__isochron` also exposes `land`, `climate`, `setView` and `years` (the planet's clock).
+`window.__isochron` exposes `{ P, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment }`; `P.years` is the planet's clock. `?exp=snowball` (or `iceages`, `highstand`, `thermostat`) opens an experiment.
 
 WGSL compiles only in the browser, so check the console after shader edits. Derivatives (`fwidth`) must stay in uniform control flow, which is why the fragment shader computes both sea and land and then selects.
 
@@ -32,7 +35,7 @@ WGSL compiles only in the browser, so check the console after shader edits. Deri
 
 ```
 index.html            colophon, the globe's two canvases, the view picker, the figure bar (caption, dial), the margin's figures
-main.js               boot (grid, genesis with a 40 Myr spin-up), drawn fields, the season, captions, figures, pointer and keys, the loop
+main.js               the page: drawn fields, the season, experiments and the knob, captions, figures, pointer and keys, the loop
 colors.js             ink roles: ocean = prussian, land = umber; the accent is the red
 styles.css            the stage, the view picker, the figure bar, the dial, the margin
 docs/PLAN.md          the plan of record
@@ -47,6 +50,10 @@ src/engine/polarity.js the reversal record and its running integral for the shad
 src/engine/landscape.js routing (priority flood), implicit stream power, sediment, crustal diffusion; LAND
 src/engine/orbit.js   daily insolation (Berger's formula), the Kepler calendar, months
 src/engine/climate.js the seasonal EBM (harmonics, COCG), the circulation template, moisture by fast sweeping, soft Köppen; CLIMATE
+src/engine/ice.js     ice sheets: shallow ice, degree days, the bed's load, calving; ICE
+src/engine/carbon.js  the long carbon cycle: outgassing against weathering; CARBON
+src/engine/plumes.js  hotspots, swells, large igneous provinces; PLUMES
+src/engine/planet.js  every layer on one grid and how they step together; the multi-resolution record
 src/render/camera.js  the orbit camera
 src/render/globe.js   the WebGPU globe and its shader
 src/render/lines.js   plate boundaries traced into polylines, smoothed, classified (ridge, trench, transform, inactive)
@@ -56,6 +63,8 @@ src/render/figures.js the margin's figures and the zones' key, on 2D canvases
 tests/                grid, clock, plates, landscape and climate tests (not staged)
 tools/survey.mjs      long headless runs of plates and landscape
 tools/climate-check.mjs  the climate of a seeded planet
+tools/ice-check.mjs   ice under a fixed climate and the orbit
+tools/planet-run.mjs  the coupled planet, headless
 tools/plates-survey.mjs  plates alone, for tuning PARAMS
 ```
 
@@ -95,9 +104,26 @@ tools/plates-survey.mjs  plates alone, for tuning PARAMS
 - **Zones** (synthesis): monthly temperature and rain from the harmonics; Köppen's thresholds (Peel and others' version, from memory) as logistics (1.5 K, and 0.25 in log rain), giving a probability over 14 classes. Runoff (rain less evaporation, Budyko's curve) goes back to the landscape.
 - **Feedbacks:** zones set land albedo (deserts brighter, forests darker); runoff sets erosion.
 
+## How ice and carbon work
+
+`Planet` (`src/engine/planet.js`) steps the layers together: plates, plumes and the landscape per half-Myr plate step; carbon and ice every frame; the climate's cycles in the background, each completed one refreshing weathering's map (`carbon.measure`) and, through the climate's version, the ice's mass balance.
+- **The orbit** (`OrbitCycles`): eccentricity near 405, 124 and 95 kyr, obliquity near 41 and 54 kyr, precession near 22 kyr, seeded around Earth's values (from memory). The climate sees each term scaled by sinc(W/P) for a window W of what the dial passes in ~2 s, so at plate speed it sees the mean orbit and at kyr/s the cycles whole. The insolation table is rebuilt when the orbit changes.
+- **Ice** (`Ice`): thickness on the surface grid, in the mantle's frame. The flux is the shallow-ice approximation's, −Γ H⁵ |∇s|² ∇s, explicit with the step its stability allows (~25 yr at 110 km); `advance(years, ms)` steps within a real-time budget and drops the rest, so at plate speed the ice lags the climate rather than the clock (its closure). The mass balance is snow below freezing at the ice's surface (the lapse rate makes a high sheet keep itself cold) less melt by positive degree days. The bed relaxes toward −(ρᵢ/ρₘ) H over 3 kyr (`tec.load`), ice afloat calves, and the ice's water is taken from the sea (`tec.iceWater`); the sea is re-solved when that has moved ~10 cm. The climate counts grounded ice as land, its surface as the height, and its albedo as snow's.
+- **Carbon** (`Carbon`): an exogenic reservoir R (atmosphere and ocean), pCO₂ ∝ R². Outgassing scales with crust made and consumed against the rates this model's plates settle to (`RIDGE_REF`, `ARC_REF`, ~500 cells/Myr at level 6), plus provinces' pulses. Weathering is the climate's map (runoff^0.65 × e^{(T − 15)/Tₑ} × fresh-rock supply, summed over ice-free land), times the response to CO₂ since the climate last solved (the sensitivity through Tₑ, and pCO₂^0.3 directly). Implicit in R, substeps of 20 kyr; `equilibrium(V)` is the analytic balance (tested).
+- **Plumes** (`Plumes`): ten hotspots fixed in the mantle build crust on whatever passes (seamount chains) and lift swells (`tec.swell`). Plume heads arrive as a Poisson process (every ~30 Myr): a flood of basalt over a disc ~1,100 km across within 1 Myr, 8,000 Pg of carbon, a new hotspot, and, under a large continent, a rift through the plume (`tec.rift(k, point)`).
+
+## The experiments
+
+Each starts from the planet's opening (choosing one reloads with `?exp=`), sets the dial and the view, and has one knob; the caption carries its measured number.
+- **Earth-like**: the opening.
+- **Snowball**: sunlight (82–106%), CO₂ held at its value when chosen; the ice line. At 88% the planet freezes to the equator, and turning the sun back up doesn't thaw it at once (the ice–albedo hysteresis).
+- **Ice ages**: CO₂ held (150–450 ppm), 10 kyr/s; the ice's volume and its dominant period (periodogram of the record over 400 kyr).
+- **High stand**: mantle heat (scales slab pull, ridge push and the speed cap); sea level and land.
+- **Thermostat**: outgassing (0.25–4×); CO₂ against its analytic balance.
+
 ## Drawing the climate
 
-- **Relief view.** Snow and sea ice are the paper (sea ice with a sparse stipple), lakes are water where their inflow beats ~1 m/yr of evaporation, and rivers above 1,500 m³/s and three cells long are drawn in the sea's ink, their weight the discharge.
+- **Relief view.** Snow and sea ice are the paper (sea ice with a sparse stipple), ice sheets the paper with hachures along their flow (closer where faster), lakes are water where their inflow beats ~1 m/yr of evaporation, and rivers above 1,500 m³/s and three cells long are drawn in the sea's ink, their weight the discharge. Hotspots are red ringed points and an erupting province a red stippled disc.
 - **Climate view.** Land is a mosaic of tesserae fixed to the globe (a jittered 3D lattice, snapped to octaves of zoom). Each takes one class with probability ∝ p², so ecotones interleave and the logistic tails don't speckle. Each class is its group's ink in its second letter's screen-space pattern (`zoneColor` in the shader and `zonePattern` in `figures.js` must match). A, C and D also step in value, so the groups part in grayscale. The sea is a plain wash, and the tectonic symbols are hidden.
 - **The season.** Below ~4 yr/s the globe shows snow and ice at the planet's clock (`years`; the plates still step in banked half-Myr); above ~40 yr/s, the share of the year under them; between, a blend. The caption names the month below 300 yr/s.
 

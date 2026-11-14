@@ -226,3 +226,99 @@ export function drawZoneKey(canvas, pal, shares) {
     });
   });
 }
+
+const ago = (y, span) => {
+  if (span >= 2e6) return `${Math.round(y / 1e6)} Myr`;
+  if (span >= 2e3) return `${Math.round(y / 1e3)} kyr`;
+  return `${Math.round(y)} yr`;
+};
+
+/** Fig.: the planet's record, global series stacked on one time axis that follows the dial. */
+export function drawRecord(canvas, rec, now, span, pal) {
+  const { ctx, w, h } = setup(canvas);
+  const rows = [
+    { k: 0, name: 'Temperature', unit: v => `${v.toFixed(1)} °C`, ink: pal.inks.sienna },
+    { k: 1, name: 'CO₂', unit: v => `${Math.round(v)} ppm`, ink: pal.text, log: true },
+    { k: 2, name: 'Sea level', unit: v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v))} m`, ink: pal.inks.prussian },
+    { k: 3, name: 'Ice', unit: v => `${Math.round(v)} m of sea`, ink: pal.inks.indigo },
+    { k: 4, name: 'Land', unit: v => `${v.toFixed(1)}%`, ink: pal.inks.umber },
+    { k: 5, name: 'Ridges', unit: v => `${v.toFixed(2)}×`, ink: pal.accent },
+  ];
+  const left = 8, right = w - 8, top = 4, bot = h - 18, rh = (bot - top) / rows.length;
+  const { t, v } = rec.window(span);
+  const X = tt => right - (now - tt) / span * (right - left);
+  rows.forEach((r, ri) => {
+    const y0 = top + ri * rh + 13, y1 = top + (ri + 1) * rh - 3;
+    const vals = v[r.k];
+    let lo = Infinity, hi = -Infinity, last = NaN;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] < now - span) continue;
+      let x = vals[i]; if (r.log) x = Math.log(Math.max(1, x));
+      if (x < lo) lo = x; if (x > hi) hi = x; last = vals[i];
+    }
+    label(ctx, r.name, left, top + ri * rh + 6, pal.muted, 'left', 10.5, true);
+    if (!(hi >= lo)) return;
+    label(ctx, r.unit(last), right, top + ri * rh + 6, pal.text, 'right', 10.5);
+    const pad = Math.max(1e-6, (hi - lo) * 0.1) + (r.log ? 0.02 : r.k === 0 ? 0.1 : r.k >= 4 ? 0.01 : 0.5);
+    lo -= pad; hi += pad;
+    const Y = x => y1 - ((r.log ? Math.log(Math.max(1, x)) : x) - lo) / (hi - lo) * (y1 - y0);
+    ctx.strokeStyle = alpha(pal.text, 0.1); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(left, Math.round(y1) + 0.5); ctx.lineTo(right, Math.round(y1) + 0.5); ctx.stroke();
+    ctx.strokeStyle = r.ink; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    let on = false;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] < now - span) continue;
+      const x = X(t[i]), y = Y(vals[i]);
+      if (on) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      on = true;
+    }
+    ctx.stroke();
+  });
+  ctx.strokeStyle = alpha(pal.text, 0.4); ctx.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const x = left + k / 4 * (right - left);
+    ctx.beginPath(); ctx.moveTo(x, bot); ctx.lineTo(x, bot + 3); ctx.stroke();
+    label(ctx, k === 4 ? 'now' : `−${ago(span * (1 - k / 4), span)}`, x, bot + 10, pal.muted, k === 0 ? 'left' : k === 4 ? 'right' : 'center', 10.5);
+  }
+}
+
+/** Fig.: the orbit's cycles and Milankovitch's curve, the last 400 kyr and the next 100. */
+export function drawOrbit(canvas, orbit, nowKyr, pal) {
+  const { ctx, w, h } = setup(canvas);
+  const back = 400, fwd = 100, left = 8, right = w - 8, top = 4, bot = h - 18;
+  const rows = [
+    { name: 'Eccentricity', f: t => orbit.at(t).eMean, fmt: v => v.toFixed(3), ink: pal.text },
+    { name: 'Obliquity', f: t => orbit.at(t).obliquity * 180 / Math.PI, fmt: v => `${v.toFixed(1)}°`, ink: pal.inks.violet },
+    { name: 'Precession, e sin ϖ', f: t => { const o = orbit.at(t); return o.eMean * Math.sin(o.perihelion); }, fmt: v => v.toFixed(3), ink: pal.inks.madder },
+    { name: 'July sun at 65°N', f: t => orbit.summer65(t), fmt: v => `${Math.round(v)} W/m²`, ink: pal.inks.sienna },
+  ];
+  const rh = (bot - top) / rows.length, N = 300;
+  const X = t => left + (t - (nowKyr - back)) / (back + fwd) * (right - left);
+  rows.forEach((r, ri) => {
+    const y0 = top + ri * rh + 13, y1 = top + (ri + 1) * rh - 3;
+    const vals = new Float64Array(N + 1);
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k <= N; k++) { const v = r.f(nowKyr - back + k / N * (back + fwd)); vals[k] = v; lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const pad = (hi - lo) * 0.08 + 1e-9; lo -= pad; hi += pad;
+    const Y = v => y1 - (v - lo) / (hi - lo) * (y1 - y0);
+    label(ctx, r.name, left, top + ri * rh + 6, pal.muted, 'left', 10.5, true);
+    label(ctx, r.fmt(r.f(nowKyr)), right, top + ri * rh + 6, pal.text, 'right', 10.5);
+    ctx.strokeStyle = r.ink; ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    for (let k = 0; k <= N; k++) {
+      const x = X(nowKyr - back + k / N * (back + fwd)), y = Y(vals[k]);
+      if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  });
+  const xn = Math.round(X(nowKyr)) + 0.5;
+  ctx.strokeStyle = alpha(pal.text, 0.5); ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+  ctx.beginPath(); ctx.moveTo(xn, top); ctx.lineTo(xn, bot); ctx.stroke(); ctx.setLineDash([]);
+  for (const k of [-400, -300, -200, -100, 0, 100]) {
+    const x = X(nowKyr + k);
+    ctx.beginPath(); ctx.moveTo(x, bot); ctx.lineTo(x, bot + 3); ctx.stroke();
+    if (k === -300 || k === -100) continue;
+    label(ctx, k === 0 ? 'now' : `${k > 0 ? '+' : '−'}${Math.abs(k)} kyr`, x, bot + 10, pal.muted, k === -400 ? 'left' : k === 100 ? 'right' : 'center', 10.5);
+  }
+}

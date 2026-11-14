@@ -1,32 +1,35 @@
 // Isochron: an Earth-like planet on one globe (docs/PLAN.md). Boots a seeded
-// planet, spins it up so it opens in motion, and runs it under the dial: the
-// plates and the landscape step in banked time, and the climate relaxes
-// toward the geography in the background, a few milliseconds a frame.
+// planet (src/engine/planet.js), spins it up so it opens in motion, and runs
+// it under the dial: plates, plumes and landscape step in banked half-Myr;
+// carbon and ice follow each frame; the climate relaxes toward everything in
+// the background, a few milliseconds a frame.
 //
 // Globals from the shared layer: _PALETTE, _themePalette, _colophon,
 // initAboutPanel, initShortcuts, _loadTextFonts.
-import { buildGrid, gradient } from './src/grid/icosphere.js';
-import { Tectonics } from './src/engine/plates.js';
-import { Landscape } from './src/engine/landscape.js';
-import { Climate, CLIMATE, NZ, ZONES } from './src/engine/climate.js';
-import { genesis } from './src/engine/genesis.js';
+import { gradient } from './src/grid/icosphere.js';
+import { Planet } from './src/engine/planet.js';
+import { PARAMS } from './src/engine/plates.js';
+import { CLIMATE, NZ } from './src/engine/climate.js';
+import { CARBON } from './src/engine/carbon.js';
+import { PLUMES } from './src/engine/plumes.js';
 import { Polarity } from './src/engine/polarity.js';
-import { monthName } from './src/engine/orbit.js';
+import { monthName, S0 } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
 import { drawOverlay } from './src/render/overlay.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
-import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey } from './src/render/figures.js';
+import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit } from './src/render/figures.js';
 
-const LEVEL = 6;              // 40,962 cells, ~110 km
 const RELIEF = 20;            // vertical exaggeration of the hillshade
 const R_KM = 6371;
 const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years
 const CLIMATE_MS = 5;         // the climate's share of a frame
+const ICE_MS = 3;             // the ice's
+const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
 const query = new URLSearchParams(location.search);
 const seed = query.get('seed') || 'earthlike';
@@ -35,24 +38,21 @@ const els = {
   stage: document.querySelector('.globe-stage'),
   gpu: $('globe-gpu'), overlay: $('globe-overlay'), nogpu: $('globe-nogpu'),
   caption: $('globe-caption'), dial: $('dial'), dialOut: $('dial-out'),
+  knob: $('knob'), knobLabel: $('knob-label'), knobInput: $('knob-input'), knobOut: $('knob-out'),
   views: document.querySelectorAll('#view-picker .view-btn'),
+  experiments: $('experiments'),
+  figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
 };
 
 // ── The planet ──
-const grid = buildGrid(LEVEL);
-const tec = new Tectonics(grid);
-const land = new Landscape(tec);
-genesis(tec, seed, { spinup: 40, landscape: land });
-land.reroute();
-const climate = new Climate(tec, land);
+const P = new Planet(seed);
+const { grid, tec, land, climate, ice, carbon, plumes } = P;
 const polarity = new Polarity(seed);
-const seaLevel0 = tec.seaLevel;
 const scheduler = new Scheduler([{ name: 'plates', step: PLATE_STEP, budget: 4 }]);
 const camera = new Orbit();
-let years = tec.t * 1e6;           // the planet's clock; the plates step in banked half-Myr
-let climatePending = 3;            // cycles still owed to the geography (the first is cold)
+let climatePending = 3;            // cycles owed while paused (the first is cold)
 
 const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let playing = !reducedMotion;
@@ -60,6 +60,7 @@ let view = 'relief';
 let globe = null;
 let surfaceDirty = true, drawDirty = true, climateDirty = true, figuresDirty = true;
 let lines = null, rivers = null;
+let seaDrawn = tec.seaLevel;
 
 const elevRel = new Float32Array(grid.n);
 const normals = new Float32Array(3 * grid.n);
@@ -79,7 +80,7 @@ function palette() {
 }
 
 function refreshSurface() {
-  const P = grid.pos, nbrOff = grid.nbrOff, nbr = grid.nbr;
+  const Pp = grid.pos, nbrOff = grid.nbrOff, nbr = grid.nbr;
   // Drawn relief is the model's, eased once toward its neighbours' mean: a
   // margin then reads as a slope across a cell rather than a stair of hexagons.
   for (let i = 0; i < grid.n; i++) {
@@ -92,7 +93,7 @@ function refreshSurface() {
   for (let i = 0; i < grid.n; i++) {
     // Land relief at full exaggeration; the sea floor at a third (depth is shown by tint).
     const k = (elevRel[i] < 0 ? RELIEF / 3 : RELIEF) / R_KM;
-    let x = P[3 * i] - k * grad[3 * i], y = P[3 * i + 1] - k * grad[3 * i + 1], z = P[3 * i + 2] - k * grad[3 * i + 2];
+    let x = Pp[3 * i] - k * grad[3 * i], y = Pp[3 * i + 1] - k * grad[3 * i + 1], z = Pp[3 * i + 2] - k * grad[3 * i + 2];
     const r = Math.hypot(x, y, z);
     normals[3 * i] = x / r; normals[3 * i + 1] = y / r; normals[3 * i + 2] = z / r;
   }
@@ -116,10 +117,11 @@ function refreshSurface() {
   // Lakes hold water only where their inflow outpaces evaporation off them (~1 m/yr).
   for (let i = 0; i < grid.n; i++) {
     const L = land.lake[i];
-    lakeDraw[i] = L > 0 ? L * Math.min(1, land.discharge[i] * 3.156e7 / (areaM2[i] * 1.0)) : 0;
+    lakeDraw[i] = L > 0 && !(ice.H[i] > 20) ? L * Math.min(1, land.discharge[i] * 3.156e7 / (areaM2[i] * 1.0)) : 0;
   }
   lines = traceBoundaries(tec);
   rivers = traceRivers(grid, land);
+  seaDrawn = tec.seaLevel;
   figuresDirty = true;
   if (!globe) return;
   const T0 = globe.polarityOrigin;
@@ -132,17 +134,18 @@ function refreshSurface() {
 }
 let polarityReady = false;
 
-// ── The season ──
+// ── The season, snow and ice ──
 // Below a few years a second the globe shows the season at the planet's
 // clock; above a few tens it shows the year's average (the share of it under
 // snow or ice). Between, it blends.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1;
+let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, iceFrame = 0;
 function refreshClimate(force) {
-  const tau = ((years % 1) + 1) % 1;
+  const tau = ((P.years % 1) + 1) % 1;
   const sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
   const moved = Math.abs(tau - seasonDrawn) > 1 / 240 || Math.abs(sw - seasonWeightDrawn) > 0.02;
-  if (!force && !moved && climate.version === climateVersionDrawn) return;
+  const iceTick = playing && ++iceFrame % 6 === 0;
+  if (!force && !moved && !iceTick && climate.version === climateVersionDrawn) return;
   const L = CLIMATE.LAPSE;
   for (let i = 0; i < grid.n; i++) {
     let cold = climate.snowAnn[i];
@@ -152,14 +155,16 @@ function refreshClimate(force) {
       cold = sw * now + (1 - sw) * cold;
     }
     // Land newly dry or drowned since the climate last saw it takes no snow or ice.
-    if ((elevRel[i] > 0) !== (climate.landMask[i] === 1)) cold = 0;
+    if ((elevRel[i] > 0) !== (climate.landMask[i] === 1) && !(ice.H[i] > 0)) cold = 0;
     climDraw[4 * i] = cold;
     climDraw[4 * i + 1] = climate.Pf[0][i] * 0.36525;
     climDraw[4 * i + 2] = climate.Tf[0][i];
+    climDraw[4 * i + 3] = ice.H[i];
   }
   seasonDrawn = tau; seasonWeightDrawn = sw;
   if (globe) {
     globe.setClimate(climDraw);
+    globe.setIce(ice.vel);
     if (climate.version !== climateVersionDrawn) globe.setZones(climate.zones);
   }
   if (climate.version !== climateVersionDrawn) figuresDirty = true;
@@ -186,8 +191,9 @@ resize();
 // ── The dial ──
 function rate() { return 10 ** +els.dial.value; }
 function syncDial() { els.dialOut.textContent = formatRate(rate()); }
-els.dial.addEventListener('input', () => { syncDial(); caption(true); });
+els.dial.addEventListener('input', () => { syncDial(); caption(true); figuresDirty = true; });
 syncDial();
+function setDial(v) { els.dial.value = String(v); syncDial(); }
 
 // ── The view ──
 function setView(v) {
@@ -197,6 +203,90 @@ function setView(v) {
   caption(true);
 }
 for (const b of els.views) b.addEventListener('click', () => setView(b.dataset.view));
+
+// ── Experiments: each one knob, a measured number in the caption ──
+const BASE = { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX };
+const pct = v => `${Math.round(v)}%`;
+const EXPERIMENTS = [
+  { id: 'earth', name: 'Earth-like', dial: 6, view: 'relief' },
+  { id: 'snowball', name: 'Snowball', dial: 4, view: 'relief',
+    setup: () => { CARBON.FIXED = Math.round(carbon.pco2); },
+    knob: { label: 'Sunlight', min: 82, max: 106, step: 0.5, value: 100, fmt: v => `${(+v).toFixed(1)}%`, apply: v => { CLIMATE.S = S0 * v / 100; } } },
+  { id: 'iceages', name: 'Ice ages', dial: 4, view: 'relief',
+    knob: { label: 'CO₂', min: 150, max: 450, step: 5, value: 220, fmt: v => `${v} ppm`, apply: v => { CARBON.FIXED = +v; } } },
+  { id: 'highstand', name: 'High stand', dial: 6, view: 'relief',
+    knob: { label: 'Mantle heat', min: 0.5, max: 2, step: 0.05, value: 1.6, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { PARAMS.K_SLAB = BASE.K_SLAB * v; PARAMS.K_RIDGE = BASE.K_RIDGE * v; PARAMS.V_MAX = BASE.V_MAX * Math.sqrt(v); } } },
+  { id: 'thermostat', name: 'Thermostat', dial: 5, view: 'climate',
+    knob: { label: 'Outgassing', min: 0.25, max: 4, step: 0.05, value: 2, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { CARBON.OUTGAS = +v; } } },
+];
+let experiment = EXPERIMENTS[0];
+// Each experiment starts from the planet's opening (a snowball can't be undone
+// by turning the sun back up: that's the point of it), so choosing one reloads
+// with ?exp=; the knob then acts live.
+function chooseExperiment(id) {
+  if (id === experiment.id) return;
+  const q = new URLSearchParams(location.search);
+  if (id === 'earth') q.delete('exp'); else q.set('exp', id);
+  location.search = q.toString();
+}
+function defaults() {
+  CLIMATE.S = S0; CARBON.FIXED = 0; CARBON.OUTGAS = 1;
+  Object.assign(PARAMS, BASE);
+}
+function setExperiment(id) {
+  experiment = EXPERIMENTS.find(e => e.id === id) || EXPERIMENTS[0];
+  defaults();
+  if (experiment.setup) experiment.setup();
+  const k = experiment.knob;
+  els.knob.hidden = !k;
+  if (k) {
+    els.knobLabel.textContent = k.label;
+    Object.assign(els.knobInput, { min: k.min, max: k.max, step: k.step });
+    els.knobInput.value = String(k.value);
+    els.knobOut.textContent = k.fmt(k.value);
+    k.apply(k.value);
+  }
+  setDial(experiment.dial);
+  setView(experiment.view);
+  for (const b of els.experiments.querySelectorAll('.exp-btn')) b.setAttribute('aria-pressed', b.dataset.exp === experiment.id ? 'true' : 'false');
+  climatePending = Math.max(climatePending, 2);
+  setPlaying(true);
+  caption(true);
+}
+els.knobInput.addEventListener('input', () => {
+  const k = experiment.knob;
+  if (!k) return;
+  els.knobOut.textContent = k.fmt(els.knobInput.value);
+  k.apply(+els.knobInput.value);
+  climatePending = Math.max(climatePending, 2);
+  caption(true);
+});
+for (const e of EXPERIMENTS) {
+  const li = document.createElement('li');
+  const b = document.createElement('button');
+  b.className = 'exp-btn'; b.dataset.exp = e.id; b.setAttribute('aria-pressed', e.id === 'earth' ? 'true' : 'false');
+  b.innerHTML = `<span>${e.name}</span><span class="exp-knob">${e.knob ? e.knob.label : ''}</span>`;
+  b.addEventListener('click', () => chooseExperiment(e.id));
+  li.appendChild(b);
+  els.experiments.appendChild(li);
+}
+
+/** The ice's dominant period (kyr) in the record, by periodogram over 15–150 kyr. */
+function icePeriod() {
+  const { t, v } = P.record.window(4e5);
+  const n = t.length;
+  if (n < 60 || t[n - 1] - t[0] < 1.5e5) return null;
+  const x = v[3];
+  let mean = 0; for (let k = 0; k < n; k++) mean += x[k]; mean /= n;
+  let best = 0, bp = null;
+  for (let p = 15; p <= 150; p += 1) {
+    let a = 0, b = 0;
+    for (let k = 0; k < n; k++) { const th = 2 * Math.PI * t[k] / (p * 1000); a += (x[k] - mean) * Math.cos(th); b += (x[k] - mean) * Math.sin(th); }
+    const pw = a * a + b * b;
+    if (pw > best) { best = pw; bp = p; }
+  }
+  return bp;
+}
 
 // ── Captions: the view's name and live values ──
 const setCaption = window._colophon ? window._colophon.caption(els.caption, 250) : t => { els.caption.textContent = t; };
@@ -217,18 +307,26 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const parts = [view === 'climate' ? 'Climate' : 'Relief', formatTime(years)];
-  if (rate() < 300) parts.push(monthName(((years % 1) + 1) % 1));
+  const parts = [view === 'climate' ? 'Climate' : 'Relief', formatTime(P.years)];
+  if (rate() < 300) parts.push(monthName(((P.years % 1) + 1) % 1));
+  // The experiment's measured number.
+  const cs = climate.stats;
+  if (experiment.id === 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
+  if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${Math.round(ice.stats.seaLevel)} m of sea`, p ? `period ${p} kyr` : 'period —'); }
+  if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.equilibrium(carbon.flux.out))} ppm`);
   if (view === 'climate') {
-    const s = climate.stats, sh = zoneShares();
+    const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
-    parts.push(`mean ${s.meanT.toFixed(1)} °C`, `rain ${Math.round(s.meanP || 0)} mm/yr`, `ice line ${Math.round(s.iceLat)}°`,
-      `A ${g[0]}% · B ${g[1]}% · C ${g[2]}% · D ${g[3]}% · E ${g[4]}% of land`);
+    parts.push(`mean ${cs.meanT.toFixed(1)} °C`);
+    if (experiment.id !== 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`);
+    parts.push(`rain ${Math.round(cs.meanP || 0)} mm/yr`);
+    if (experiment.id !== 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
+    parts.push(`A ${g[0]}% · B ${g[1]}% · C ${g[2]}% · D ${g[3]}% · E ${g[4]}% of land`);
   } else {
     const s = tec.stats();
-    parts.push(`${s.plates} plates`, `land ${Math.round(100 * s.land)}%`, `sea level ${signed(Math.round((s.seaLevel - seaLevel0) * 1000), 'm')}`,
-      `fastest ${s.fastest.toFixed(1)} cm/yr`, `seafloor ${Math.round(s.meanOceanAge)} Myr`,
-      polarity.at(tec.t) > 0 ? 'field normal' : 'field reversed');
+    parts.push(`${s.plates} plates`, `land ${Math.round(100 * s.land)}%`, `sea level ${signed(Math.round((s.seaLevel - P.seaLevel0) * 1000), 'm')}`);
+    if (experiment.id !== 'iceages') parts.push(`ice ${Math.round(ice.stats.seaLevel)} m`);
+    parts.push(`fastest ${s.fastest.toFixed(1)} cm/yr`, `seafloor ${Math.round(s.meanOceanAge)} Myr`, polarity.at(tec.t) > 0 ? 'field normal' : 'field reversed');
   }
   setCaption(parts.join(' · '), true);
 }
@@ -236,11 +334,22 @@ function caption(force) {
 // ── The margin's figures ──
 let lastFigures = 0;
 const visible = el => el && el.offsetParent !== null && el.clientWidth > 0;
+function recordSpan() { return Math.min(4e8, Math.max(40, rate() * RECORD_SECONDS)); }
 function figures(force) {
   const now = performance.now();
   if (!force && now - lastFigures < 400) return;
   lastFigures = now; figuresDirty = false;
   const pal = palette();
+  if (visible(els.figRecord)) {
+    const span = recordSpan();
+    drawRecord(els.figRecord, P.record, P.years, span, pal);
+    els.capRecord.textContent = `The record · the last ${formatTime(span).replace(/\.0 /, ' ')}`;
+  }
+  if (visible(els.figOrbit)) {
+    drawOrbit(els.figOrbit, P.orbit, P.years / 1000, pal);
+    const o = P.orbit.at(P.years / 1000);
+    els.capOrbit.textContent = `The orbit · tilt ${(o.obliquity * 180 / Math.PI).toFixed(1)}° · eccentricity ${o.eMean.toFixed(3)}`;
+  }
   if (visible(els.figZonal)) {
     drawZonal(els.figZonal, climate.zonal, pal);
     const z = climate.zonal;
@@ -304,20 +413,18 @@ function setPlaying(p) {
   playing = p;
   if (colophon) colophon.setPlaying(p);
 }
-function stepPlates(dtYears) {
-  tec.step(dtYears / 1e6);
-  land.step(dtYears);
+function stepPlates(dt) {
+  P.plateStep(dt);
   climatePending = Math.max(climatePending, 1);
   surfaceDirty = true;
 }
 function stepOnce() {
   setPlaying(false);
-  years += PLATE_STEP;
+  P.years += PLATE_STEP;
   stepPlates(PLATE_STEP);
 }
 function nudgeDial(d) {
-  els.dial.value = String(Math.min(+els.dial.max, Math.max(+els.dial.min, +els.dial.value + d)));
-  syncDial();
+  setDial(Math.min(+els.dial.max, Math.max(+els.dial.min, +els.dial.value + d)));
   caption(true);
 }
 
@@ -350,12 +457,14 @@ window.addEventListener('DOMContentLoaded', () => {
       description:
         'An Earth-like planet on one globe. Plates move under their own slab pull and ridge push; ' +
         'seafloor is made at the ridges and recorded in magnetic stripes, sinks at the trenches, and continents collide and rift. ' +
-        'Rivers cut the mountains and carry them to the sea. The climate follows the geography: seasons, winds, rain and rain shadows, and the climate zones they make.',
+        'Rivers cut the mountains and carry them to the sea. The climate follows the geography and the orbit: seasons, winds, rain, ice sheets, ' +
+        'and a carbon cycle in which volcanoes supply CO₂ and the weathering of rock takes it back.',
       controls: [
         { label: 'Turn the globe', value: 'Drag' },
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
         { label: 'Rate', value: 'The dial, or [ and ]' },
         { label: 'View', value: 'Relief or Climate, or 1 and 2' },
+        { label: 'Experiments', value: 'The margin; each has one knob' },
       ],
       shortcuts,
       repo: 'https://github.com/a9lim/a9lim.github.io',
@@ -366,29 +475,39 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── The loop ──
-let last = performance.now();
+let last = performance.now(), lastSeaCheck = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (playing) {
     const { dt: adv, plan } = scheduler.advance(rate() * dt);
-    years += adv;
+    P.years += adv;
     const p = plan[0];
     for (let s = 0; s < p.steps; s++) stepPlates(p.step);
+    // The orbit the climate sees, averaged over what the dial passes in ~2 s.
+    P.setOrbit(rate() * 2);
+    P.fast(adv, ICE_MS);
+    P.record.push(P.years, P.sample());
+    // Ice moves the sea; redraw the coast when it has moved a few metres.
+    if (now - lastSeaCheck > 250) { lastSeaCheck = now; if (Math.abs(tec.seaLevel - seaDrawn) > 0.004) surfaceDirty = true; }
+    figuresDirty = true;
   }
   if (surfaceDirty) { refreshSurface(); surfaceDirty = false; drawDirty = true; climateDirty = true; caption(false); }
-  if (climatePending > 0 && climate.work(CLIMATE_MS)) { climatePending--; climateDirty = true; }
+  if ((playing || climatePending > 0) && P.climateWork(CLIMATE_MS)) { climatePending = Math.max(0, climatePending - 1); climateDirty = true; }
   if (climateDirty || playing) { refreshClimate(climateDirty); climateDirty = false; }
   if (playing) caption(false);
   if (figuresDirty) figures(false);
   if (drawDirty && globe && !globe.lost) {
     const pal = palette();
+    const pl = { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) };
     globe.draw(camera, tec.t, pal, { view });
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, view }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view }, pal);
     drawDirty = false;
   }
   requestAnimationFrame(frame);
 }
+
+if (query.get('exp')) setExperiment(query.get('exp'));
 
 createGlobe(els.gpu, grid).then(g => {
   globe = g;
@@ -402,4 +521,4 @@ createGlobe(els.gpu, grid).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { grid, tec, land, climate, polarity, camera, scheduler, setPlaying, setView, get years() { return years; } };
+window.__isochron = { P, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment };

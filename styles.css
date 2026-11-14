@@ -114,6 +114,33 @@ body.sim-body { background: var(--bg-canvas); }
 .fig-canvas { display: block; width: 100%; }
 .fig-tall { height: 300px; }
 .fig-strip { height: 58px; }
+.fig-record { height: 330px; }
+.fig-orbit { height: 230px; }
+
+/* ───── Experiments: one knob each ───── */
+.experiments { list-style: none; margin: 0.4rem 0 0; padding: 0; }
+.experiments li { border-bottom: 1px solid var(--border); }
+.exp-btn {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 0 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-text);
+  font-size: 1.08rem;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s var(--ease-out);
+}
+.exp-btn:hover { color: var(--accent); }
+.exp-btn[aria-pressed="true"] { color: var(--accent); }
+.exp-btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+.exp-knob { color: var(--text-muted); font-size: var(--font-sm); font-style: italic; }
+.knob[hidden] { display: none; }
 .zone-key { display: block; width: 100%; height: 116px; }
 
 .globe-stage {
@@ -224,4 +251,5 @@ body.sim-body { background: var(--bg-canvas); }
   .globe-head { top: 52px; right: 16px; }
   .figure-bar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 16px 12px; }
   .dial input[type="range"] { flex: 1 1 auto; width: auto; }
+  .margin-tabs { gap: 14px; padding: 0 12px 0 16px; }
 }

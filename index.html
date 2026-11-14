@@ -53,6 +53,11 @@
       </div>
       <figcaption class="figure-bar">
         <p class="caption globe-caption"><span class="caption-n">Fig. 1.</span> <span id="globe-caption"></span></p>
+        <label class="dial knob" id="knob" hidden>
+          <span class="dial-label" id="knob-label"></span>
+          <input id="knob-input" type="range" aria-label="The experiment's knob">
+          <output id="knob-out" for="knob-input"></output>
+        </label>
         <label class="dial">
           <span class="dial-label">Rate</span>
           <input id="dial" type="range" min="0" max="7" step="0.05" value="6" aria-label="Simulated time per second, on a logarithmic scale">
@@ -63,14 +68,29 @@
 
     <aside class="margin" aria-label="Figures">
       <div class="margin-tabs" role="tablist" aria-label="Figures">
-        <button class="tab-btn active" data-tab="climate" role="tab" aria-selected="true">Climate</button>
+        <button class="tab-btn" data-tab="experiments" role="tab" aria-selected="false" tabindex="-1">Experiments</button>
+        <button class="tab-btn active" data-tab="record" role="tab" aria-selected="true">Record</button>
+        <button class="tab-btn" data-tab="climate" role="tab" aria-selected="false" tabindex="-1">Climate</button>
         <button class="tab-btn" data-tab="crust" role="tab" aria-selected="false" tabindex="-1">Crust</button>
       </div>
       <div class="margin-panels">
-        <div class="tab-panel active" id="tab-climate" role="tabpanel">
+        <div class="tab-panel" id="tab-experiments" role="tabpanel">
+          <ol id="experiments" class="experiments" aria-label="Experiments"></ol>
+        </div>
+        <div class="tab-panel active" id="tab-record" role="tabpanel">
+          <figure class="fig">
+            <canvas id="fig-record" class="fig-canvas fig-record" aria-label="The planet's record: temperature, CO₂, sea level, ice, land and ridge activity over time"></canvas>
+            <figcaption class="caption"><span class="caption-n">Fig. 2.</span> <span id="cap-record"></span></figcaption>
+          </figure>
+          <figure class="fig">
+            <canvas id="fig-orbit" class="fig-canvas fig-orbit" aria-label="The orbit's eccentricity, obliquity and precession, and July sunlight at 65°N"></canvas>
+            <figcaption class="caption"><span class="caption-n">Fig. 3.</span> <span id="cap-orbit"></span></figcaption>
+          </figure>
+        </div>
+        <div class="tab-panel" id="tab-climate" role="tabpanel">
           <figure class="fig">
             <canvas id="fig-zonal" class="fig-canvas fig-tall" aria-label="Temperature and precipitation by latitude, with the seasonal range of temperature, the ITCZ's range and the Hadley cells' edges"></canvas>
-            <figcaption class="caption"><span class="caption-n">Fig. 2.</span> <span id="cap-zonal"></span></figcaption>
+            <figcaption class="caption"><span class="caption-n">Fig. 4.</span> <span id="cap-zonal"></span></figcaption>
           </figure>
           <h2 class="margin-head">Zones, % of land</h2>
           <canvas id="zone-key" class="zone-key" aria-label="Key to the climate zones"></canvas>
@@ -78,11 +98,11 @@
         <div class="tab-panel" id="tab-crust" role="tabpanel">
           <figure class="fig">
             <canvas id="fig-hyps" class="fig-canvas fig-tall" aria-label="Share of the surface by elevation"></canvas>
-            <figcaption class="caption"><span class="caption-n">Fig. 3.</span> <span id="cap-hyps"></span></figcaption>
+            <figcaption class="caption"><span class="caption-n">Fig. 5.</span> <span id="cap-hyps"></span></figcaption>
           </figure>
           <figure class="fig">
             <canvas id="fig-pol" class="fig-canvas fig-strip" aria-label="The polarity of the field over the last 160 million years"></canvas>
-            <figcaption class="caption"><span class="caption-n">Fig. 4.</span> <span id="cap-pol"></span></figcaption>
+            <figcaption class="caption"><span class="caption-n">Fig. 6.</span> <span id="cap-pol"></span></figcaption>
           </figure>
         </div>
       </div>

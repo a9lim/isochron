@@ -60,12 +60,13 @@ export const CLIMATE = {
   OMEGA: 7.292e-5,         // rad/s, the planet's spin
   FRICTION: 4.5e-5,        // 1/s
   CARRY: 0.4,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes
-  KAPPA_W: 1.5e5,          // km²/day, eddy mixing of moisture
+  KAPPA_W: 7e4,            // km²/day, eddy mixing of moisture
   CONV_A: 15.6,            // convective rain = (W_s/60 mm) e^{a (r − r₀)} mm/day at column humidity r
   CONV_R0: 0.603,          //   (the shape of Bretherton and others' tropical fit; constants from memory)
   RAIN_BG: 0.08,           // 1/day where the air isn't sinking
   RAIN_ORO: 2.5,           // 1/day per m/s of lift up a slope
   EVAP: 0.35,              // 1/day toward saturation at 7 m/s
+  RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
   LAND_EVAP: 0.6,          // land's evaporation relative to the sea's, when wet
 };
 
@@ -206,6 +207,7 @@ export class Climate {
     const byLon = idx.slice().sort((a, b) => this.lon[a] - this.lon[b]);
     const byLat = idx.slice().sort((a, b) => this.lat[a] - this.lat[b]);
     this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
+    this.ice = null;     // src/engine/ice.js, when there is one
     this.warm = false;
     this.it = null;
     this.version = 0;
@@ -244,11 +246,11 @@ export class Climate {
 
   /** Snapshot of the geography the climate sees. */
   geography() {
-    const tec = this.tec, n = this.grid.n, s = tec.seaLevel;
+    const tec = this.tec, n = this.grid.n, s = tec.seaLevel, H = this.ice ? this.ice.H : null;
     for (let i = 0; i < n; i++) {
-      const e = tec.elev[i] - s;
-      this.landMask[i] = e > 0 ? 1 : 0;
-      this.elevPos[i] = e > 0 ? e : 0;
+      const e = tec.elev[i] - s, h = H ? H[i] / 1000 : 0;   // grounded ice counts as land, its surface as the height
+      this.landMask[i] = e > 0 || h > 0 ? 1 : 0;
+      this.elevPos[i] = Math.max(0, e + h);
     }
     gradient(this.grid, this.elevPos, this.upz);
     for (let i = 0; i < 3 * n; i++) this.upz[i] /= R_KM;   // km per km
@@ -260,6 +262,7 @@ export class Climate {
   /** Albedo of fine cell i at sea-level temperature T. */
   albedo(i, T) {
     const C = CLIMATE, s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s;
+    if (this.ice && this.ice.H[i] > 10) return C.ALB_SNOW;
     if (this.landMask[i]) {
       const z = this.zones, o = NZ * i;
       const base = C.ALB_LAND + polar + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
@@ -425,7 +428,7 @@ export class Climate {
   /** The steady moisture balance at phase p, by fast sweeping. */
   *moisture(p, T, wind) {
     const C = CLIMATE, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, tan = g.tan, ell = g.ell, dist = g.dist;
-    const m = nbrOff[n];
+    const m = nbrOff[n], pmax = C.RAIN_MAX;
     if (!this.edgeU) { this.edgeU = new Float32Array(m); this.coefA = new Float64Array(n); this.ws_ = new Float64Array(n); this.lam = new Float64Array(n); this.ecoef = new Float64Array(n); }
     const un = this.edgeU, A = this.coefA, Ws = this.ws_, lam = this.lam, ec = this.ecoef;
     const toKmDay = 86.4;
@@ -483,13 +486,17 @@ export class Climate {
           w -= step;
           if (Math.abs(step) < 1e-3) break;
         }
+        // The cap: rain held at RAIN_MAX, the rest of the water carried on.
+        if (lam[i] * w + ws / 60 * Math.exp(Math.min(40, ca * (w / ws - cr))) > pmax) {
+          w = Math.max(w, (b - Ai * pmax) / Math.max(1e-9, a - Ai * lam[i]));
+        }
         W[i] = Math.max(0, w);
       }
       if (s % 4 === 3) yield;
     }
     for (let i = 0; i < n; i++) {
       const w = W[i], ws = Ws[i];
-      P[i] = lam[i] * w + ws / 60 * Math.exp(Math.min(40, ca * (w / ws - cr)));
+      P[i] = Math.min(pmax, lam[i] * w + ws / 60 * Math.exp(Math.min(40, ca * (w / ws - cr))));
     }
   }
 
@@ -592,6 +599,7 @@ export class Climate {
 
   /** One full cycle: geography, energy balance, six points of the year, then rain and zones. */
   *cycle() {
+    this.co2Seen = CLIMATE.CO2;
     this.geography();
     yield;
     yield* this.ebm();

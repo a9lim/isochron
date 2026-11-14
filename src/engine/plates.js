@@ -141,6 +141,9 @@ export class Tectonics {
     this.water = 0;
     this.seaLevel = 0;
     this.landTarget = 0;                     // set by genesis; 0 holds the water fixed
+    this.load = null;                        // km: the bed's depression under ice (src/engine/ice.js)
+    this.swell = null;                       // km: hotspot swells (src/engine/plumes.js)
+    this.iceWater = 0;                       // water held as ice (km·sr)
     this.grad = new Float64Array(3 * n);
     this.rng = null;
     this.noise = null;
@@ -377,13 +380,13 @@ export class Tectonics {
   }
 
   updateElevation() {
-    const n = this.grid.n;
+    const n = this.grid.n, load = this.load, swell = this.swell;
     for (let i = 0; i < n; i++) {
       const age = this.t - this.tf[i];
       this.subs[i] = this.phi[i] < CONTINENTAL ? subsidence(age) : 0;
-      this.elev[i] = elevation(this.h[i], this.phi[i], age);
+      this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0);
     }
-    if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, this.water);
+    if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater));
   }
 
   /** ω from slab pull and ridge push against basal drag, per plate. */
@@ -620,7 +623,8 @@ export class Tectonics {
     this.rift(big.index);
   }
 
-  rift(k) {
+  /** Split plate k; along a plane through `through` (a unit vector, a plume) if given. */
+  rift(k, through = null) {
     const g = this.grid, n = g.n, pos = g.pos;
     const A = this.plates[k];
     const B = this.allocPlate();
@@ -632,7 +636,23 @@ export class Tectonics {
     cx /= cr; cy /= cr; cz /= cr;
     // Candidate rift planes through the centroid; prefer the one over most old sutures.
     let best = null, bestScore = -1;
-    for (let c = 0; c < 8; c++) {
+    if (through) {
+      // The plane through the centroid and the plume, tilted by chance about that line.
+      const [px, py, pz] = through;
+      let ax = cy * pz - cz * py, ay = cz * px - cx * pz, az = cx * py - cy * px;
+      const ar = Math.hypot(ax, ay, az);
+      if (ar > 1e-6) {
+        ax /= ar; ay /= ar; az /= ar;
+        const u = this.rng.unitVector(), tilt = 0.4 * (u[0] * ax + u[1] * ay + u[2] * az);
+        best = [ax, ay, az];
+        // Small tilt toward a random direction in the plane, keeping it through the plume.
+        const bx = py * az - pz * ay, by = pz * ax - px * az, bz = px * ay - py * ax;
+        best = [ax + tilt * bx, ay + tilt * by, az + tilt * bz];
+        const br = Math.hypot(...best); best = best.map(v => v / br);
+        bestScore = Infinity;
+      }
+    }
+    for (let c = 0; c < 8 && bestScore < Infinity; c++) {
       const u = this.rng.unitVector();
       const d = u[0] * cx + u[1] * cy + u[2] * cz;
       let mx = u[0] - d * cx, my = u[1] - d * cy, mz = u[2] - d * cz;

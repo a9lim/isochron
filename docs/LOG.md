@@ -59,9 +59,20 @@ Phase 2:
 - **Shallow water got a visible tint** (square-root depth curve, higher floor): the new shelves read as paper.
 - **Reversals halved** (median rate 1.2/Myr, mean ~1.8): 1,203 reversals in 160 Myr made stripes finer than a pixel; Earth's record has ~300.
 
+Phase 3:
+- **The orbit is averaged over what the dial passes in ~2 s**, each periodic term scaled by sinc(W/P), so the climate sees the mean orbit at plate speed and whole cycles at kyr/s, crossfading without a switch. Earth-like periods and amplitudes, jittered by the seed.
+- **Ice is explicit within a real-time budget** (3 ms a frame); past it the ice lags the climate rather than the clock. That is its closure; a semi-implicit solver is the upgrade if level 7 needs it. Ice lives in the mantle's frame.
+- **Rain is capped at 25 mm/day per cell** (`RAIN_MAX`), with the rest carried on, and moisture diffusion lowered to 7×10⁴ km²/day. A mountain cell had drawn moisture from all sides and rained 38 m/yr, which grew an ice spike that collapsed the time step.
+- **Outgassing is normalized to this model's settled plate activity** (~500 cells/Myr at level 6), not the spin-up's (~180), and **weathering takes pCO₂^0.3 directly** (soil CO₂). With the spin-up baseline, CO₂ ran to 1,100+ ppm in 10 Myr as the plates sped up; with only the temperature path, doubling outgassing multiplied CO₂ ~9×, now ~3×.
+- **Plume heads rift continents through themselves** (`tec.rift(k, point)`), and leave a hotspot.
+- **Experiments reload the planet** (`?exp=`): a snowball can't be undone by the knob, which is the experiment, so each starts from the opening. Snowball holds CO₂ at its value when chosen, so sunlight is the only cause.
+- **Margin tabs**: Experiments, Record (Figs. 2, 3), Climate (Fig. 4, the key), Crust (Figs. 5, 6). The record's window is 40 s of the dial.
+- **The ice-age rhythm didn't emerge** in a 600 kyr run at 220 ppm on the default seed: ice grows to 76 m of sea level and holds, with small orbital wobbles. The forcing is there (July on 55–72°N land swings 10 K between extreme orbits); this seed may lack land in the 50–70°N band. Open: survey seeds and CO₂ for marginal northern ice.
+
 Open from phase 2: mean ocean depth is 5.3 km (Earth 3.7) because isostasy ignores the water's load and lithospheric roots; D climates are short (14–18% of land against Earth's ~25%); a climate cycle costs ~190 ms warm, spread over frames.
 
 ## Progress
 
 - 2026-11-14, before the run: phase 1 is built (see `AGENTS.md`). The repo is github.com/a9lim/isochron, a submodule of the parent (parent b073e84). It isn't registered on the site.
 - Phase 2 built: landscape, climate engine, Relief and Climate views, the margin's figures, the season at slow dial. Verified in the browser (light, dark, phone); 34 tests pass.
+- Phase 3 built: orbit cycles, ice sheets, carbon thermostat, hotspots and provinces, the record and orbit figures, the five experiments. Verified in the browser (Snowball freezes at 88% sunlight; Ice ages and the record run); 36 tests pass, including Vialov's ice cap and the thermostat's balance.

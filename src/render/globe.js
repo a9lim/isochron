@@ -16,6 +16,8 @@
 //   paper            snow on land and ice on the sea: the ground left bare, as
 //                    on a map; sea ice carries a sparse stipple
 //   lakes            filled depressions, in the sea's tint by depth
+//   ice sheets       the paper with hachures along the ice's flow, closer
+//                    where it flows faster
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
 // tesserae fixed to the surface (a jittered 3D lattice), each taking one class
 // with the cell's probability, so a boundary is an ecotone that interleaves.
@@ -48,6 +50,7 @@ struct VOut {
   @location(6) z1: vec4f,
   @location(7) z2: vec4f,
   @location(8) z3: vec4f,
+  @location(9) iv: vec4f,
 };
 
 fn toView(p: vec3f) -> vec3f {
@@ -55,7 +58,8 @@ fn toView(p: vec3f) -> vec3f {
 }
 
 @vertex fn vs(@location(0) p: vec3f, @location(1) f: vec4f, @location(2) n: vec3f, @location(3) c: vec4f,
-              @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f) -> VOut {
+              @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
+              @location(8) iv: vec4f) -> VOut {
   var o: VOut;
   let v = toView(p);
   o.clip = vec4f(v.x * u.frame.x, v.y * u.frame.y, 0.5 - 0.5 * v.z, 1.0);
@@ -65,6 +69,7 @@ fn toView(p: vec3f) -> vec3f {
   o.wp = p;
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
+  o.iv = vec4f(toView(iv.xyz), iv.w);
   return o;
 }
 
@@ -223,6 +228,18 @@ fn hair(d: f32, w: f32) -> f32 {
   let shade = select(relief, mix(1.0, relief, 0.55), climate);
   let seaShade = select(relief, 1.0, climate);
 
+  // Ice sheets: the paper, with hachures along the flow, closer where it's faster.
+  let iceH = i.c.w;
+  let sheet = smoothstep(20.0, 120.0, iceH);
+  var fd = i.iv.xy;
+  let fl = length(fd);
+  fd = select(vec2f(1.0, 0.0), vec2f(fd.x, -fd.y) / max(fl, 1e-6), fl > 0.05);
+  let period = mix(10.0, 3.6, smoothstep(5.0, 250.0, i.iv.w)) * u.mode.z;
+  let hach = lines(px, vec2f(-fd.y, fd.x), period, 0.9 * u.mode.z) * smoothstep(0.05, 0.3, fl);
+  let iceC = mix(u.canvas.rgb, u.text.rgb, 0.32 * hach);
+  land = mix(land, iceC, sheet);
+  sea = mix(sea, iceC, sheet);
+
   var c = select(land * shade, sea * seaShade, e < 0.0);
 
   // The ridge axes: crust younger than 1 Myr (the Relief view).
@@ -258,6 +275,7 @@ export async function createGlobe(canvas, grid) {
   const normBuf = device.createBuffer({ size: n * 12, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const climBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const zoneBuf = device.createBuffer({ size: n * 64, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const iceBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const idxBuf = device.createBuffer({ size: grid.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, grid.tris);
   const uniBuf = device.createBuffer({ size: 17 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -274,6 +292,7 @@ export async function createGlobe(canvas, grid) {
         { arrayStride: 12, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x3' }] },
         { arrayStride: 16, attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x4' }] },
         { arrayStride: 64, attributes: [0, 1, 2, 3].map(k => ({ shaderLocation: 4 + k, offset: 16 * k, format: 'float32x4' })) },
+        { arrayStride: 16, attributes: [{ shaderLocation: 8, offset: 0, format: 'float32x4' }] },
       ],
     },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
@@ -326,6 +345,8 @@ export async function createGlobe(canvas, grid) {
     setClimate(clim) { device.queue.writeBuffer(climBuf, 0, clim); },
     /** Per cell: the zones' probabilities, 16 floats (14 used). */
     setZones(z) { device.queue.writeBuffer(zoneBuf, 0, z); },
+    /** Per cell: the ice's flow direction (3) and speed (m/yr). */
+    setIce(v) { device.queue.writeBuffer(iceBuf, 0, v); },
 
     draw(camera, tNow, palette, mode = {}) {
       if (lost || !bind) return;
@@ -364,6 +385,7 @@ export async function createGlobe(canvas, grid) {
       pass.setVertexBuffer(2, normBuf);
       pass.setVertexBuffer(3, climBuf);
       pass.setVertexBuffer(4, zoneBuf);
+      pass.setVertexBuffer(5, iceBuf);
       pass.setIndexBuffer(idxBuf, 'uint32');
       pass.drawIndexed(grid.tris.length);
       pass.end();

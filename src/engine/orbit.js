@@ -1,3 +1,4 @@
+import { stream } from '../rng.js';
 // The orbit and the sunlight it delivers (docs/PLAN.md, layers 4 and 5).
 //
 // Daily-mean insolation at latitude φ when the sun is at true longitude λ
@@ -95,4 +96,45 @@ export function monthName(tau) {
 export function monthPhase(m) {
   const mid = [15.5, 45, 74.5, 105, 135.5, 166, 196.5, 227.5, 258, 288.5, 319, 349.5][m];
   return ((mid - 78.5) / 365.2422 + 1) % 1;
+}
+
+// ── The orbit's cycles (docs/PLAN.md, layer 5) ──
+// The planet's own Milankovitch cycles, seeded: eccentricity near 405, 124 and
+// 95 kyr, obliquity near 41 and 54 kyr, and the perihelion's precession near
+// 22 kyr relative to the equinox (Earth's periods and amplitudes, from memory,
+// each jittered by the seed). The climate sees the orbit averaged over a
+// window W: each periodic term of period P is scaled by sinc(W/P), so at plate
+// speed the cycles average out and at a few kyr a second they come through
+// whole. Times in kyr.
+export class OrbitCycles {
+  constructor(seed) {
+    const r = stream(seed, 'orbit');
+    const jit = (v, f) => v * (1 + f * (2 * r.uniform() - 1));
+    const ph = () => 2 * Math.PI * r.uniform();
+    this.e0 = jit(0.028, 0.15);
+    this.eTerms = [[405, 0.011], [124, 0.008], [95, 0.007]].map(([P, a]) => ({ P: jit(P, 0.06), a: jit(a, 0.25), p: ph() }));
+    this.ob0 = jit(23.3, 0.03) * Math.PI / 180;
+    this.obTerms = [[41, 0.62], [54, 0.15]].map(([P, a]) => ({ P: jit(P, 0.05), a: jit(a, 0.25) * Math.PI / 180, p: ph() }));
+    this.precP = jit(22.4, 0.05);
+    this.prec0 = ph();
+  }
+
+  /** The orbit at time t (kyr), averaged over a window of W kyr. */
+  at(t, W = 0) {
+    const sinc = P => { const x = Math.PI * W / P; return x < 1e-6 ? 1 : Math.sin(x) / x; };
+    let e = this.e0;
+    for (const k of this.eTerms) e += k.a * sinc(k.P) * Math.cos(2 * Math.PI * t / k.P + k.p);
+    let ob = this.ob0;
+    for (const k of this.obTerms) ob += k.a * sinc(k.P) * Math.cos(2 * Math.PI * t / k.P + k.p);
+    // Precession: the vector (e cos ϖ, e sin ϖ) turns; averaging shrinks it.
+    const pw = this.prec0 + 2 * Math.PI * t / this.precP;
+    const eSeason = Math.max(0.0005, e) * sinc(this.precP);
+    return { e: Math.max(0.0005, eSeason), eMean: Math.max(0.0005, e), obliquity: ob, perihelion: ((pw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) };
+  }
+
+  /** Mid-July insolation at 65°N (W/m²), Milankovitch's curve, at time t (kyr). */
+  summer65(t) {
+    const o = this.at(t, 0);
+    return insolation(65 * Math.PI / 180, Math.PI / 2 + 0.2, o);
+  }
 }
