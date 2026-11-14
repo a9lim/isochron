@@ -282,26 +282,41 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 // climate's template, rain, temperature and humidity, each blended with the
 // climate's mean by how live the weather is.
 const DRAWHEAD = HEAD + /* wgsl */`
-struct Dw { live: f32, lapse: f32, nb: u32, tauRain: f32 };
+struct Dw { live: f32, lapse: f32, nb: u32, tauRain: f32, phi: f32, p0: f32, p1: f32, p2: f32 };
 fn pEddy(X: vec2f, z: f32) -> f32 { return 1.2 * 2.0 * OMEGA * z * (X.x - X.y) / 100.0; }
 `;
-const ZONAL = DRAWHEAD + /* wgsl */`
+// The state the globe shows: the last two steps blended by how far the clock is into the
+// next (so a slow dial's steps don't land a frame at a time), θ, moisture and ρfψ₂.
+const BLEND = DRAWHEAD + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
+@group(0) @binding(1) var<uniform> D: Dw;
+@group(0) @binding(2) var<storage, read> geo: array<f32>;
+@group(0) @binding(3) var<storage, read> s: array<vec4f>;
+@group(0) @binding(4) var<storage, read> sp: array<vec4f>;
+@group(0) @binding(5) var<storage, read> x: array<vec2f>;
+@group(0) @binding(6) var<storage, read> xp: array<vec2f>;
+@group(0) @binding(7) var<storage, read_write> b4: array<vec4f>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= U.n) { return; }
+  let c = U.off + i;
+  let z = geo[8u * c + 7u];
+  let S = mix(sp[2u * i], s[2u * i], D.phi);
+  b4[i] = vec4f(S.z, S.w, mix(pEddy(xp[i], z), pEddy(x[c], z), D.phi), 0.0);
+}`;
+const ZONAL = DRAWHEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> bandOff: array<u32>;
 @group(0) @binding(2) var<storage, read> bandCells: array<u32>;
-@group(0) @binding(3) var<storage, read> geo: array<f32>;
-@group(0) @binding(4) var<storage, read> x: array<vec2f>;
-@group(0) @binding(5) var<storage, read_write> zm: array<f32>;
+@group(0) @binding(3) var<storage, read> b4: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> zm: array<f32>;
 var<workgroup> acc: array<f32, 64>;
 @compute @workgroup_size(64)
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u32) {
   let a = bandOff[wg.x];
   let e = bandOff[wg.x + 1u];
   var s = 0.0;
-  for (var k = a + li; k < e; k += 64u) {
-    let c = U.off + bandCells[k];
-    s += pEddy(x[c], geo[8u * c + 7u]);
-  }
+  for (var k = a + li; k < e; k += 64u) { s += b4[bandCells[k]].z; }
   acc[li] = s;
   workgroupBarrier();
   for (var st = 32u; st > 0u; st = st >> 1u) {
@@ -314,8 +329,7 @@ const DRAW = DRAWHEAD + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
 @group(0) @binding(1) var<uniform> D: Dw;
 @group(0) @binding(2) var<storage, read> geo: array<f32>;
-@group(0) @binding(3) var<storage, read> s: array<vec4f>;
-@group(0) @binding(4) var<storage, read> x: array<vec2f>;
+@group(0) @binding(3) var<storage, read> b4: array<vec4f>;
 @group(0) @binding(5) var<storage, read> forc: array<vec4f>;
 @group(0) @binding(6) var<storage, read> mean: array<vec4f>;
 @group(0) @binding(7) var<storage, read> zm: array<f32>;
@@ -331,13 +345,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let xb = clamp((lat / 3.14159265 + 0.5) * f32(D.nb) - 0.5, 0.0, f32(D.nb - 1u));
   let b0 = u32(floor(xb));
   let b1 = min(b0 + 1u, D.nb - 1u);
-  let S = s[2u * i];
+  let B = b4[i];
   let M = mean[i];
   let L = D.live;
-  let pE = pEddy(x[c], z) - mix(zm[b0], zm[b1], xb - f32(b0));
-  let rainW = max(0.0, S.w - 0.9 * wsat(S.z)) / D.tauRain * 86400.0;
-  let rhW = min(1.2, S.w / wsat(S.z));
-  out[i] = vec4f(M.x + L * pE, (1.0 - L) * M.y + L * rainW, (1.0 - L) * M.z + L * S.z - D.lapse * forc[i].w, min(1.0, (1.0 - L) * M.w + L * rhW));
+  let pE = B.z - mix(zm[b0], zm[b1], xb - f32(b0));
+  let rainW = max(0.0, B.y - 0.9 * wsat(B.x)) / D.tauRain * 86400.0;
+  let rhW = min(1.2, B.y / wsat(B.x));
+  out[i] = vec4f(M.x + L * pE, (1.0 - L) * M.y + L * rainW, (1.0 - L) * M.z + L * B.x - D.lapse * forc[i].w, min(1.0, (1.0 - L) * M.w + L * rhW));
 }`;
 // Isobars on cells would stair-step: pressure is drawn eased toward its neighbours.
 const SMOOTHP = HEAD + /* wgsl */`
@@ -385,7 +399,7 @@ export class GpuWeather {
     this.LAP = B(16 * n);
     this.Fo = B(16 * n);
     this.M = B(16 * n);
-    this.T4 = B(16 * n);
+    this.T4 = B(16 * n); this.B4 = B(16 * n); this.Xp = B(8 * n);
     this.tris = B(grid.tris.byteLength, grid.tris);
     if (refiner) {
       const nc = refiner.coarse.n;
@@ -413,7 +427,7 @@ export class GpuWeather {
     });
     this.params = new Float32Array(16);
     this.Pu = uniform(device, this.params);
-    this.dparams = new ArrayBuffer(16);
+    this.dparams = new ArrayBuffer(32);
     this.Du = uniform(device, new Uint32Array(this.dparams));
     this.tmean = 14;
     this.writeParams(1, 0);
@@ -422,7 +436,7 @@ export class GpuWeather {
       smooth: kernel(device, SMOOTH, 'smooth'), restrict: kernel(device, RESTRICT, 'restrict'), prolong: kernel(device, PROLONG, 'prolong'),
       coarse: kernel(device, COARSE, 'coarse'), rhs: kernel(device, RHS, 'rhs'), corners: kernel(device, CORNERS, 'corners'),
       lap: kernel(device, LAP, 'lap'), tend: kernel(device, TEND, 'tend'),
-      zonal: kernel(device, ZONAL, 'zonal'), draw: kernel(device, DRAW, 'draw'), smoothp: kernel(device, SMOOTHP, 'smoothp'),
+      zonal: kernel(device, ZONAL, 'zonal'), draw: kernel(device, DRAW, 'draw'), blend: kernel(device, BLEND, 'blend'), smoothp: kernel(device, SMOOTHP, 'smoothp'),
     };
     this.K = K;
     const { topo, geo, X, Y, Bv } = this, Ltop = this.Lu[this.Lu.length - 1];
@@ -542,12 +556,17 @@ export class GpuWeather {
     if (k <= 0) return;
     const dev = this.device, enc = dev.createCommandEncoder();
     const timed = this.qs && !this.qBusy && (this.calls++ % 15 === 0);
-    const pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : {});
-    for (let s = 0; s < k; s++) {
-      for (const [K, bg, x] of this.steps[this.cur]) { pass.setPipeline(K.pipeline); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x); }
-      this.cur = 1 - this.cur;
-    }
-    pass.end();
+    // All but the last step, then ψ is kept (to blend from), then the last.
+    const run = (pass, m) => {
+      for (let s = 0; s < m; s++) {
+        for (const [K, bg, x] of this.steps[this.cur]) { pass.setPipeline(K.pipeline); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x); }
+        this.cur = 1 - this.cur;
+      }
+      pass.end();
+    };
+    if (k > 1) run(enc.beginComputePass(timed ? { timestampWrites: { querySet: this.qs, beginningOfPassWriteIndex: 0 } } : {}), k - 1);
+    enc.copyBufferToBuffer(this.X, 8 * this.off, this.Xp, 0, 8 * this.n);
+    run(enc.beginComputePass(timed ? { timestampWrites: k > 1 ? { querySet: this.qs, endOfPassWriteIndex: 1 } : { querySet: this.qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : {}), 1);
     if (timed) {
       enc.resolveQuerySet(this.qs, 0, 2, this.qResolve, 0);
       enc.copyBufferToBuffer(this.qResolve, 0, this.qRead, 0, 16);
@@ -577,17 +596,18 @@ export class GpuWeather {
   }
 
   /** Write the globe's weather fields (vec4 per cell) into `out`, blended with the climate's mean by `live`. */
-  draw(out, live) {
+  draw(out, live, phi = 1) {
     const dev = this.device, K = this.K, Ltop = this.Lu[this.Lu.length - 1], n = this.n;
     const u = new Uint32Array(this.dparams), f = new Float32Array(this.dparams);
-    f[0] = live; f[1] = 0.0065; u[2] = WEATHER.NB; f[3] = WEATHER.TAU_RAIN;
+    f[0] = live; f[1] = 0.0065; u[2] = WEATHER.NB; f[3] = WEATHER.TAU_RAIN; f[4] = Math.min(1, Math.max(0, phi));
     dev.queue.writeBuffer(this.Du, 0, this.dparams);
     if (this.drawOut !== out) {
       this.drawOut = out;
       const S = this.S;
       this.drawBinds = [0, 1].map(p => [
-        [K.zonal, K.zonal.bind({ U: Ltop, bandOff: this.bandOff, bandCells: this.bandCells, geo: this.geo, x: this.X, zm: this.zm }), WEATHER.NB],
-        [K.draw, K.draw.bind({ U: Ltop, D: this.Du, geo: this.geo, s: S[p], x: this.X, forc: this.Fo, mean: this.M, zm: this.zm, out }), wg(n)],
+        [K.blend, K.blend.bind({ U: Ltop, D: this.Du, geo: this.geo, s: S[p], sp: S[1 - p], x: this.X, xp: this.Xp, b4: this.B4 }), wg(n)],
+        [K.zonal, K.zonal.bind({ bandOff: this.bandOff, bandCells: this.bandCells, b4: this.B4, zm: this.zm }), WEATHER.NB],
+        [K.draw, K.draw.bind({ U: Ltop, D: this.Du, geo: this.geo, b4: this.B4, forc: this.Fo, mean: this.M, zm: this.zm, out }), wg(n)],
         [K.smoothp, K.smoothp.bind({ U: Ltop, topo: this.topo, src: out, dst: this.T4 }), wg(n)],
         [K.smoothp, K.smoothp.bind({ U: Ltop, topo: this.topo, src: this.T4, dst: out }), wg(n)],
       ]);

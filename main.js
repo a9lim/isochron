@@ -29,6 +29,7 @@ import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
 import { drawKey } from './src/render/key.js';
+import { linkCharts, chartFrame } from './src/render/chart.js';
 
 const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
@@ -279,7 +280,15 @@ let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastC
 const SPINUP = SPINUP_DAYS * 86400;
 const chartWorker = new Worker(new URL('./src/render/chart-worker.js', import.meta.url), { type: 'module' });
 chartWorker.postMessage({ type: 'init', level: MESH_LEVEL, chartLevel: 6 });
-chartWorker.onmessage = e => { chart = e.data; chartBusy = false; drawDirty = true; };
+// Each new chart is linked to the last and drawn morphing from it over about as long as charts take to come.
+let chartGone = null, chartArrive = 0, chartSpan = 150;
+chartWorker.onmessage = e => {
+  const c = e.data, now = performance.now();
+  if (chart) chartSpan = 0.7 * chartSpan + 0.3 * Math.max(60, Math.min(1000, now - chartArrive));
+  c.prevT = chart ? chart.t : c.t;
+  chartGone = linkCharts(chart, c);
+  chart = c; chartArrive = now; chartBusy = false; drawDirty = true;
+};
 chartWorker.onerror = e => { console.warn('[isochron] chart:', e.message); chartBusy = false; };
 function weatherLive() {
   // Fully live below ~3 days a second, the climate's mean above ~30.
@@ -323,7 +332,8 @@ function refreshWeather(force) {
     }
     wx.setMean(wxMean);
   }
-  wx.draw(globe.wxBuffer, wxLive);
+  // Between the last two steps, by how far the clock is into the next (one step behind it).
+  wx.draw(globe.wxBuffer, wxLive, wx.started ? wxBehind / wx.dt : 1);
   // The chart: one read and one trace in flight at a time.
   if (wxLive > 0 && !chartBusy && nowMs - lastChart > 120) {
     lastChart = nowMs; chartBusy = true;
@@ -810,7 +820,7 @@ function tick(now) {
     lap('lines');
     globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart, chartFade: wxLive, wxNow: wx ? wx.t : 0 }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null }, pal);
     if (phi >= 1) drawDirty = false;
     lap('overlay');
   }

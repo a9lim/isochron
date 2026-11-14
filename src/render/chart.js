@@ -22,6 +22,8 @@
 // quarter of a model day each at a day a second), so fronts move rather than
 // flicker.
 
+import { matchLines, morphed } from './overlay.js';
+
 export const COLD = 1, WARM = 2, STATIONARY = 3, DRY = 4, OCCLUDED = 5;
 
 function smoothField(g, f, passes) {
@@ -49,7 +51,7 @@ function grad(g, f, out) {
 
 /** The locator (∇TFP·n̂), the strength |∇θ| and n̂, for a field on the grid (gradients per radian). */
 function locate(g, field) {
-  const n = g.n, f = smoothField(g, Float64Array.from(field), 4 * scale(g));
+  const n = g.n, f = smoothField(g, Float64Array.from(field), 6 * scale(g));
   const gf = grad(g, f, new Float64Array(3 * n)), G = new Float64Array(n), nh = new Float64Array(3 * n);
   for (let i = 0; i < n; i++) {
     const m = Math.hypot(gf[3 * i], gf[3 * i + 1], gf[3 * i + 2]);
@@ -300,7 +302,7 @@ export function chartLines(wx, pres, st) {
   // The wind across each front point; fronts are typed against this chart's own
   // typical value: low-level flow runs nearly along the isotherms in this model,
   // so an absolute threshold would call almost every front stationary.
-  const traced = bridge(trace(g, T.loc, okF), 0.045).map(chain => {
+  const traced = bridge(trace(g, T.loc, okF), 0.065).map(chain => {
     const P = chaikin(relax(chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; }), 4 * S), cuts(g, 2));
     const V = [];
     const adv = P.map(q => {
@@ -447,6 +449,99 @@ export function chartLines(wx, pres, st) {
   const cycV = smoothField(g, Float64Array.from(st.zeta, (z, i) => z * Math.sign(lat[i])), 2 * S * S);
   const sub = i => Math.abs(lat[i]) > 0.17 && Math.abs(lat[i]) < 0.62 && T.G[i] < 0.5 * g70;
   for (const P of ridgeLines(g, cycV, sub, 0.9)) if (P.length >= 16) out.shear.push({ P: pack(P), V: velAt(P) });
+  joinEnds([...out.fronts, ...out.dry, ...out.shear]);
+  return out;
+}
+
+/**
+ * Lines that nearly meet, meet: each end of a front, dry line or shear line
+ * moves onto the nearest end of another within ~320 km (a front's pieces, a
+ * cold front and its occlusion, a dry line and the front it runs into), or
+ * else onto the nearest point of one within ~190 km (a junction), the last few
+ * points following so the join is a kink rather than a hook.
+ */
+function joinEnds(lines) {
+  const END = Math.cos(0.05), MID = Math.cos(0.03), TAPER = [1, 0.66, 0.36, 0.14];
+  const ends = [];
+  for (const l of lines) { const m = l.P.length / 3; if (m >= 2) ends.push([l, 0], [l, m - 1]); }
+  for (const [l, k] of ends) {
+    const P = l.P, x = P[3 * k], y = P[3 * k + 1], z = P[3 * k + 2];
+    let best = END, tx = 0, ty = 0, tz = 0, found = false;
+    // Another line's end first.
+    for (const [o, j] of ends) {
+      if (o === l) continue;
+      const d = x * o.P[3 * j] + y * o.P[3 * j + 1] + z * o.P[3 * j + 2];
+      if (d > best) { best = d; tx = o.P[3 * j]; ty = o.P[3 * j + 1]; tz = o.P[3 * j + 2]; found = true; }
+    }
+    if (!found) {
+      best = MID;
+      for (const o of lines) {
+        if (o === l) continue;
+        for (let j = 0; j < o.P.length; j += 3) {
+          const d = x * o.P[j] + y * o.P[j + 1] + z * o.P[j + 2];
+          if (d > best) { best = d; tx = o.P[j]; ty = o.P[j + 1]; tz = o.P[j + 2]; found = true; }
+        }
+      }
+    }
+    if (!found || best > 0.9999999) continue;
+    const dx = tx - x, dy = ty - y, dz = tz - z, m = P.length / 3, dir = k === 0 ? 1 : -1;
+    for (let q = 0; q < TAPER.length && q < m - 1; q++) {
+      const i = k + dir * q, w = TAPER[q];
+      const a = P[3 * i] + w * dx, b = P[3 * i + 1] + w * dy, c = P[3 * i + 2] + w * dz, r = Math.hypot(a, b, c);
+      P[3 * i] = a / r; P[3 * i + 1] = b / r; P[3 * i + 2] = c / r;
+    }
+  }
+}
+
+/**
+ * Successive charts linked for drawing: each line of the new chart pairs with the
+ * old chart's nearest of its kind (its middle within ~500 km), and each centre with
+ * the old one of its kind within ~400 km. Returns the old chart's leftovers, to fade.
+ */
+export function linkCharts(prev, cur) {
+  const gone = { fronts: [], dry: [], troughs: [], ridges: [], shear: [], highs: [], lows: [] };
+  for (const k of ['fronts', 'dry', 'troughs', 'ridges', 'shear']) gone[k] = matchLines(prev ? prev[k] : null, cur[k], () => k);
+  for (const k of ['highs', 'lows']) {
+    const used = new Set();
+    for (const c of cur[k]) {
+      c.prev = null;
+      if (!prev) continue;
+      let best = Math.cos(0.065), bp = null;
+      for (const p of prev[k]) { if (used.has(p)) continue; const d = c.p[0] * p.p[0] + c.p[1] * p.p[1] + c.p[2] * p.p[2]; if (d > best) { best = d; bp = p; } }
+      if (bp) { used.add(bp); c.prev = bp; }
+    }
+    gone[k] = prev ? prev[k].filter(p => !used.has(p)) : [];
+  }
+  return gone;
+}
+
+/**
+ * The chart as drawn at weather time `now`: every line and centre carried by its wind
+ * (whole, for up to three hours) and blended from its predecessor's course by `phi`
+ * (the share of the time between charts that has passed); new ones fade in, old ones out.
+ */
+export function chartFrame(chart, gone, phi, now) {
+  const carry = (l, t) => drift(l.P, l.V, Math.min(3 * 3600, Math.max(0, now - t)));
+  const at = (h, t) => h.V ? drift(Float32Array.from(h.p), Float32Array.from(h.V), Math.min(3 * 3600, Math.max(0, now - t))) : h.p;
+  const out = { ...chart };
+  for (const k of ['fronts', 'dry', 'troughs', 'ridges', 'shear']) {
+    const live = chart[k].map(l => {
+      const P = carry(l, chart.t);
+      return { ...l, P: l.prev && l.corr && phi < 1 ? morphed(carry(l.prev, chart.prevT), P, phi, l.corr) : P, alpha: l.prev ? 1 : phi };
+    });
+    const old = gone && phi < 1 ? gone[k].map(l => ({ ...l, P: carry(l, chart.prevT), alpha: 1 - phi })) : [];
+    out[k] = live.concat(old);
+  }
+  for (const k of ['highs', 'lows']) {
+    const live = chart[k].map(h => {
+      const p = at(h, chart.t);
+      if (!h.prev || phi >= 1) return { ...h, p, alpha: h.prev ? 1 : phi };
+      const q = at(h.prev, chart.prevT), x = q[0] + phi * (p[0] - q[0]), y = q[1] + phi * (p[1] - q[1]), z = q[2] + phi * (p[2] - q[2]), r = Math.hypot(x, y, z);
+      return { ...h, p: [x / r, y / r, z / r], alpha: 1 };
+    });
+    const old = gone && phi < 1 ? gone[k].map(h => ({ ...h, p: at(h, chart.prevT), alpha: 1 - phi })) : [];
+    out[k] = live.concat(old);
+  }
   return out;
 }
 
@@ -485,13 +580,11 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   if (!chart0 || fade <= 0.01) return;
   // Between charts every line and centre drifts with its wind, so the chart moves
   // continuously; each new chart corrects it.
-  const dtw = wxNow != null ? Math.min(3 * 3600, Math.max(0, wxNow - chart0.t)) : 0;
-  const mv = L => L.map(l => ({ ...l, P: drift(l.P, l.V, dtw) }));
-  const chart = { ...chart0, fronts: mv(chart0.fronts), dry: mv(chart0.dry), troughs: mv(chart0.troughs || []), ridges: mv(chart0.ridges || []), shear: mv(chart0.shear || []),
-    highs: chart0.highs.map(h => ({ ...h, p: h.V ? Array.from(drift(Float32Array.from(h.p), Float32Array.from(h.V), dtw)) : h.p })),
-    lows: chart0.lows.map(h => ({ ...h, p: h.V ? Array.from(drift(Float32Array.from(h.p), Float32Array.from(h.V), dtw)) : h.p })) };
+  // `chart0` is as drawn (chartFrame: carried by the wind and morphed); each line may carry an alpha.
+  const chart = chart0;
   ctx.save();
   ctx.globalAlpha = fade;
+  const A = l => { ctx.globalAlpha = fade * (l.alpha ?? 1); };
   const v = [0, 0, 0], sv = [0, 0, 0];
   const project = (P, k) => { camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v); return [cx + v[0] * r, cy - v[1] * r, v[2]]; };
   const sideOnScreen = (side, k, x, y, P) => {
@@ -504,6 +597,7 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   const inkOf = t => t === COLD ? pal.inks.prussian : t === WARM ? pal.inks.sienna : pal.inks.mulberry;   // occluded: mulberry
   const GAP = 22 * sc, SZ = 4.6 * sc, lw = Math.sqrt(sc);
   for (const fr of chart.fronts) {
+    A(fr);
     const M = fr.type.length;
     const S = Array.from({ length: M }, (_, k) => project(fr.P, k));
     ctx.lineWidth = 1.6 * lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -562,11 +656,12 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   ctx.lineCap = 'butt';
   for (const [list, ink, dash, w] of [[chart.troughs, pal.inks.umber, [7, 4], 1.4], [chart.shear, pal.inks.prussian, [8, 3, 1.5, 3], 1.2]]) {
     ctx.strokeStyle = ink; ctx.lineWidth = w * lw; ctx.setLineDash(dash.map(d => d * sc));
-    for (const t of list) { ctx.beginPath(); visPath(t.P, (a, b) => { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }); ctx.stroke(); }
+    for (const t of list) { A(t); ctx.beginPath(); visPath(t.P, (a, b) => { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }); ctx.stroke(); }
   }
   ctx.setLineDash([]);
   ctx.strokeStyle = pal.inks.umber; ctx.lineWidth = 1.2 * lw;
   for (const rd of chart.ridges) {
+    A(rd);
     ctx.beginPath();
     let d = 0, up = 1, started = false;
     visPath(rd.P, (a, b) => {
@@ -585,6 +680,7 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   ctx.lineCap = 'round';
   // Dry lines: an ochre line with open scallops toward the moist air.
   for (const dl of chart.dry) {
+    A(dl);
     const M = dl.P.length / 3;
     const S = Array.from({ length: M }, (_, k) => project(dl.P, k));
     ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = 1.3 * lw;
@@ -615,6 +711,7 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [list, L] of [[chart.highs, 'H'], [chart.lows, 'L']]) {
     for (const h of list) {
+      A(h);
       camera.view(h.p[0], h.p[1], h.p[2], v);
       if (v[2] < 0.1) continue;
       const x = cx + v[0] * r, y = cy - v[1] * r;

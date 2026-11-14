@@ -165,6 +165,18 @@ a9: "the sim in the test server seems to not be working (blank screen)… let's 
 - **Outgassing from the plates' motion**, not gap cells: gap cells counted the grid's rounding (313/Myr at 0.5 Myr steps, 548 at 0.05; the kinematic measure 365 and 347).
 - **Open, the top item:** the plates speed up for ~20 Myr after the spin-up at every level (×1.7 at level 6, ×2.5 at level 7), so at level 7 the sea rises ~210 m and CO₂ climbs to ~800 ppm within 12 Myr. Two biases used to hide it. A reference that followed the plates over 20 Myr only partly helped, so it's out. Needs a settled spin-up or `PARAMS` at level 7.
 
+## The morning after (2026-11-15)
+
+a9: beautiful; fix the slow opening and the spin-up; the tectonics lag; fault symbols flip sides; relief features move, stop, move; weather features flicker, split and jitter step to step; fronts leave a gap where they meet; dry and shear lines should join fronts.
+- **Stop-and-go** was the blend finishing before the next surface came. Now surfaces queue and a display clock follows them at the engine's measured pace (a window of arrivals: they come in pairs, so a per-arrival rate spiked), a step and a half behind, eased. At 120 fps: clock, engine and shown moment all at the dial's 1.00 Myr/s, no stalls, the pace varying 9% frame to frame.
+- **Main-thread cost** at level 7 was the line correspondence (~quadratic; 24 ms frames); it now searches near the last match (~2 ms). `onFast` had been lost in the rewrite and is back.
+- **Engine cost**: the sea-level solve was 15% of the engine (48 bisections over every cell, on every elevation update); Newton from the last level takes a few passes.
+- **The spin-up** ran 40 Myr from rest, and the plates were still speeding up: past it, activity ran 1.45–1.8× the spin-up's last rate for 120 Myr at level 6 (the drift). 80 Myr at level 6 settles it (0.93–1.01× over 30 Myr). Finer engines are refined from it (`src/engine/refine.js`); two bugs found on the way: midpoints taken when either parent was in a plate pushed every plate half a coarse cell out (+70 m of sea in 2.5 Myr), and averaging a continental and an oceanic parent's formation times made very old ocean (mean age 95 against 84 Myr).
+- **The engine back to level 6 by default**: refined to level 7 the plates still run ~1.5× hot (above); the globe and the weather stay at 55 km through the restored GPU refinement. Boot ~1.1 s, first climate ~2 s, the plates at the dial's pace.
+- **Fault symbols** read their side in runs and remember it across retraces.
+- **Weather**: the globe's fields blend the last two steps; chart lines morph from the last chart's and fade in and out; more smoothing and a wider bridging gap; ends within ~320 km meet (fronts, dry and shear lines alike), with no near misses left in a sampled chart.
+- Not reproduced: two straight-edged pale bands across the globe in a9's first screenshot (zoomed in; not seen here live or zoomed).
+
 ## Registering on the site
 
 When the social card is made (a9's session):
