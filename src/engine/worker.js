@@ -17,11 +17,14 @@ import { NZ } from './climate.js';
 import { surfaceFields } from '../render/surface.js';
 import { traceBoundaries } from '../render/lines.js';
 import { traceRivers } from '../render/rivers.js';
+import { gpuDevice } from '../gpu/device.js';
+import { GpuIce } from '../gpu/ice.js';
+import { GpuMoisture } from '../gpu/moisture.js';
 
 const CLIMATE_MS = 10, ICE_MS = 4;
 let P = null, playing = false, pending = 3, scheduled = false;
 const ticks = [];
-let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0;
+let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
 
 const post = (m, transfer = []) => self.postMessage(m, transfer);
 const ch = new MessageChannel();
@@ -31,8 +34,10 @@ function schedule() { if (!scheduled) { scheduled = true; ch.port2.postMessage(0
 self.onmessage = e => {
   const m = e.data;
   if (m.type === 'init') {
-    P = new Planet(m.seed);
+    P = new Planet(m.seed, { level: m.level });
     apply(m.params);
+    // The engine's own GPU device, for the ice (and the climate's heavy solves).
+    gpuDevice().then(device => { P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid); }, err => console.warn('[isochron] engine GPU:', err.message));
     post({ type: 'ready', seaLevel0: P.seaLevel0, years: P.years, pco2: P.carbon.pco2 });
     sendSurface(false);
     sendFast(true);
@@ -54,37 +59,63 @@ function pump() {
   scheduled = false;
   if (!P) return;
   // Ticks first, all of them (a slow step coalesces the frames behind it).
-  let stepped = false;
+  let stepped = 0;
+  const t0 = performance.now();
   while (ticks.length) {
     const m = ticks.shift();
     P.years += m.adv;
-    for (const dt of m.steps) { P.plateStep(dt); stepYears += dt; stepped = true; pending = Math.max(pending, 1); }
+    for (const dt of m.steps) { P.plateStep(dt); stepYears += dt; stepped++; pending = Math.max(pending, 1); }
     P.setOrbit(m.window);
     P.fast(m.adv, ICE_MS);
     if (m.adv > 0) samples.push(P.years, ...P.sample());
   }
   const now = performance.now();
-  if (stepped) sendSurface(true);
+  if (stepped) {
+    sendSurface(true, stepped, performance.now() - t0);
+  }
   else if (now - lastSeaCheck > 250) {
     // Ice moves the sea; the coast is redrawn when it has moved a few metres.
     lastSeaCheck = now;
     if (Math.abs(P.tec.seaLevel - seaSent) > 0.004) sendSurface(false);
   }
-  // Then the climate, in slices, while there's nothing else to do.
-  if ((playing || pending > 0) && P.climateWork(CLIMATE_MS)) { pending = Math.max(0, pending - 1); sendClimate(); }
   if (now - lastFast > 100) sendFast(false);
-  if (ticks.length || playing || pending > 0) schedule();
+  if ((playing || pending > 0) && !climateRunning) climateLoop();
+  if (ticks.length) schedule();
 }
 
-function sendSurface(fromStep) {
-  const { grid, tec, land, ice } = P;
+// The climate runs alongside: a slice of its cycle at a time, awaiting the GPU's work
+// where the cycle hands it some, and letting the ticks in between slices.
+let climateRunning = false, cycleStart = 0, cycleMs = 0;
+const nextTask = () => new Promise(res => { const c = new MessageChannel(); c.port1.onmessage = () => res(); c.port2.postMessage(0); });
+async function climateLoop() {
+  climateRunning = true;
+  const c = P.climate;
+  try {
+    while (playing || pending > 0) {
+      if (!c.it) { c.it = c.cycle(); cycleStart = performance.now(); }
+      const t0 = performance.now();
+      let r;
+      do {
+        r = c.it.next();
+        if (r.value && r.value.then) { await r.value; break; }
+      } while (!r.done && performance.now() - t0 < CLIMATE_MS);
+      if (r.done) { c.it = null; cycleMs = performance.now() - cycleStart; P.afterClimate(); pending = Math.max(0, pending - 1); sendClimate(); }
+      await nextTask();
+    }
+  } finally { climateRunning = false; }
+}
+
+function sendSurface(fromStep, steps = 0, ms = 0) {
+  // What a step costs, with drawing's share, so the page can plan steps the engine keeps up with.
+  if (steps) { stepsDone += steps; msPerStep = 0.7 * msPerStep + 0.3 * ms / steps; }
+  const { grid, tec, land, ice } = P, tSend = performance.now();
   const f = surfaceFields(grid, tec, land, ice);
   seaSent = tec.seaLevel;
   const m = {
     type: 'surface', fromStep, t: tec.t, seaLevel: tec.seaLevel, ...f,
     elev: Float32Array.from(tec.elev), lines: traceBoundaries(tec),
     plates: tec.plates.map(p => ({ w: p.w.slice(), alive: p.alive })), stats: tec.stats(),
-    landSteps: land.steps, landBank: P.landBank || 0, stepYears,
+    landSteps: land.steps, landBank: P.landBank || 0, stepYears, stepsDone, msPerStep: msPerStep + (performance.now() - tSend),
   };
   stepYears = 0;
   if (land.steps !== riversSteps) { m.rivers = traceRivers(grid, land); riversSteps = land.steps; }
@@ -94,10 +125,10 @@ function sendSurface(fromStep) {
 function sendClimate() {
   const c = P.climate, o = P.ocean, f32 = a => Float32Array.from(a);
   const m = {
-    type: 'climate', version: c.version, stats: { ...c.stats }, zonal: c.zonal,
+    type: 'climate', version: c.version, stats: { ...c.stats, cycleMs }, zonal: c.zonal,
     Tf: c.Tf.map(f32), Pf: c.Pf.map(f32), presPhase: c.presPhase.map(f32), W: c.W.map(f32),
     snowAnn: f32(c.snowAnn), landMask: Uint8Array.from(c.landMask), elevPos: f32(c.elevPos), zones: f32(c.zones),
-    sst: f32(o.sst), psi: f32(o.psi), oceanStats: { ...o.stats },
+    sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats },
   };
   const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi].map(a => a.buffer);
   post(m, transfer);
@@ -124,7 +155,7 @@ function sendFast(first) {
       if (ice.H[i] > 20) iceArea += a;
       if (climate.landMask[i]) { run += climate.runoff[i] * a; la += a; bShare += a * (climate.zones[NZ * i + 4] + climate.zones[NZ * i + 5]); }
       hiLand = Math.max(hiLand, tec.elev[i] - tec.seaLevel);
-      if (ocean.sea[i]) { sstLo = Math.min(sstLo, ocean.sst[i]); sstHi = Math.max(sstHi, ocean.sst[i]); }
+      if (ocean.fine.sea[i]) { sstLo = Math.min(sstLo, ocean.fine.sst[i]); sstHi = Math.max(sstHi, ocean.fine.sst[i]); }
     }
     m.agg = { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare };
   }

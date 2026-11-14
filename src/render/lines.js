@@ -91,7 +91,9 @@ function build(tec, corners, cells, closed) {
 
   // Laplacian passes take out the hexagons' stair; ends (junctions) stay put.
   const N = corners.length;
-  for (let pass = 0; pass < 6; pass++) {   // six: a boundary re-traced each step then barely shifts
+  // Six at level 6 (a boundary re-traced each step then barely shifts), more on finer grids.
+  const passes = Math.round(6 * Math.sqrt(g.n / 40962));
+  for (let pass = 0; pass < passes; pass++) {
     const Q = P.slice();
     for (let k = 0; k < N; k++) {
       let a = k - 1, b = k + 1;

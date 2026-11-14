@@ -34,7 +34,7 @@ const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
 const WEATHER_GPU_MS = 12;    // the weather's share of the GPU's frame, when it runs live
-const MESH_LEVEL = 7;         // the drawn mesh and the weather: a level finer than the engine's grid (55 km)
+const LEVEL = 7;              // the engine's grid, the drawn mesh and the weather (55 km)
 const SPINUP_DAYS = 12;       // the weather's spin-up from the climate's state
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
@@ -58,8 +58,7 @@ const els = {
 
 // ── The planet ──
 // Mirrors of the engine's state, as of its last snapshots (src/engine/mirror.js).
-const grid = buildGrid(6);
-const mesh = buildGrid(MESH_LEVEL);
+const grid = buildGrid(LEVEL);
 const engine = new Worker(new URL('./src/engine/worker.js', import.meta.url), { type: 'module' });
 let tecStats = { plates: 0, land: 0, seaLevel: 0, fastest: 0, meanOceanAge: 0 };
 const tec = { grid, t: 0, seaLevel: 0, elev: new Float32Array(grid.n), plates: [], stats: () => tecStats };
@@ -97,12 +96,14 @@ function palette() {
 // ── The surface, as the engine posts it ──
 // Each step's surface arrives a little after the dial passed it, and is shown
 // blended in from the last over about as long as the next takes to come.
+let stepsSent = 0, stepsDone = 0, engineMsPerStep = 50;
 let stepYears = PLATE_STEP, stepArrive = -1e9, stepSpan = 100, riversT = 0, linesT = 0, riversGone = [], surfaceMsg = null;
 function onSurface(m) {
   surfaceMsg = m;
   tec.t = m.t; tec.seaLevel = m.seaLevel; tec.elev = m.elev; tec.plates = m.plates; tecStats = m.stats;
   P.landBank = m.landBank;
   elevRel = m.elevRel;
+  if (m.stepsDone != null) { stepsDone = m.stepsDone; engineMsPerStep = m.msPerStep; }
   if (m.fromStep) {
     const now = performance.now(), gap = now - stepArrive;
     stepYears = m.stepYears;
@@ -178,7 +179,6 @@ function refreshClimate(force) {
     climateVersionDrawn = climate.version;
   }
   season.draw(tau, sw, CLIMATE.LAPSE, smooth(0, 1, (nowMs - coldEaseStart) / 800));
-  globe.refineClimate();
   seasonDrawn = tau; seasonWeightDrawn = sw;
   drawDirty = true;
 }
@@ -193,7 +193,7 @@ function refreshClimate(force) {
 let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastChart = 0, lastMean = -1e9, chartBusy = false;
 const SPINUP = SPINUP_DAYS * 86400;
 const chartWorker = new Worker(new URL('./src/render/chart-worker.js', import.meta.url), { type: 'module' });
-chartWorker.postMessage({ type: 'init', level: MESH_LEVEL, chartLevel: grid.level });
+chartWorker.postMessage({ type: 'init', level: LEVEL, chartLevel: LEVEL - 1 });
 chartWorker.onmessage = e => { chart = e.data; chartBusy = false; drawDirty = true; };
 chartWorker.onerror = e => { console.warn('[isochron] chart:', e.message); chartBusy = false; };
 function weatherLive() {
@@ -595,6 +595,7 @@ function stepOnce() {
   P.years += PLATE_STEP;
   stepOnceAt = performance.now();           // a single step shows at once
   engine.postMessage({ type: 'tick', adv: PLATE_STEP, steps: [PLATE_STEP], window: rate() * 2 });
+  stepsSent++;
 }
 function nudgeDial(d) {
   setDial(Math.min(+els.dial.max, Math.max(+els.dial.min, +els.dial.value + d)));
@@ -665,14 +666,17 @@ function tick(now) {
   last = Math.max(last, now);
   profT = performance.now();
   if (playing) {
-    // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr.
-    scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10));
-    const { dt: adv, plan } = scheduler.advance(rate() * dt);
+    // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr, and
+    // no shorter than the engine can keep up with; the clock waits while it is two steps behind.
+    const keep = rate() * engineMsPerStep / 1000 * 1.3;
+    scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10, keep));
+    const behind = stepsSent - stepsDone >= 2;
+    const { dt: adv, plan } = scheduler.advance(behind ? 0 : rate() * dt);
     P.years += adv;
     const p = plan[0];
     // The engine's tick: the years, the plate steps, and the orbit the climate sees
     // (averaged over what the dial passes in ~2 s).
-    if (engineStarted) engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2 });
+    if (engineStarted && adv > 0) { engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2 }); stepsSent += Math.max(0, p.steps); }
     if (view === 'weather') stepWeather(adv);
     figuresDirty = true;
     drawDirty = true;
@@ -738,14 +742,14 @@ engine.onmessage = e => {
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
 if (query.get('exp')) setExperiment(query.get('exp'));
-engine.postMessage({ type: 'init', seed, params: params() });
+engine.postMessage({ type: 'init', seed, level: LEVEL, params: params() });
 engineStarted = true;
 engine.postMessage({ type: 'play', playing });
 
-gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
+gpuDevice().then(device => createGlobe(els.gpu, grid, device)).then(g => {
   globe = g;
   season = new GpuSeason(g.device, grid, g.climBuffer);
-  wx = new GpuWeather(g.device, mesh, seed, g.refiner);
+  wx = new GpuWeather(g.device, grid, seed);
   if (view === 'weather') refreshWeather(true);
   if (surfaceMsg) uploadSurface(surfaceMsg);
   climateDirty = true;

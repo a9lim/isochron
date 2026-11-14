@@ -21,6 +21,8 @@
 
 const R_M = 6.371e6, OMEGA = 7.292e-5, RHO_W = 1025, RHO_A = 1.2, CD = 1.3e-3;
 
+import { restrict } from '../grid/transfer.js';
+
 export const OCEAN = {
   LAYER_CELLS: 2,     // the western boundary layer's width, in cells
   H_SURF: 400,        // m: the layer the surface currents fill
@@ -31,9 +33,15 @@ export const OCEAN = {
 };
 
 export class Ocean {
-  constructor(climate) {
+  /**
+   * On `grid` (the climate's coarse grid in the planet: the gyres need no finer
+   * cells, and there they cost a tenth as much), publishing ψ, the SST anomaly
+   * and the sea's mask on the climate's own grid in `fine`.
+   */
+  constructor(climate, grid = climate.grid) {
     this.climate = climate;
-    const g = this.grid = climate.grid, n = g.n;
+    const g = this.grid = grid, n = g.n;
+    this.coarse = grid !== climate.grid;
     this.psi = new Float64Array(n);       // m³/s
     this.sst = new Float32Array(n);       // the anomaly T′, K
     this.vel = new Float32Array(3 * n);   // surface current, m/s
@@ -50,20 +58,55 @@ export class Ocean {
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) this.dl[t] = -y * gw[3 * t] + x * gw[3 * t + 1];
     }
     this.eps = OCEAN.LAYER_CELLS * Math.sqrt(4 * Math.PI / n) / 2;
+    const fn = climate.grid.n;
+    this.fine = this.coarse ? { psi: new Float64Array(fn), sst: new Float32Array(fn), sea: new Uint8Array(fn) } : { psi: this.psi, sst: this.sst, sea: this.sea };
+    if (this.coarse) {
+      // Sweep orders on this grid (the climate's are for its own).
+      const lon = i => Math.atan2(pos[3 * i + 1], pos[3 * i]), lat = i => pos[3 * i + 2];
+      const idx = Array.from({ length: n }, (_, i) => i);
+      const byLon = idx.slice().sort((a, b) => lon(a) - lon(b)), byLat = idx.slice().sort((a, b) => lat(a) - lat(b));
+      this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
+      this.tauF = new Float64Array(3 * fn); this.landC = new Float64Array(n); this.comp = [new Float64Array(fn), new Float64Array(n)];
+    }
+  }
+
+  /** ψ, the anomaly and the sea on the climate's grid. */
+  publish() {
+    if (!this.coarse) return;
+    const c = this.climate, T = c.T, f = this.fine, fn = c.grid.n, nc = T.nc, par = T.par;
+    const up = (src, i) => i < nc ? src[i] : 0.5 * (src[par[2 * (i - nc)]] + src[par[2 * (i - nc) + 1]]);
+    for (let i = 0; i < fn; i++) {
+      const sea = c.landMask[i] ? 0 : 1;
+      f.sea[i] = sea;
+      f.psi[i] = sea ? up(this.psi, i) : 0;
+      f.sst[i] = sea ? up(this.sst, i) : 0;
+    }
   }
 
   /** Annual-mean wind stress and its curl, from the climate's last winds. */
   forcing() {
-    const c = this.climate, g = this.grid, n = g.n, W = c.windPhase, np = W.length;
-    for (let i = 0; i < n; i++) {
+    const c = this.climate, g = this.grid, n = g.n, W = c.windPhase, np = W.length, fn = c.grid.n;
+    // The stress on the climate's grid (it's nonlinear in the wind), then on this one.
+    const tf = this.coarse ? this.tauF : this.tau;
+    for (let i = 0; i < fn; i++) {
       let tx = 0, ty = 0, tz = 0;
       for (let p = 0; p < np; p++) {
         const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = Math.hypot(u, v, w);
         tx += RHO_A * CD * s * u; ty += RHO_A * CD * s * v; tz += RHO_A * CD * s * w;
       }
-      this.tau[3 * i] = tx / np; this.tau[3 * i + 1] = ty / np; this.tau[3 * i + 2] = tz / np;
-      this.sea[i] = c.landMask[i] ? 0 : 1;
+      tf[3 * i] = tx / np; tf[3 * i + 1] = ty / np; tf[3 * i + 2] = tz / np;
     }
+    if (this.coarse) {
+      const [a, b] = this.comp;
+      for (let k = 0; k < 3; k++) {
+        for (let i = 0; i < fn; i++) a[i] = tf[3 * i + k];
+        restrict(c.T, a, b);
+        for (let i = 0; i < n; i++) this.tau[3 * i + k] = b[i];
+      }
+      for (let i = 0; i < fn; i++) a[i] = c.landMask[i];
+      restrict(c.T, a, this.landC);
+      for (let i = 0; i < n; i++) this.sea[i] = this.landC[i] > 0.5 ? 0 : 1;
+    } else for (let i = 0; i < n; i++) this.sea[i] = c.landMask[i] ? 0 : 1;
     // Curl: circulation round each Voronoi cell over its area (corners are the faces' centres).
     const nbrOff = g.nbrOff, nbr = g.nbr, corner = g.corner, C = g.centre, tau = this.tau;
     for (let i = 0; i < n; i++) {
@@ -178,8 +221,8 @@ export class Ocean {
       up[i] = -OCEAN.UPWELL * Math.tanh(off);
     }
     // The steady anomaly, by sweeps (as the moisture's).
-    const T = c.Tf[0], Tp = this.sst, lam = 1 / OCEAN.RELAX, kap = OCEAN.KAPPA, Akm = R_M * R_M / 1e6;
-    const order = c.orders;
+    const T = this.coarse ? c.Tc[0] : c.Tf[0], Tp = this.sst, lam = 1 / OCEAN.RELAX, kap = OCEAN.KAPPA, Akm = R_M * R_M / 1e6;
+    const order = this.orders || c.orders;
     for (let sweep = 0; sweep < 12; sweep++) {
       const ord = order[sweep & 3];
       for (let k = 0; k < n; k++) {
@@ -217,5 +260,6 @@ export class Ocean {
       yield* this.gyres();
     }
     yield* this.temperature();
+    this.publish();
   }
 }

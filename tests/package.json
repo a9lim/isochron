@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Isochron's test dependencies: WebGPU in node (Dawn), so the GPU paths run headless. `npm install` here once.",
+  "devDependencies": {
+    "webgpu": "0.6.2"
+  }
+}

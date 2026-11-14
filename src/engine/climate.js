@@ -68,6 +68,8 @@ export const CLIMATE = {
   EVAP: 0.35,              // 1/day toward saturation at 7 m/s
   RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
   LAND_EVAP: 0.6,          // land's evaporation relative to the sea's, when wet
+  SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
+  GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
 };
 
 export const ZONES = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
@@ -209,6 +211,7 @@ export class Climate {
     const byLat = idx.slice().sort((a, b) => this.lat[a] - this.lat[b]);
     this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
     this.ice = null;     // src/engine/ice.js, when there is one
+    this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.warm = false;
     this.it = null;
@@ -393,7 +396,9 @@ export class Climate {
     restrict(this.T, anom, c5);
     {
       const cg = this.coarse, w = this.ws.w;
-      for (let pass = 0; pass < 6; pass++) {
+      // Six passes on level 5's cells (the scale the template was tuned at), more on finer.
+      const passes = Math.round(6 * this.coarse.n / 10242);
+      for (let pass = 0; pass < passes; pass++) {
         for (let I = 0; I < cg.n; I++) {
           let s = 0, ws = 0;
           for (let t = cg.nbrOff[I], e = cg.nbrOff[I + 1]; t < e; t++) { s += w[t] * c5[cg.nbr[t]]; ws += w[t]; }
@@ -456,7 +461,7 @@ export class Climate {
     const areaKm = R_KM * R_KM;
     for (let i = 0; i < n; i++) {
       const land = this.landMask[i];
-      const Ts = land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, T[i] + (this.ocean ? this.ocean.sst[i] : 0));
+      const Ts = land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, T[i] + (this.ocean ? this.ocean.fine.sst[i] : 0));
       Ws[i] = wsat(Ts);
       const speed = Math.hypot(wind[3 * i], wind[3 * i + 1], wind[3 * i + 2]);
       const lift = wind[3 * i] * this.upz[3 * i] + wind[3 * i + 1] * this.upz[3 * i + 1] + wind[3 * i + 2] * this.upz[3 * i + 2];
@@ -470,9 +475,28 @@ export class Climate {
       ec[i] = e;
       A[i] = g.area[i] * areaKm;
     }
-    // Sweeps. Each cell solves a W + A P(W) = b, P convex in W, by Newton from its last value.
-    const sweeps = this.warm ? 6 : 24, ca = C.CONV_A, cr = C.CONV_R0, kap = C.KAPPA_W;
-    for (let s = 0; s < sweeps; s++) {
+    // Each cell solves a W + A P(W) = b, P convex in W, by Newton from its last value.
+    const sweeps = this.warm ? C.SWEEPS : 4 * C.SWEEPS, ca = C.CONV_A, cr = C.CONV_R0, kap = C.KAPPA_W;
+    if (this.gpu) {
+      // On the GPU (src/gpu/moisture.js): every cell at once, many times (the page's engine).
+      const co = this.gpuCo || (this.gpuCo = new Float32Array(16 * n)), cin = new Float64Array(6);
+      for (let i = 0; i < n; i++) {
+        let a = 0;
+        cin.fill(0);
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+          const k = t - nbrOff[i], L = ell[t] * R_KM * toKmDay, u = un[t], kd = kap * ell[t] / dist[t];
+          if (u > 0) a += u * L; else cin[k] -= u * L;
+          a += kd; cin[k] += kd;
+        }
+        const Ai = A[i], ws = Ws[i], o = 16 * i;
+        a += Ai * (lam[i] + ec[i]);
+        co[o] = cin[0]; co[o + 1] = cin[1]; co[o + 2] = cin[2]; co[o + 3] = cin[3];
+        co[o + 4] = cin[4]; co[o + 5] = cin[5]; co[o + 6] = a; co[o + 7] = Ai * ec[i] * ws;
+        co[o + 8] = Ai * ws / 60 * Math.exp(-ca * cr); co[o + 9] = ca / ws; co[o + 10] = lam[i]; co[o + 11] = ws;
+        co[o + 12] = Ai; co[o + 13] = Ai * pmax; co[o + 14] = 0; co[o + 15] = 0;
+      }
+      yield this.gpu.solve(co, W, this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, ca, cr, pmax);
+    } else for (let s = 0; s < sweeps; s++) {
       const ord = this.orders[s & 3];
       for (let k = 0; k < n; k++) {
         const i = ord[k];
@@ -630,6 +654,14 @@ export class Climate {
       if (r.done) { this.it = null; done = true; if (this.idle) break; }
     }
     return done;
+  }
+
+  /** Run whole cycles, awaiting the GPU's work where the climate has it (`gpu`). */
+  async solveAsync(cycles = 1) {
+    for (let c = 0; c < cycles; c++) {
+      const it = this.cycle();
+      for (let r = it.next(); !r.done; r = it.next()) if (r.value && r.value.then) await r.value;
+    }
   }
 
   /** Headless: run whole cycles. */

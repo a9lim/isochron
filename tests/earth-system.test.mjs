@@ -31,13 +31,13 @@ test("ice: a cap under uniform snowfall on a flat bed settles to Vialov's profil
 
 test('carbon: with the climate fixed, CO₂ settles where weathering meets outgassing', () => {
   const g = buildGrid(2);
-  const tec = { grid: g, t: 0, t0: 40, counters: { made: 40 * CARBON.RIDGE_REF * g.n / 40962, consumed: 40 * CARBON.ARC_REF * g.n / 40962 } };
+  const tec = { grid: g, t: 0, t0: 40, counters: { opened: 40 * CARBON.RIDGE_REF * g.n / 40962, closed: 40 * CARBON.ARC_REF * g.n / 40962 } };
   const climate = { co2Seen: 280 };
   const c = new Carbon(tec, null, climate);
   c.wF = c.wF0 = 1; c.wCO2 = 280;
   for (const out of [0.5, 1, 2]) {
     CARBON.OUTGAS = out;
-    for (let k = 0; k < 400; k++) { tec.t += 0.01; tec.counters.made += 0.01 * CARBON.RIDGE_REF * g.n / 40962; tec.counters.consumed += 0.01 * CARBON.ARC_REF * g.n / 40962; c.step(1e4); }
+    for (let k = 0; k < 400; k++) { tec.t += 0.01; tec.counters.opened += 0.01 * CARBON.RIDGE_REF * g.n / 40962; tec.counters.closed += 0.01 * CARBON.ARC_REF * g.n / 40962; c.step(1e4); }
     const want = c.equilibrium(c.flux.out);
     assert.ok(Math.abs(c.pco2 / want - 1) < 0.01, `outgassing ×${out}: ${c.pco2.toFixed(1)} ppm vs ${want.toFixed(1)}`);
     assert.ok(Math.abs(c.flux.out - c.flux.weather) / c.flux.out < 0.01, 'fluxes balance');

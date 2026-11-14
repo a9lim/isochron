@@ -54,7 +54,7 @@ export class Carbon {
     this.ridge0 = tec.spinRate ? Math.max(1, tec.spinRate.made) : CARBON.RIDGE_REF * scale;
     this.arc0 = tec.spinRate ? Math.max(1, tec.spinRate.consumed) : CARBON.ARC_REF * scale;
     this.ridge = this.ridge0; this.arc = this.arc0;
-    this.lastMade = tec.counters.made; this.lastConsumed = tec.counters.consumed; this.lastT = tec.t;
+    this.lastMade = tec.counters.opened; this.lastConsumed = tec.counters.closed; this.lastT = tec.t;
     this.wF = 0; this.wF0 = 0; this.wCO2 = this.pco2;   // the climate's weathering factor, at genesis, and the pCO₂ it saw
     this.flux = { out: CARBON.V0, weather: CARBON.V0, lip: 0, burial: 0, oxid: 0 };   // Pg C/yr
     this.sed0 = 0; this.ero0 = 0;    // the landscape's fluxes at the opening (km³/yr)
@@ -87,10 +87,10 @@ export class Carbon {
     // Plate activity: smoothed rates of crust made and consumed.
     const dT = tec.t - this.lastT;
     if (dT > 0) {
-      const made = (tec.counters.made - this.lastMade) / dT, cons = (tec.counters.consumed - this.lastConsumed) / dT;
+      const made = (tec.counters.opened - this.lastMade) / dT, cons = (tec.counters.closed - this.lastConsumed) / dT;
       const k = 1 - Math.exp(-dT / 5);
       this.ridge += (made - this.ridge) * k; this.arc += (cons - this.arc) * k;
-      this.lastMade = tec.counters.made; this.lastConsumed = tec.counters.consumed; this.lastT = tec.t;
+      this.lastMade = tec.counters.opened; this.lastConsumed = tec.counters.closed; this.lastT = tec.t;
     }
     if (CARBON.FIXED > 0) {
       this.pco2 = CARBON.FIXED; this.R = CARBON.R0 * Math.pow(this.pco2 / CARBON.PCO2_0, 1 / CARBON.BUFFER);

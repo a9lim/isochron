@@ -183,12 +183,12 @@ export function genesis(tec, seed, opts = {}) {
   const spin = opts.spinup ?? 0;
   let m0 = 0, c0 = 0, tm = 0;
   for (let t = 0; t < spin; t += 1) {
-    if (t === Math.max(0, spin - 10)) { m0 = tec.counters.made; c0 = tec.counters.consumed; tm = tec.t; }
+    if (t === Math.max(0, spin - 10)) { m0 = tec.counters.opened; c0 = tec.counters.closed; tm = tec.t; }
     tec.step(1);
     if (opts.landscape) opts.landscape.step(1e6);
   }
-  // The plates' activity at the end of the spin-up (crust made and consumed per Myr): the carbon cycle's reference.
-  if (spin > 0) tec.spinRate = { made: (tec.counters.made - m0) / (tec.t - tm), consumed: (tec.counters.consumed - c0) / (tec.t - tm) };
+  // The plates' activity at the end of the spin-up (crust opened and closed per Myr, by their motion): the carbon cycle's reference.
+  if (spin > 0) tec.spinRate = { made: (tec.counters.opened - m0) / (tec.t - tm), consumed: (tec.counters.closed - c0) / (tec.t - tm) };
   if (spin > 0) {
     tec.water = waterForLand(g, tec.elev, landFraction);
     tec.updateElevation();

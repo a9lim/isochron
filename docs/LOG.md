@@ -152,6 +152,19 @@ a9: "yes please! let's try it"; the GPU is shared, so timings run high; the budg
 - **The chart is traced at level 6** from the weather restricted (full weighting): tracing at level 7 cost ~650 ms a chart against ~100. Highs and lows need only 1 hPa against their 440 km surroundings: the 55 km storms (restricted) are broad, and 3 hPa found none.
 - Cost: ~0.55 ms of GPU a step by timestamps (wall ~1.5 ms while the GPU is shared), ~240 ms a model day; 12 ms of each frame keeps it live to ~3 days/s.
 
+## The engine at level 7 (2026-11-15, night)
+
+a9: "the sim in the test server seems to not be working (blank screen)… let's fix it, then let's port as much as possible to the GPU, and move the engine to lvl 7"; then a Fable subagent paints the card, and deploy.
+- **The blank globe** was the loop dying on its first frame: a frame stamped before the clock started gave a negative frame time, the scheduler planned −1 steps, `Array(−1)` threw, and the next frame was never requested. Frame time is clamped at zero and the next frame is requested first.
+- **The engine at level 7.** Per-cell parameters scale with the cell (arc crust per consumed cell × res; merge events ÷ res²; margin cells ÷ res; rivers' minimum length and boundaries' smoothing passes with the cells along a line; the template's anomaly smoothing with the coarse grid's cells). Costs (node): a plate step 43 ms, the landscape 40, the surface's preparation 28, a warm climate cycle 870 → ~700 after the ports below, boot 4 s.
+- **Backpressure**: plate steps no shorter than the engine keeps up with, and the clock holds while two steps are outstanding.
+- **Ice on the GPU** (25× dearer on the CPU at level 7: the explicit step shrinks with the cell's area). The step size comes from an atomic maximum on the GPU. Matches the CPU's Vialov cap within 2%.
+- **Moisture on the GPU** by Jacobi passes. 160 passes converge (0.1% from 1,600); the CPU's 6 warm Gauss–Seidel sweeps stop ~4% of the rain short of that balance (60 sweeps match it to 0.1%).
+- **The ocean on the coarse grid** (1.1 s a solve at level 7, ~0.1 s at level 6).
+- **WebGPU in node** (`webgpu` on npm, Dawn's bindings, under `tests/`): GPU paths tested headless against the CPU references, which stay for the tools.
+- **Outgassing from the plates' motion**, not gap cells: gap cells counted the grid's rounding (313/Myr at 0.5 Myr steps, 548 at 0.05; the kinematic measure 365 and 347).
+- **Open, the top item:** the plates speed up for ~20 Myr after the spin-up at every level (×1.7 at level 6, ×2.5 at level 7), so at level 7 the sea rises ~210 m and CO₂ climbs to ~800 ppm within 12 Myr. Two biases used to hide it. A reference that followed the plates over 20 Myr only partly helped, so it's out. Needs a settled spin-up or `PARAMS` at level 7.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

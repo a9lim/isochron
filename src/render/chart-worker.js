@@ -25,7 +25,9 @@ self.onmessage = e => {
   if (m.type === 'reset') { state = {}; return; }
   let { psi2, theta, qv } = m;
   if (T) { psi2 = restrict(T, psi2, new Float64Array(g.n)); theta = restrict(T, theta, new Float64Array(g.n)); qv = restrict(T, qv, new Float64Array(g.n)); }
-  const { pres, land, t } = m, n = g.n, { nbrOff, nbr, ell, dist, gw, pos, area } = g;
+  let { pres, land } = m;
+  if (T) { pres = restrict(T, pres, new Float64Array(g.n)); land = restrict(T, land, new Float64Array(g.n)); }
+  const { t } = m, n = g.n, { nbrOff, nbr, ell, dist, gw, pos, area } = g;
   const zs = new Float64Array(NB), za = new Float64Array(NB);
   let maxWind = 0;
   for (let i = 0; i < n; i++) {

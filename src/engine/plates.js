@@ -30,20 +30,20 @@ const CONTINENTAL = 0.5;          // felsic fraction above which crust is contin
 const H_MAX = 72;                 // km, crust thicker than this spreads (orogenic collapse)
 /** Tunable constants; tools and tests may change them. */
 export const PARAMS = {
-  ARC_DH: 0.35,  // km of arc crust per cell of ocean consumed
+  ARC_DH: 0.35,  // km of arc crust per cell of ocean consumed (at level 6; × the cell's size elsewhere)
   ARC_DPHI: 0.03,
   CLOSING: 0.3,  // share of the relative motion that must close for an overlap to consume
   COLLIDE_FRAC: 0.6,  // share of a consumed continent's crust that stacks
   ARC_TAU: 5,  // Myr, arc volcanism after subduction stops
   SLAB_TAU: 4,  // Myr, a slab's pull where subduction has stopped (or the trench has moved on)
   SLAB_MAX: 0.11,  // rad, ~700 km of slab: the pull saturates
-  MERGE_EVENTS: 150,  // collision events (decaying over MERGE_TAU) that weld two plates
+  MERGE_EVENTS: 150,  // collision events (decaying over MERGE_TAU) that weld two plates (at level 6; per area elsewhere)
   MERGE_TAU: 20,
   K_COLLIDE: 0.03,  // resistance of a collision front, per cell, against convergence
   COLLIDE_TAU: 8,  // Myr
   K_SLAB: 0.005,  // slab pull per cell of trench
   FOUNDER_AGE: 140,  // Myr: seafloor this old at a plate's edge, or at its own continent's margin, begins to sink
-  INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active
+  INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active (at level 6; per length elsewhere)
   INITIATE_GAP: 20,  // Myr between initiations anywhere on the planet
   K_RIDGE: 6e-4,  // ridge push per unit area and subsidence gradient
   KEEL: 2,  // extra drag of continental crust
@@ -113,6 +113,9 @@ export class Tectonics {
   constructor(grid) {
     const n = grid.n;
     this.grid = grid;
+    // The cell's size against level 6's, where PARAMS were tuned: counts of cells along a line
+    // scale as 1/res, counts over an area as 1/res², and what a cell adds to its neighbour as res.
+    this.res = Math.sqrt(40962 / n);
     this.t = 0;
     this.plates = [];
     this.owner = new Int16Array(n);
@@ -147,7 +150,7 @@ export class Tectonics {
     this.grad = new Float64Array(3 * n);
     this.rng = null;
     this.noise = null;
-    this.counters = { made: 0, consumed: 0, collided: 0, merges: 0, rifts: 0 };
+    this.counters = { made: 0, consumed: 0, collided: 0, merges: 0, rifts: 0, opened: 0, closed: 0 };
   }
 
   alivePlates() { return this.plates.filter(p => p.alive); }
@@ -176,6 +179,34 @@ export class Tectonics {
     const p = this.plates[k];
     if (p.phi[j] >= CONTINENTAL) return 2 + 0.001 * p.h[j];
     return 1 - (this.t - p.tf[j]) / 400;
+  }
+
+  /**
+   * Crust opened at ridges and ocean closed at trenches over dt, in cells, from
+   * the plates' motion across each boundary (∫ max(0, ±v·n̂) dℓ dt). Counting the
+   * cells that gaps and overlaps make instead also counts the grid's rounding,
+   * a few cells along every boundary each step whatever its length, so the rate
+   * read would grow as the steps shrink; the carbon cycle's outgassing reads this.
+   */
+  kinematics(dt) {
+    const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, tan = g.tan, ell = g.ell, owner = this.owner, plates = this.plates;
+    let open = 0, close = 0;
+    for (let i = 0; i < n; i++) {
+      const a = owner[i];
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+        const j = nbr[t], b = owner[j];
+        if (j < i || b === a) continue;
+        // The relative velocity at the edge (ω_b − ω_a) × r, along the normal from i to j.
+        const wa = plates[a].w, wb = plates[b].w, dx = wb[0] - wa[0], dy = wb[1] - wa[1], dz = wb[2] - wa[2];
+        const x = 0.5 * (pos[3 * i] + pos[3 * j]), y = 0.5 * (pos[3 * i + 1] + pos[3 * j + 1]), z = 0.5 * (pos[3 * i + 2] + pos[3 * j + 2]);
+        const vn = (dy * z - dz * y) * tan[3 * t] + (dz * x - dx * z) * tan[3 * t + 1] + (dx * y - dy * x) * tan[3 * t + 2];
+        if (vn > 0) open += vn * ell[t];
+        else if (this.phi[i] < CONTINENTAL || this.phi[j] < CONTINENTAL) close -= vn * ell[t];
+      }
+    }
+    const cell = 4 * Math.PI / n;
+    this.counters.opened += open * dt / cell;
+    this.counters.closed += close * dt / cell;
   }
 
   step(dt) {
@@ -293,8 +324,8 @@ export class Tectonics {
             this.slabAge[i] = Math.max(0, this.t - Q.tf[j]);
             if (r > 0) { this.slabDir[3 * i] = dx / r; this.slabDir[3 * i + 1] = dy / r; this.slabDir[3 * i + 2] = dz / r; }
             // The arc on the plate above.
-            P.h[jt] = Math.min(H_MAX, P.h[jt] + PARAMS.ARC_DH);
-            P.phi[jt] = Math.min(1, P.phi[jt] + PARAMS.ARC_DPHI);
+            P.h[jt] = Math.min(H_MAX, P.h[jt] + PARAMS.ARC_DH * this.res);
+            P.phi[jt] = Math.min(1, P.phi[jt] + PARAMS.ARC_DPHI * this.res);
             this.arc[i] += 1;
             this.counters.consumed++;
           }
@@ -318,6 +349,7 @@ export class Tectonics {
     const km = Math.exp(-dt / PARAMS.MERGE_TAU);
     for (const [key, v] of this.pairs) { const nv = v * km; if (nv < 0.5) this.pairs.delete(key); else this.pairs.set(key, nv); }
 
+    this.kinematics(dt);
     this.t = t1;
     this.updateElevation();
     this.exchangeWater(dt);
@@ -506,7 +538,7 @@ export class Tectonics {
       if (into >= 0 && this.plates[into].alive) this.merge(into, p.index);
     }
     for (const [key, v] of this.pairs) {
-      if (v < PARAMS.MERGE_EVENTS) continue;
+      if (v < PARAMS.MERGE_EVENTS / (this.res * this.res)) continue;
       const a = Math.floor(key / MAX_PLATES), b = key % MAX_PLATES;
       this.pairs.delete(key);
       const A = this.plates[a], B = this.plates[b];
@@ -576,7 +608,7 @@ export class Tectonics {
       }
     }
     let bestK = -1, best = null;
-    for (const [k, cells] of margin) if (cells.length >= PARAMS.INITIATE_CELLS && (!best || cells.length > best.length)) { bestK = k; best = cells; }
+    for (const [k, cells] of margin) if (cells.length >= PARAMS.INITIATE_CELLS / this.res && (!best || cells.length > best.length)) { bestK = k; best = cells; }
     if (bestK < 0) return;
     const A = this.plates[bestK];
     const B = this.allocPlate();

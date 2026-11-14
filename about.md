@@ -63,7 +63,7 @@ The winds drive the ocean's surface into great gyres. In the open ocean the wate
 
 Slowed to days a second, the weather runs live: two layers of air, each turning with the planet, whose difference is the temperature contrast between the equator and the poles. The contrast is unstable: it breaks into cyclones and anticyclones that carry heat poleward, and the storms stretch the surface temperature into fronts. Warm sea air carries moisture that rains out as it rises and cools; where dry air from a high desert meets moist air from a warm sea, a dry line forms. Faster than the weather can run, the chart blurs into the climate's mean pressure and rain, which is what weather averages to.
 
-The weather is computed on the graphics card, on cells about 55 km across, a step every three minutes and twenty seconds, finer than the rest of the planet's 110 km cells. Each step finds the air's flow from its spin by multigrid, solving on the grid and on coarser copies of it at once. The rest of the planet runs on a separate thread, so the globe stays smooth while the plates and the climate work, and its fields are drawn on the finer cells, smoothed so that coasts, ice and lakes are curves.
+The planet is computed on cells about 55 km across, 163,842 of them. The weather runs on the graphics card, a step every three minutes and twenty seconds; each step finds the air's flow from its spin by multigrid, solving on the grid and on coarser copies of it at once. The ice sheets and the climate's moisture also run on the graphics card, and the rest of the planet on a separate thread, so the globe stays smooth while the plates and the climate work.
 
 ## Climate zones
 

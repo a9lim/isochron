@@ -77,8 +77,9 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
     line.plate = land.tec.owner[c.cells[0]];
     out[k] = line;
   }
-  // Short streams on wet coasts are dropped: a river is three cells, or a large one.
-  return out.filter((l, k) => l && (chains[k].cells.length >= 3 || chains[k].q > 4 * qmin));
+  // Short streams on wet coasts are dropped: a river is three cells long at level 6, or a large one.
+  const minCells = Math.round(3 * Math.sqrt(n / 40962));   // ~330 km at any level
+  return out.filter((l, k) => l && (chains[k].cells.length >= minCells || chains[k].q > 4 * qmin));
 }
 
 function smooth(line, passes) {

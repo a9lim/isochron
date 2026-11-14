@@ -182,20 +182,28 @@ export class Ice {
     return done;
   }
 
-  /** Push the ice's load and volume to the crust and the sea, and flow for drawing. */
+  /** Flow for drawing, then the load and water to the crust and the sea. */
   sync() {
-    const tec = this.tec, g = this.grid, n = g.n, H = this.H;
-    let vol = 0, area = 0;
-    if (!tec.load) tec.load = new Float32Array(n);
+    const n = this.grid.n, H = this.H;
     for (let i = 0; i < n; i++) {
-      tec.load[i] = this.w[i] / 1000;
-      if (H[i] > 0) { vol += H[i] * this.areaM[i]; area += this.areaM[i]; }
       const o = 4 * i;
       if (H[i] > 0 && this.D[i] > 0) {
         const gx = this.gradS[3 * i], gy = this.gradS[3 * i + 1], gz = this.gradS[3 * i + 2], gm = Math.hypot(gx, gy, gz) || 1;
         this.vel[o] = -gx / gm; this.vel[o + 1] = -gy / gm; this.vel[o + 2] = -gz / gm;
         this.vel[o + 3] = this.D[i] * gm / H[i];          // depth-mean speed, m/yr
       } else { this.vel[o] = this.vel[o + 1] = this.vel[o + 2] = this.vel[o + 3] = 0; }
+    }
+    this.publish();
+  }
+
+  /** Push the ice's load and volume to the crust and the sea (also after the GPU's steps, src/gpu/ice.js). */
+  publish() {
+    const tec = this.tec, n = this.grid.n, H = this.H;
+    let vol = 0, area = 0;
+    if (!tec.load) tec.load = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      tec.load[i] = this.w[i] / 1000;
+      if (H[i] > 0) { vol += H[i] * this.areaM[i]; area += this.areaM[i]; }
     }
     // Water held as ice, in the sea level's units (km of depth × steradians).
     tec.iceWater = vol * ICE.RHO_I / ICE.RHO_W / 1000 / (R_M * R_M);
