@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Isochron — Planet Simulator | a9l.im</title>
+  <meta name="description" content="Run an Earth-like planet from plate tectonics to weather on one globe: seafloor spreading, subduction, collision and the magnetic stripes they leave.">
+  <meta name="robots" content="noindex">
+  <meta name="author" content="a9lim">
+  <link rel="icon" href="/favicon.ico">
+  <meta name="theme-color" content="#FCFCFB">
+  <link rel="stylesheet" href="/fonts/fonts.css">
+  <link rel="stylesheet" href="/shared/base.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="/shared/tokens.js"></script>
+  <script defer src="/shared/touch.js"></script>
+  <script defer src="/shared/utils.js"></script>
+  <script defer src="/shared/haptics.js"></script>
+  <script defer src="/shared/shortcuts.js"></script>
+  <script defer src="/shared/about.js"></script>
+  <script defer src="/shared/icons.js"></script>
+  <script defer src="/shared/colophon.js"></script>
+  <script defer src="colors.js"></script>
+  <script type="module" src="main.js"></script>
+</head>
+
+<body class="sim-body">
+  <header class="colophon">
+    <a class="colophon-seal" href="/" title="a9l.im" data-icon="seal" data-icon-size="24"></a>
+    <h1 class="colophon-name">Isochron</h1>
+    <div class="colophon-tools" role="toolbar" aria-label="Simulation">
+      <button id="play-btn" class="colophon-btn" data-colophon="play"></button>
+      <button id="step-btn" class="colophon-btn" data-colophon="step" data-icon="step"></button>
+      <button id="theme-btn" class="colophon-btn" data-colophon="theme" data-icon="theme"></button>
+      <button id="about-btn" class="colophon-btn" data-colophon="help" data-icon="about"></button>
+    </div>
+  </header>
+
+  <main class="planet">
+    <figure class="globe">
+      <div class="globe-stage">
+        <canvas id="globe-gpu" aria-hidden="true"></canvas>
+        <canvas id="globe-overlay" class="cursor-grab" aria-label="A physiographic globe of an Earth-like planet: relief on land and sea, plate boundaries, and the magnetic stripes of the seafloor"></canvas>
+        <p id="globe-nogpu" class="globe-notice" role="status" hidden>This globe needs WebGPU.</p>
+      </div>
+      <figcaption class="figure-bar">
+        <p class="caption globe-caption"><span class="caption-n">Fig. 1.</span> <span id="globe-caption"></span></p>
+        <label class="dial">
+          <span class="dial-label">Rate</span>
+          <input id="dial" type="range" min="4" max="7" step="0.05" value="6" aria-label="Simulated time per second, on a logarithmic scale">
+          <output id="dial-out" for="dial">1 Myr/s</output>
+        </label>
+      </figcaption>
+    </figure>
+  </main>
+</body>
+
+</html>
