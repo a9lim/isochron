@@ -8,7 +8,7 @@ Claims carry one of three marks: **standard** (textbook geoscience), **synthesis
 
 ## Status
 
-2026-11-14: phases 1 and 2 are built (`AGENTS.md` describes them): plates, isostasy and sea level, the polarity record, the landscape, the seasonal EBM, the circulation template, moisture and rain, the soft zones, the Relief and Climate views, and the margin's figures (zonal means, hypsometry, polarity). Open from phase 1: tuning `PARAMS` across seeds, hotspots and large igneous provinces, the worker, level 7. Figures are numbered by their order on the page (the globe is Fig. 1), not by the list below.
+2026-11-15: phases 1–4 are built and phase 5 in part (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). Open: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm), the worker and level 7, the Storm track, Spin, Tilt and Supercontinent experiments, Japanese, the social card and registration. Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
 
 ## Decisions
 

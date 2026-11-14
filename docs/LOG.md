@@ -76,11 +76,28 @@ Phase 4:
 - **Isobars at whole hPa**, so a flat field doesn't sit on a contour; the drawn pressure is smoothed three passes.
 - **Fronts by Hewson's TFP with percentile thresholds** (upper quarter of |∇θ| at mid-latitudes), chains of at least five segments.
 
+Phase 5:
+- **Not registered on the site.** The build throws unless a registered project's `index.html` names `/<slug>/og-image.webp?v=…` (`tools/build.mjs`, `og:image`), and a9 kept the social card for their own session; registering without it would break `npm test`. The checklist is below, for doing both together.
+- **No Japanese yet.** Every caption, label and the about text would need a translation pass and an `i18n/strings.js`; that's a session of its own, and better done once the English settles after a9's review.
+- **Fig. 7 is drawn from the code's actual couplings.** The weather's feedback to the climate (running means) isn't built, so the diagram has no arrow for it rather than imply one.
+- **Five margin tabs** (Experiments, Record, Climate, Crust, Model); the margin is 372 px, as Miasma's.
+
+## Registering on the site
+
+When the social card is made (a9's session):
+1. Paint the card: `tools/og/paint/isochron.py` and `tools/og/isochron.html`, then `node generate.js isochron` writes `projects/isochron/og-image.webp`. Its red is the mantle at the surface (ridges, arcs, hotspots).
+2. `projects/isochron/index.html`: the canonical link, `og:*` and `twitter:*` tags with `og-image.webp?v=1`, and JSON-LD blocks like Miasma's (`WebApplication`, breadcrumbs); drop `noindex`. Any `isBasedOn` or educational reference gets checked against its live source first.
+3. `content/projects/isochron.md` and `isochron.ja.md` (title Isochron, href /isochron, an order among the sims, `external: false`, an emoji, `seoName: Isochron — Planet Simulator`, 2–4 tags from the existing vocabulary).
+4. Add `'isochron'` to `PROJECTS` in `tools/stage-assets.mjs` and `tools/subset-fonts.mjs`.
+5. `static/_headers`: a `/isochron/*` preload stanza and the `/isochron/*.js` and `*.css` edge-cache rules, as for the others (mind the 100-rule limit).
+6. `npm test` in the parent; then deploy when a9 says.
+
 Open from phase 2: mean ocean depth is 5.3 km (Earth 3.7) because isostasy ignores the water's load and lithospheric roots; D climates are short (14–18% of land against Earth's ~25%); a climate cycle costs ~190 ms warm, spread over frames.
 
 ## Progress
 
 - 2026-11-14, before the run: phase 1 is built (see `AGENTS.md`). The repo is github.com/a9lim/isochron, a submodule of the parent (parent b073e84). It isn't registered on the site.
 - Phase 2 built: landscape, climate engine, Relief and Climate views, the margin's figures, the season at slow dial. Verified in the browser (light, dark, phone); 34 tests pass.
-- Phase 4 built: ocean gyres and SST, the QG weather and the synoptic chart, the dial to 2.8 h/s. Verified in the browser (a chart with lows, highs, fronts and a dry line); 39 tests pass, including Sverdrup and Phillips.
+- Phase 5 in part: Fig. 7 (the model diagram with live fluxes). Not registered (needs the card), no Japanese. 38 tests pass.
+- Phase 4 built: ocean gyres and SST, the QG weather and the synoptic chart, the dial to 2.8 h/s. Verified in the browser (a chart with lows, highs, fronts and a dry line); 38 tests pass, including Sverdrup and Phillips.
 - Phase 3 built: orbit cycles, ice sheets, carbon thermostat, hotspots and provinces, the record and orbit figures, the five experiments. Verified in the browser (Snowball freezes at 88% sunlight; Ice ages and the record run); 36 tests pass, including Vialov's ice cap and the thermostat's balance.

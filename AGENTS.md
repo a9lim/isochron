@@ -2,24 +2,25 @@
 
 An Earth-like planet on one globe, from plate tectonics down to weather, with every layer coupled to the others. `docs/PLAN.md` is the plan of record: the thesis (one planet, one state, one dial), the nine layers, their couplings, the scene, the figures, the experiments and the phases. This file describes the code as it is.
 
-It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron). It isn't registered on the site yet: the stager's and font subsetter's project lists, `content/projects/` and `_headers` don't name it, so no build stages it. The parent's dev server serves it. The root `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build.
+It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron). It isn't registered on the site yet (the build requires a social card for a registered project; `docs/LOG.md` has the checklist), so no build stages it. The parent's dev server serves it. The root `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build.
 
 ## Status
 
-Phases 1 (the tectonic globe), 2 (surface and climate), 3 (ice and carbon) and 4 (ocean and weather) are built, apart from the items below.
+Phases 1 (the tectonic globe), 2 (surface and climate), 3 (ice and carbon) and 4 (ocean and weather) are built, and phase 5 (the harmony) in part, apart from the items below.
 
 - **Phase 1:** the grid, the clock and scheduler, plates with exact rigid motion, gaps and overlaps, slabs and arcs, collisions and merges, rifting, passive-margin subduction initiation, boundary relaxation, the torque balance, isostasy, solved sea level, the polarity record, and the WebGPU globe with stripes, ridge axes, hillshade, coastline and contours. Plate boundaries are traced into smooth, classified lines and drawn in tectonic-map symbols.
 - **Phase 2:** the landscape (routing, stream power, sediment, crustal diffusion), the seasonal energy-balance model, the circulation template, moisture and rain, the soft Köppen zones, the Climate view, the margin's figures (zonal means, hypsometry, polarity) and the zones' key. The dial runs from 1 yr/s to 10 Myr/s; below a few years a second the globe shows the season.
 - **Phase 3:** the orbit's seeded cycles (averaged over what the dial passes in ~2 s), ice sheets (shallow ice, degree-day mass balance, the bed's load, the sea's loss), the carbon thermostat, hotspots and large igneous provinces (with rifting through a plume head), Figs. 2 (the record) and 3 (the orbit), and the Experiments tab: Earth-like, Snowball, Ice ages, High stand, Thermostat, each with one knob in the figure bar and its number in the caption.
 - **Phase 4:** the wind-driven ocean (Stommel's gyres, surface currents, SST anomalies with upwelling) feeding evaporation and rain; the two-layer QG weather on the 220 km grid with surface temperature and moisture tracers; the Weather view as a synoptic chart (isobars, rain stipple, fronts, dry lines, highs and lows), crossfading to the climate's mean chart when the dial outruns it. The dial reaches 2.8 h/s.
-- **Not built:** the engine in a worker, level 7; the Storm track and Spin experiments; phase 5 (Fig. 7, Japanese, registration).
+- **Phase 5:** Fig. 7, the model diagram, on its own margin tab: every layer a node with its live value, every coupling the code has an arrow weighted by its flux (the weather's feedback to the climate isn't built, so it has no arrow).
+- **Not built:** the engine in a worker, level 7; the Storm track, Spin, Tilt and Supercontinent experiments; Japanese; the social card and registration on the site (they go together: see `docs/LOG.md`, "Registering on the site").
 
 ## Running and checking
 
 Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet. `window.__isochron` exposes `{ grid, tec, polarity, camera, scheduler, setPlaying }`.
 
 ```bash
-node --test tests/                       # grid, clock, plates, landscape, climate, ice, carbon, ocean, weather (39 checks)
+node --test tests/                       # grid, clock, plates, landscape, climate, ice, carbon, ocean, weather (38 checks)
 node tools/planet-run.mjs earthlike 600 1000 10 '{"CARBON":{"FIXED":220}}'   # the coupled planet: 600 kyr of ice ages
 node tools/ice-check.mjs earthlike 80     # ice grown under the climate and orbit
 node tools/survey.mjs '{}' 600 b         # 300 Myr of plates and landscape: continents, land, sea level, erosion, speeds
