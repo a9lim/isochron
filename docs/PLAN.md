@@ -2,13 +2,13 @@
 
 *Isochron* is a line joining rock of the same age, which fits the seafloor stripes and the dial (name chosen 2026-11-14).
 
-This is a fifth sim for a9l.im: an Earth-like planet on one globe, from plate tectonics down to weather, with every layer coupled to the others. It was proposed on 2026-11-13, and a9 set its scope that day (see Decisions). This file is the plan of record. Once the project has an `AGENTS.md` describing what is built, this file keeps only what isn't built yet, as Worldline's and Miasma's roadmaps do.
+This is a fifth sim for a9l.im: an Earth-like planet on one globe, from plate tectonics down to weather, with every layer coupled to the others. It was proposed on 2026-11-13, and a9 set its scope that day (see Decisions). This file is the plan of record: the thesis, the decisions and the design, and the Roadmap of what comes next (phases 6–10). `AGENTS.md` describes the code as built.
 
 Claims carry one of three marks: **standard** (textbook geoscience), **synthesis** (a combination made for this sim) or **speculation** (a bet the build has to test). The model lineages named here come from memory. Before any of them reaches `about.md`, JSON-LD or an educational section, check it against Crossref or its live source (root `AGENTS.md`, "References and prose").
 
 ## Status
 
-2026-11-15: phases 1–4 are built and phase 5 in part (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). Open: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm), the Storm track, Spin, Tilt and Supercontinent experiments. The site registration and social card are done. Ideas for what comes after the plan are in `docs/IDEAS.md`, unratified. No Japanese (a9, 2026-11-15). Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
+2026-11-14: phases 1–4 are built, phase 5 in part, and the tides and the Moon (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). The site registration and social card are done. Next is the Roadmap (phases 6–10, ratified 2026-11-14). Still open from phases 1–5: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm) and the Storm track, Spin, Tilt and Supercontinent experiments. No Japanese (a9, 2026-11-15). Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
 
 ## Decisions
 
@@ -28,6 +28,13 @@ From a9, 2026-11-14:
 - The page opens at plate speed, with the continents visibly moving.
 - The carbon thermostat and orbital forcing are wanted (phase 3).
 - The tectonic view should read more easily. Boundaries are now smooth traced lines in the conventions of a tectonic map (The scene).
+
+From a9, 2026-11-14, choosing the roadmap from a brainstorm by Claude and Codex:
+
+- The next sectors are ice, freshwater, dust and minimal life (Roadmap).
+- Not much more geology. Readouts of the rock record (proxies, a geological map, stratigraphy) fight show, don't tell.
+- Life stays minimal: enough to make the environment robust, no more.
+- The rest of the engine on the GPU is a goal, as a session of its own.
 
 
 ## Thesis: one planet, one state, one dial
@@ -241,6 +248,9 @@ Each preset is one knob, a measured number in the caption and, where theory give
 | Tilt | obliquity | seasonal range at 45°, where the ice is | high obliquity freezes the tropics first |
 | Storm track | equator-to-pole contrast | eddy energy, cyclones per month | Phillips' two-layer criterion |
 | Thermostat | outgassing | equilibrium CO₂ and T | Walker–Hays–Kasting |
+| Eruption (phase 6) | sulfate, 0.1–30 Pinatubos | peak cooling, its e-folding | the anomaly model's response to a decaying forcing |
+| Regolith (phase 7) | starting regolith depth | the ice's dominant period over time | 41 kyr on soft beds, ~100 kyr once stripped (Clark and Pollard's hypothesis) |
+| Pulse (phase 8) | carbon pulse, 500–10,000 Pg C | share left in the air after 1, 10, 100 kyr | ocean uptake, carbonate compensation, weathering (Archer's long tail) |
 
 ## Architecture
 
@@ -272,11 +282,176 @@ Each phase ships on its own.
 4. **Ocean and weather.** Gyres and SST, the QG core, tracers, the synoptic chart and the weather–climate hand-off. The dial reaches hours. The Storm track and Spin presets.
 5. **The harmony.** Fig. 6, surveyed presets, the about panel, Japanese, the social card (a painting program under `tools/og/paint/`), and registration on the site (`content/projects/`, the stager's and font subsetter's project lists, `_headers`).
 
+## Roadmap
+
+Ratified by a9 on 2026-11-14 (Decisions). Four sectors, **ice, freshwater, dust and minimal life**, then the rest of the engine on the GPU. The order follows the dependencies: every sector needs a year with a state (phase 6), and dust is the thread between the other three, so it comes last.
+
+How each phase is built:
+
+- Each new layer lands with a CPU reference and an analytic oracle in `tests/` (Architecture). New per-cell state runs on the engine's GPU device from the start, as the ice, the moisture and the tide do, with a parity test in `tests/gpu-node.test.mjs`, so phase 10 has less to port.
+- Each declares its closure for the dial (The dial, extended).
+- Fig. 7 gets an arrow only for a coupling the code has.
+- The scene gains quantities, not explanations. Most of this shows through things already drawn: the relief, the season, the rivers, the ice, the record. The few new marks are listed with each phase, and their final form is settled in the browser (Open decisions).
+
+### Phase 6. The year
+
+Today the climate is a periodic solution, so every year is the same year, and nothing can remember a wet decade. This phase gives the year a state.
+
+- **The year's stepper** (synthesis). A monthly step on the engine's worker, live below ~100 yr/s, for the state that lives between the season and the plate step: the anomaly, the aerosol, soil water and snow, lake water, and phase 7b's sea ice. Above that each is replaced by its closure. The climate cycle reads the stepper's slow means (the soil's wetness, the lakes' area) the way it now reads the zones.
+- **Interannual variability** (standard: Hasselmann's stochastic climate model).
+  - An anomaly T′ on the climate's coarse grid: C ∂T′/∂t = −B T′ + ∇·D∇T′ + F, with F red noise correlated over ~1,500 km. Its amplitude by latitude is calibrated against the QG weather's variance by a `tools/` run and kept as a fitted profile. Sea anomalies last for years, land ones for weeks.
+  - A rain anomaly, correlated with T′ and with noise of its own.
+  - The season drawn and the rivers by the month carry both. The soft Köppen widths become the planet's own interannual spread, as layer 9 intended, replacing the fixed 1.5 K and 0.25.
+- **Volcanic winters** (standard effects; synthesis as a process).
+  - Eruptions at active arcs as a seeded point process: the rate follows the arc's convergence, and the sizes follow a power law, each size class about ten times rarer than the one below. Hotspots erupt too, smaller.
+  - Stratospheric sulfate spreads in latitude from the eruption and decays over ~1 yr. Its forcing enters F. Provinces add sulfate through their floods, so a flood cools in pulses before its CO₂ warms.
+  - Drawn: the erupting volcano in red (the mantle at the surface), and the veil as a graphite stipple at slow dials.
+- **The ground** (standard: Manabe's bucket; synthesis around it).
+  - Soil water per land cell, with a capacity. Evaporation follows its wetness, it runs off when it overflows, and it drains as baseflow.
+  - The snowpack, now worked out inside `monthlyRunoff`, becomes state. Snow insulates a ground heat store, so permafrost is where the ground's mean stays below 0 °C.
+  - It replaces `monthlyRunoff`'s baseflow rule and the climate's fixed land wetness. Rivers then lag the rain by the soil's memory.
+- **Lakes that breathe** (standard hydrology; synthesis).
+  - The priority flood's depressions become lakes with water. Each closed basin holds a volume, gains its catchment's runoff and the rain on it, loses evaporation, and spills into the next basin when full (fill and spill).
+  - A closed lake's area settles where its evaporation balances its inflow, so lakes grow in wet centuries and glacials (pluvial lakes) and shrink to salt flats in dry ones.
+  - Lakes feed the moisture balance (a source of vapour) and the albedo, and a spill reorganizes drainage.
+  - Drawn: lakes from their water rather than from the inflow rule in `surface.js`; salt flats as a pale crust pattern.
+- **Experiment: Eruption** (Experiments). The planet erupts once at 1 yr/s.
+- **Oracles.** The anomaly's spectrum against Hasselmann's red spectrum (its corner at B/C). Water conserved through soil, rivers and lakes (rain = evaporation + runoff + storage). A conical basin's closed lake at area Q/(E − P). The aerosol's cooling against the analytic convolution.
+- **Cost** L. **Risk:** the zones' new widths shift the climate's tuned shares; retune on the default seed (`tools/climate-check.mjs`).
+
+### Phase 7. Ice that carves
+
+- **Sliding** (standard: a Weertman-type law). Where the bed thaws, the ice slides: u_b = C τ_b^p, fast on soft regolith and slow on bare rock. The basal temperature comes from the surface temperature, the geothermal flux and the ice's thickness, by conduction only. Sliding adds to the shallow-ice flux, so ice streams form where beds are soft and warm.
+- **Glacial erosion** (standard rule: erosion ∝ sliding speed; the plan's layer 3).
+  - Ice removes regolith first and then rock, taking thickness through the same isostatic factor rivers use. It deepens troughs under fast ice and planes shields.
+  - Till goes to the ice's margins and outwash to the rivers' sediment.
+  - When the ice retreats, the scoured basins fill as lake districts (phase 6's lakes), and the rivers inherit the new ground.
+- **The regolith** (standard: Heimsath's soil production; speculation as a rhythm).
+  - A weathered layer in each plate's frame. Weathering makes it, fastest when it's thin. Rivers and ice remove it. Till adds to it, and in phase 9 so does dust.
+  - It sets the ice's bed (soft or hard), the soil's water capacity (phase 6), and weathering's supply limit (replacing the erosion rule in `CARBON.E_HALF`).
+  - Thick regolith makes thin, fast ice; stripped beds make thick, slow ice. That's the regolith hypothesis for Earth's switch from 41-kyr to 100-kyr ice ages (Clark and Pollard).
+- **Flexure** (standard: a thin elastic plate over a fluid mantle).
+  - Loads bend the lithosphere over the flexural length α = (4D/Δρg)^¼ rather than only beneath themselves. The loads are the crust's excess, sediment, water and ice.
+  - Rigidity follows the crust: oceanic by age (the 450 °C isotherm), continental by the crust's age, and broken across plate boundaries.
+  - Solved as two coupled second-order problems by multigrid on the grid hierarchy, reusing the weather's vec2 machinery (`src/gpu/hierarchy.js`).
+  - What appears: foreland basins beside ranges, which their own sediment fills; bulges beyond them; moats around hotspot islands; outer rises seaward of trenches (if the trench's bending load is included); and a forebulge round each ice sheet.
+  - The ice's bed relaxes toward the flexural response, proper ELRA, replacing the local relaxation in `Ice.rebound`. The forebulge then collapses after a deglaciation.
+- **Ice-dammed lakes** (standard). Routing reads the ice as ground, so ice sheets dam lakes at their margins. When the dam thins, the lake drains within a month in an outburst flood. Phase 6's lakes do this with no new machinery.
+- **Drawn.** Ice streams as fine flow-parallel lines where sliding is fast, the convention of glaciological velocity maps (Open decisions). The rest shows in the relief.
+- **Experiment: Regolith** (Experiments), at 10 kyr/s. It ships only if the rhythm emerges in the survey.
+- **Oracles.** Vialov's profile with a sliding term (the plug-flow limit). The regolith's steady depth h* = h₀ ln(P₀/E). The line-load and point-load solutions on a uniform plate. Eroded and deposited mass conserved.
+- **Cost** L–XL. **Risk:** sliding shortens the ice's explicit step, and the GPU ice (`src/gpu/ice.js`) needs the sliding term too.
+
+### Phase 7b. Sea ice that moves (if scope allows)
+
+- Thickness and concentration on the coarse grid, stepped with the year.
+- Growth by Stefan's law from freezing degree days and the ocean's heat; melt by positive degree days.
+- Drift with the wind (Nansen's ~2%, turned ~25° from it) and the gyres' surface currents, with a cavitating-fluid pressure (Flato and Hibler) so the ice can't pile up without limit.
+- Coastal polynyas open where winds blow offshore, and the edge grows tongues along the currents. The climate's next cycle reads the concentration for albedo and evaporation instead of the diagnostic share. This answers the near-circular ice edge (`docs/LOG.md`) with dynamics.
+- **Oracles.** Stefan's √FDD growth, free drift, conservation. **Cost** L.
+
+### Phase 8. Minimal life
+
+Enough life to make the environment robust, no more (a9).
+
+- **Vegetation as state** (standard feedbacks; synthesis, after Brovkin's VECODE).
+  - Per land cell, fractions of trees, grass and bare ground, each relaxing toward its climate's equilibrium over its own time: trees over centuries, grass over years. The equilibrium comes from growing degree days, rain and soil water.
+  - Feedbacks: albedo (forest masks snow, so a boreal forest warms its own spring), transpiration (evaporation over land rises with cover and soil water, recycling rain into continents' interiors), and weathering (as the zones do now).
+  - A land carbon store, in vegetation and soil, follows the cover and the temperature and trades with the air.
+  - Drawn: the Relief view's vegetation colours come from the cover instead of the zones. After a deglaciation, bare ground lingers before the forest arrives, and the Climate view (the climate) and the Relief view (the plants) can disagree.
+  - Possible bistability (speculation): a monsoon margin green or desert under the same orbit (Claussen's green Sahara). If it emerges, it becomes an experiment (Green margin: knob precession, measured the vegetated share, theory hysteresis).
+- **Carbon that lives somewhere** (standard; boxes after LOSCAR).
+  - The exogenic pool splits into the air, a surface ocean and a deep ocean, each with dissolved carbon and alkalinity. pCO₂ comes from carbonate chemistry at the sea's temperature, so cold oceans hold more.
+  - Exchange runs between air and sea over decades and between surface and deep over ~1 kyr. That's a box exchange: the cut overturning isn't modelled or drawn.
+  - Carbonate is buried in two places. On warm, shallow, clear shelves it depends on sea level, and platforms aggrade to keep pace with slow rises and drown under fast ones. On the deep seafloor it's buried above the compensation depth, which moves until burial balances weathering's alkalinity.
+  - Deep-sea carbonate rides the plates, and a share of what's subducted returns at arcs.
+  - Productivity, from the rivers' nutrients and the ocean's upwelling, sets where organic carbon is buried.
+  - It replaces R and pCO₂ ∝ R² in `carbon.js`.
+- **Drawn.** Productivity on the Climate view's sea (Open decisions); platforms in the relief.
+- **Experiment: Pulse** (Experiments).
+- **Oracles.** Carbonate chemistry against closed-form equilibria (its constants checked against their source). The pulse's three timescales. The thermostat's analytic balance, kept. Vegetation's relaxation, and water conserved through transpiration.
+- **Cost** L. **Risk:** the thermostat is tuned for the opening at ~375–420 ppm; re-measure the opening's CO₂ drift.
+
+### Phase 9. Dust
+
+Dust comes last because it's the thread between the other three sectors. Built earlier, it would have to read its sources from stand-ins.
+
+- **Sources.** Bare, dry ground (phase 8's bare fraction and phase 6's soil water), dry lake beds (phase 6's salt flats; Earth's largest dust source is one), and glacial outwash (phase 7). The template's wind lifts dust past a threshold speed, in proportion to a power of the wind (standard).
+- **Transport.** Advection and diffusion along the season's winds, with settling, solved the way the moisture is (Jacobi passes on the GPU, as in `src/gpu/moisture.js`).
+- **Sinks and effects.**
+  - On ice and snow it lowers the albedo, so dirty margins melt faster.
+  - On the sea it carries iron: more productivity, more organic burial, less CO₂ (Martin's hypothesis).
+  - On land it adds to the regolith as loess (phase 7).
+  - In the air, a small cooling.
+  - Glacials are dusty (more bare ground, more outwash, more wind), so dust amplifies the ice ages.
+- **Drawn.** The transported mass as ochre stipple crossing the sea and settling on ice, its density the dust load (Open decisions).
+- **Survey: the ice ages.** With phases 6–9 the Ice ages experiment has its amplifiers: regolith, ocean carbon, dust and vegetation. Survey seeds and CO₂ for three things: the dominant period, the glacial–interglacial CO₂ swing (Earth's ~90 ppm), and dust (Earth's several-fold). Whether a 100-kyr rhythm emerges is the speculation the plan has carried since phase 3.
+- **Fig. 7 redrawn** for the new nodes: the year, volcanoes, soil, lakes, regolith, vegetation, ocean carbon and dust, plus sea ice if 7b lands.
+- **Oracles.** Dust conserved (emitted = deposited). A one-dimensional plume decaying downwind over its length U/k.
+- **Cost** M–L.
+
+### Phase 10. The engine on the GPU
+
+A session of its own, in three parts set by what phases 6–9 touch:
+
+- **10a: plates, sea level, the surface's preparation** (`plates.js`, `crust.js`, `surface.js`). It's independent of phases 6–9, so it can run alongside them. The per-cell step (each cell's point location in the plate frames, the overlap and gap tests) is independent per cell, and the torque balance is a reduction. Merges, rifts and initiation can stay on the CPU. Measure first, then port the hot paths.
+- **10b: the landscape** (`landscape.js`), after phase 7. The priority flood and the implicit stream-power solve are sequential; their GPU forms are iterative (Planchon and Darboux's filling, a scan over the receiver tree), so measure whether they win at level 7.
+- **10c: the climate cycle** (the energy balance by complex multigrid, the template, the zones), after phase 9, which changes them.
+- **Targets:** the dial's top (10 Myr/s) at level 7, a climate cycle under ~100 ms, and level 8 (28 km) measured for the surface. The CPU code stays as the headless reference.
+- **Cost** XL across sessions.
+
+### The dial, extended
+
+| State | τ | Step | Live up to about | Closure when outrun |
+|---|---|---|---|---|
+| anomaly (6) | months–yr | 1 month | 100 yr/s | its variance alone: the zones' widths |
+| aerosol (6) | 1 yr | 1 month | 100 yr/s | the mean forcing of the eruption rate |
+| soil water, snow (6) | months | 1 month | 100 yr/s | its climatological year |
+| lakes (6) | 10–10³ yr | 1 yr | 10⁴ yr/s | the equilibrium level |
+| sea ice (7b) | months–yr | 1 month | 100 yr/s | the diagnostic share (today's) |
+| regolith (7) | 10⁴–10⁶ yr | landscape step | always | none: it accumulates |
+| flexure (7) | ELRA's 3 kyr | when loads move | always | none |
+| vegetation (8) | 10–10³ yr | 1 yr | 10⁵ yr/s | cover in balance with the climate |
+| ocean carbon (8) | 10–10³ yr | 10 yr | always | none: an ODE |
+| dust (9) | days | steady per phase | (diagnostic) | — |
+
+At level 7 the monthly per-cell state is 164k cells × 1,200 months a second at 100 yr/s. On the GPU that's cheap. On the CPU its live limit would be nearer 10 yr/s.
+
+### New couplings
+
+| From | To | Through | Timescale |
+|---|---|---|---|
+| anomaly | season, rivers, zones | interannual T and P | yr |
+| volcanoes | climate | sulfate aerosol | 1 yr |
+| soil | climate, rivers | evaporation, runoff's timing | months |
+| lakes | climate, rivers | evaporation, albedo, spill | 10–10³ yr |
+| ice | lakes | dams, scoured basins | 10³ yr |
+| ice | landscape | glacial erosion, till, outwash | 10⁴ yr |
+| regolith | ice, soil, carbon | bed friction, water capacity, weathering's supply | 10⁴–10⁶ yr |
+| loads | crust | flexure | 10³ yr–Myr |
+| sea ice (7b) | climate | albedo, evaporation | months |
+| vegetation | climate | albedo (snow masking), transpiration | 10–10³ yr |
+| vegetation | carbon, dust | land carbon, bare ground | 10–10³ yr |
+| sea temperature | carbon | solubility | 10³ yr |
+| sea level | carbon | shelf carbonate | 10⁴ yr |
+| plates | carbon | carbonate subducted | Myr |
+| rivers, upwelling | carbon | productivity, organic burial | 10³ yr |
+| dust | ice, sea, regolith | albedo, iron, loess | yr–kyr |
+
+### Considered, not taken
+
+The 2026-11-14 brainstorm also covered the geology readouts (isotope proxies, a Geology view, following a rock, polar wander paths, seafloor fabric, rock types), the hand (a probe, sculpting, impacts, rain tracing), the rest of the year and the sea (ENSO, tropical cyclones, the weather's feedback to the climate, clouds, deep-water formation, tidal fronts, marine ice sheets, primitive equations), biodiversity, deep time (the long arc, true polar wander, an interior cutaway, water through the mantle), the sky (the Moon's rhythm, other planets, day and night), names and events, determinism and branching, and wild cards. The full list, with marks and costs, is `docs/IDEAS.md` at commit 8a7782d.
+
 ## Open decisions
 
 - Globe only, or globe plus an Equal Earth map toggle.
-- Resolution for crust and land: level 7 (55 km) is the target, so measure it in phase 1.
-- Vegetation beyond the zones' feedback (Daisyworld-style biology) is out of scope unless a9 wants it.
+- The roadmap's new marks, settled in the browser:
+  - Where the volcanic veil shows.
+  - The Climate view's sea would carry both dust (ochre dots) and productivity (viridian strokes): two stipples, or productivity elsewhere.
+  - Whether ice streams are drawn or left to the relief.
+  - The salt flats' pattern, and whether old shorelines are drawn.
+  - Whether permafrost is drawn.
+- Phase 7b in or out, decided after phase 7.
 
 ## Risks
 
@@ -284,3 +459,4 @@ Each phase ships on its own.
 - **The Wilson cycle may not cycle.** Rifting and subduction initiation are rules. If supercontinents never form or never break, the rules need tuning against long runs (a tools/ survey, like Miasma's).
 - **Show, don't tell** will be tested harder here than anywhere. Nine layers of physics invite explanatory UI; the about panel has to carry it.
 - **Scope.** The whole is five sims' worth. Phases ship alone so the project is real at every stage.
+- **Tuning drift.** Each roadmap phase moves the tuned planet: the zones' shares, a mean of 13–14 °C, CO₂ at ~375–420 ppm, the ice. Re-run `tools/climate-check.mjs` and `tools/planet-run.mjs` at the end of each phase, and retune before the next.
