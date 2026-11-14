@@ -31,7 +31,7 @@
 // written by a kernel straight into its vertex buffer each frame.
 //
 // Units: SI inside; ψ in m²/s, q in 1/s, time in seconds.
-import { kernel, storage, uniform } from './device.js';
+import { kernel as kernelOf, storage, uniform } from './device.js';
 import { hierarchy, coarseInverse, A_M } from './hierarchy.js';
 import { makeTransfer } from '../grid/transfer.js';
 
@@ -63,7 +63,7 @@ const wsat = T => 25 * Math.exp(0.065 * (Math.max(-45, Math.min(45, T)) - 15));
 
 const HEAD = /* wgsl */`
 const A2: f32 = ${(A_M * A_M).toExponential(8)};
-const OMEGA: f32 = ${OMEGA};
+const OMEGA: f32 = OMEGA_HERE;
 struct Lv { n: u32, off: u32, nc: u32, offc: u32, k2: vec2f, omega: f32, nf: u32 };
 fn wsat(T: f32) -> f32 { return 25.0 * exp(0.065 * (clamp(T, -45.0, 45.0) - 15.0)); }
 `;
@@ -378,13 +378,17 @@ const wg = n => Math.ceil(n / 64);
 
 export class GpuWeather {
   /** On `grid`; with a `refiner` (src/gpu/refine.js), forcing and means arrive on its coarser grid and are refined. */
-  constructor(device, grid, seed = 'weather', refiner = null) {
+  constructor(device, grid, seed = 'weather', refiner = null, Omega = OMEGA) {
     const W = WEATHER;
+    // The planet's spin, fixed for this weather (the day lengthens over millions of years; the
+    // page builds a new weather if it has moved by the time the view opens again).
+    this.Omega = Omega;
+    const kernel = (dev, code, label) => kernelOf(dev, code.replace('OMEGA_HERE', Omega.toExponential(8)), label);
     this.device = device; this.grid = grid; this.n = grid.n; this.level = grid.level;
     const s = 2 ** (grid.level - 5);
     this.dt = W.DT5 / s;
-    this.f0 = 2 * OMEGA * Math.sin(Math.PI / 4);
-    this.F = 1 / (W.LD * W.LD);
+    this.f0 = 2 * Omega * Math.sin(Math.PI / 4);
+    this.F = (Omega / OMEGA) ** 2 / (W.LD * W.LD);   // L_d = NH/f, so it shrinks as the spin quickens
     this.refiner = refiner;
     const H = this.H = hierarchy(grid, 2, refiner ? [refiner.coarse] : []), n = grid.n, N = H.N;
     const top = H.levels[H.levels.length - 1];
@@ -515,7 +519,7 @@ export class GpuWeather {
     }
     const psi1 = new Float64Array(n), psi2 = new Float64Array(n);
     for (let i = 0; i < n; i++) {
-      const f = 2 * OMEGA * g.pos[3 * i + 2];
+      const f = 2 * this.Omega * g.pos[3 * i + 2];
       const bcEq = WEATHER.SHEAR * (f / this.f0) * (f4[4 * i] - this.tmean);
       // The upper layer carries the thermal wind; the lower starts nearly at rest.
       psi1[i] = 2 * (WEATHER.START * bcEq * (1 + 0.02 * (rng() - 0.5)) + 2e5 * (rng() - 0.5));
@@ -533,7 +537,7 @@ export class GpuWeather {
     const z1 = lap(psi1), z2 = lap(psi2);
     const S = new Float32Array(8 * n), X = new Float32Array(2 * n);
     for (let i = 0; i < n; i++) {
-      const f = 2 * OMEGA * g.pos[3 * i + 2], T = f4[4 * i];
+      const f = 2 * this.Omega * g.pos[3 * i + 2], T = f4[4 * i];
       S[8 * i] = z1[i] + F * (psi2[i] - psi1[i]) + f;
       S[8 * i + 1] = z2[i] + F * (psi1[i] - psi2[i]) + f;
       S[8 * i + 2] = T;

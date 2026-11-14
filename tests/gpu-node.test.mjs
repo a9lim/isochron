@@ -55,3 +55,19 @@ test('moisture on the GPU: the balance the CPU sweeps converge to', { skip }, as
   for (let p = 0; p < 6; p++) for (let i = 0; i < c.grid.n; i++) { d += Math.abs(c.Pph[p][i] - ref[p][i]); sum += ref[p][i]; }
   assert.ok(d < 0.01 * sum, `rain off by ${(100 * d / sum).toFixed(2)}% in all`);
 });
+
+test('the tide on the GPU: the CPU reference, on the opening planet', { skip }, async () => {
+  const { gpuDevice } = await import('../src/gpu/device.js');
+  const { GpuTides } = await import('../src/gpu/tides.js');
+  const { Tides, Moon } = await import('../src/engine/tides.js');
+  const { Planet } = await import('../src/engine/planet.js');
+  const P = new Planet('earthlike', { level: 4, spinup: 10 }), g = P.grid, m = new Moon();
+  const depth = P.tideDepth(g.n);
+  const cpu = new Tides(g); cpu.ocean(depth);
+  const gpu = new GpuTides(await gpuDevice(), g); gpu.ocean(depth);
+  const a = cpu.solve(m.omega, m.Omega, 12), b = await gpu.solve(m.omega, m.Omega, 12);
+  let d = 0, s = 0;
+  for (let i = 0; i < g.n; i++) { d += Math.hypot(a.C[i] - b.C[i], a.S[i] - b.S[i]) * g.area[i]; s += Math.hypot(a.C[i], a.S[i]) * g.area[i]; }
+  assert.ok(d < 0.005 * s, `harmonic off by ${(100 * d / s).toFixed(3)}%`);
+  assert.ok(Math.abs(a.P - b.P) < 0.005 * a.P, `dissipation ${b.P.toExponential(3)} against ${a.P.toExponential(3)}`);
+});

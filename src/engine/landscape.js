@@ -208,6 +208,23 @@ export class Landscape {
     }
   }
 
+  /**
+   * Discharge by month (m³/s, 12 per cell, January first) from the climate's monthly
+   * runoff (m), routed down the same drainage as the year's (no travel time: a month is
+   * longer than most rivers take to reach the sea).
+   */
+  monthly(runoffM) {
+    const n = this.grid.n, out = new Float32Array(12 * n), w = new Float64Array(n), q = new Float64Array(n);
+    if (!this.r) return out;
+    const toM3s = 1e6 * 12 / 3.156e7;     // km² · m a month → m³/s
+    for (let m = 0; m < 12; m++) {
+      for (let i = 0; i < n; i++) w[i] = this.base[i] ? 0 : this.areaKm[i] * runoffM[12 * i + m];
+      accumulate(this.r.order, this.r.count, this.r.rcv, w, q);
+      for (let i = 0; i < n; i++) out[12 * i + m] = this.base[i] ? 0 : q[i] * toM3s;
+    }
+    return out;
+  }
+
   /** Erode, carry and deposit over dt years, then diffuse. Updates the crust in place. */
   step(dt) {
     const tec = this.tec, g = this.grid, n = g.n, s = tec.seaLevel;

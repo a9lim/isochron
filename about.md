@@ -1,7 +1,7 @@
 ---
 name: Isochron
 title: Isochron — Planet Simulator
-description: Run an Earth-like planet from plate tectonics to weather on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, a carbon thermostat, ocean gyres and weather fronts.
+description: Run an Earth-like planet from plate tectonics to weather on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, a carbon thermostat, ocean gyres, tides that slow its spin, and weather fronts.
 updated: 2026-11-15
 ---
 
@@ -65,13 +65,23 @@ Slowed to days a second, the weather runs live: two layers of air, each turning 
 
 The planet runs, and is drawn with its weather, on cells about 55 km across (on phones and tablets the planet runs on cells twice that size, refined for drawing). The weather runs on the graphics card, a step every three minutes and twenty seconds; each step finds the air's flow from its spin by multigrid, solving on the grid and on coarser copies of it at once. The ice sheets and the climate's moisture also run on the graphics card, and the rest of the planet on a separate thread, so the globe stays smooth while the plates and the climate work. Before the opening, the planet runs 80 million years from rest, so its plates have settled into their own pace.
 
+## Tides and the Moon
+
+The Moon raises a bulge in the sea that the planet turns under twice a day. The ocean can't keep up with it: the tide runs round each basin as a wave, turning about points where the sea barely rises and falls (amphidromic points), and the basins' shapes and depths decide how high it climbs. Where a basin's own period of sloshing is near the tide's, it resonates and the range reaches ten metres or more. The tide is solved as the shallow-water equations on the rotating sphere, forced by the Moon and the Sun, and run until it repeats; it is re-solved as the continents move.
+
+The tide loses its energy to friction on the shelves and to waves breaking inside the ocean over rough deep floor, and that energy comes out of the planet's spin. The day lengthens and the Moon, taking the spin's angular momentum, moves slowly away. How fast depends on the basins: as the plates rearrange them, the tide's resonances come and go, and the Moon's retreat speeds and slows. The planet starts with Earth's Moon at its present distance and Earth's day, and the day's length feeds back into the climate, the ocean's gyres and the weather through the turning that steers the winds and currents.
+
+The Tides view is a co-tidal chart: the sea is tinted by the tide's range, lines join places with high water at the same hour (every lunar hour), converging on the amphidromic points, and stipple marks where the tide's energy is lost. Slowed to hours a second, the tint shows the sea's height now, and a heavier line marks high water, sweeping round each amphidromic point.
+
+Behind the globe is the sky as a star chart. At the slowest settings it turns about the planet's axis once a day, and the Sun and the Moon appear where they are: the Sun moves along the ecliptic through the year, and the Moon goes round once a month, lit on the side facing the Sun, drawn larger when it is nearer. The tide's bulge sits under the Moon.
+
 ## Climate zones
 
 The zones follow Köppen's classes, which are thresholds on monthly temperature and rainfall: tropical (A), arid (B), temperate (C), continental (D) and polar (E), with a second letter for when the dry season falls. Here each threshold is soft, standing for the variation from year to year, so each place holds a mixture of classes. The Climate view draws the mixture as a mosaic, so the boundary between two climates is a band where both appear.
 
 ## On the globe
 
-Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Plate boundaries follow the conventions of a tectonic map. Trenches have sawteeth on the plate that stays on top, with red marks for the volcanic arc on that side; where two continents collide and nothing sinks, the teeth are open, as on a thrust belt. Ridges are red. Transform faults carry paired half-arrows showing which way each side slides, and boundaries where the plates barely move are dotted. Land is coloured by its vegetation, from its climate: forest, savanna and steppe, desert, boreal forest and tundra, with bare rock toward the summits. Rivers are blue lines whose weight is their discharge. Snow and sea ice are a light fill with a hard edge.
+Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Plate boundaries follow the conventions of a tectonic map. Trenches have sawteeth on the plate that stays on top, with red marks for the volcanic arc on that side; where two continents collide and nothing sinks, the teeth are open, as on a thrust belt. Ridges are red. Transform faults carry paired half-arrows showing which way each side slides, and boundaries where the plates barely move are dotted. Land is coloured by its vegetation, from its climate: forest, savanna and steppe, desert, boreal forest and tundra, with bare rock toward the summits. Rivers are blue lines whose weight is their discharge. Slowed to a few years a second, rivers follow the seasons: snow held through the winter melts into spring floods, monsoon rivers swell in the wet season, and a river that runs dry is drawn as a dotted bed. Snow and sea ice are a light fill with a hard edge; sea ice follows the sea's own surface temperature, so warm currents keep water open poleward and cold ones carry ice toward the equator.
 
 In the Climate view each class is its group's colour in a pattern for its second letter: solid where it's wet all year, hatched one way or the other where the dry season falls in winter or in summer, cross-hatched for monsoon climates, stippled for deserts (densely) and steppes (sparsely), finely ruled for tundra, and bare for ice caps. The key lists each class with its share of the land.
 

@@ -194,6 +194,16 @@ a9: rivers still a little gridlike, and sometimes past the coast; the ice caps t
 - **Sea ice on the sea's surface temperature** (air plus the gyres' anomaly) in the energy balance and the drawn season. The edge's spread ±1.4° → ±2.0°: mostly the model, since a diffusive energy balance puts the ice edge on a latitude circle, and this ocean's gyres are weak (~12 Sv; warm anomalies only to +1.7 K). Ice sheets' round domes are shallow ice on a smooth mass balance.
 - **Dry lines** on relative humidity (what the Humidity chart draws), the top quarter of gradients, bridged, thresholds averaged: 0–1 a chart → 2–7, along the dry band's edges.
 
+## Tides, the Moon, the sky, rivers' seasons
+
+a9: "let's do tides and the moon and then seasonal rivers"; stars that turn with the view, and a position-accurate Sun and Moon; humans and sculpting parked.
+- **The tide**: shallow water on a C grid over the Voronoi cells (Perot's reconstruction for Coriolis, Heun for the rotation), forced by the equilibrium tide, run to periodic, the harmonic read off. Checked against the analytic forced response of a still global ocean (1%), mass to 1e-16, GPU against CPU 0.01%. A first try took a continental slope's whole drop as internal-tide roughness and walled off the shelves (0.01 TW on shelves, ~180 amphidromes, most spurious along slopes); capped at a quarter of the depth, shelves take ~60%.
+- **Not fitted to Earth's total**: Earth's drag constants on this planet's deeper ocean give 4.2 TW in the lunar semidiurnal tide at level 6 (1.5 at level 5, whose shelves don't resolve), ~6 TW in all: its Moon recedes ~6 cm/yr. Solved at level 6 at every engine level.
+- **The Moon** recedes and the day lengthens from the dissipation (Earth's 3.7 TW gives 3.8 cm/yr and 2.1 ms a century: tested); the spin feeds the climate, the gyres and the weather.
+- **The Tides view**: co-range, co-tidal lines every lunar hour (zeros of sin 6G, no phase seam), dissipation stipple; at the slowest dials the sea's height now and the high-water line sweeping round each amphidrome.
+- **The sky**: kept on the paper (the sims' shared ground) as a star chart, the dark theme its night. Stars turn only where a day takes seconds; the Sun and the Moon show only where the dial resolves them (a year and a month), else they'd jump about. The tide's clock is the sky's, so the bulge sits under the Moon.
+- **Rivers by the month** below ~12 yr/s: snowpack and melt, evaporation by temperature, baseflow by aridity. A first rule called a river dry below the drawing threshold (37% of river points half the year); now dry is under a tenth of its own mean.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

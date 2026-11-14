@@ -29,6 +29,10 @@
 // "Climate zones"): solid f, cross-hatch m, hatch / for w and \ for s, dense
 // and sparse stipple for BW and BS, fine hatch for ET, bare paper for EF.
 // Patterns and the mosaic are fixed to the globe and scale with the zoom.
+// The Tides view is a co-tidal chart: the semidiurnal tide's amplitude as a
+// wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
+// at the amphidromic points, at the slowest dials the line of high water
+// sweeping round them, and a stipple where the tide loses its energy.
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
@@ -44,6 +48,8 @@ struct U {
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
+  tide: vec4f,       // the tide's clock: Re, Im of e^{iφ₂} + ρ e^{iφs} (spring and neap), cos, sin φ₂
+  tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -61,6 +67,7 @@ struct VOut {
   @location(8) z3: vec4f,
   @location(9) iv: vec4f,
   @location(10) wx: vec4f,
+  @location(11) td: vec4f,
 };
 
 fn toView(p: vec3f) -> vec3f {
@@ -69,7 +76,8 @@ fn toView(p: vec3f) -> vec3f {
 
 @vertex fn vs(@location(0) p: vec3f, @location(1) fc: vec4f, @location(2) nc: vec3f, @location(3) c: vec4f,
               @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
-              @location(8) iv: vec4f, @location(9) wx: vec4f, @location(10) fp: vec4f, @location(11) np: vec3f) -> VOut {
+              @location(8) iv: vec4f, @location(9) wx: vec4f, @location(10) fp: vec4f, @location(11) np: vec3f,
+              @location(12) td: vec4f) -> VOut {
   // Between plate steps the surface blends from the last step's state to this
   // one's (each step moves the crust less than half a cell), so it moves
   // continuously rather than in ticks.
@@ -86,6 +94,7 @@ fn toView(p: vec3f) -> vec3f {
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = vec4f(toView(iv.xyz), iv.w);
   o.wx = wx;
+  o.td = td;
   return o;
 }
 
@@ -267,7 +276,18 @@ fn hair(d: f32, w: f32) -> f32 {
   let climate = u.mode.x > 0.5 && u.mode.x < 1.5;
   let weather = u.mode.x > 1.5;
   let wxTemp = u.mode.x > 2.5 && u.mode.x < 3.5;
-  let wxHum = u.mode.x > 3.5;
+  let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
+  let tides = u.mode.x > 4.5;
+  // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
+  let tz = i.td.xy * u.tide2.x;
+  let tA = length(tz);
+  let tc = tz / max(tA, 1e-6);                 // e^{iG}, G the phase of high water
+  let z2 = vec2f(tc.x * tc.x - tc.y * tc.y, 2.0 * tc.x * tc.y);
+  let z3 = vec2f(z2.x * tc.x - z2.y * tc.y, z2.x * tc.y + z2.y * tc.x);
+  let im6 = 2.0 * z3.x * z3.y;                 // sin 6G: zero every 30°, with no seam where G wraps
+  let fim6 = fwidth(im6);
+  let sd = tc.y * u.tide.z - tc.x * u.tide.w;  // sin(G − φ₂): zero at high and low water
+  let fsd = fwidth(sd);
 
   // Sea: depth tint, stripes on oceanic crust, isobaths every kilometre.
   let d = -e;
@@ -377,7 +397,26 @@ fn hair(d: f32, w: f32) -> f32 {
   land = select(land, wland, weather);
   sea = select(sea, wsea, weather);
 
-  var c = select(land * select(shade, 1.0, weather), sea * select(seaShade, 1.0, weather), e < 0.0);
+  // The Tides view: co-range wash (or, at the slowest dials, the sea's height now), co-tidal
+  // lines every lunar hour fading into each amphidrome, the line of high water now, and a
+  // sienna stipple where the tide's energy goes (its density the dissipation per area).
+  let eta = dot(tz, u.tide.xy);
+  let range = mix(u.canvas.rgb, u.ocean.rgb, 0.05 + 0.62 * sqrt(clamp(tA / 3.0, 0.0, 1.0)));
+  let height = mix(u.canvas.rgb, u.ocean.rgb, 0.3 + 0.28 * clamp(eta, -1.0, 1.0));   // ±1 m of sea
+  var tsea = mix(range, height, u.tide2.z);
+  let dW = i.td.z * u.tide2.y;                 // W/m²
+  let dDots = stipple(T, mix(9.0, 3.4, smoothstep(0.05, 1.0, dW)) * u.mode.z, 0.8 * u.mode.z) * smoothstep(0.02, 0.08, dW);
+  tsea = mix(tsea, u.inkF.rgb, 0.8 * dDots);
+  let cotidal = hair(abs(im6), fim6) * smoothstep(0.015, 0.05, tA) * step(0.0, tc.x * tc.x + tc.y * tc.y - 0.5);
+  tsea = mix(tsea, u.text.rgb, 0.3 * cotidal);
+  let high = hair(abs(sd), fsd) * step(0.0, tc.x * u.tide.z + tc.y * u.tide.w) * smoothstep(0.015, 0.05, tA);
+  tsea = mix(tsea, u.text.rgb, 0.85 * high * u.tide2.z);
+  let tland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
+  land = select(land, tland, tides);
+  sea = select(sea, tsea, tides);
+  let chart = weather || tides;
+
+  var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), e < 0.0);
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
@@ -412,14 +451,15 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const zoneBuf = device.createBuffer({ size: nm * 64, usage: VS });
   const iceBuf = device.createBuffer({ size: nm * 16, usage: VS });
   const wxBuf = device.createBuffer({ size: nm * 16, usage: VS });      // written by the weather's kernels, on the mesh
+  const tideBuf = device.createBuffer({ size: nm * 16, usage: VS });    // the tide's harmonic and dissipation
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
-  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf);
+  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 16, tideBuf);
   const refiner = refining ? new Refiner(device, mesh, coarse) : null;
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, mesh.tris);
-  const uniBuf = device.createBuffer({ size: 18 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 20 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -435,6 +475,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
         { arrayStride: 64, attributes: [0, 1, 2, 3].map(k => ({ shaderLocation: 4 + k, offset: 16 * k, format: 'float32x4' })) },
         { arrayStride: 16, attributes: [{ shaderLocation: 8, offset: 0, format: 'float32x4' }] },
         { arrayStride: 16, attributes: [{ shaderLocation: 9, offset: 0, format: 'float32x4' }] },
+        { arrayStride: 16, attributes: [{ shaderLocation: 12, offset: 0, format: 'float32x4' }] },
       ],
     },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
@@ -442,7 +483,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(72);
+  const uni = new Float32Array(80);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -505,6 +546,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     refineClimate() { refine(climS, climBuf, 1); },
     /** Per cell: the zones' probabilities, 16 floats (14 used). */
     setZones(z) { device.queue.writeBuffer(zoneS, 0, z); refine(zoneS, zoneBuf, 4); },
+    /** Per cell: the tide's harmonic per unit equilibrium tide (C, S) and dissipation per unit² (W/m²). */
+    setTides(C, S, diss) {
+      const a = new Float32Array(4 * n);
+      for (let i = 0; i < n; i++) { a[4 * i] = C[i]; a[4 * i + 1] = S[i]; a[4 * i + 2] = diss[i]; }
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 1);
+    },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
     refiner,
@@ -533,11 +580,13 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? wxm : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna);
       uni[55] = mode.blend ?? 1;
+      const td = mode.tides || { m: [1, 0], hw: [1, 0], amp: 0, now: 0 };
+      uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, 0], 72);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();
@@ -554,6 +603,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       pass.setVertexBuffer(4, zoneBuf);
       pass.setVertexBuffer(5, iceBuf);
       pass.setVertexBuffer(6, wxBuf);
+      pass.setVertexBuffer(7, tideBuf);
       pass.setIndexBuffer(idxBuf, 'uint32');
       pass.drawIndexed(mesh.tris.length);
       pass.end();

@@ -1,7 +1,7 @@
 // The record: global series at several resolutions, so its figure can follow
 // the dial from years to hundreds of millions of years.
 
-export const SERIES = ['T', 'co2', 'sea', 'ice', 'land', 'ridge'];
+export const SERIES = ['T', 'co2', 'sea', 'ice', 'land', 'ridge', 'day'];
 const LEVELS = [0.1, 1, 10, 100, 1e3, 1e4, 1e5, 1e6];   // years between samples
 const KEEP = 480;
 

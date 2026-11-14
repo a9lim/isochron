@@ -19,9 +19,10 @@
 // T′ feeds evaporation, rain and sea ice: the cold coasts make coastal
 // deserts.
 
-const R_M = 6.371e6, OMEGA = 7.292e-5, RHO_W = 1025, RHO_A = 1.2, CD = 1.3e-3;
+const R_M = 6.371e6, RHO_W = 1025, RHO_A = 1.2, CD = 1.3e-3;
 
 import { restrict, prolong } from '../grid/transfer.js';
+import { CLIMATE } from './climate.js';
 
 export const OCEAN = {
   LAYER_CELLS: 2,     // the western boundary layer's width, in cells
@@ -125,7 +126,7 @@ export class Ocean {
   /** The gyres: BiCGSTAB on the sea's cells, coasts at ψ = 0. */
   *gyres() {
     const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, ell = g.ell, dist = g.dist, A = g.area, dl = this.dl, sea = this.sea, eps = this.eps;
-    const scale = R_M * R_M / (2 * OMEGA * RHO_W);
+    const scale = R_M * R_M / (2 * CLIMATE.OMEGA * RHO_W);   // the spin: the Moon's tides slow it (tides.js)
     const ws = this.ws;
     for (const k of ['r', 'r0', 'p', 'v', 's', 't', 'b', 'diag']) if (!ws[k]) ws[k] = new Float64Array(n);
     const { r, r0, p, v, s, t, b, diag } = ws;
@@ -208,7 +209,7 @@ export class Ocean {
       up[i] = 0;
       if (!sea[i]) continue;
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
-      const f = 2 * OMEGA * z;
+      const f = 2 * CLIMATE.OMEGA * z;
       if (Math.abs(f) < 1.5e-5) continue;
       const tx = this.tau[3 * i], ty = this.tau[3 * i + 1], tz = this.tau[3 * i + 2];
       // τ × r̂ / (ρ f): to the right of the wind in the north, left in the south.

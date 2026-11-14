@@ -8,6 +8,10 @@
 //   climate   after each completed climate cycle: its harmonics and zones
 //   fast      ~10 times a second: ice, carbon, plumes, the record's samples
 //
+//   tides     after each solve of the tide (every ~2 Myr, or when the day has
+//             drifted): the semidiurnal harmonic and the dissipation, per unit
+//             equilibrium tide, on the engine's grid
+//
 // The page sends a tick each frame it plays (the years to advance and the
 // plate steps its scheduler planned) and the experiments' parameters.
 import { Planet, CLIMATE, CARBON } from './planet.js';
@@ -20,9 +24,12 @@ import { traceRivers } from '../render/rivers.js';
 import { gpuDevice } from '../gpu/device.js';
 import { GpuIce } from '../gpu/ice.js';
 import { GpuMoisture } from '../gpu/moisture.js';
+import { GpuTides } from '../gpu/tides.js';
+import { buildGrid } from '../grid/icosphere.js';
+import { makeTransfer, prolong } from '../grid/transfer.js';
 
 const CLIMATE_MS = 10, ICE_MS = 4;
-let P = null, playing = false, pending = 3, scheduled = false;
+let P = null, playing = false, pending = 3, scheduled = false, tides = null;
 const ticks = [];
 let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
 
@@ -37,7 +44,13 @@ self.onmessage = e => {
     P = new Planet(m.seed, { level: m.level });
     apply(m.params);
     // The engine's own GPU device, for the ice (and the climate's heavy solves).
-    gpuDevice().then(device => { P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid); }, err => console.warn('[isochron] engine GPU:', err.message));
+    gpuDevice().then(device => {
+      P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
+      // The tide at level 6 at most (its cells nest first in a finer grid), so the Moon recedes alike at every level.
+      const tg = P.grid.level > 6 ? buildGrid(6) : P.grid;
+      tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };
+      schedule();
+    }, err => console.warn('[isochron] engine GPU:', err.message));
     post({ type: 'ready', seaLevel0: P.seaLevel0, years: P.years, pco2: P.carbon.pco2 });
     sendSurface(false);
     sendFast(true);
@@ -87,6 +100,7 @@ function pump() {
   }
   if (now - lastFast > 100) { sendFast(false); lap('fastMsg'); }
   if ((playing || pending > 0) && !climateRunning) climateLoop();
+  solveTides();
   if (ticks.length) schedule();
 }
 
@@ -115,6 +129,23 @@ async function climateLoop() {
   } finally { climateRunning = false; }
 }
 
+// The tide, re-solved when the coasts have had ~2 Myr to move or the day has drifted
+// (its frequency 2(Ω − n) moves the basins' resonances); warm from the last.
+function solveTides() {
+  if (!tides || tides.running) return;
+  const m = P.moon, drift = m.omegaSolved ? Math.abs(m.omega / m.omegaSolved - 1) : 1;
+  if (P.tec.t - tides.at < 2 && drift < 0.003) return;
+  tides.running = true; tides.at = P.tec.t;
+  const g = tides.gpu, omega = m.omega, t0 = performance.now();
+  g.ocean(P.tideDepth(g.n));
+  g.solve(omega, m.Omega).then(r => {
+    m.Punit = r.P; m.omegaSolved = omega;
+    const up = a => { if (!tides.T) return Float32Array.from(a); const f = new Float64Array(P.grid.n); prolong(tides.T, a, f); return Float32Array.from(f); };
+    const msg = { type: 'tides', C: up(r.C), S: up(r.S), diss: up(r.diss), Punit: r.P, omega, ms: performance.now() - t0 };
+    post(msg, [msg.C.buffer, msg.S.buffer, msg.diss.buffer]);
+  }, err => console.warn('[isochron] tides:', err.message)).finally(() => { tides.running = false; });
+}
+
 function sendSurface(fromStep, steps = 0, ms = 0) {
   // What a step costs, with drawing's share, so the page can plan steps the engine keeps up with.
   if (steps) { stepsDone += steps; msPerStep = 0.7 * msPerStep + 0.3 * ms / steps; }
@@ -128,7 +159,9 @@ function sendSurface(fromStep, steps = 0, ms = 0) {
     landSteps: land.steps, landBank: P.landBank || 0, stepYears, stepsDone, msPerStep: msPerStep + (performance.now() - tSend),
   };
   stepYears = 0;
-  if (land.steps !== riversSteps) { m.rivers = traceRivers(grid, land, f.elevRel); riversSteps = land.steps; }
+  // Rivers retrace after the landscape steps or the climate's months change.
+  const rk = land.steps * 1e6 + P.climate.version;
+  if (rk !== riversSteps) { m.rivers = traceRivers(grid, land, f.elevRel, land.monthly(P.climate.runoffM)); riversSteps = rk; }
   post(m, [f.elevRel.buffer, f.normals.buffer, f.tfDraw.buffer, f.lakeDraw.buffer, f.felsic.buffer, m.elev.buffer]);
 }
 
@@ -152,6 +185,7 @@ function sendFast(first) {
     iceH: Float32Array.from(ice.H), iceVel: Float32Array.from(ice.vel), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out) },
     landFlux: { ...land.flux },
+    moon: { a: P.moon.a, Omega: P.moon.Omega, omega: P.moon.omega, P: P.moon.P, day: P.moon.day },
     plumes: { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) },
   };
   samples = [];

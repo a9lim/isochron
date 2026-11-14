@@ -17,11 +17,12 @@ import { PARAMS } from './src/engine/plates.js';
 import { CLIMATE, NZ } from './src/engine/climate.js';
 import { CARBON } from './src/engine/carbon.js';
 import { Polarity } from './src/engine/polarity.js';
-import { monthName, S0 } from './src/engine/orbit.js';
+import { monthName, monthAt, S0, solarLongitude } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
 import { drawOverlay, turned, morphed, matchLines, link } from './src/render/overlay.js';
+import { makeStars, ecliptic } from './src/render/sky.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
@@ -84,6 +85,14 @@ const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-m
 let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
+// The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
+const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
+let tide = null;
+// The sky's clock: the planet's sidereal angle θ and the Moon's longitude, advanced with the
+// planet's clock; the tide's phases follow from them (its bulge sits under the Moon).
+const skyClock = { years: null, theta: 0, lamM: 0, thetaShown: 0 };
+const stars = makeStars(seed);
+let lastSky = null;
 let globe = null;
 let drawDirty = true, climateDirty = true, figuresDirty = true;
 let lines = null, rivers = null;
@@ -221,15 +230,58 @@ function stepTau(dt) {
   return Math.min(1, Math.max(0, (tau - shownFrom) / Math.max(1e-9, shown.t - shownFrom)));
 }
 function onFast(m) {
-  for (let k = 0; k < m.samples.length; k += 7) P.record.push(m.samples[k], m.samples.subarray(k + 1, k + 7));
+  for (let k = 0; k < m.samples.length; k += 8) P.record.push(m.samples[k], m.samples.subarray(k + 1, k + 8));
   ice.H = m.iceH; ice.vel = m.iceVel; ice.stats = m.iceStats;
   Object.assign(carbon, m.carbon);
   land.flux = m.landFlux;
   plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
   if (m.agg) P.agg = m.agg;
+  if (m.moon) Object.assign(moon, m.moon);
   if (m.prof) engineProf = m.prof;
   if (globe) { globe.setIce(ice.vel); season.setIce(ice.H); climateDirty = true; }
   if (!playing) drawDirty = true;
+}
+function onTides(m) {
+  // The largest amplitude (per unit equilibrium tide), for the caption.
+  let mx = 0;
+  for (let i = 0; i < m.C.length; i++) mx = Math.max(mx, Math.hypot(m.C[i], m.S[i]));
+  tide = { ...m, maxA: mx };
+  if (globe) globe.setTides(m.C, m.S, m.diss);
+  if (view === 'tides') { drawDirty = true; caption(true); }
+}
+// The lunar semidiurnal equilibrium tide at the Moon's distance (src/engine/tides.js).
+const lunarTide = a => 0.75 * (7.342e22 / 5.972e24) * (6.371e6 / a) ** 3 * 6.371e6;
+/**
+ * The sky and the tide's clock for this frame. θ turns at the spin and the Moon's longitude
+ * at its mean motion; the Sun's comes from the date (the orbit's calendar). The lunar
+ * semidiurnal tide's phase is 2(θ − the Moon's right ascension), the solar's likewise.
+ */
+/** Rivers by the month where the globe shows the season (as the snow: below ~12 yr/s), else by the year. */
+function riverMonth() {
+  if (1 - smooth(0.6, 1.6, Math.log10(rate())) < 0.5) return null;
+  return monthAt(((P.years % 1) + 1) % 1);
+}
+function skyFrame() {
+  const y = P.years, YR = 3.15576e7, lr = Math.log10(rate());
+  if (skyClock.years !== null) {
+    const s = (y - skyClock.years) * YR, n = Math.sqrt(6.674e-11 * (5.972e24 + 7.342e22) / moon.a ** 3);
+    skyClock.theta = (skyClock.theta + moon.Omega * s) % (2 * Math.PI);
+    skyClock.lamM = (skyClock.lamM + n * s) % (2 * Math.PI);
+  }
+  skyClock.years = y;
+  const o = P.orbit.at(y / 1000), eps = o.obliquity, tau = ((y % 1) + 1) % 1;
+  const sun = ecliptic(solarLongitude(tau, o), eps), mo = ecliptic(skyClock.lamM, eps);
+  const raM = Math.atan2(mo[1], mo[0]), raS = Math.atan2(sun[1], sun[0]);
+  const m2 = 2 * (skyClock.theta - raM), s2 = 2 * (skyClock.theta - raS);
+  // The sky turns only where a day takes a few seconds or more; above, it holds where it was.
+  if (lr < Math.log10(6.8e-4)) skyClock.thetaShown = skyClock.theta;
+  const amp = lunarTide(moon.a), rho = 0.46 * lunarTide(3.844e8) / amp;
+  // The sea's height now only where the dial resolves a tide (a cycle of a few seconds or more).
+  const now = 1 - smooth(-3.4, -3.0, lr);
+  return {
+    tides: { m: [Math.cos(m2) + rho * Math.cos(s2), Math.sin(m2) + rho * Math.sin(s2)], hw: [Math.cos(m2), Math.sin(m2)], amp: tide ? amp : 0, now },
+    sky: { stars, theta: skyClock.thetaShown, sun, sunAlpha: 1 - smooth(-0.6, -0.2, lr), moon: mo, moonAlpha: 1 - smooth(-1.75, -1.3, lr), moonDist: moon.a },
+  };
 }
 function uploadSurface(m, mode) {
   const T0 = globe.polarityOrigin;
@@ -395,7 +447,11 @@ function setView(v) {
   view = v;
   els.wxPicker.hidden = v !== 'weather';
   drawTheKey();
-  if (v === 'weather') { refreshWeather(true); }
+  if (v === 'weather') {
+    // A weather built for an earlier spin is rebuilt (the Moon's tides lengthen the day).
+    if (wx && globe && Math.abs(wx.Omega / moon.Omega - 1) > 0.003) wx = new GpuWeather(globe.device, mesh, seed, globe.refiner, moon.Omega);
+    refreshWeather(true);
+  }
   for (const b of els.views) b.setAttribute('aria-checked', b.dataset.view === v ? 'true' : 'false');
   drawDirty = true;
   caption(true);
@@ -519,7 +575,7 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? `Weather, ${wxMode}` : 'Relief', formatTime(P.years)];
+  const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : 'Relief', formatTime(P.years)];
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (view === 'weather') {
     const spun = wx && wx.started ? Math.min(1, wx.t / SPINUP) : 0;
@@ -528,6 +584,14 @@ function caption(force) {
       const nf = chart.fronts.length, nd = chart.dry.length;
       parts.push(`${chart.lows.length} lows`, `${chart.highs.length} highs`, `${nf} ${nf === 1 ? 'front' : 'fronts'}`, `${nd} dry ${nd === 1 ? 'line' : 'lines'}`, `wind to ${Math.round(chart.maxWind || 0)} m/s`);
     } else parts.push('the climate’s mean pressure and rain');
+    setCaption(parts.join(' · '), true);
+    return;
+  }
+  if (view === 'tides') {
+    const YR = 3.15576e7, day = 2 * Math.PI / (moon.Omega - 2 * Math.PI / YR) / 3600;
+    if (tide) parts.push(`range to ${(2 * tide.maxA * lunarTide(moon.a)).toFixed(1)} m`, `${(moon.P / 1e12).toFixed(1)} TW`);
+    else parts.push('solving the tide');
+    parts.push(`day ${day.toFixed(2)} h`, `Moon ${Math.round(moon.a / 1000).toLocaleString('en')} km`);
     setCaption(parts.join(' · '), true);
     return;
   }
@@ -570,8 +634,14 @@ function modelSnapshot() {
       ocean: `${P.ocean.stats.maxSv.toFixed(0)} Sv`, weather: wx && wx.started && chart ? `${chart.lows.length} lows` : 'idle',
       orbit: `tilt ${(P.orbit.at(P.years / 1000).obliquity * 180 / Math.PI).toFixed(1)}°`,
       landscape: `${land.flux.eroded.toFixed(1)} km³/yr`, zones: `B ${Math.round(100 * bShare / (la || 1))}%`,
+      tides: tide ? `${(moon.P / 1e12).toFixed(1)} TW` : '—',
     },
     edges: [
+      // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
+      { from: 'plates', to: 'tides', w: moon.P / 6e12, label: 'basins', bend: 0.3 },
+      { from: 'tides', to: 'climate', w: 0.35, label: `day ${(2 * Math.PI / (moon.Omega - 2 * Math.PI / 3.15576e7) / 3600).toFixed(2)} h`, bend: 0 },
+      { from: 'tides', to: 'weather', w: 0.2, label: 'spin', bend: 0 },
+      { from: 'tides', to: 'ocean', w: 0.2, bend: 0.1 },
       { from: 'orbit', to: 'climate', w: (s65 - 420) / 120, label: `${Math.round(s65)} W/m²`, bend: -0.1 },
       { from: 'climate', to: 'weather', w: dT / 45, label: `${Math.round(dT)} K` },
       { from: 'climate', to: 'ocean', w: P.ocean.stats.maxSv / 30, label: 'wind' },
@@ -716,6 +786,7 @@ window.addEventListener('DOMContentLoaded', () => {
     { key: '1', group: 'View', label: 'Relief', action: () => setView('relief') },
     { key: '2', group: 'View', label: 'Climate', action: () => setView('climate') },
     { key: '3', group: 'View', label: 'Weather', action: () => setView('weather') },
+    { key: '4', group: 'View', label: 'Tides', action: () => setView('tides') },
     { key: 'k', group: 'View', label: 'Key', action: () => setKey(els.key.hidden) },
     { key: '=', group: 'View', label: 'Zoom in', action: () => { camera.zoomBy(1.2); drawDirty = true; } },
     { key: '-', group: 'View', label: 'Zoom out', action: () => { camera.zoomBy(1 / 1.2); drawDirty = true; } },
@@ -781,6 +852,7 @@ function tick(now) {
   if (climateDirty || playing || performance.now() - coldEaseStart < 900) { refreshClimate(climateDirty); climateDirty = false; }
   lap('season');
   if (view === 'weather' && wx && (playing || !wx.started || wx.t < SPINUP)) { if (!playing) stepWeather(0); refreshWeather(); }
+  if (playing && rate() < 20) drawDirty = true;   // the sky, the Sun, the Moon, the tide and the rivers' months move at a slow dial
   if (playing) caption(false);
   lap('chart');
   if (figuresDirty) figures(false);
@@ -819,9 +891,10 @@ function tick(now) {
       }
     }
     lap('lines');
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi });
+    const sf = lastSky = skyFrame();
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi, tides: sf.tides });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth() }, pal);
     if (phi >= 1) drawDirty = false;
     lap('overlay');
   }
@@ -836,6 +909,7 @@ engine.onmessage = e => {
   } else if (m.type === 'surface') onSurface(m);
   else if (m.type === 'climate') { climate.update(m); climateDirty = true; figuresDirty = true; caption(false); }
   else if (m.type === 'fast') onFast(m);
+  else if (m.type === 'tides') onTides(m);
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
@@ -847,7 +921,8 @@ engine.postMessage({ type: 'play', playing });
 gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   globe = g;
   season = new GpuSeason(g.device, grid, g.climBuffer);
-  wx = new GpuWeather(g.device, mesh, seed, g.refiner);
+  wx = new GpuWeather(g.device, mesh, seed, g.refiner, moon.Omega);
+  if (tide) g.setTides(tide.C, tide.S, tide.diss);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;
@@ -860,4 +935,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; } };

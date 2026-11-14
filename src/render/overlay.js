@@ -11,13 +11,18 @@
 //                tints crust younger than 1 Myr)
 //   transform    a lighter rule with paired half-arrows giving the sense of slip
 //   inactive     a dotted rule (the plates hardly move against each other)
-// Under them, rivers in the sea's ink, their weight the discharge. The Climate
-// view keeps the rivers, lighter, and drops the tectonic symbols. Hotspots are
+// Under them, rivers in the sea's ink, their weight the discharge (at a slow
+// dial, the month's: a river that has run dry is a dotted bed, as maps draw an
+// intermittent stream). The Climate
+// view keeps the rivers, lighter, and drops the tectonic symbols, as do the
+// Weather and Tides views (the rivers lighter still). Hotspots are
 // red points ringed, and a province in eruption a red stippled disc: the
 // mantle at the surface.
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
+import { RIVER_MIN } from './rivers.js';
 import { drawChart } from './chart.js';
 import { freshU, inheritU, octaves, marks, dashes } from './along.js';
+import { drawSky } from './sky.js';
 
 // Symbols scale with the globe (the radius on screen against 380 px), within
 // limits that keep them legible far out and unobtrusive close in.
@@ -44,9 +49,22 @@ export function turned(P, w, tau) {
 
 const RIVER_BUCKETS = 6;
 
-function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
+/**
+ * The discharge drawn at point k: the year's mean, or at a slow dial (`month`: the
+ * month's index and the share into the next) that month's. In its month a river is dry
+ * under a tenth of its own mean (and 450 m³/s): a dotted bed. At the year's mean,
+ * rivers under the drawing threshold (those that run only in their wet season) hide.
+ */
+const isDry = (river, k, w) => w < 0.1 * river.W[k] && w < 0.3 * RIVER_MIN;
+function riverW(river, k, month) {
+  if (!month || !river.M) return river.W[k];
+  const M = river.M, a = month.i, b = (a + 1) % 12;
+  return M[12 * k + a] * (1 - month.f) + M[12 * k + b] * month.f;
+}
+
+function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) {
   const lw = Math.sqrt(symbolScale(r));
-  const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D());
+  const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D()), dry = new Path2D();
   const v = [0, 0, 0];
   const faded = [];
   for (const river of rivers) {
@@ -57,9 +75,13 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
       const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
       if (vis && pv) {
-        const q = Math.log10(Math.max(1, W[k] / 1500));
-        const b = Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2));
-        paths[b].moveTo(px, py); paths[b].lineTo(x, y);
+        const w = riverW(river, k, month);
+        if (month ? isDry(river, k, w) : w < RIVER_MIN * 0.999) { if (month) { dry.moveTo(px, py); dry.lineTo(x, y); } }
+        else {
+          const q = Math.log10(Math.max(1, w / 1500));
+          const b = Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2));
+          paths[b].moveTo(px, py); paths[b].lineTo(x, y);
+        }
       }
       px = x; py = y; pv = vis;
     }
@@ -71,6 +93,12 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
     ctx.lineWidth = (0.6 + 0.42 * b) * lw;
     ctx.stroke(paths[b]);
   }
+  if (month) {
+    ctx.strokeStyle = withAlpha(color, 0.55 * alpha); ctx.lineWidth = 0.9 * lw;
+    ctx.setLineDash([0.5 * lw, 3 * lw]);
+    ctx.stroke(dry);
+    ctx.setLineDash([]);
+  }
   // Rivers appearing or vanishing between landscape steps fade.
   for (const river of faded) {
     const { W } = river, P = river.shown || river.P;
@@ -79,8 +107,9 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
     for (let k = 0; k < W.length; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
       const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
-      if (vis && pv) {
-        const q = Math.log10(Math.max(1, W[k] / 1500));
+      const w = riverW(river, k, month);
+      if (vis && pv && !(month ? isDry(river, k, w) : w < RIVER_MIN * 0.999)) {
+        const q = Math.log10(Math.max(1, w / 1500));
         ctx.lineWidth = (0.6 + 0.42 * Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2))) * lw;
         ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
       }
@@ -122,16 +151,17 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   const r = camera.radius(w * dpr, h * dpr) / dpr;
   const cx = w / 2, cy = h / 2;
 
+  drawSky(ctx, cx, cy, r, r / camera.zoom, w, h, camera, layers.sky, palette);
   ctx.lineWidth = 1;
   ctx.strokeStyle = withAlpha(palette.text, 0.28);
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
-  const climate = layers.view === 'climate', weather = layers.view === 'weather';
-  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather ? 0.35 : 0.9);
+  const climate = layers.view === 'climate', weather = layers.view === 'weather', tides = layers.view === 'tides';
+  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather || tides ? 0.35 : 0.9, layers.riverMonth);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
-  if (!climate && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
-  const lines = climate ? null : layers.boundaries;
+  if (!climate && !tides && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
+  const lines = climate || tides ? null : layers.boundaries;
   if (!lines) return;
   const sc = symbolScale(r), lw = Math.sqrt(sc);
   // Gaps in px at scale 1 (along.js scales them); sizes in px.

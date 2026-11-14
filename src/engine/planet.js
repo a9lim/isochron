@@ -19,6 +19,7 @@ import { OrbitCycles } from './orbit.js';
 import { Ocean } from './ocean.js';
 import { genesis } from './genesis.js';
 import { refineTectonics } from './refine.js';
+import { Moon } from './tides.js';
 
 export { Record, SERIES } from './record.js';
 import { Record } from './record.js';
@@ -47,6 +48,10 @@ export class Planet {
     this.climate.ocean = this.ocean;
     this.carbon = new Carbon(this.tec, this.land, this.climate, this.plumes);
     this.orbit = new OrbitCycles(seed);
+    // The Moon and the spin it slows: its tides are solved on the GPU where there is one
+    // (src/gpu/tides.js, from the engine's worker); headless, the Moon stays put.
+    this.moon = new Moon();
+    CLIMATE.OMEGA = this.moon.Omega;
     this.years = this.tec.t * 1e6;
     this.seaLevel0 = this.tec.seaLevel;
     this.record = new Record();
@@ -54,6 +59,13 @@ export class Planet {
     this.iceWaterSolved = 0;
     this.loadSince = 0;
     this.setOrbit(1e6);
+  }
+
+  /** The sea's depth (m) on the first `n` cells (a coarser level's, which nest first), for the tide. */
+  tideDepth(n) {
+    const t = this.tec, d = new Float64Array(n);
+    for (let i = 0; i < n; i++) d[i] = Math.max(0, (t.seaLevel - t.elev[i]) * 1000);
+    return d;
   }
 
   /** The orbit the climate sees: averaged over `window` years. */
@@ -66,6 +78,8 @@ export class Planet {
     const tec = this.tec;
     tec.step(dt / 1e6);
     this.plumes.step(dt / 1e6);
+    this.moon.step(dt);
+    CLIMATE.OMEGA = this.moon.Omega;
     tec.updateElevation();
     this.landBank = (this.landBank || 0) + dt;
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
@@ -104,7 +118,7 @@ export class Planet {
     let land = 0;
     for (let i = 0; i < g.n; i++) if (tec.elev[i] > tec.seaLevel) land += g.area[i];
     return [this.climate.stats.meanT, this.carbon.pco2, (tec.seaLevel - this.seaLevel0) * 1000,
-      this.ice.stats.seaLevel, 100 * land / (4 * Math.PI), this.carbon.ridge / this.carbon.ridge0];
+      this.ice.stats.seaLevel, 100 * land / (4 * Math.PI), this.carbon.ridge / this.carbon.ridge0, this.moon.solarDay];
   }
 
   /** Headless: run `years` with plate steps, the fast layers each `fastStep`, a climate cycle each `climateEvery`. */

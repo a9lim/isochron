@@ -192,6 +192,7 @@ export class Climate {
     this.zones = new Float32Array(NZ * n);
     this.snowAnn = new Float32Array(n);    // fraction of the year under snow (land) or sea ice
     this.runoff = new Float32Array(n);
+    this.runoffM = new Float32Array(12 * n);   // runoff by month (m), January first: rivers' seasons
     this.upz = new Float64Array(3 * n);
     this.elevPos = new Float64Array(n);
     this.landMask = new Uint8Array(n);
@@ -234,6 +235,36 @@ export class Climate {
     }
     this.qtab = tab; this.qkey = key;
     return tab;
+  }
+
+  /**
+   * The year's runoff by month for land cell i (synthesis): snow held below freezing and
+   * melted by degree days (3 mm/°C/day), evaporation through the year by temperature
+   * (the year's total Budyko's), baseflow spread evenly (soil and groundwater: a third of
+   * the runoff where much of the rain runs off, little in deserts, whose wadis run only
+   * after rain) and the rest as the month's surplus of rain and melt. Sums to the year's
+   * runoff `R` (mm), the landscape's.
+   */
+  monthlyRunoff(i, tm, pm, et, R) {
+    const out = this.runoffM, o = 12 * i, DDF = 3 * 30.44;
+    let pet = 0, map = 0;
+    for (let m = 0; m < 12; m++) map += pm[m];
+    const BASE = 0.35 * Math.min(1, R / Math.max(1, map) / 0.3);
+    for (let m = 0; m < 12; m++) pet += Math.max(0, tm[m] + 4);
+    // Snow: two passes over the year, so the pack carried into January is the year's own.
+    let swe = 0;
+    const liquid = new Float64Array(12);
+    for (let pass = 0; pass < 2; pass++) for (let m = 0; m < 12; m++) {
+      if (tm[m] <= 0) { swe += pm[m]; liquid[m] = 0; }
+      else { const melt = Math.min(swe, DDF * tm[m]); swe -= melt; liquid[m] = pm[m] + melt; }
+    }
+    let quick = 0;
+    for (let m = 0; m < 12; m++) {
+      const e = pet > 0 ? et * Math.max(0, tm[m] + 4) / pet : et / 12;
+      liquid[m] = Math.max(0, liquid[m] - e);
+      quick += liquid[m];
+    }
+    for (let m = 0; m < 12; m++) out[o + m] = (BASE * R / 12 + (quick > 0 ? (1 - BASE) * R * liquid[m] / quick : (1 - BASE) * R / 12)) / 1000;
   }
 
   /** Sea-level temperature at year phase τ, fine cell i. */
@@ -571,6 +602,7 @@ export class Climate {
       const et = map * pet / Math.sqrt(map * map + pet * pet + 1e-9);
       this.runoff[i] = this.landMask[i] ? Math.max(0, map - et) / 1000 : 0;
       if (!this.landMask[i]) continue;
+      this.monthlyRunoff(i, tm, pm, et, this.runoff[i] * 1000);
       // Summer is April–September in the north, October–March in the south.
       const north = this.lat[i] >= 0;
       let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;

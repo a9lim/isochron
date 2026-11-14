@@ -66,6 +66,11 @@ const GLYPHS = {
   isobar: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.45); c.lineWidth = 1; c.beginPath(); c.moveTo(x, y + 9); c.quadraticCurveTo(x + 13, y - 1, x + 26, y + 9); c.stroke(); },
   hl: (c, x, y, P) => { c.font = `600 13px ${FONT}`; c.fillStyle = P.text; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('H', x + 7, y + 6.5); c.fillText('L', x + 19, y + 6.5); },
   rain: (c, x, y, P) => { c.fillStyle = rgba(P.ocean, 0.85); for (let a = 0; a < 6; a++) for (let b = 0; b < 3; b++) { c.beginPath(); c.arc(x + 2.5 + a * 4.2 + (b % 2) * 2.1, y + 2 + b * 3.8, 0.85, 0, 7); c.fill(); } },
+  // The Tides view: lines every lunar hour converging on an amphidrome, the high water, the energy lost.
+  cotidal: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; for (const a of [-0.5, 0, 0.5, 1.0, 1.5, 2.0]) { c.beginPath(); c.moveTo(x + 13, y + 6); c.lineTo(x + 13 + 14 * Math.cos(a * Math.PI / 3 * 2), y + 6 + 7 * Math.sin(a * Math.PI / 3 * 2)); c.stroke(); } },
+  amphidrome: (c, x, y, P) => { c.fillStyle = P.canvas; c.fillRect(x, y, 26, 12); c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; for (let k = 0; k < 12; k++) { const a = k * Math.PI / 6; c.beginPath(); c.moveTo(x + 13 + 2 * Math.cos(a), y + 6 + 2 * Math.sin(a)); c.lineTo(x + 13 + 6 * Math.cos(a), y + 6 + 6 * Math.sin(a)); c.stroke(); } },
+  highwater: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.85); c.lineWidth = 1.3; c.beginPath(); c.moveTo(x, y + 9); c.quadraticCurveTo(x + 13, y + 1, x + 26, y + 5); c.stroke(); },
+  dissipation: (c, x, y, P) => { c.fillStyle = rgba(P.inks.sienna, 0.8); for (let a = 0; a < 6; a++) for (let b = 0; b < 3; b++) { c.beginPath(); c.arc(x + 2.5 + a * 4.2 + (b % 2) * 2.1, y + 2 + b * 3.8, 0.8, 0, 7); c.fill(); } },
 };
 
 function line(c, x0, y0, x1, y1) { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
@@ -97,6 +102,7 @@ const ITEMS = {
   'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
   'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
   'weather-humidity': [['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['rain', 'Rain'], ['hl', 'High, low']],
+  tides: [['r:low', 'Small range'], ['r:high', 'Large range'], ['cotidal', 'Co-tidal, 1 lunar h'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water now'], ['dissipation', 'Tide’s energy lost']],
 };
 
 export function drawKey(canvas, view, P) {
@@ -115,6 +121,7 @@ export function drawKey(canvas, view, P) {
     if (g.startsWith('v:')) vegetation(c, x, y, P, g.slice(2));
     else if (g.startsWith('t:')) wash(c, x, y, P, g === 't:warm' ? P.inks.sienna : P.ocean, 0.3);
     else if (g.startsWith('h:')) wash(c, x, y, P, g === 'h:moist' ? P.inks.verdigris : P.inks.ochre, 0.3);
+    else if (g.startsWith('r:')) wash(c, x, y, P, P.ocean, g === 'r:high' ? 0.6 : 0.1);
     else if (g.startsWith('z:')) zonePattern(c, +g.slice(2), x, y, 26, 12, P);
     else GLYPHS[g](c, x, y, P);
     c.font = `12px ${FONT}`; c.fillStyle = P.text; c.textAlign = 'left'; c.textBaseline = 'middle';

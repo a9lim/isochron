@@ -92,6 +92,15 @@ export function monthName(tau) {
   while (m < 11 && day >= ends[m]) m++;
   return MONTHS[m];
 }
+/** Where year phase τ falls between the months' middles: the month i (0 = January) and the share f toward the next. */
+export function monthAt(tau) {
+  const mid = [15.5, 45, 74.5, 105, 135.5, 166, 196.5, 227.5, 258, 288.5, 319, 349.5];
+  const day = ((tau * 365.2422 + 78.5) % 365.2422 + 365.2422) % 365.2422;
+  let i = 11;
+  for (let m = 0; m < 12; m++) if (day >= mid[m]) i = m;
+  const a = mid[i], b = i === 11 ? mid[0] + 365.2422 : mid[i + 1], d = day < a ? day + 365.2422 : day;
+  return { i, f: (d - a) / (b - a) };
+}
 /** Year phase at the middle of month m (0 = January). */
 export function monthPhase(m) {
   const mid = [15.5, 45, 74.5, 105, 135.5, 166, 196.5, 227.5, 258, 288.5, 319, 349.5][m];
