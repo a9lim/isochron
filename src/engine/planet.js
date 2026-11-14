@@ -86,13 +86,14 @@ export class Planet {
     this.climate.orbit = this.orbit.at(this.years / 1000, window / 1000);
   }
 
-  /** One plate step of dt years: plates, plumes, landscape. */
+  /** One plate step of dt years: plates and plumes; the landscape every quarter Myr. */
   plateStep(dt) {
     const tec = this.tec;
     tec.step(dt / 1e6);
     this.plumes.step(dt / 1e6);
     tec.updateElevation();
-    this.land.step(dt);
+    this.landBank = (this.landBank || 0) + dt;
+    if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
   }
 
   /** The fast layers over dt years: carbon, and ice within a time budget. */

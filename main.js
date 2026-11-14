@@ -17,7 +17,7 @@ import { monthName, S0 } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
-import { drawOverlay } from './src/render/overlay.js';
+import { drawOverlay, turned } from './src/render/overlay.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
@@ -30,7 +30,7 @@ const RELIEF = 20;            // vertical exaggeration of the hillshade
 const R_KM = 6371;
 const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
-const PLATE_STEP = 5e5;       // years
+const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
 const CLIMATE_MS = 5;         // the climate's share of a frame
 const ICE_MS = 3;             // the ice's
 const WEATHER_MS = 8;         // the weather's, when it runs live
@@ -93,6 +93,7 @@ function palette() {
   return { canvas: T.canvas, text: T.text, accent: T.accent, ocean: T.ocean, land: T.land, muted: T.textMuted, inks: T.inks, tint, dark };
 }
 
+let lastStepDt = PLATE_STEP, riversSteps = -1, riversT = 0, surfaceFromStep = false;
 function refreshSurface() {
   const Pp = grid.pos, nbrOff = grid.nbrOff, nbr = grid.nbr;
   // Drawn relief is the model's, eased once toward its neighbours' mean: a
@@ -167,7 +168,7 @@ function refreshSurface() {
     }
   }
   lines = traceBoundaries(tec);
-  rivers = traceRivers(grid, land);
+  if (land.steps !== riversSteps) { rivers = traceRivers(grid, land); riversSteps = land.steps; riversT = tec.t; }
   seaDrawn = tec.seaLevel;
   figuresDirty = true;
   if (!globe) return;
@@ -177,7 +178,8 @@ function refreshSurface() {
     globe.setPolarity(polarity.table(origin, POL_DT, Math.ceil(POL_SPAN / POL_DT)), origin, POL_DT);
     polarityReady = true;
   }
-  globe.setFields(elevRel, tfDraw, tec.phi, lakeDraw, normals);
+  globe.setFields(elevRel, tfDraw, tec.phi, lakeDraw, normals, surfaceFromStep);
+  surfaceFromStep = false;
 }
 let polarityReady = false;
 
@@ -638,6 +640,8 @@ function setPlaying(p) {
 }
 function stepPlates(dt) {
   P.plateStep(dt);
+  lastStepDt = dt;
+  surfaceFromStep = true;
   climatePending = Math.max(climatePending, 1);
   surfaceDirty = true;
 }
@@ -645,6 +649,8 @@ function stepOnce() {
   setPlaying(false);
   P.years += PLATE_STEP;
   stepPlates(PLATE_STEP);
+  surfaceFromStep = false;                  // a single step shows at once
+  scheduler.layers[0].bank = 0.999 * scheduler.layers[0].step;
 }
 function nudgeDial(d) {
   setDial(Math.min(+els.dial.max, Math.max(+els.dial.min, +els.dial.value + d)));
@@ -705,6 +711,8 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (playing) {
+    // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr.
+    scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10));
     const { dt: adv, plan } = scheduler.advance(rate() * dt);
     P.years += adv;
     const p = plan[0];
@@ -717,6 +725,7 @@ function frame(now) {
     // Ice moves the sea; redraw the coast when it has moved a few metres.
     if (now - lastSeaCheck > 250) { lastSeaCheck = now; if (Math.abs(tec.seaLevel - seaDrawn) > 0.004) surfaceDirty = true; }
     figuresDirty = true;
+    drawDirty = true;
   }
   if (surfaceDirty) { refreshSurface(); surfaceDirty = false; drawDirty = true; climateDirty = true; caption(false); }
   if ((playing || climatePending > 0) && P.climateWork(CLIMATE_MS)) { climatePending = Math.max(0, climatePending - 1); climateDirty = true; }
@@ -727,8 +736,18 @@ function frame(now) {
   if (drawDirty && globe && !globe.lost) {
     const pal = palette();
     const pl = { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) };
-    globe.draw(camera, tec.t, pal, { view, wx: wxMode });
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view, chart, chartFade: wxLive }, pal);
+    // Between steps the globe shows the blend of the last two states, and the
+    // lines turn with their plates to the same moment.
+    const L0 = scheduler.layers[0], phi = Math.min(1, Math.max(0, L0.bank / L0.step));
+    const tShow = tec.t - (1 - phi) * lastStepDt / 1e6;
+    if (lines) for (const ln of lines) {
+      const a = tec.plates[ln.left], b = tec.plates[ln.right];
+      const w = [0.5 * (a.w[0] + b.w[0]), 0.5 * (a.w[1] + b.w[1]), 0.5 * (a.w[2] + b.w[2])];
+      ln.shown = turned(ln.P, w, tShow - tec.t); ln.shownL = turned(ln.L, w, tShow - tec.t);
+    }
+    if (rivers) for (const rv of rivers) { const pl = tec.plates[rv.plate]; rv.shown = pl && pl.alive ? turned(rv.P, pl.w, tShow - riversT) : rv.P; }
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi });
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view, chart, chartFade: wxLive, wxNow: wx.t }, pal);
     drawDirty = false;
   }
   requestAnimationFrame(frame);

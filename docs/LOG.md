@@ -100,6 +100,11 @@ Second round (2026-11-15): grid-like lakes and rivers, symbols that don't scale,
 - **Fronts**: fields and thresholds averaged over successive charts, pieces bridged, typed against the chart's own typical cross-front wind (an absolute 2.5 m/s called 95% of fronts stationary), occlusions near deep lows.
 - **Weather charts**: pressure, temperature and humidity, each with its key.
 
+Third round (2026-11-15): continuity through time; troughs, ridges, shear lines and the like; fronts broken up and doubled; occlusions that form.
+- **Continuous motion**: fields blended between the last two plate steps in the shader; boundaries and rivers turned with their plates to the displayed moment; adaptive plate steps (50 kyr–0.5 Myr, ~10 a second); weather lines and centres drifting with their wind between charts.
+- **Fronts**: only maxima of TFP (the minima were the second, back-to-back front), duplicates of one type dropped, and occlusion when a cold stretch closes within ~380 km of a warm one (the near-a-low rule is gone).
+- **Troughs, ridges and shear lines** drawn; a trowal needs the air's structure aloft and squall lines need convection, neither of which a two-layer QG model has, so they're left out rather than faked.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

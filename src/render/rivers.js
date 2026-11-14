@@ -74,6 +74,7 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
         line.P[3 * m] = stem.P[3 * best]; line.P[3 * m + 1] = stem.P[3 * best + 1]; line.P[3 * m + 2] = stem.P[3 * best + 2];
       }
     }
+    line.plate = land.tec.owner[c.cells[0]];
     out[k] = line;
   }
   // Short streams on wet coasts are dropped: a river is three cells, or a large one.

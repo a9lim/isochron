@@ -49,6 +49,9 @@ const GLYPHS = {
     c.beginPath(); c.moveTo(x + 3, y + 8); c.lineTo(x + 6.5, y + 2); c.lineTo(x + 10, y + 8); c.fill();
     c.beginPath(); c.arc(x + 19, y + 8, 3.6, Math.PI, 2 * Math.PI); c.fill();
   },
+  trough: (c, x, y, P) => { c.strokeStyle = P.inks.umber; c.lineWidth = 1.4; c.setLineDash([7, 4]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
+  shear: (c, x, y, P) => { c.strokeStyle = P.inks.prussian; c.lineWidth = 1.2; c.setLineDash([8, 3, 1.5, 3]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
+  pridge: (c, x, y, P) => { c.strokeStyle = P.inks.umber; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x, y + 6); for (let k = 1; k <= 5; k++) c.lineTo(x + k * 5.2, y + 6 + (k % 2 ? -2.6 : 2.6)); c.stroke(); },
   iso0: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.7); c.lineWidth = 1.3; line(c, x, y + 6, x + 26, y + 6); },
   isohume: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; c.beginPath(); c.moveTo(x, y + 8); c.bezierCurveTo(x + 8, y, x + 18, y + 12, x + 26, y + 4); c.stroke(); },
   dry: (c, x, y, P) => {
@@ -86,7 +89,7 @@ const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['river', 'River'],
     ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
   climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv']],
-  'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
+  'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
   'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
   'weather-humidity': [['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['rain', 'Rain'], ['hl', 'High, low']],
 };

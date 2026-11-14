@@ -19,13 +19,33 @@ import { drawChart } from './chart.js';
 // limits that keep them legible far out and unobtrusive close in.
 const symbolScale = r => Math.max(0.75, Math.min(3.5, r / 380));
 
+/**
+ * A line's points turned by a plate's rotation over `tau` Myr (ω in rad/Myr):
+ * between retraces, boundaries and rivers glide with their plates. Returns a
+ * new array (Rodrigues' formula), or the original when there's nothing to turn.
+ */
+export function turned(P, w, tau) {
+  const wm = Math.hypot(w[0], w[1], w[2]), a = wm * tau;
+  if (!(Math.abs(a) > 1e-9)) return P;
+  const kx = w[0] / wm, ky = w[1] / wm, kz = w[2] / wm, c = Math.cos(a), s = Math.sin(a), C = 1 - c;
+  const out = new Float32Array(P.length);
+  for (let k = 0; k < P.length; k += 3) {
+    const x = P[k], y = P[k + 1], z = P[k + 2], d = kx * x + ky * y + kz * z;
+    out[k] = x * c + (ky * z - kz * y) * s + kx * d * C;
+    out[k + 1] = y * c + (kz * x - kx * z) * s + ky * d * C;
+    out[k + 2] = z * c + (kx * y - ky * x) * s + kz * d * C;
+  }
+  return out;
+}
+
 const RIVER_BUCKETS = 6;
 
 function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
   const lw = Math.sqrt(symbolScale(r));
   const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D());
   const v = [0, 0, 0];
-  for (const { P, W } of rivers) {
+  for (const river of rivers) {
+    const { W } = river, P = river.shown || river.P;
     let px = 0, py = 0, pv = false;
     for (let k = 0; k < W.length; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
@@ -87,7 +107,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.stroke();
   const climate = layers.view === 'climate', weather = layers.view === 'weather';
   if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather ? 0.35 : 0.9);
-  if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r)); return; }
+  if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   if (!climate && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
   const lines = climate ? null : layers.boundaries;
   if (!lines) return;
@@ -100,7 +120,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   const v = [0, 0, 0];
 
   for (const line of lines) {
-    const { P, T, L, type, over, arc, slide } = line;
+    const { T, type, over, arc, slide } = line, P = line.shown || line.P, L = line.shownL || line.L;
     const M = type.length;
     const sx = new Float32Array(M), sy = new Float32Array(M), vis = new Uint8Array(M);
     for (let k = 0; k < M; k++) {

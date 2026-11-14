@@ -179,6 +179,7 @@ export class Landscape {
     this.areaKm = Float64Array.from(this.grid.area, a => a * R_KM * R_KM);
     this.r = null;
     this.flux = { eroded: 0, toSea: 0, toLakes: 0 };   // km³/yr, last step
+    this.steps = 0;
   }
 
   /**
@@ -300,6 +301,7 @@ export class Landscape {
     }
     this.diffuse(dt);
     this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt;
+    this.steps++;
     tec.updateElevation();
   }
 

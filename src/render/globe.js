@@ -64,9 +64,14 @@ fn toView(p: vec3f) -> vec3f {
   return vec3f(dot(u.view0.xyz, p), dot(u.view1.xyz, p), dot(u.view2.xyz, p));
 }
 
-@vertex fn vs(@location(0) p: vec3f, @location(1) f: vec4f, @location(2) n: vec3f, @location(3) c: vec4f,
+@vertex fn vs(@location(0) p: vec3f, @location(1) fc: vec4f, @location(2) nc: vec3f, @location(3) c: vec4f,
               @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
-              @location(8) iv: vec4f, @location(9) wx: vec4f) -> VOut {
+              @location(8) iv: vec4f, @location(9) wx: vec4f, @location(10) fp: vec4f, @location(11) np: vec3f) -> VOut {
+  // Between plate steps the surface blends from the last step's state to this
+  // one's (each step moves the crust less than half a cell), so it moves
+  // continuously rather than in ticks.
+  let f = mix(fp, fc, u.inkB.w);
+  let n = normalize(mix(np, nc, u.inkB.w));
   var o: VOut;
   let v = toView(p);
   o.clip = vec4f(v.x * u.frame.x, v.y * u.frame.y, 0.5 - 0.5 * v.z, 1.0);
@@ -396,8 +401,8 @@ export async function createGlobe(canvas, grid) {
   const n = grid.n;
   const posBuf = device.createBuffer({ size: n * 12, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(posBuf, 0, Float32Array.from(grid.pos));
-  const fieldBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-  const normBuf = device.createBuffer({ size: n * 12, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const fieldBuf = device.createBuffer({ size: n * 32, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });   // current, previous
+  const normBuf = device.createBuffer({ size: n * 24, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const climBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const zoneBuf = device.createBuffer({ size: n * 64, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const iceBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -414,8 +419,8 @@ export async function createGlobe(canvas, grid) {
       module, entryPoint: 'vs',
       buffers: [
         { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
-        { arrayStride: 16, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }] },
-        { arrayStride: 12, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x3' }] },
+        { arrayStride: 32, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }, { shaderLocation: 10, offset: 16, format: 'float32x4' }] },
+        { arrayStride: 24, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x3' }, { shaderLocation: 11, offset: 12, format: 'float32x3' }] },
         { arrayStride: 16, attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x4' }] },
         { arrayStride: 64, attributes: [0, 1, 2, 3].map(k => ({ shaderLocation: 4 + k, offset: 16 * k, format: 'float32x4' })) },
         { arrayStride: 16, attributes: [{ shaderLocation: 8, offset: 0, format: 'float32x4' }] },
@@ -428,8 +433,9 @@ export async function createGlobe(canvas, grid) {
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
   const uni = new Float32Array(72);
-  const field = new Float32Array(4 * n);
-  const norm = new Float32Array(3 * n);
+  const field = new Float32Array(8 * n);
+  const norm = new Float32Array(6 * n);
+  let blend = 1;
   let polN = 0, polDT = 1, polT0 = 0;
 
   function rebind() {
@@ -456,14 +462,22 @@ export async function createGlobe(canvas, grid) {
     get polarityOrigin() { return polT0; },
 
     /** Per cell: elevation above sea level (km), formation time (Myr), felsic fraction, lake depth (km), normal. */
-    setFields(elevRel, tform, felsic, lake, normals) {
+    // `fromStep`: the old current becomes the previous state to blend from;
+    // otherwise both are the new state.
+    setFields(elevRel, tform, felsic, lake, normals, fromStep = false) {
       for (let i = 0; i < n; i++) {
-        field[4 * i] = elevRel[i];
-        field[4 * i + 1] = tform[i] - polT0;
-        field[4 * i + 2] = felsic[i];
-        field[4 * i + 3] = lake ? lake[i] : 0;
+        const o = 8 * i;
+        if (fromStep) { field[o + 4] = field[o]; field[o + 5] = field[o + 1]; field[o + 6] = field[o + 2]; field[o + 7] = field[o + 3]; }
+        field[o] = elevRel[i];
+        field[o + 1] = tform[i] - polT0;
+        field[o + 2] = felsic[i];
+        field[o + 3] = lake ? lake[i] : 0;
+        if (!fromStep) { field[o + 4] = field[o]; field[o + 5] = field[o + 1]; field[o + 6] = field[o + 2]; field[o + 7] = field[o + 3]; }
+        const q = 6 * i;
+        if (fromStep) { norm[q + 3] = norm[q]; norm[q + 4] = norm[q + 1]; norm[q + 5] = norm[q + 2]; }
+        norm[q] = normals[3 * i]; norm[q + 1] = normals[3 * i + 1]; norm[q + 2] = normals[3 * i + 2];
+        if (!fromStep) { norm[q + 3] = norm[q]; norm[q + 4] = norm[q + 1]; norm[q + 5] = norm[q + 2]; }
       }
-      norm.set(normals);
       device.queue.writeBuffer(fieldBuf, 0, field);
       device.queue.writeBuffer(normBuf, 0, norm);
     },
@@ -503,6 +517,7 @@ export async function createGlobe(canvas, grid) {
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna);
+      uni[55] = mode.blend ?? 1;
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();

@@ -73,7 +73,7 @@ Depth is shaded in blue and height in brown, with a contour every kilometre. The
 
 In the Climate view each class is its group's colour in a pattern for its second letter: solid where it's wet all year, hatched one way or the other where the dry season falls in winter or in summer, cross-hatched for monsoon climates, stippled for deserts (densely) and steppes (sparsely), finely ruled for tundra, and bare for ice caps. The key lists each class with its share of the land.
 
-The Weather view is a synoptic chart: isobars every 4 hPa, rain as stipple, cold fronts with triangles and warm fronts with semicircles pointing the way they move, occluded fronts with both on one side, dry lines with scallops toward the moist air, and the highs and lows. It can also show the surface temperature, with isotherms every 5 °C, or the air's humidity. In the Climate view the sea carries isotherms of its surface temperature and the gyres' streamlines.
+The Weather view is a synoptic chart: isobars every 4 hPa, rain as stipple, cold fronts with triangles and warm fronts with semicircles pointing the way they move, occluded fronts (where a cold front has caught its warm front) with both on one side, troughs dashed, ridges as zigzags, shear lines dash-dotted, dry lines with scallops toward the moist air, and the highs and lows. It can also show the surface temperature, with isotherms every 5 °C, or the air's humidity. In the Climate view the sea carries isotherms of its surface temperature and the gyres' streamlines.
 
 Ice sheets are outlined, with contours of their surface every 500 metres; the ice flows across the contours, downhill. Hotspots are red rings, and a province erupting is a red stippled disc.
 
