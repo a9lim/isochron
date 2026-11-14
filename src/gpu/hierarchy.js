@@ -13,11 +13,11 @@ import { buildGrid } from '../grid/icosphere.js';
 
 export const A_M = 6.371e6;
 
-export function hierarchy(top, lo = 2) {
+export function hierarchy(top, lo = 2, have = []) {
   const levels = [];
   let off = 0;
   for (let L = lo; L <= top.level; L++) {
-    const g = L === top.level ? top : buildGrid(L);
+    const g = L === top.level ? top : have.find(h => h.level === L) || buildGrid(L);
     levels.push({ L, g, n: g.n, off });
     off += g.n;
   }

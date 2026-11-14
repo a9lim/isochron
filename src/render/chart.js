@@ -266,7 +266,7 @@ export function chartLines(wx, pres, st) {
   // An extreme over ~440 km (two rings of 220 km cells): a cell beats every cell that near.
   {
     // Extremes of the pressure eased at the scale of 220 km cells (so ripples along a trough
-    // aren't each a low), at least 3 hPa from their surroundings.
+    // aren't each a low), at least 1 hPa from their surroundings.
     const { pos } = g, R = rings(g, 2 * S), pr = smoothField(g, Float64Array.from(pres), S * S);
     for (let i = 0; i < n; i++) {
       if (Math.abs(lat[i]) < 0.26) continue;
@@ -283,8 +283,8 @@ export function chartLines(wx, pres, st) {
       const d = pres[i] - s / (e - o);
       const Pt = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]];
       const Vt = [vel[3 * i], vel[3 * i + 1], vel[3 * i + 2]];
-      if (mn && d < -3) out.lows.push({ p: Pt, v: pres[i], V: Vt });
-      if (mx && d > 3) out.highs.push({ p: Pt, v: pres[i], V: Vt });
+      if (mn && d < -1) out.lows.push({ p: Pt, v: pres[i], V: Vt });
+      if (mx && d > 1) out.highs.push({ p: Pt, v: pres[i], V: Vt });
     }
   }
   // Fronts on the surface temperature.

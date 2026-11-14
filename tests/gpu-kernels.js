@@ -2,7 +2,7 @@
 //   multigrid    V-cycles reduce the error of both inversions geometrically
 //   conservation the PV's integral holds over many steps; nothing blows up
 //   Phillips     storms grow above Phillips' criterion and die below it
-//   timing       GPU time per step at the surface's level
+//   timing       GPU time per step at the drawn mesh's level (7; ?l6 for 6 too)
 import { buildGrid } from '../src/grid/icosphere.js';
 import { gpuDevice } from '../src/gpu/device.js';
 import { GpuWeather, WEATHER } from '../src/gpu/weather.js';
@@ -149,8 +149,8 @@ async function timing(device, level) {
     await multigrid(device);
     await conservation(device);
     await phillips(device);
-    await timing(device, 6);
-    if (new URLSearchParams(location.search).has('l7')) await timing(device, 7);
+    await timing(device, 7);
+    if (new URLSearchParams(location.search).has('l6')) await timing(device, 6);
   } catch (e) {
     log('exception', false, e.stack || String(e));
   }

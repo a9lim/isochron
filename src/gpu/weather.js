@@ -1,5 +1,6 @@
 // The weather (docs/PLAN.md, layer 8), on the GPU: two-layer quasi-geostrophic
-// flow on the sphere (standard), on the surface's own grid (level 6, 110 km).
+// flow on the sphere (standard), on the drawn mesh (level 7, 55 km), a level
+// finer than the engine's grid, from which its forcing is refined (src/gpu/refine.js).
 //
 //   q₁ = ∇²ψ₁ + F(ψ₂ − ψ₁) + f,   q₂ = ∇²ψ₂ + F(ψ₁ − ψ₂) + f + f₀ h_b/H
 // Each layer's potential vorticity is carried by its own flow. Fluxes across
@@ -32,6 +33,7 @@
 // Units: SI inside; ψ in m²/s, q in 1/s, time in seconds.
 import { kernel, storage, uniform } from './device.js';
 import { hierarchy, coarseInverse, A_M } from './hierarchy.js';
+import { makeTransfer } from '../grid/transfer.js';
 
 const OMEGA = 7.292e-5;
 
@@ -43,13 +45,16 @@ export const WEATHER = {
   TAU_TROP: 1 * 86400,  // damping at the equator, fading by 15°
   SHEAR: 2.2e6,         // m²/s per K of the baroclinic ψ's equilibrium (the thermal wind)
   UPWIND: 0.2,          // share of upwinding in the PV transport
-  NU4_5: 2e15,          // m⁴/s at level 5: hyperviscosity, damping the grid's scale in ~3 h (∝ cell⁴)
+  NU4_5: 2e15,          // m⁴/s at level 5: hyperviscosity, damping the grid's scale in ~3 h; ∝ cell^3.2,
+                        // so finer cells (whose noise grows faster) are damped faster, as models scale it
   TOPO: 0.3,            // share of orography in the lower layer's PV
   TAU_THETA: 5 * 86400, // surface temperature's pull toward the climate's
   TAU_EVAP: 2 * 86400,
   TAU_RAIN: 0.3 * 86400,
   K0: 1 / 3.16e7,       // 1/m: the barotropic solve's screening
   CYCLES: 2,            // V-cycles per step (warm-started)
+  START: 0.5,           // the share of the climate's shear the upper layer starts with (all of it overshoots: storms grow
+                        // explosively and the transient's jets pass the step's advective limit)
   JACOBI: 0.8,          // the smoother's weight
   NB: 60,               // latitude bands for the eddy pressure
 };
@@ -322,11 +327,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let c = U.off + i;
   let z = geo[8u * c + 7u];
   let lat = asin(clamp(z, -1.0, 1.0));
-  let band = min(D.nb - 1u, u32(floor((lat / 3.14159265 + 0.5) * f32(D.nb))));
+  // The zonal mean, linear between the bands' centres (a step at each band's edge would draw).
+  let xb = clamp((lat / 3.14159265 + 0.5) * f32(D.nb) - 0.5, 0.0, f32(D.nb - 1u));
+  let b0 = u32(floor(xb));
+  let b1 = min(b0 + 1u, D.nb - 1u);
   let S = s[2u * i];
   let M = mean[i];
   let L = D.live;
-  let pE = pEddy(x[c], z) - zm[band];
+  let pE = pEddy(x[c], z) - mix(zm[b0], zm[b1], xb - f32(b0));
   let rainW = max(0.0, S.w - 0.9 * wsat(S.z)) / D.tauRain * 86400.0;
   let rhW = min(1.2, S.w / wsat(S.z));
   out[i] = vec4f(M.x + L * pE, (1.0 - L) * M.y + L * rainW, (1.0 - L) * M.z + L * S.z - D.lapse * forc[i].w, min(1.0, (1.0 - L) * M.w + L * rhW));
@@ -355,14 +363,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 const wg = n => Math.ceil(n / 64);
 
 export class GpuWeather {
-  constructor(device, grid, seed = 'weather') {
+  /** On `grid`; with a `refiner`, forcing and means arrive on its coarser grid and are refined. */
+  constructor(device, grid, seed = 'weather', refiner = null) {
     const W = WEATHER;
     this.device = device; this.grid = grid; this.n = grid.n; this.level = grid.level;
     const s = 2 ** (grid.level - 5);
     this.dt = W.DT5 / s;
     this.f0 = 2 * OMEGA * Math.sin(Math.PI / 4);
     this.F = 1 / (W.LD * W.LD);
-    const H = this.H = hierarchy(grid, 2), n = grid.n, N = H.N;
+    this.refiner = refiner;
+    const H = this.H = hierarchy(grid, 2, refiner ? [refiner.coarse] : []), n = grid.n, N = H.N;
     const top = H.levels[H.levels.length - 1];
     this.off = top.off;
     this.lat = Float64Array.from({ length: n }, (_, i) => Math.asin(grid.pos[3 * i + 2]));
@@ -377,6 +387,11 @@ export class GpuWeather {
     this.M = B(16 * n);
     this.T4 = B(16 * n);
     this.tris = B(grid.tris.byteLength, grid.tris);
+    if (refiner) {
+      const nc = refiner.coarse.n;
+      this.Fc = B(16 * nc); this.Mc = B(16 * nc);
+      this.par = makeTransfer(grid, refiner.coarse).par;
+    }
     this.k2 = [W.K0 ** 2, 2 * this.F];
     this.inv = B(4 * 2 * H.levels[0].n ** 2, coarseInverse(H, this.k2));
     // Latitude bands, as lists of cells.
@@ -454,7 +469,7 @@ export class GpuWeather {
 
   writeParams(abA, abB) {
     const W = WEATHER, s = 2 ** (this.level - 5);
-    this.params.set([this.dt, this.F, this.f0, W.TOPO * this.f0 / 5000, W.NU4_5 / s ** 4, this.tmean, W.SHEAR, W.UPWIND,
+    this.params.set([this.dt, this.F, this.f0, W.TOPO * this.f0 / 5000, W.NU4_5 / s ** 3.2, this.tmean, W.SHEAR, W.UPWIND,
       W.TAU_RAD, W.TAU_EK, W.TAU_TROP, W.TAU_THETA, W.TAU_EVAP, W.TAU_RAIN, abA, abB]);
     this.device.queue.writeBuffer(this.Pu, 0, this.params);
   }
@@ -463,22 +478,33 @@ export class GpuWeather {
   setForcing(f4, tmean) {
     this.forc = f4;
     this.tmean = tmean;
-    this.device.queue.writeBuffer(this.Fo, 0, f4);
+    if (this.refiner) { this.device.queue.writeBuffer(this.Fc, 0, f4); this.refiner.run(this.Fc, this.Fo, 1); }
+    else this.device.queue.writeBuffer(this.Fo, 0, f4);
     this.writeParams(this.params[14], this.params[15]);
   }
 
   /** The climate's mean at the season, per cell (vec4: pressure hPa, rain mm/day, sea-level °C, humidity), for the blend. */
-  setMean(m4) { this.device.queue.writeBuffer(this.M, 0, m4); }
+  setMean(m4) {
+    if (this.refiner) { this.device.queue.writeBuffer(this.Mc, 0, m4); this.refiner.run(this.Mc, this.M, 1); }
+    else this.device.queue.writeBuffer(this.M, 0, m4);
+  }
 
   /** Start from the climate's shear and a little noise (needs the forcing). */
   start() {
-    const g = this.grid, n = this.n, F = this.F, f4 = this.forc, rng = this.rng;
+    const g = this.grid, n = this.n, F = this.F, rng = this.rng;
+    // The climate's temperature on this grid (linear from the coarser, where the forcing came from).
+    let f4 = this.forc;
+    if (this.refiner) {
+      const fc = f4, nc = this.refiner.coarse.n, par = this.par;
+      f4 = new Float32Array(4 * n);
+      for (let i = 0; i < n; i++) f4[4 * i] = i < nc ? fc[4 * i] : 0.5 * (fc[4 * par[2 * (i - nc)]] + fc[4 * par[2 * (i - nc) + 1]]);
+    }
     const psi1 = new Float64Array(n), psi2 = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const f = 2 * OMEGA * g.pos[3 * i + 2];
       const bcEq = WEATHER.SHEAR * (f / this.f0) * (f4[4 * i] - this.tmean);
       // The upper layer carries the thermal wind; the lower starts nearly at rest.
-      psi1[i] = 2 * (bcEq * (1 + 0.02 * (rng() - 0.5)) + 2e5 * (rng() - 0.5));
+      psi1[i] = 2 * (WEATHER.START * bcEq * (1 + 0.02 * (rng() - 0.5)) + 2e5 * (rng() - 0.5));
       psi2[i] = 1e5 * (rng() - 0.5);
     }
     const lap = psi => {

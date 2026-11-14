@@ -141,6 +141,17 @@ Decisions:
 
 After: the page's thread ~1.5 ms a frame (overlay and line morphs); the weather live to ~10 days/s at 110 km.
 
+## Level 7 (2026-11-15)
+
+a9: "yes please! let's try it"; the GPU is shared, so timings run high; the budget should be generous.
+- **The drawn mesh is level 7**; the engine stays at level 6. Each field the engine posts is refined onto the mesh on the GPU by one step of Loop subdivision (positive weights, so shares stay shares and nothing overshoots). Coasts, ice edges, lakes and isobaths are curves at close zoom.
+- **The weather runs on the mesh (55 km)** at 200 s, with the forcing refined from level 6. 300 s blew up on day 1: the upper layer's equilibrium jets (~115 m/s) sit near the advective limit, whatever the transient.
+- **A gentler start.** With the full shear at the start, storms grew explosively; the jets (~110 m/s on day 3) sat at the step's limit, and one run in the page blew up after day 6. Starting the upper layer at half the shear lets the forcing build it: winds climb to ~50–65 m/s with no spike.
+- **Hyperviscosity ∝ cell^3.2**, not cell⁴ (models scale it so: finer cells' noise grows faster than a fixed damping time handles).
+- **The zonal mean in the eddy pressure is interpolated** between its 3° bands: subtracting band means drew a step at every band's edge, which at 55 km showed as zig-zag isobars along latitude lines.
+- **The chart is traced at level 6** from the weather restricted (full weighting): tracing at level 7 cost ~650 ms a chart against ~100. Highs and lows need only 1 hPa against their 440 km surroundings: the 55 km storms (restricted) are broad, and 3 hPa found none.
+- Cost: ~0.55 ms of GPU a step by timestamps (wall ~1.5 ms while the GPU is shared), ~240 ms a model day; 12 ms of each frame keeps it live to ~3 days/s.
+
 ## Registering on the site
 
 When the social card is made (a9's session):
