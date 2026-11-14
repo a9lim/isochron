@@ -1,0 +1,325 @@
+// The landscape (docs/PLAN.md, layer 3): rivers cut the land the plates raise,
+// and carry it to lakes and the sea.
+//
+//   routing     depressions filled by priority flood (lakes), then steepest
+//               descent on the filled surface. The flood's pop order is a
+//               topological order: every receiver comes before its donors.
+//   erosion     the stream-power law dz/dt = U − K Qᵐ S (n = 1), solved
+//               implicitly from the outlets upstream (Braun and Willett's
+//               scheme), so any step is stable. Q is discharge: drainage area
+//               weighted by runoff from the climate.
+//   isostasy    rock removed from the top of the crust lowers the surface by
+//               only (1 − ρ_crust/ρ_mantle) of its thickness, because the
+//               crust rebounds. Erosion therefore takes thickness, and the
+//               surface follows through isostasy.
+//   sediment    routed downstream with the water; it fills lakes, and at the
+//               coast builds a shelf to just below sea level and then
+//               progrades into deeper water. Enough of it turns oceanic crust
+//               continental (a delta's crust).
+//   diffusion   thickness spreads between continental cells: hillslopes and
+//               small rivers below the grid's scale, and the lateral flow of
+//               thick, hot crust under an orogen (gravitational collapse).
+//
+// Lengths in km, time in years, areas in km².
+import { RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL } from './crust.js';
+
+export const LAND = {
+  K: 1.2e-7,         // 1/yr: erodibility for Q in km² of drainage at reference runoff (m = ½)
+  M: 0.5,
+  KAPPA: 4e-4,       // km²/yr: diffusion of continental thickness
+  KAPPA_THICK: 3e-3, // km²/yr more, per 30 km of crust above 40 km
+  SHELF: 0.12,       // km below sea level that sediment builds a shelf to
+  SED_FELSIC: 0.9,   // felsic fraction of river sediment
+  RUNOFF0: 0.3,      // m/yr: the runoff at which K applies
+};
+
+const R_KM = 6371;
+const CONTINENTAL = 0.5;
+
+/** A binary min-heap on typed arrays (key Float64, value Int32). */
+class Heap {
+  constructor(cap) { this.k = new Float64Array(cap); this.v = new Int32Array(cap); this.n = 0; }
+  push(key, val) {
+    const k = this.k, v = this.v;
+    let i = this.n++;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (k[p] <= key) break;
+      k[i] = k[p]; v[i] = v[p]; i = p;
+    }
+    k[i] = key; v[i] = val;
+  }
+  pop() {
+    const k = this.k, v = this.v;
+    const top = v[0];
+    const n = --this.n;
+    if (n > 0) {
+      const lk = k[n], lv = v[n];
+      let i = 0;
+      for (;;) {
+        let c = 2 * i + 1;
+        if (c >= n) break;
+        if (c + 1 < n && k[c + 1] < k[c]) c++;
+        if (k[c] >= lk) break;
+        k[i] = k[c]; v[i] = v[c]; i = c;
+      }
+      k[i] = lk; v[i] = lv;
+    }
+    return top;
+  }
+}
+
+/**
+ * Route water over z. `base` marks outlets (the sea). Fills depressions
+ * (priority flood with a small rise ε so filled flats still drain) and gives
+ * each cell its steepest-descent receiver on the filled surface.
+ * Returns { zf, rcv (−1 at outlets), rlen (km to the receiver), order }.
+ */
+export function route(grid, z, base, out) {
+  const n = grid.n, nbrOff = grid.nbrOff, nbr = grid.nbr, dist = grid.dist;
+  const zf = out?.zf || new Float64Array(n);
+  const rcv = out?.rcv || new Int32Array(n);
+  const rlen = out?.rlen || new Float32Array(n);
+  const order = out?.order || new Int32Array(n);
+  const seen = out?.seen || new Uint8Array(n);
+  const lake = out?.lake || new Uint8Array(n);
+  const heap = out?.heap || new Heap(n + 8);
+  seen.fill(0); heap.n = 0;
+  const EPS = 1e-6;
+  for (let i = 0; i < n; i++) if (base[i]) { zf[i] = z[i]; seen[i] = 1; heap.push(z[i], i); }
+  let no = 0;
+  while (heap.n > 0) {
+    const c = heap.pop();
+    order[no++] = c;
+    const zc = zf[c];
+    for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) {
+      const j = nbr[t];
+      if (seen[j]) continue;
+      seen[j] = 1;
+      zf[j] = Math.max(z[j], zc + EPS);
+      heap.push(zf[j], j);
+    }
+  }
+  // Steepest descent on the filled surface. Outlets drain nowhere. A cell
+  // filled more than 10 cm is under a lake.
+  for (let i = 0; i < n; i++) {
+    lake[i] = !base[i] && zf[i] > z[i] + 1e-4 ? 1 : 0;
+    if (base[i]) { rcv[i] = -1; rlen[i] = 0; continue; }
+    let best = 0, r = -1, len = 0;
+    for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+      const j = nbr[t];
+      const s = (zf[i] - zf[j]) / dist[t];
+      if (s > best) { best = s; r = j; len = dist[t]; }
+    }
+    rcv[i] = r; rlen[i] = len * R_KM;
+  }
+  return { zf, rcv, rlen, order, seen, lake, heap, count: no };
+}
+
+/** Accumulate w (per cell) downstream: out_i = w_i + Σ donors. */
+export function accumulate(order, count, rcv, w, out) {
+  out.set(w);
+  for (let k = count - 1; k >= 0; k--) {
+    const i = order[k], r = rcv[i];
+    if (r >= 0) out[r] += out[i];
+  }
+  return out;
+}
+
+/**
+ * One implicit stream-power step on z (km), in place. Each cell drains to
+ * its receiver; outlets hold base level `zb[i]`, lakes hold their filled
+ * surface. `f` scales the surface's response (the isostatic factor); returns
+ * nothing, z is updated. Steady state is exactly U = K Qᵐ (z − z_r)/L.
+ */
+export function streamPower(r, z, Q, f, K, m, dt, zb) {
+  const { zf, rcv, rlen, order, lake, count } = r;
+  for (let k = 0; k < count; k++) {
+    const i = order[k], j = rcv[i];
+    if (j < 0 || lake[i]) continue;             // outlets, and lake floors, don't erode
+    const zr = rcv[j] < 0 ? zb[j] : lake[j] ? zf[j] : z[j];
+    const F = f[i] * K * dt * Math.pow(Q[i], m) / rlen[i];
+    const zn = (z[i] + F * zr) / (1 + F);
+    z[i] = Math.max(zn, zr);
+  }
+}
+
+function factor(phi) {
+  const rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * phi;
+  return 1 - rho / RHO_MANTLE;
+}
+
+/** The landscape layer, wired to the crust of a Tectonics. */
+export class Landscape {
+  constructor(tec) {
+    const n = tec.grid.n;
+    this.tec = tec;
+    this.grid = tec.grid;
+    this.runoff = new Float32Array(n).fill(LAND.RUNOFF0);   // m/yr, from the climate
+    this.base = new Uint8Array(n);
+    this.z = new Float64Array(n);
+    this.z0 = new Float64Array(n);
+    this.f = new Float64Array(n);
+    this.w = new Float64Array(n);
+    this.Q = new Float64Array(n);           // km² of drainage at reference runoff
+    this.discharge = new Float32Array(n);  // m³/s, for drawing
+    this.lake = new Float32Array(n);        // lake depth (km)
+    this.qs = new Float64Array(n);
+    this.erosion = new Float32Array(n);     // km/Myr of rock removed, last step
+    this.dh = new Float64Array(n);
+    this.areaKm = Float64Array.from(this.grid.area, a => a * R_KM * R_KM);
+    this.r = null;
+    this.flux = { eroded: 0, toSea: 0, toLakes: 0 };   // km³/yr, last step
+  }
+
+  /** Re-route on the current crust (no change to it): rivers and lakes for drawing. */
+  reroute() {
+    const tec = this.tec, n = this.grid.n, s = tec.seaLevel;
+    for (let i = 0; i < n; i++) { this.z[i] = tec.elev[i]; this.base[i] = tec.elev[i] < s ? 1 : 0; }
+    this.r = route(this.grid, this.z, this.base, this.r);
+    const r0 = LAND.RUNOFF0;
+    for (let i = 0; i < n; i++) this.w[i] = this.base[i] ? 0 : this.areaKm[i] * this.runoff[i] / r0;
+    accumulate(this.r.order, this.r.count, this.r.rcv, this.w, this.Q);
+    const toM3s = r0 * 1e6 / 3.156e7;    // km² at r0 m/yr → m³/s
+    for (let i = 0; i < n; i++) {
+      this.discharge[i] = this.base[i] ? 0 : this.Q[i] * toM3s;
+      this.lake[i] = this.r.lake[i] ? this.r.zf[i] - this.z[i] : 0;
+    }
+  }
+
+  /** Erode, carry and deposit over dt years, then diffuse. Updates the crust in place. */
+  step(dt) {
+    const tec = this.tec, g = this.grid, n = g.n, s = tec.seaLevel;
+    const plates = tec.plates, owner = tec.owner, ref = tec.ref;
+    this.reroute();
+    const z = this.z, z0 = this.z0, f = this.f, dh = this.dh, A = this.areaKm;
+    z0.set(z);
+    for (let i = 0; i < n; i++) f[i] = factor(tec.phi[i]);
+    // Rivers erode down to sea level at the coast.
+    const zb = this.zb || (this.zb = new Float64Array(n));
+    for (let i = 0; i < n; i++) zb[i] = s;
+    const r = this.r;
+    {
+      const { zf, rcv, rlen, order, lake, count } = r;
+      const K = LAND.K, m = LAND.M, Q = this.Q;
+      for (let k = 0; k < count; k++) {
+        const i = order[k], j = rcv[i];
+        if (j < 0 || lake[i]) continue;
+        const zr = rcv[j] < 0 ? s : lake[j] ? zf[j] : z[j];
+        const F = f[i] * K * dt * Math.pow(Q[i], m) / rlen[i];
+        z[i] = Math.max(zr, (z[i] + F * zr) / (1 + F));
+      }
+    }
+    // Rock removed (thickness), and the sediment it makes (km³).
+    const qs = this.qs;
+    let eroded = 0;
+    for (let i = 0; i < n; i++) {
+      const d = z[i] < z0[i] ? (z0[i] - z[i]) / f[i] : 0;
+      dh[i] = -d;
+      qs[i] = d * A[i];
+      eroded += qs[i];
+      this.erosion[i] = d / dt * 1e6;
+    }
+    // Carry it downstream; lakes keep what fits.
+    let toLakes = 0;
+    {
+      const { zf, rcv, order, count } = r;
+      for (let k = count - 1; k >= 0; k--) {
+        const i = order[k], j = rcv[i];
+        if (j < 0) continue;
+        const room = zf[i] - z[i];
+        if (room > 1e-6 && qs[i] > 0) {
+          const cap = room * A[i] / f[i];
+          const d = Math.min(cap, qs[i]);
+          dh[i] += d / A[i];
+          qs[i] -= d;
+          toLakes += d;
+        }
+        qs[j] += qs[i];
+        qs[i] = 0;
+      }
+    }
+    // At the coast: a shelf to just below sea level, then out into deeper water.
+    let toSea = 0;
+    const nbrOff = g.nbrOff, nbr = g.nbr, elev = tec.elev;
+    const shelf = s - LAND.SHELF;
+    for (let c0 = 0; c0 < n; c0++) {
+      let V = qs[c0];
+      if (!(V > 0) || !this.base[c0]) continue;
+      qs[c0] = 0;
+      toSea += V;
+      let c = c0;
+      for (let hop = 0; hop < 10 && V > 0; hop++) {
+        const top = elev[c] + f[c] * dh[c];
+        const cap = Math.max(0, shelf - top) * A[c] / f[c];
+        const d = hop === 9 ? V : Math.min(V, cap);
+        dh[c] += d / A[c];
+        V -= d;
+        // Onward to the deepest neighbouring sea.
+        let next = -1, deep = Infinity;
+        for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) {
+          const j = nbr[t];
+          if (!this.base[j]) continue;
+          const zj = elev[j] + f[j] * dh[j];
+          if (zj < deep) { deep = zj; next = j; }
+        }
+        if (next < 0) { dh[c] += V / A[c]; V = 0; break; }
+        c = next;
+      }
+    }
+    // Write the change into the plates' crust, mixing in felsic sediment.
+    const sedPhi = LAND.SED_FELSIC;
+    for (let i = 0; i < n; i++) {
+      const d = dh[i];
+      if (d === 0) continue;
+      const p = plates[owner[i]], j = ref[i];
+      if (d > 0) p.phi[j] = (p.phi[j] * p.h[j] + sedPhi * d) / (p.h[j] + d);
+      p.h[j] = Math.max(0.5, p.h[j] + d);
+      tec.h[i] = p.h[j]; tec.phi[i] = p.phi[j];
+    }
+    this.diffuse(dt);
+    this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt;
+    tec.updateElevation();
+  }
+
+  /** Thickness spreads between continental cells, faster under thick crust. */
+  diffuse(dt) {
+    const tec = this.tec, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, ell = g.ell, dist = g.dist;
+    const plates = tec.plates, owner = tec.owner, ref = tec.ref, h = tec.h, phi = tec.phi, A = this.areaKm;
+    let kmax = 0;
+    for (let i = 0; i < n; i++) if (phi[i] >= CONTINENTAL) kmax = Math.max(kmax, LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30);
+    // Explicit and conservative; substep to stay stable.
+    const lim = 0.2 * Math.min(A[0], A[12]) / 3.5;   // κ·dt (km²) per substep; cell 0 is a pentagon
+    const sub = Math.max(1, Math.ceil(kmax * dt / lim));
+    const ds = dt / sub;
+    const dh = this.dh;
+    for (let s = 0; s < sub; s++) {
+      dh.fill(0);
+      for (let i = 0; i < n; i++) {
+        if (phi[i] < CONTINENTAL) continue;
+        const ki = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+          const j = nbr[t];
+          if (j < i || phi[j] < CONTINENTAL) continue;
+          const kj = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[j] - 40) / 30;
+          const flow = 0.5 * (ki + kj) * ds * (ell[t] / dist[t]) * (h[j] - h[i]);   // km³
+          dh[i] += flow / A[i];
+          dh[j] -= flow / A[j];
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        const d = dh[i];
+        if (d === 0) continue;
+        const p = plates[owner[i]], j = ref[i];
+        p.h[j] += d; h[i] = p.h[j];
+      }
+    }
+  }
+
+  /** Total continental volume (km³), for conservation checks. */
+  volume() {
+    let v = 0;
+    for (let i = 0; i < this.grid.n; i++) v += this.tec.h[i] * this.areaKm[i];
+    return v;
+  }
+}

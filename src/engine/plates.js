@@ -30,7 +30,6 @@ const CONTINENTAL = 0.5;          // felsic fraction above which crust is contin
 const H_MAX = 72;                 // km, crust thicker than this spreads (orogenic collapse)
 /** Tunable constants; tools and tests may change them. */
 export const PARAMS = {
-  ERODE_TAU: 120,  // Myr, stand-in for erosion until the landscape layer exists
   ARC_DH: 0.35,  // km of arc crust per cell of ocean consumed
   ARC_DPHI: 0.03,
   CLOSING: 0.3,  // share of the relative motion that must close for an overlap to consume
@@ -56,6 +55,7 @@ export const PARAMS = {
   MAX_PLATE_AREA: 0.2 * 4 * Math.PI,
   RIFT_TAU: 25,  // Myr, how long a rift's opening torque lasts
   RIFT_SPEED: 0.004,  // rad/Myr per steradian of plate
+  WATER_TAU: 150,  // Myr: the ocean's volume drifts toward the land fraction set at genesis (the deep water cycle's stand-in)
 };
 
 // ── Small vector and rotation helpers ──
@@ -140,6 +140,7 @@ export class Tectonics {
     this.pairs = new Map();                  // collision tallies, key a*MAX+b
     this.water = 0;
     this.seaLevel = 0;
+    this.landTarget = 0;                     // set by genesis; 0 holds the water fixed
     this.grad = new Float64Array(3 * n);
     this.rng = null;
     this.noise = null;
@@ -302,11 +303,10 @@ export class Tectonics {
 
     this.relaxBoundaries();
 
-    // Sample the crust on top; thick crust relaxes (a stand-in for erosion).
-    const relax = 1 - Math.exp(-dt / PARAMS.ERODE_TAU);
+    // Sample the crust on top. (Erosion and the spreading of thick crust are
+    // the landscape's: src/engine/landscape.js.)
     for (let i = 0; i < n; i++) {
       const p = plates[this.owner[i]], j = this.ref[i];
-      if (p.h[j] > 40) p.h[j] -= (p.h[j] - 35) * relax;
       this.h[i] = p.h[j]; this.phi[i] = p.phi[j]; this.tf[i] = p.tf[j]; this.sut[i] = p.sut[j];
     }
 
@@ -317,6 +317,7 @@ export class Tectonics {
 
     this.t = t1;
     this.updateElevation();
+    this.exchangeWater(dt);
     this.balance(dt);
     this.mergeWelded();
     this.maybeRift();
@@ -358,6 +359,21 @@ export class Tectonics {
       owner[i] = to; this.ref[i] = jt;
       this.counters.relaxed = (this.counters.relaxed || 0) + 1;
     }
+  }
+
+  /**
+   * Over hundreds of Myr the ocean's volume drifts so the continents keep
+   * their freeboard: a stand-in for the water that ridges degas and trenches
+   * subduct, which is thought to buffer sea level (the mechanism is debated).
+   * Sea level moves 3 km per unit of land fraction off the target, per τ.
+   */
+  exchangeWater(dt) {
+    if (!(this.landTarget > 0) || !(PARAMS.WATER_TAU > 0)) return;
+    const g = this.grid, n = g.n, s = this.seaLevel;
+    let land = 0;
+    for (let i = 0; i < n; i++) if (this.elev[i] > s) land += g.area[i];
+    land /= 4 * Math.PI;
+    this.water += (1 - land) * 4 * Math.PI * 3 * (land - this.landTarget) * dt / PARAMS.WATER_TAU;
   }
 
   updateElevation() {

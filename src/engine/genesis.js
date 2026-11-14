@@ -181,11 +181,12 @@ export function genesis(tec, seed, opts = {}) {
   // for the land fraction asked: the seafloor's age (and so sea level) has
   // settled toward what the plates' own speeds keep it at.
   const spin = opts.spinup ?? 0;
-  for (let t = 0; t < spin; t += 1) tec.step(1);
+  for (let t = 0; t < spin; t += 1) { tec.step(1); if (opts.landscape) opts.landscape.step(1e6); }
   if (spin > 0) {
     tec.water = waterForLand(g, tec.elev, landFraction);
     tec.updateElevation();
   }
+  tec.landTarget = landFraction;
   tec.t0 = tec.t;
   return tec;
 }
