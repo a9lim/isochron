@@ -315,26 +315,38 @@ export class Landscape {
     const lim = 0.2 * Math.min(A[0], A[12]) / 3.5;   // κ·dt (km²) per substep; cell 0 is a pentagon
     const sub = Math.max(1, Math.ceil(kmax * dt / lim));
     const ds = dt / sub;
-    const dh = this.dh;
-    for (let s = 0; s < sub; s++) {
-      dh.fill(0);
-      for (let i = 0; i < n; i++) {
-        if (phi[i] < CONTINENTAL) continue;
-        const ki = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
-        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-          const j = nbr[t];
-          if (j < i || phi[j] < CONTINENTAL) continue;
-          const kj = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[j] - 40) / 30;
-          const flow = 0.5 * (ki + kj) * ds * (ell[t] / dist[t]) * (h[j] - h[i]);   // km³
-          dh[i] += flow / A[i];
-          dh[j] -= flow / A[j];
-        }
+    // The continental edges and their weights, once (κ read at the start of the step), then
+    // the substeps on a copy of the thickness, written back to the plates at the end.
+    const ei = [], ej = [], ew = [];
+    for (let i = 0; i < n; i++) {
+      if (phi[i] < CONTINENTAL) continue;
+      const ki = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+        const j = nbr[t];
+        if (j < i || phi[j] < CONTINENTAL) continue;
+        const kj = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[j] - 40) / 30;
+        ei.push(i); ej.push(j); ew.push(0.5 * (ki + kj) * ds * (ell[t] / dist[t]));
       }
-      for (let i = 0; i < n; i++) {
-        const d = dh[i];
+    }
+    const m = ei.length, I = Int32Array.from(ei), J = Int32Array.from(ej), Wt = Float64Array.from(ew);
+    const hc = this.hc || (this.hc = new Float64Array(n)), h0 = this.h0 || (this.h0 = new Float64Array(n));
+    for (let k = 0; k < m; k++) { hc[I[k]] = h[I[k]]; hc[J[k]] = h[J[k]]; h0[I[k]] = h[I[k]]; h0[J[k]] = h[J[k]]; }
+    for (let s = 0; s < sub; s++) {
+      const dh = this.dh;
+      for (let k = 0; k < m; k++) { dh[I[k]] = 0; dh[J[k]] = 0; }
+      for (let k = 0; k < m; k++) {
+        const i = I[k], j = J[k], flow = Wt[k] * (hc[j] - hc[i]);   // km³
+        dh[i] += flow / A[i];
+        dh[j] -= flow / A[j];
+      }
+      for (let k = 0; k < m; k++) { const i = I[k], j = J[k]; if (dh[i] !== 0) { hc[i] += dh[i]; dh[i] = 0; } if (dh[j] !== 0) { hc[j] += dh[j]; dh[j] = 0; } }
+    }
+    for (let k = 0; k < m; k++) {
+      for (const i of [I[k], J[k]]) {
+        const d = hc[i] - h0[i];
         if (d === 0) continue;
         const p = plates[owner[i]], j = ref[i];
-        p.h[j] += d; h[i] = p.h[j];
+        p.h[j] += d; h[i] = p.h[j]; h0[i] = hc[i];
       }
     }
   }

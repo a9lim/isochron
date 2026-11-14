@@ -30,6 +30,9 @@
 // and sparse stipple for BW and BS, fine hatch for ET, bare paper for EF.
 // Patterns and the mosaic are fixed to the globe and scale with the zoom.
 
+import { Refiner } from '../gpu/refine.js';
+import { storage } from '../gpu/device.js';
+
 const SHADER = /* wgsl */ `
 struct U {
   view0: vec4f, view1: vec4f, view2: vec4f,
@@ -387,15 +390,19 @@ function hexToRgb(hex) {
   return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
 }
 
-/** The globe on the engine's grid; the weather and the season write their buffers with kernels. */
-export async function createGlobe(canvas, mesh, device) {
+/**
+ * The globe on `mesh`. Fields arrive on the engine's grid `coarse`; where that is
+ * a level coarser they're refined onto the mesh on the GPU (src/gpu/refine.js),
+ * else written straight in. The weather writes its fields on the mesh.
+ */
+export async function createGlobe(canvas, mesh, coarse, device) {
   const context = canvas.getContext('webgpu');
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: 'opaque' });
   let lost = false;
   device.lost.then(() => { lost = true; });
 
-  const n = mesh.n, nm = mesh.n;
+  const n = coarse.n, nm = mesh.n, refining = coarse !== mesh;
   const VS = GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
   const posBuf = device.createBuffer({ size: nm * 12, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(posBuf, 0, Float32Array.from(mesh.pos));
@@ -405,6 +412,11 @@ export async function createGlobe(canvas, mesh, device) {
   const zoneBuf = device.createBuffer({ size: nm * 64, usage: VS });
   const iceBuf = device.createBuffer({ size: nm * 16, usage: VS });
   const wxBuf = device.createBuffer({ size: nm * 16, usage: VS });      // written by the weather's kernels, on the mesh
+  // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
+  const S = (size, own) => refining ? storage(device, size) : own;
+  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf);
+  const refiner = refining ? new Refiner(device, mesh, coarse) : null;
+  const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, mesh.tris);
   const uniBuf = device.createBuffer({ size: 18 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -462,7 +474,10 @@ export async function createGlobe(canvas, mesh, device) {
     /** Per cell: elevation above sea level (km), formation time (Myr), felsic fraction, lake depth (km), normal. */
     // `fromStep`: the old current becomes the previous state to blend from;
     // otherwise both are the new state.
-    setFields(elevRel, tform, felsic, lake, normals, fromStep = false) {
+    // `mode`: 'step', the current becomes the previous to blend from; 'reset', both are the
+    // new state; 'refresh', the current changes and the previous stays (the blend carries on).
+    setFields(elevRel, tform, felsic, lake, normals, mode = 'reset') {
+      const fromStep = mode === 'step', both = mode === 'reset';
       for (let i = 0; i < n; i++) {
         const o = 8 * i;
         if (fromStep) { field[o + 4] = field[o]; field[o + 5] = field[o + 1]; field[o + 6] = field[o + 2]; field[o + 7] = field[o + 3]; }
@@ -470,22 +485,29 @@ export async function createGlobe(canvas, mesh, device) {
         field[o + 1] = tform[i] - polT0;
         field[o + 2] = felsic[i];
         field[o + 3] = lake ? lake[i] : 0;
-        if (!fromStep) { field[o + 4] = field[o]; field[o + 5] = field[o + 1]; field[o + 6] = field[o + 2]; field[o + 7] = field[o + 3]; }
+        if (both) { field[o + 4] = field[o]; field[o + 5] = field[o + 1]; field[o + 6] = field[o + 2]; field[o + 7] = field[o + 3]; }
         const q = 8 * i;
         if (fromStep) { norm[q + 4] = norm[q]; norm[q + 5] = norm[q + 1]; norm[q + 6] = norm[q + 2]; }
         norm[q] = normals[3 * i]; norm[q + 1] = normals[3 * i + 1]; norm[q + 2] = normals[3 * i + 2];
-        if (!fromStep) { norm[q + 4] = norm[q]; norm[q + 5] = norm[q + 1]; norm[q + 6] = norm[q + 2]; }
+        if (both) { norm[q + 4] = norm[q]; norm[q + 5] = norm[q + 1]; norm[q + 6] = norm[q + 2]; }
       }
-      device.queue.writeBuffer(fieldBuf, 0, field);
-      device.queue.writeBuffer(normBuf, 0, norm);
+      device.queue.writeBuffer(fieldS, 0, field);
+      device.queue.writeBuffer(normS, 0, norm);
+      if (refiner) {
+        const enc = device.createCommandEncoder();
+        refine(fieldS, fieldBuf, 2, enc); refine(normS, normBuf, 2, enc);
+        device.queue.submit([enc.finish()]);
+      }
     },
 
-    /** Per cell: snow or sea ice (0..1), sea-surface temperature, the gyres' streamfunction (Sv), ice thickness (m); the season writes it. */
-    climBuffer: climBuf,
+    /** Per cell of the engine's grid: snow or sea ice (0..1), sea-surface temperature, the gyres' streamfunction (Sv), ice thickness (m); the season writes it, then `refineClimate`. */
+    climBuffer: climS,
+    refineClimate() { refine(climS, climBuf, 1); },
     /** Per cell: the zones' probabilities, 16 floats (14 used). */
-    setZones(z) { device.queue.writeBuffer(zoneBuf, 0, z); },
+    setZones(z) { device.queue.writeBuffer(zoneS, 0, z); refine(zoneS, zoneBuf, 4); },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
-    setIce(v) { device.queue.writeBuffer(iceBuf, 0, v); },
+    setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
+    refiner,
     /** Per cell: the chart's sea-level pressure (hPa about 1013), rain (mm/day), surface temperature (°C), column humidity (0..1); the weather writes it. */
     wxBuffer: wxBuf,
 

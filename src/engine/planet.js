@@ -18,6 +18,7 @@ import { Plumes } from './plumes.js';
 import { OrbitCycles } from './orbit.js';
 import { Ocean } from './ocean.js';
 import { genesis } from './genesis.js';
+import { refineTectonics } from './refine.js';
 
 export { Record, SERIES } from './record.js';
 import { Record } from './record.js';
@@ -25,10 +26,16 @@ import { Record } from './record.js';
 export class Planet {
   constructor(seed, opts = {}) {
     this.seed = seed;
-    this.grid = buildGrid(opts.level ?? 6);
-    this.tec = new Tectonics(this.grid);
+    // The plates start from rest and speed up for tens of Myr, so the spin-up runs 80 Myr
+    // (the opening is then settled: its activity is the carbon cycle's reference), on level 6
+    // at most, then the planet is carried onto finer grids (src/engine/refine.js).
+    const level = opts.level ?? 6, spinLevel = Math.min(level, opts.spinLevel ?? 6), spinup = opts.spinup ?? 80;
+    let tec = new Tectonics(buildGrid(spinLevel));
+    genesis(tec, seed, { spinup, landscape: new Landscape(tec) });
+    for (let L = spinLevel + 1; L <= level; L++) tec = refineTectonics(tec, buildGrid(L));
+    this.grid = tec.grid;
+    this.tec = tec;
     this.land = new Landscape(this.tec);
-    genesis(this.tec, seed, { spinup: opts.spinup ?? 40, landscape: this.land });
     this.plumes = new Plumes(this.tec, seed);
     this.tec.swell = this.plumes.swell;
     this.tec.updateElevation();

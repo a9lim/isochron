@@ -36,16 +36,29 @@ export function oceanVolume(grid, elev, s) {
   return v;
 }
 
-/** The level whose basins hold exactly `volume`. Bisection: volume is monotone in s. */
-export function solveSeaLevel(grid, elev, volume) {
+/**
+ * The level whose basins hold exactly `volume`. V(s) is convex and piecewise
+ * linear, rising with slope the ocean's area, so Newton from the last level
+ * lands in a few passes (bisection took 48); a bracket guards it.
+ */
+export function solveSeaLevel(grid, elev, volume, guess = null) {
+  const n = grid.n, area = grid.area;
   let lo = Infinity, hi = -Infinity;
-  for (let i = 0; i < grid.n; i++) { if (elev[i] < lo) lo = elev[i]; if (elev[i] > hi) hi = elev[i]; }
+  for (let i = 0; i < n; i++) { if (elev[i] < lo) lo = elev[i]; if (elev[i] > hi) hi = elev[i]; }
   hi += volume / (4 * Math.PI) + 1;
-  for (let it = 0; it < 48; it++) {
-    const mid = 0.5 * (lo + hi);
-    if (oceanVolume(grid, elev, mid) < volume) lo = mid; else hi = mid;
+  let s = guess != null && guess > lo && guess < hi ? guess : 0.5 * (lo + hi);
+  for (let it = 0; it < 60; it++) {
+    let v = 0, a = 0;
+    for (let i = 0; i < n; i++) { const d = s - elev[i]; if (d > 0) { v += d * area[i]; a += area[i]; } }
+    const r = v - volume;
+    if (Math.abs(r) <= 1e-12 * volume) break;
+    if (r > 0) hi = s; else lo = s;
+    let next = a > 0 ? s - r / a : 0.5 * (lo + hi);
+    if (!(next > lo && next < hi)) next = 0.5 * (lo + hi);
+    if (Math.abs(next - s) < 1e-9) { s = next; break; }
+    s = next;
   }
-  return 0.5 * (lo + hi);
+  return s;
 }
 
 /** The water volume that leaves `landFraction` of the surface dry. */

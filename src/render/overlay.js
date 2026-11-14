@@ -252,18 +252,22 @@ function withAlpha(hex, a) {
  * then move across the line as it changes, not along it, so symbols placed
  * along it don't slide. The old line is reversed first if it runs the other way.
  */
-function correspond(prev, cur) {
+export function correspond(prev, cur) {
   const n = prev.length / 3, m = cur.length / 3;
   const d2 = (A, i, B, j) => (A[3 * i] - B[3 * j]) ** 2 + (A[3 * i + 1] - B[3 * j + 1]) ** 2 + (A[3 * i + 2] - B[3 * j + 2]) ** 2;
   const flip = d2(cur, 0, prev, n - 1) + d2(cur, m - 1, prev, 0) < d2(cur, 0, prev, 0) + d2(cur, m - 1, prev, n - 1);
   const corr = new Float32Array(2 * m);
   if (n < 2) return { corr, flip };
-  const win = Math.max(4, Math.ceil(0.3 * n));
+  // The match runs along the old line as k runs along the new, so each point searches near
+  // the last one's match (and the proportional place, should the last have strayed).
+  const win = 6 + 2 * Math.ceil(n / m);
+  let lastJ = flip ? n - 2 : 0;
   for (let k = 0; k < m; k++) {
     if (k === 0 || k === m - 1) { const e = (k === 0) !== flip ? 0 : n - 2; corr[2 * k] = e; corr[2 * k + 1] = (k === 0) !== flip ? 0 : 1; continue; }
-    const f = k / (m - 1), c = (flip ? 1 - f : f) * (n - 1);
+    const f = k / (m - 1), c = Math.floor((flip ? 1 - f : f) * (n - 1));
     let best = Infinity, bj = 0, bt = 0;
-    for (let j = Math.max(0, Math.floor(c) - win); j <= Math.min(n - 2, Math.floor(c) + win); j++) {
+    const lo = Math.max(0, Math.min(lastJ, c) - win), hi = Math.min(n - 2, Math.max(lastJ, c) + win);
+    for (let j = lo; j <= hi; j++) {
       const ax = prev[3 * j], ay = prev[3 * j + 1], az = prev[3 * j + 2];
       const ux = prev[3 * j + 3] - ax, uy = prev[3 * j + 4] - ay, uz = prev[3 * j + 5] - az, uu = ux * ux + uy * uy + uz * uz || 1e-12;
       const px = cur[3 * k] - ax, py = cur[3 * k + 1] - ay, pz = cur[3 * k + 2] - az;
@@ -272,6 +276,7 @@ function correspond(prev, cur) {
       if (dd < best) { best = dd; bj = j; bt = t; }
     }
     corr[2 * k] = bj; corr[2 * k + 1] = bt;
+    lastJ = bj;
   }
   return { corr, flip };
 }

@@ -88,6 +88,13 @@ function build(tec, corners, cells, closed) {
   }
   if (!closed) { over[0] *= 2; over[segs] *= 2; arc[0] *= 2; arc[segs] *= 2; }
   else { over[0] = over[segs] = over[0] + over[segs]; arc[0] = arc[segs] = arc[0] + arc[segs]; }
+  // Which side stays on top, and whether ocean goes down, read in runs: where the two
+  // plates' buoyancy is close, the per-segment sign alternates and the teeth would jump
+  // from side to side. A wide running mean, then runs shorter than ~4 cells take their
+  // neighbours' value (a real flip of a trench's polarity is long).
+  const W = Math.max(3, Math.round(3 * Math.sqrt(g.n / 40962)));
+  over = runs(over, W, closed, v => v >= 0 ? 1 : -1);
+  arc = runs(arc, W, closed, v => v > 0.5 ? 1 : 0);
 
   // Laplacian passes take out the hexagons' stair; ends (junctions) stay put.
   const N = corners.length;
@@ -145,6 +152,28 @@ function build(tec, corners, cells, closed) {
 function normalize(P, k) {
   const r = Math.hypot(P[3 * k], P[3 * k + 1], P[3 * k + 2]);
   P[3 * k] /= r; P[3 * k + 1] /= r; P[3 * k + 2] /= r;
+}
+
+/** A per-corner value as runs: the mean over ±W corners, classified, and runs under 2W absorbed. */
+function runs(x, W, closed, cls) {
+  const N = x.length, sm = new Float64Array(N), out = new Float64Array(N);
+  for (let k = 0; k < N; k++) {
+    let s = 0, c = 0;
+    for (let d = -W; d <= W; d++) {
+      let j = k + d;
+      if (closed) j = ((j % (N - 1)) + (N - 1)) % (N - 1);
+      else if (j < 0 || j >= N) continue;
+      s += x[j]; c++;
+    }
+    out[k] = cls(s / c);
+  }
+  for (let k = 0; k < N;) {
+    let e = k;
+    while (e < N && out[e] === out[k]) e++;
+    if (e - k < 2 * W && (k > 0 || e < N)) { const fill = k > 0 ? out[k - 1] : out[e]; for (let q = k; q < e; q++) out[q] = fill; }
+    k = e;
+  }
+  return out;
 }
 
 function chaikin(P, over, arc, closed) {

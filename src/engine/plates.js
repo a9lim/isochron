@@ -116,6 +116,7 @@ export class Tectonics {
     // The cell's size against level 6's, where PARAMS were tuned: counts of cells along a line
     // scale as 1/res, counts over an area as 1/res², and what a cell adds to its neighbour as res.
     this.res = Math.sqrt(40962 / n);
+
     this.t = 0;
     this.plates = [];
     this.owner = new Int16Array(n);
@@ -418,7 +419,7 @@ export class Tectonics {
       this.subs[i] = this.phi[i] < CONTINENTAL ? subsidence(age) : 0;
       this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0);
     }
-    if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater));
+    if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater), this.seaLevel);
   }
 
   /** ω from slab pull and ridge push against basal drag, per plate. */
@@ -490,7 +491,8 @@ export class Tectonics {
       if (c < 1e-3) continue;
       const a = this.colPlate[i], b = this.colTop[i];
       if (a < 0 || b < 0 || !this.plates[a].alive || !this.plates[b].alive) continue;
-      const f = PARAMS.K_COLLIDE * c * cellLen;
+      // A front's memory builds per crossing, twice as often a cell a level up: × res.
+      const f = PARAMS.K_COLLIDE * c * cellLen * this.res;
       const fx = -f * this.colDir[3 * i], fy = -f * this.colDir[3 * i + 1], fz = -f * this.colDir[3 * i + 2];
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
       const tx = y * fz - z * fy, ty = z * fx - x * fz, tz = x * fy - y * fx;

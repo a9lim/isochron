@@ -61,24 +61,31 @@ function pump() {
   // Ticks first, all of them (a slow step coalesces the frames behind it).
   let stepped = 0;
   const t0 = performance.now();
+  let ta = performance.now();
+  const lap = k => { const tb = performance.now(); prof[k] = (prof[k] || 0) + tb - ta; ta = tb; };
   while (ticks.length) {
     const m = ticks.shift();
     P.years += m.adv;
     for (const dt of m.steps) { P.plateStep(dt); stepYears += dt; stepped++; pending = Math.max(pending, 1); }
+    lap('plates');
     P.setOrbit(m.window);
     P.fast(m.adv, ICE_MS);
+    lap('fast');
     if (m.adv > 0) samples.push(P.years, ...P.sample());
+    lap('sample');
   }
   const now = performance.now();
   if (stepped) {
     sendSurface(true, stepped, performance.now() - t0);
+    lap('surface');
   }
   else if (now - lastSeaCheck > 250) {
     // Ice moves the sea; the coast is redrawn when it has moved a few metres.
     lastSeaCheck = now;
     if (Math.abs(P.tec.seaLevel - seaSent) > 0.004) sendSurface(false);
+    lap('sea');
   }
-  if (now - lastFast > 100) sendFast(false);
+  if (now - lastFast > 100) { sendFast(false); lap('fastMsg'); }
   if ((playing || pending > 0) && !climateRunning) climateLoop();
   if (ticks.length) schedule();
 }
@@ -86,6 +93,7 @@ function pump() {
 // The climate runs alongside: a slice of its cycle at a time, awaiting the GPU's work
 // where the cycle hands it some, and letting the ticks in between slices.
 let climateRunning = false, cycleStart = 0, cycleMs = 0;
+const prof = {};                   // ms spent per section since the last fast message, for tuning
 const nextTask = () => new Promise(res => { const c = new MessageChannel(); c.port1.onmessage = () => res(); c.port2.postMessage(0); });
 async function climateLoop() {
   climateRunning = true;
@@ -95,10 +103,12 @@ async function climateLoop() {
       if (!c.it) { c.it = c.cycle(); cycleStart = performance.now(); }
       const t0 = performance.now();
       let r;
+      const tc = performance.now();
       do {
         r = c.it.next();
         if (r.value && r.value.then) { await r.value; break; }
       } while (!r.done && performance.now() - t0 < CLIMATE_MS);
+      prof.climate = (prof.climate || 0) + performance.now() - tc;
       if (r.done) { c.it = null; cycleMs = performance.now() - cycleStart; P.afterClimate(); pending = Math.max(0, pending - 1); sendClimate(); }
       await nextTask();
     }
@@ -138,13 +148,15 @@ function sendFast(first) {
   lastFast = performance.now();
   const { grid, tec, land, climate, ice, carbon, plumes, ocean } = P;
   const m = {
-    type: 'fast', years: P.years, seaLevel: tec.seaLevel, samples: Float64Array.from(samples),
+    type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, samples: Float64Array.from(samples),
     iceH: Float32Array.from(ice.H), iceVel: Float32Array.from(ice.vel), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out) },
     landFlux: { ...land.flux },
     plumes: { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) },
   };
   samples = [];
+  for (const k in prof) prof[k] = 0;
+  sendFast.prev = lastFast;
   // The model figure's sums over the planet, a few times a second.
   if (first || !sendFast.lastAgg || lastFast - sendFast.lastAgg > 400) {
     sendFast.lastAgg = lastFast;

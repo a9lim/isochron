@@ -21,7 +21,7 @@ import { monthName, S0 } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
-import { drawOverlay, turned, morphed, matchLines } from './src/render/overlay.js';
+import { drawOverlay, turned, morphed, matchLines, correspond } from './src/render/overlay.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
@@ -34,7 +34,10 @@ const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
 const WEATHER_GPU_MS = 12;    // the weather's share of the GPU's frame, when it runs live
-const LEVEL = 7;              // the engine's grid, the drawn mesh and the weather (55 km)
+// The engine's grid (110 km; ?level=7 runs it at 55 km, slower, and its plates still need tuning
+// there), and the drawn mesh and the weather's (55 km), onto which the engine's fields are refined.
+const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || 6)));
+const MESH_LEVEL = 7;
 const SPINUP_DAYS = 12;       // the weather's spin-up from the climate's state
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
@@ -59,6 +62,7 @@ const els = {
 // ── The planet ──
 // Mirrors of the engine's state, as of its last snapshots (src/engine/mirror.js).
 const grid = buildGrid(LEVEL);
+const mesh = LEVEL < MESH_LEVEL ? buildGrid(MESH_LEVEL) : grid;
 const engine = new Worker(new URL('./src/engine/worker.js', import.meta.url), { type: 'module' });
 let tecStats = { plates: 0, land: 0, seaLevel: 0, fastest: 0, meanOceanAge: 0 };
 const tec = { grid, t: 0, seaLevel: 0, elev: new Float32Array(grid.n), plates: [], stats: () => tecStats };
@@ -94,47 +98,126 @@ function palette() {
 }
 
 // ── The surface, as the engine posts it ──
-// Each step's surface arrives a little after the dial passed it, and is shown
-// blended in from the last over about as long as the next takes to come.
-let stepsSent = 0, stepsDone = 0, engineMsPerStep = 50;
-let stepYears = PLATE_STEP, stepArrive = -1e9, stepSpan = 100, riversT = 0, linesT = 0, riversGone = [], surfaceMsg = null;
+// Surfaces come from the engine irregularly (a landscape step makes some
+// slower), so they queue, and the globe shows a moment τ that follows them
+// about a step behind at the pace the engine is keeping, easing faster when it
+// falls behind and slower when it gains rather than stopping. Between the two
+// surfaces either side of τ the globe blends, and the lines turn with their
+// plates and morph to τ.
+let stepsSent = 0, stepsDone = 0, engineMsPerStep = 50, engineProf = {};
+const queue = [];                   // surfaces waiting to be shown, oldest first
+let shown = null, shownFrom = 0;    // the surface blended to, and the time of the one blended from (Myr)
+let tau = null, engineRate = 0, pace = 0, lastArrive = -1;
+const arrivals = [];               // [wall ms, model Myr] of recent surfaces, for the engine's pace
+let riversT = 0, linesT = 0, riversGone = [], surfaceMsg = null;
 function onSurface(m) {
   surfaceMsg = m;
-  tec.t = m.t; tec.seaLevel = m.seaLevel; tec.elev = m.elev; tec.plates = m.plates; tecStats = m.stats;
-  P.landBank = m.landBank;
-  elevRel = m.elevRel;
+  tec.seaLevel = m.seaLevel; tec.elev = m.elev; tecStats = m.stats;
   if (m.stepsDone != null) { stepsDone = m.stepsDone; engineMsPerStep = m.msPerStep; }
   if (m.fromStep) {
-    const now = performance.now(), gap = now - stepArrive;
-    stepYears = m.stepYears;
-    // The blend lasts as long as the dial takes to pass the step, or as long as steps are taking to come.
-    stepSpan = Math.max(16, Math.min(1000, Math.max(1000 * stepYears / rate(), gap < 2000 ? 0.9 * gap : 0)));
-    if (stepOnceAt > now - 500) stepSpan = 1;
-    stepArrive = now;
+    // The engine's pace: Myr of surface a second over the last few seconds of arrivals
+    // (they come irregularly, often in pairs, so one gap says little).
+    const now = performance.now();
+    arrivals.push([now, m.t]);
+    while (arrivals.length > 2 && now - arrivals[0][0] > 3000) arrivals.shift();
+    const [w0, t0] = arrivals[0];
+    if (now - w0 > 300) engineRate = Math.min(2 * rate() / 1e6, (m.t - t0) / ((now - w0) / 1000));
+    else if (!engineRate) engineRate = rate() / 1e6;
+    lastArrive = now;
+    queue.push(m);
+    if (stepOnceAt > now - 500) { while (queue.length) advance(); tau = shown.t; }
+  } else if (queue.length) {
+    // The sea moved without a step: the newest waiting surface takes the new fields.
+    const q = queue[queue.length - 1];
+    queue[queue.length - 1] = { ...m, fromStep: true, t: q.t, stepYears: q.stepYears, rivers: m.rivers || q.rivers };
+  } else if (shown) {
+    // Or the one shown: its fields change in place, the blend from its predecessor carries on.
+    m.t = shown.t;
+    show(m, 'refresh');
+  } else { show(m, 'reset'); tau = m.t; shownFrom = m.t; }
+  figuresDirty = true; drawDirty = true; climateDirty = true;
+  caption(false);
+}
+/** A line's correspondence with its (reassigned) predecessor. */
+function matchCorr(l) { l.corr = correspond(l.prev.P, l.P).corr; }
+/**
+ * Which side stays on top, remembered: each point takes half its predecessor's value at
+ * the corresponding point (negated if the plates are on the other sides), so a trench's
+ * teeth change sides only when the plates' behaviour does, not with each retrace.
+ */
+function keepSides(ls) {
+  for (const l of ls) {
+    const q = l.prev, c = l.corr;
+    if (!q || !c || !q.over) continue;
+    const sg = q.left === l.left ? 1 : -1, m = l.over.length;
+    for (let k = 0; k < m; k++) {
+      const j = Math.min(q.over.length - 2, c[2 * k]), t = c[2 * k + 1];
+      const v = sg * (q.over[j] + t * (q.over[j + 1] - q.over[j]));
+      l.over[k] = 0.5 * l.over[k] + 0.5 * v;
+      const a = q.arc[j] + t * (q.arc[j + 1] - q.arc[j]);
+      l.arc[k] = 0.5 * l.arc[k] + 0.5 * a;
+    }
   }
+}
+/** The next waiting surface becomes the one blended to. */
+function advance() {
+  const m = queue.shift();
+  shownFrom = shown ? shown.t : m.t - m.stepYears / 1e6;
+  show(m, 'step');
+}
+function show(m, mode) {
+  const old = shown;
+  shown = m;
+  tec.t = m.t; tec.plates = m.plates;
+  P.landBank = m.landBank;
+  elevRel = m.elevRel;
   // Each new line remembers its predecessor (and when that was traced), to morph from.
-  const oldLines = lines, oldT = linesT;
-  lines = m.lines;
-  linesT = tec.t;
-  matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
-  for (const l of lines) {
-    if (m.fromStep) { l.prevT = oldT; continue; }
-    // Retraced without a step (the sea moved; boundaries don't care): the same line,
-    // so it carries on morphing from its predecessor's predecessor.
-    const q = l.prev;
-    if (q && q.P.length === l.P.length) { l.prev = q.prev; l.corr = q.corr; l.prevT = q.prevT; }
-    else { l.prev = null; l.corr = null; }
+  if (mode !== 'refresh' || !lines) {
+    const oldLines = lines, oldT = linesT;
+    lines = m.lines;
+    linesT = m.t;
+    matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
+    for (const l of lines) l.prevT = oldT;
+    keepSides(lines);
+  } else {
+    // Retraced without a step: the same line, so it carries on morphing from its predecessor's predecessor.
+    const oldLines = lines;
+    lines = m.lines;
+    matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
+    for (const l of lines) {
+      const q = l.prev;
+      if (q && q.prev) { l.prev = q.prev; l.prevT = q.prevT; l.corr = null; matchCorr(l); }
+      else { l.prev = null; l.corr = null; }
+    }
+    keepSides(lines);
   }
   if (m.rivers) {
-    const old = rivers, oldRT = riversT;
-    rivers = m.rivers; riversT = tec.t;
-    riversGone = matchLines(old, rivers, r => r.plate, true);
+    const oldR = rivers, oldRT = riversT;
+    rivers = m.rivers; riversT = m.t;
+    riversGone = matchLines(oldR, rivers, r => r.plate, true);
     for (const r of rivers) r.prevT = oldRT;
     for (const r of riversGone) r.goneT = oldRT;
   }
-  figuresDirty = true; drawDirty = true; climateDirty = true;
-  caption(false);
-  if (globe) uploadSurface(m);
+  if (globe) uploadSurface(m, mode);
+  void old;
+}
+/** Move τ on by dt seconds; returns the blend between the two surfaces either side of it. */
+function stepTau(dt) {
+  if (!shown) return 1;
+  const newest = queue.length ? queue[queue.length - 1].t : shown.t;
+  const step = Math.max(1e-6, shown.t - shownFrom);
+  // A step and a half behind the newest while playing (room for irregular arrivals); all the
+  // way when paused. The pace is the engine's, nudged by how far τ is from its aim, and eased.
+  const aim = playing ? newest - 1.5 * step : newest;
+  if (tau == null) tau = shownFrom;
+  const want = playing ? engineRate * Math.max(0.25, Math.min(2, 1 + 0.5 * (aim - tau) / step)) : Math.max(engineRate, step / 0.4) * (aim > tau ? 1 : 0);
+  // With nothing waiting, ease into the newest rather than run into it.
+  const room = queue.length ? 1 : Math.min(1, Math.max(0, (shown.t - tau) / (0.5 * step)));
+  pace += (want * room - pace) * (1 - Math.exp(-dt / 0.3));
+  tau = playing ? tau + pace * dt : Math.min(Math.max(aim, tau), tau + pace * dt);
+  while (queue.length && tau >= shown.t) advance();
+  tau = Math.min(tau, shown.t);
+  return Math.min(1, Math.max(0, (tau - shownFrom) / Math.max(1e-9, shown.t - shownFrom)));
 }
 function onFast(m) {
   for (let k = 0; k < m.samples.length; k += 7) P.record.push(m.samples[k], m.samples.subarray(k + 1, k + 7));
@@ -143,17 +226,18 @@ function onFast(m) {
   land.flux = m.landFlux;
   plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
   if (m.agg) P.agg = m.agg;
+  if (m.prof) engineProf = m.prof;
   if (globe) { globe.setIce(ice.vel); season.setIce(ice.H); climateDirty = true; }
   if (!playing) drawDirty = true;
 }
-function uploadSurface(m) {
+function uploadSurface(m, mode) {
   const T0 = globe.polarityOrigin;
-  if (!polarityReady || tec.t > T0 + POL_SPAN - 10) {
-    const origin = tec.t - (POL_SPAN - 60);
+  if (!polarityReady || m.t > T0 + POL_SPAN - 10) {
+    const origin = m.t - (POL_SPAN - 60);
     globe.setPolarity(polarity.table(origin, POL_DT, Math.ceil(POL_SPAN / POL_DT)), origin, POL_DT);
     polarityReady = true;
   }
-  globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.lakeDraw, m.normals, m.fromStep);
+  globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.lakeDraw, m.normals, mode);
   season.setSurface(m.elevRel);
 }
 let polarityReady = false;
@@ -179,6 +263,7 @@ function refreshClimate(force) {
     climateVersionDrawn = climate.version;
   }
   season.draw(tau, sw, CLIMATE.LAPSE, smooth(0, 1, (nowMs - coldEaseStart) / 800));
+  globe.refineClimate();
   seasonDrawn = tau; seasonWeightDrawn = sw;
   drawDirty = true;
 }
@@ -193,7 +278,7 @@ function refreshClimate(force) {
 let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastChart = 0, lastMean = -1e9, chartBusy = false;
 const SPINUP = SPINUP_DAYS * 86400;
 const chartWorker = new Worker(new URL('./src/render/chart-worker.js', import.meta.url), { type: 'module' });
-chartWorker.postMessage({ type: 'init', level: LEVEL, chartLevel: LEVEL - 1 });
+chartWorker.postMessage({ type: 'init', level: MESH_LEVEL, chartLevel: 6 });
 chartWorker.onmessage = e => { chart = e.data; chartBusy = false; drawDirty = true; };
 chartWorker.onerror = e => { console.warn('[isochron] chart:', e.message); chartBusy = false; };
 function weatherLive() {
@@ -663,6 +748,7 @@ const lap = k => { const t = performance.now(); prof[k] = 0.95 * (prof[k] || 0) 
 function tick(now) {
   // A frame's timestamp can precede the clock's start (or a driven tick's): never step backward.
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
+  const frameDt = Math.max(0, Math.min(0.25, (now - last) / 1000));   // the shown moment keeps real time
   last = Math.max(last, now);
   profT = performance.now();
   if (playing) {
@@ -693,9 +779,9 @@ function tick(now) {
     const pal = palette();
     // Between steps the globe shows the blend of the last two states, and the
     // lines turn with their plates to the same moment.
-    const phi = Math.min(1, Math.max(0, (performance.now() - stepArrive) / stepSpan));
-    if (phi < 1) drawDirty = true;
-    const tShow = tec.t - (1 - phi) * stepYears / 1e6;
+    const phi = stepTau(frameDt);
+    if (phi < 1 || queue.length) drawDirty = true;
+    const tShow = tau ?? tec.t;
     // Each line is turned with its plates to the shown moment and morphed from its
     // predecessor's course (rivers over the landscape's own step).
     if (lines) for (const ln of lines) {
@@ -706,7 +792,8 @@ function tick(now) {
       ln.shownL = turned(ln.L, w, tShow - linesT);
     }
     if (rivers) {
-      const phiL = Math.min(1, ((P.landBank || 0) + phi * stepYears) / 2.5e5);
+      // Rivers morph over the landscape's own step, from their predecessors' time to theirs.
+      const phiL = rivers.length && rivers[0].prevT < riversT ? Math.min(1, Math.max(0, (tShow - rivers[0].prevT) / (riversT - rivers[0].prevT))) : 1;
       for (const rv of rivers) {
         const pl = tec.plates[rv.plate];
         rv.alpha = rv.prev ? 1 : phiL;           // a river with no predecessor fades in
@@ -746,12 +833,12 @@ engine.postMessage({ type: 'init', seed, level: LEVEL, params: params() });
 engineStarted = true;
 engine.postMessage({ type: 'play', playing });
 
-gpuDevice().then(device => createGlobe(els.gpu, grid, device)).then(g => {
+gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   globe = g;
   season = new GpuSeason(g.device, grid, g.climBuffer);
-  wx = new GpuWeather(g.device, grid, seed);
+  wx = new GpuWeather(g.device, mesh, seed, g.refiner);
   if (view === 'weather') refreshWeather(true);
-  if (surfaceMsg) uploadSurface(surfaceMsg);
+  if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;
   climateVersionDrawn = -1;
   caption(true);
@@ -762,4 +849,4 @@ gpuDevice().then(device => createGlobe(els.gpu, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, tick, prof, get chart() { return chart; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; } };
