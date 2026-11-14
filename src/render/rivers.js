@@ -9,16 +9,19 @@ export const RIVER_MIN = 1500;   // m³/s: a river worth drawing at this grid's 
 export function traceRivers(grid, land, qmin = RIVER_MIN) {
   const n = grid.n, pos = grid.pos, r = land.r;
   if (!r) return [];
-  const Q = land.discharge, rcv = r.rcv, base = land.base;
+  const Q = land.discharge, rcv = r.rcv, base = land.base, lake = land.lake;
   const big = new Uint8Array(n), donors = new Uint8Array(n), seen = new Uint8Array(n);
   for (let i = 0; i < n; i++) if (Q[i] >= qmin && rcv[i] >= 0) big[i] = 1;
   for (let i = 0; i < n; i++) if (big[i] && rcv[i] >= 0 && big[rcv[i]]) donors[rcv[i]] = 1;
   const lines = [];
   for (let s = 0; s < n; s++) {
     if (!big[s] || donors[s]) continue;            // sources: big, with no big donor
-    const P = [], W = [];
+    let P = [], W = [];
     let i = s;
+    const keep = () => { if (W.length >= 4 || (W.length >= 2 && W[W.length - 1] > 4 * qmin)) lines.push(smooth({ P, W })); };
     for (;;) {
+      // Through a lake the river is the lake: end the line, start again at the outlet.
+      if (lake[i] > 0.03) { keep(); P = []; W = []; seen[i] = 1; const j = rcv[i]; if (j < 0 || base[j]) break; i = j; continue; }
       P.push(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]); W.push(Q[i]);
       if (seen[i]) break;                          // joined a river already traced
       seen[i] = 1;
@@ -33,7 +36,7 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
     }
     // A river is at least three cells long, or a large one: wet coasts otherwise
     // sprout a comb of one-cell streams.
-    if (W.length >= 4 || (W.length >= 2 && W[W.length - 1] > 4 * qmin)) lines.push(smooth({ P, W }));
+    keep();
   }
   return lines;
 }

@@ -13,11 +13,13 @@
 //   red              crust younger than 1 Myr: the ridge axes, where the
 //                    mantle reaches the surface
 //   hairlines        the coastline, and every kilometre of depth and height
-//   paper            snow on land and ice on the sea: the ground left bare, as
-//                    on a map; sea ice carries a sparse stipple
+//   vegetation       land is coloured by the climate's zones (forests,
+//                    savanna, steppe, desert, boreal forest, tundra), rock
+//                    toward the summits
+//   snow, sea ice    a light fill with a hard edge, as a map draws them
 //   lakes            filled depressions, in the sea's tint by depth
-//   ice sheets       the paper with hachures along the ice's flow, closer
-//                    where it flows faster
+//   ice sheets       a light fill with a hard outline and contours of the
+//                    ice's surface every 500 m
 // In the Climate view the sea carries isotherms of its surface temperature
 // every 5 °C and the gyres' streamlines every 3 Sv. The Weather view is a
 // synoptic chart's base: pale land, the paper for sea, isobars every 4 hPa
@@ -28,7 +30,7 @@
 // Each class is its group's ink in its second letter's pattern (docs/PLAN.md,
 // "Climate zones"): solid f, cross-hatch m, hatch / for w and \ for s, dense
 // and sparse stipple for BW and BS, fine hatch for ET, bare paper for EF.
-// Patterns are in screen space (a printed map's screens), the mosaic on the globe.
+// Patterns and the mosaic are fixed to the globe and scale with the zoom.
 
 const SHADER = /* wgsl */ `
 struct U {
@@ -37,7 +39,8 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate, 2 weather), mosaic frequency, device px per CSS px, spare
+  mode: vec4f,       // view (0 relief, 1 climate, 2 weather), mosaic frequency, device px per CSS px, globe radius in device px
+  // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
 };
 @group(0) @binding(0) var<uniform> u: U;
@@ -104,20 +107,43 @@ fn tessera(p: vec3f) -> f32 {
   return id;
 }
 
-// Screen-space line screens, in device pixels: distance to the nearest line of
-// a family x·dir = k·period, antialiased over a pixel.
-fn lines(px: vec2f, dir: vec2f, period: f32, width: f32) -> f32 {
-  let t = dot(px, dir) / period;
-  let d = abs(fract(t) - 0.5) * period;
-  return 1.0 - smoothstep(0.5 * width - 0.5, 0.5 * width + 0.5, 0.5 * period - d);
+// Patterns are anchored to the globe: each is drawn in three planar projections
+// of the sphere (triplanar, blended sharply by the normal), at a frequency set
+// by the zoom. Within an octave the next octave's marks fade in between the
+// last's, so a pattern grows and shrinks with the globe without popping, and
+// its marks keep a constant width on screen.
+struct Tri { x: vec2f, y: vec2f, z: vec2f, w: vec3f, f: vec3f };
+
+fn octave(periodPx: f32) -> vec2f {
+  let l = log2(max(u.mode.w / periodPx, 1.0));
+  return vec2f(exp2(floor(l)), fract(l));
 }
-fn dots(px: vec2f, period: f32, radius: f32) -> f32 {
-  // a hexagonal lattice of dots
-  let row = floor(px.y / (period * 0.866));
-  let off = select(0.0, 0.5 * period, (row - 2.0 * floor(row * 0.5)) > 0.5);
-  let q = vec2f(px.x + off, px.y) / vec2f(period, period * 0.866);
-  let c = (fract(q) - 0.5) * vec2f(period, period * 0.866);
-  return 1.0 - smoothstep(radius - 0.6, radius + 0.6, length(c));
+fn lineAA(c: f32, fwc: f32, wpx: f32) -> f32 {
+  let d = abs(c - round(c)) / max(fwc, 1e-7);
+  return 1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, d);
+}
+fn hatch1(uv: vec2f, fw: f32, dir: vec2f, o: vec2f, wpx: f32) -> f32 {
+  let c = dot(uv, dir) * o.x;
+  return max(lineAA(c, fw * o.x, wpx), o.y * lineAA(2.0 * c, 2.0 * fw * o.x, wpx));
+}
+fn hatch(T: Tri, dir: vec2f, periodPx: f32, wpx: f32) -> f32 {
+  let o = octave(periodPx);
+  return T.w.x * hatch1(T.x, T.f.x, dir, o, wpx) + T.w.y * hatch1(T.y, T.f.y, dir, o, wpx) + T.w.z * hatch1(T.z, T.f.z, dir, o, wpx);
+}
+fn dot1(uv: vec2f, fw: f32, F: f32, rpx: f32) -> f32 {
+  let q = uv * F;
+  let row = floor(q.y / 0.8660254);
+  let odd = row - 2.0 * floor(row * 0.5);
+  let qx = q.x + 0.5 * odd;
+  let c = vec2f(qx - floor(qx) - 0.5, (q.y / 0.8660254 - row - 0.5) * 0.8660254);
+  return 1.0 - smoothstep(rpx - 0.6, rpx + 0.6, length(c) / max(fw * F, 1e-7));
+}
+fn stipple1(uv: vec2f, fw: f32, o: vec2f, rpx: f32) -> f32 {
+  return mix(dot1(uv, fw, o.x, rpx), dot1(uv, fw, 2.0 * o.x, rpx), o.y);
+}
+fn stipple(T: Tri, periodPx: f32, rpx: f32) -> f32 {
+  let o = octave(periodPx);
+  return T.w.x * stipple1(T.x, T.f.x, o, rpx) + T.w.y * stipple1(T.y, T.f.y, o, rpx) + T.w.z * stipple1(T.z, T.f.z, o, rpx);
 }
 
 fn zoneInk(g: i32) -> vec3f {
@@ -130,8 +156,8 @@ fn zoneInk(g: i32) -> vec3f {
   }
 }
 
-// A class (0..13: Af Am Aw As BW BS Cf Cs Cw Df Ds Dw ET EF) drawn at screen position px.
-fn zoneColor(k: i32, px: vec2f) -> vec3f {
+// A class (0..13: Af Am Aw As BW BS Cf Cs Cw Df Ds Dw ET EF) in its pattern.
+fn zoneColor(k: i32, T: Tri) -> vec3f {
   let s = u.mode.z;              // device px per CSS px
   var g = 0;
   if (k >= 4) { g = 1; }
@@ -149,14 +175,32 @@ fn zoneColor(k: i32, px: vec2f) -> vec3f {
   let diag = vec2f(0.7071, 0.7071);
   let anti = vec2f(0.7071, -0.7071);
   switch k {
-    case 0, 6, 9: { return mix(paper, ink, 0.56 * v); }                                     // f: solid
-    case 1: { return mix(ground, mark, max(lines(px, diag, 5.0 * s, 1.0 * s), lines(px, anti, 5.0 * s, 1.0 * s))); }   // m
-    case 2, 8, 11: { return mix(ground, mark, lines(px, diag, 4.5 * s / v, 1.1 * s)); }      // w: hatch /
-    case 3, 7, 10: { return mix(ground, mark, lines(px, anti, 4.5 * s / v, 1.1 * s)); }      // s: hatch, the other way
-    case 4: { return mix(mix(paper, ink, 0.10), mark, dots(px, 3.6 * s, 0.95 * s)); }       // BW: dense stipple
-    case 5: { return mix(mix(paper, ink, 0.07), mark, dots(px, 6.5 * s, 0.95 * s)); }       // BS: sparse stipple
-    case 12: { return mix(mix(paper, ink, 0.10), mark, lines(px, vec2f(0.0, 1.0), 3.2 * s, 0.8 * s)); }   // ET: fine hatch
-    default: { return paper; }                                                              // EF: paper
+    case 0, 6, 9: { return mix(paper, ink, 0.56 * v); }                                         // f: solid
+    case 1: { return mix(ground, mark, max(hatch(T, diag, 5.0 * s, 1.0 * s), hatch(T, anti, 5.0 * s, 1.0 * s))); }   // m
+    case 2, 8, 11: { return mix(ground, mark, hatch(T, diag, 4.5 * s / v, 1.1 * s)); }          // w: hatch /
+    case 3, 7, 10: { return mix(ground, mark, hatch(T, anti, 4.5 * s / v, 1.1 * s)); }          // s: hatch, the other way
+    case 4: { return mix(mix(paper, ink, 0.10), mark, stipple(T, 3.6 * s, 0.95 * s)); }        // BW: dense stipple
+    case 5: { return mix(mix(paper, ink, 0.07), mark, stipple(T, 6.5 * s, 0.95 * s)); }        // BS: sparse stipple
+    case 12: { return mix(mix(paper, ink, 0.10), mark, hatch(T, vec2f(0.0, 1.0), 3.2 * s, 0.8 * s)); }   // ET: fine hatch
+    default: { return paper; }                                                                  // EF: paper
+  }
+}
+
+// The Relief view's vegetation: each class as a natural colour (forest greens,
+// savanna and steppe, pale desert, boreal blue-green, tundra), blended by the
+// mixture rather than drawn as a mosaic.
+fn biome(k: i32) -> vec3f {
+  let p = u.canvas.rgb;
+  switch k {
+    case 0, 1: { return mix(p, u.inkA.rgb, 0.42); }
+    case 2, 3: { return mix(p, u.inkC.rgb, 0.30); }
+    case 4: { return mix(p, u.inkB.rgb, 0.17); }
+    case 5: { return mix(p, mix(u.inkB.rgb, u.inkC.rgb, 0.5), 0.24); }
+    case 6, 8: { return mix(p, u.inkC.rgb, 0.37); }
+    case 7: { return mix(p, mix(u.inkC.rgb, u.inkB.rgb, 0.45), 0.30); }
+    case 9, 10, 11: { return mix(p, u.inkD.rgb, 0.34); }
+    case 12: { return mix(p, mix(u.inkE.rgb, u.land.rgb, 0.5), 0.17); }
+    default: { return p; }
   }
 }
 
@@ -180,7 +224,14 @@ fn hair(d: f32, w: f32) -> f32 {
   let sst = i.c.y;         // sea-surface temperature, °C
   let psi = i.c.z;         // the gyres' streamfunction, Sv
   let age = u.frame.z - tf;
-  let px = i.clip.xy;
+  let iceH = i.c.w;        // ice sheet thickness, m
+  let dark = u.inkA.w > 0.5;
+
+  // The globe's own coordinates for patterns (triplanar), and their change per pixel.
+  let wpn = normalize(i.wp);
+  var tw = pow(abs(wpn), vec3f(12.0));
+  tw = tw / (tw.x + tw.y + tw.z);
+  let T = Tri(wpn.yz, wpn.zx, wpn.xy, tw, vec3f(length(fwidth(wpn.yz)), length(fwidth(wpn.zx)), length(fwidth(wpn.xy))));
 
   // Relief: the surface normal against the sphere's own, so only slope shades.
   let N = normalize(i.nrm);
@@ -196,6 +247,10 @@ fn hair(d: f32, w: f32) -> f32 {
   let pw = i.wx.x;         // sea-level pressure about 1013 hPa
   let fpw = fwidth(pw);
   let fpsi = fwidth(psi);
+  let fcold = max(fwidth(cold), 1e-3);
+  let fice = max(fwidth(iceH), 1.0);
+  let iceSurf = max(e, 0.0) + iceH / 1000.0;
+  let fsurf = fwidth(iceSurf);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
   let climate = u.mode.x > 0.5 && u.mode.x < 1.5;
   let weather = u.mode.x > 1.5;
@@ -216,14 +271,29 @@ fn hair(d: f32, w: f32) -> f32 {
   let st = psi / 3.0;
   wash = mix(wash, u.ocean.rgb, 0.75 * hair(abs(st - round(st)), max(fpsi / 3.0, 1e-4)) * step(0.5, abs(psi)));
   sea = select(sea, wash, climate);
-  // Sea ice: the paper, with a sparse stipple.
-  let ice = smoothstep(0.15, 0.6, cold);
-  sea = mix(sea, mix(u.canvas.rgb, u.ocean.rgb, 0.85 * dots(px, 7.0 * u.mode.z, 0.8 * u.mode.z)), ice);
+  // Snow and sea ice: a light fill with a hard edge, as a map draws them.
+  let iceInk = select(mix(u.canvas.rgb, u.ocean.rgb, 0.05), mix(u.canvas.rgb, u.text.rgb, 0.16), dark);
+  let snowInk = select(u.canvas.rgb, mix(u.canvas.rgb, u.text.rgb, 0.2), dark);
+  let ice = clamp(0.5 + (cold - 0.5) / fcold, 0.0, 1.0);
+  let iceEdge = hair(abs(cold - 0.5), fcold);
+  sea = mix(sea, iceInk, ice);
+  sea = mix(sea, u.ocean.rgb, 0.55 * iceEdge);
 
-  // Land: height tint, contours every kilometre; snow is the paper.
-  var land = mix(u.canvas.rgb, u.land.rgb, u.frame2.w + u.light.w * smoothstep(0.0, 5.0, e));
+  // Land: vegetation from the climate's zones (the height's umber where they
+  // aren't known yet), rock toward the summits, contours every kilometre.
+  let heightTint = mix(u.canvas.rgb, u.land.rgb, u.frame2.w + u.light.w * smoothstep(0.0, 5.0, e));
+  var veg = vec3f(0.0);
+  var vw = 0.0;
+  for (var k = 0; k < 14; k++) {
+    let pk = select(select(select(i.z3[k - 12], i.z2[k - 8], k < 12), i.z1[k - 4], k < 8), i.z0[k], k < 4);
+    veg += pk * biome(k);
+    vw += pk;
+  }
+  var land = select(heightTint, veg / max(vw, 1e-6), vw > 0.5);
+  land = mix(land, mix(u.canvas.rgb, u.land.rgb, 0.5), smoothstep(1.2, 4.0, e) * 0.85);
   land = mix(land, u.text.rgb, 0.07 * hair(abs(e - round(e)), fe) * step(0.5, e));
-  land = mix(land, u.canvas.rgb, 0.92 * smoothstep(0.1, 0.7, cold));
+  land = mix(land, snowInk, ice);
+  land = mix(land, u.text.rgb, 0.22 * iceEdge);
   // Lakes, in the sea's tint by depth.
   let lk = smoothstep(0.0, 0.03, lake);
   land = mix(land, mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(lake / 6.0, 0.0, 1.0))), lk);
@@ -242,22 +312,21 @@ fn hair(d: f32, w: f32) -> f32 {
     acc += probs[k] / max(tot, 1e-6);
     if (h < acc) { cls = k; break; }
   }
-  let zone = mix(zoneColor(cls, px), mix(u.canvas.rgb, u.ocean.rgb, 0.16), lk);
+  let zone = mix(zoneColor(cls, T), mix(u.canvas.rgb, u.ocean.rgb, 0.16), lk);
   land = select(land, zone, climate);
   let shade = select(relief, mix(1.0, relief, 0.55), climate);
   let seaShade = select(relief, 1.0, climate);
 
-  // Ice sheets: the paper, with hachures along the flow, closer where it's faster.
-  let iceH = i.c.w;
-  let sheet = smoothstep(20.0, 120.0, iceH);
-  var fd = i.iv.xy;
-  let fl = length(fd);
-  fd = select(vec2f(1.0, 0.0), vec2f(fd.x, -fd.y) / max(fl, 1e-6), fl > 0.05);
-  let period = mix(10.0, 3.6, smoothstep(5.0, 250.0, i.iv.w)) * u.mode.z;
-  let hach = lines(px, vec2f(-fd.y, fd.x), period, 0.9 * u.mode.z) * smoothstep(0.05, 0.3, fl);
-  let iceC = mix(u.canvas.rgb, u.text.rgb, 0.32 * hach);
+  // Ice sheets: a light fill with a hard outline, and contours of the ice's
+  // surface every 500 m (the ice flows across them, downhill).
+  let sheet = clamp(0.5 + (iceH - 50.0) / fice, 0.0, 1.0);
+  let sc = iceSurf * 2.0;
+  var iceC = mix(snowInk, u.ocean.rgb, 0.35 * hair(abs(sc - round(sc)), max(2.0 * fsurf, 1e-4)) * step(0.3, iceSurf));
   land = mix(land, iceC, sheet);
   sea = mix(sea, iceC, sheet);
+  let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, e + iceH / 1000.0);
+  land = mix(land, u.text.rgb, 0.55 * sheetEdge);
+  sea = mix(sea, u.text.rgb, 0.55 * sheetEdge);
 
   // The Weather view: a chart's base, isobars, and rain as stipple.
   var wland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
@@ -267,7 +336,7 @@ fn hair(d: f32, w: f32) -> f32 {
   let ib20 = (pw + 1013.0) / 20.0;
   let iso20 = hair(abs(ib20 - round(ib20)), max(fpw / 10.0, 1e-4));
   let rainR = i.wx.y;
-  let rainDots = dots(px, mix(10.0, 3.6, smoothstep(1.0, 25.0, rainR)) * u.mode.z, 0.85 * u.mode.z) * smoothstep(0.5, 2.0, rainR);
+  let rainDots = stipple(T, mix(10.0, 3.6, smoothstep(1.0, 25.0, rainR)) * u.mode.z, 0.85 * u.mode.z) * smoothstep(0.5, 2.0, rainR);
   wland = mix(wland, u.ocean.rgb, 0.85 * rainDots);
   wsea = mix(wsea, u.ocean.rgb, 0.85 * rainDots);
   wland = mix(wland, u.text.rgb, max(0.4 * iso4, 0.6 * iso20));
@@ -408,8 +477,9 @@ export async function createGlobe(canvas, grid) {
       // The mosaic's lattice, snapped to octaves so tesserae stay put while zooming: ~14 CSS px each.
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
-      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? 2 : 0, freq, dprNow, 0], 44);
+      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? 2 : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
+      uni[51] = palette.dark ? 1 : 0;
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();

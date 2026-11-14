@@ -142,7 +142,9 @@ export function chartLines(wx, pres) {
   const T = locate(g, wx.theta);
   const mid = i => Math.abs(lat[i]) > 0.35 && Math.abs(lat[i]) < 1.35;
   const g70 = percentile(T.G, mid, 0.74), t60 = percentile(T.tfp, i => mid(i) && T.G[i] > g70, 0.4);
-  const okF = i => mid(i) && T.G[i] > g70 && T.tfp[i] > t60;
+  // Fronts lie in troughs: the low-level flow turns cyclonically there.
+  const cyc = i => wx.zeta2[i] * Math.sign(lat[i]) > 0;
+  const okF = i => mid(i) && T.G[i] > g70 && T.tfp[i] > t60 && cyc(i);
   for (const chain of trace(g, T.loc, okF)) {
     let P = chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; });
     P = chaikin(P);
@@ -156,12 +158,37 @@ export function chartLines(wx, pres) {
       const ty = adv > 1.2 ? COLD : adv < -1.2 ? WARM : STATIONARY;
       type[k] = ty;
       if (ty === COLD) ncold++; else if (ty === WARM) nwarm++;
-      // Symbols point where the front moves: toward the warm air for a cold front, the cold for a warm one.
-      const s = ty === WARM ? -1 : 1;
-      side[3 * k] = s * nh[0]; side[3 * k + 1] = s * nh[1]; side[3 * k + 2] = s * nh[2];
+      side[3 * k] = nh[0]; side[3 * k + 1] = nh[1]; side[3 * k + 2] = nh[2];   // toward the warm air, for now
     });
-    // Runs: a front's type reads in stretches, not point by point.
-    for (let pass = 0; pass < 2; pass++) for (let k = 1; k < P.length - 1; k++) if (type[k - 1] === type[k + 1] && type[k] !== type[k - 1]) type[k] = type[k - 1];
+    // Runs: a front's type reads in stretches, not point by point. A majority over
+    // ±8 points, then runs shorter than 10 points join their neighbour.
+    const M = P.length, maj = new Uint8Array(M);
+    for (let k = 0; k < M; k++) {
+      const cnt = [0, 0, 0, 0];
+      for (let q = Math.max(0, k - 8); q <= Math.min(M - 1, k + 8); q++) cnt[type[q]]++;
+      maj[k] = cnt[COLD] >= cnt[WARM] && cnt[COLD] >= cnt[STATIONARY] ? COLD : cnt[WARM] >= cnt[STATIONARY] ? WARM : STATIONARY;
+    }
+    for (let k = 0; k < M;) {
+      let e = k;
+      while (e < M && maj[e] === maj[k]) e++;
+      if (e - k < 10 && (k > 0 || e < M)) { const fill = k > 0 ? maj[k - 1] : maj[e]; for (let q = k; q < e; q++) maj[q] = fill; }
+      k = e;
+    }
+    type.set(maj);
+    // Symbols point where the front moves: toward the warm air for a cold front, the cold for a warm one.
+    for (let q = 0; q < M; q++) if (type[q] === WARM) { side[3 * q] *= -1; side[3 * q + 1] *= -1; side[3 * q + 2] *= -1; }
+    // A front's symbols keep to one side through each run: the side's majority there.
+    for (let k = 0; k < M;) {
+      let e = k;
+      while (e < M && type[e] === type[k]) e++;
+      let sx = 0, sy = 0, sz = 0;
+      for (let q = k; q < e; q++) { sx += side[3 * q]; sy += side[3 * q + 1]; sz += side[3 * q + 2]; }
+      for (let q = k; q < e; q++) {
+        // Keep each point's own direction, flipped to agree with the run's.
+        if (side[3 * q] * sx + side[3 * q + 1] * sy + side[3 * q + 2] * sz < 0) { side[3 * q] *= -1; side[3 * q + 1] *= -1; side[3 * q + 2] *= -1; }
+      }
+      k = e;
+    }
     out.fronts.push({ P: pts, side, type });
   }
   // Dry lines: over land, moisture sharp and temperature not.

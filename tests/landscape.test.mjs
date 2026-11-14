@@ -50,5 +50,6 @@ test('a landscape step conserves crust: eroded rock all ends up as sediment', ()
   for (let s = 0; s < 5; s++) land.step(5e5);
   const v1 = land.volume();
   assert.ok(land.flux.eroded > 0, 'nothing eroded');
-  assert.ok(Math.abs(v1 - v0) / v0 < 1e-9, `volume changed by ${((v1 - v0) / v0).toExponential(2)}`);
+  // The plates hold thickness as float32, so ~1e-7 is rounding.
+  assert.ok(Math.abs(v1 - v0) / v0 < 1e-7, `volume changed by ${((v1 - v0) / v0).toExponential(2)}`);
 });

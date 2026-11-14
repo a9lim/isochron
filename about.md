@@ -2,7 +2,7 @@
 name: Isochron
 title: Isochron — Planet Simulator
 description: Run an Earth-like planet from plate tectonics to weather on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, a carbon thermostat, ocean gyres and weather fronts.
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Isochron
@@ -45,7 +45,7 @@ The planet's orbit changes in slow cycles: its eccentricity over about 100 and 4
 
 ## Carbon
 
-Volcanoes at ridges and above sinking slabs release carbon dioxide, and the weathering of rock on land takes it back into the sea floor's sediments. Weathering runs faster where it's warm and wet and where erosion keeps fresh rock exposed, so a warmer planet draws down its carbon dioxide and cools: a thermostat that works over hundreds of thousands of years. Faster plates outgas more and warm the planet; new mountains weather more and cool it.
+Volcanoes at ridges and above sinking slabs release carbon dioxide, and the weathering of rock on land takes it back into the sea floor's sediments. Weathering runs faster where it's warm and wet and where erosion keeps fresh rock exposed, so a warmer planet draws down its carbon dioxide and cools: a thermostat that works over hundreds of thousands of years. Faster plates outgas more and warm the planet; new mountains weather more and cool it. Living things take part too: plankton and plant debris buried with sediment at the coasts take carbon out of the air for good, and old organic carbon in rock gives it back when erosion exposes it.
 
 ## Plumes
 
@@ -69,14 +69,14 @@ The zones follow Köppen's classes, which are thresholds on monthly temperature 
 
 ## On the globe
 
-Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Plate boundaries follow the conventions of a tectonic map. Trenches have sawteeth on the plate that stays on top, with red marks for the volcanic arc on that side, and ridges are red. Transform faults carry paired half-arrows showing which way each side slides, and boundaries where the plates barely move are dotted. Rivers are blue lines whose weight is their discharge. Snow and sea ice leave the paper bare; sea ice is stippled.
+Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Plate boundaries follow the conventions of a tectonic map. Trenches have sawteeth on the plate that stays on top, with red marks for the volcanic arc on that side, and ridges are red. Transform faults carry paired half-arrows showing which way each side slides, and boundaries where the plates barely move are dotted. Land is coloured by its vegetation, from its climate: forest, savanna and steppe, desert, boreal forest and tundra, with bare rock toward the summits. Rivers are blue lines whose weight is their discharge. Snow and sea ice are a light fill with a hard edge.
 
 In the Climate view each class is its group's colour in a pattern for its second letter: solid where it's wet all year, hatched one way or the other where the dry season falls in winter or in summer, cross-hatched for monsoon climates, stippled for deserts (densely) and steppes (sparsely), finely ruled for tundra, and bare for ice caps. The key lists each class with its share of the land.
 
 The Weather view is a synoptic chart: isobars every 4 hPa, rain as stipple, cold fronts with triangles and warm fronts with semicircles pointing the way they move, dry lines with scallops toward the moist air, and the highs and lows. In the Climate view the sea carries isotherms of its surface temperature and the gyres' streamlines.
 
-Ice sheets are bare paper ruled along their flow, the lines closer where the ice moves faster. Hotspots are red rings, and a province erupting is a red stippled disc.
+Ice sheets are outlined, with contours of their surface every 500 metres; the ice flows across the contours, downhill. Hotspots are red rings, and a province erupting is a red stippled disc.
 
 The margin's figures are drawn from the same state: the planet's record of temperature, carbon dioxide, sea level, ice, land and ridge activity on a time axis that follows the dial; the orbit's cycles and the July sunlight at 65°N; temperature and rainfall by latitude, with the year's range of temperature, the band the rain belt sweeps through the year and the edges of the Hadley cells; the share of the surface at each height and depth; and the record of the field's reversals.
 
-Below a few years a second the globe shows the season, and the caption names the month. Drag to turn the globe, scroll to zoom, and set the rate with the dial.
+The key at the globe's corner names each view's symbols, and the patterns are fixed to the globe, growing and shrinking with the zoom. Below a few years a second the globe shows the season, and the caption names the month. Drag to turn the globe, scroll to zoom, and set the rate with the dial.

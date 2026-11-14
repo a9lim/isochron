@@ -23,6 +23,7 @@ import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
 import { WEATHER } from './src/engine/weather.js';
 import { chartLines } from './src/render/chart.js';
+import { drawKey } from './src/render/key.js';
 import { prolong } from './src/grid/transfer.js';
 
 const RELIEF = 20;            // vertical exaggeration of the hillshade
@@ -45,6 +46,7 @@ const els = {
   caption: $('globe-caption'), dial: $('dial'), dialOut: $('dial-out'),
   knob: $('knob'), knobLabel: $('knob-label'), knobInput: $('knob-input'), knobOut: $('knob-out'),
   views: document.querySelectorAll('#view-picker .view-btn'),
+  keyBtn: $('key-btn'), key: $('globe-key'), keyCanvas: $('key-canvas'),
   experiments: $('experiments'),
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
@@ -84,7 +86,7 @@ function palette() {
   // Tint floor and span for the sea's depth and the land's height. On the dark
   // ground the land takes more ink, so it stays lighter than the sea in both themes.
   const tint = dark ? [0.14, 0.26, 0.50, 0.25] : [0.18, 0.36, 0.24, 0.34];
-  return { canvas: T.canvas, text: T.text, accent: T.accent, ocean: T.ocean, land: T.land, muted: T.textMuted, inks: T.inks, tint };
+  return { canvas: T.canvas, text: T.text, accent: T.accent, ocean: T.ocean, land: T.land, muted: T.textMuted, inks: T.inks, tint, dark };
 }
 
 function refreshSurface() {
@@ -275,8 +277,19 @@ syncDial();
 function setDial(v) { els.dial.value = String(v); syncDial(); }
 
 // ── The view ──
+// ── The key ──
+function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view, palette()); }
+function setKey(on) {
+  els.key.hidden = !on;
+  els.keyBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  drawTheKey();
+}
+els.keyBtn.addEventListener('click', () => setKey(els.key.hidden));
+setKey(window.innerWidth > 860);
+
 function setView(v) {
   view = v;
+  drawTheKey();
   if (v === 'weather') { refreshWeather(true); }
   for (const b of els.views) b.setAttribute('aria-checked', b.dataset.view === v ? 'true' : 'false');
   drawDirty = true;
@@ -476,6 +489,7 @@ function modelSnapshot() {
       { from: 'plates', to: 'sea', w: 60 / Math.max(20, st.meanOceanAge), label: `${Math.round(st.meanOceanAge)} Myr` },
       { from: 'plumes', to: 'plates', w: 0.3, bend: 0 },
       { from: 'zones', to: 'carbon', w: wRel / 2, label: `${wRel.toFixed(2)}×`, bend: 0 },
+      { from: 'landscape', to: 'carbon', w: (cf.burial || 0) / 0.04, label: `buried ${(cf.burial || 0).toFixed(3)}` },
     ],
   };
 }
@@ -589,7 +603,7 @@ window.addEventListener('DOMContentLoaded', () => {
       playing,
       onPlay: () => { setPlaying(!playing); return playing; },
       onStep: () => stepOnce(),
-      onTheme: () => { drawDirty = true; figuresDirty = true; requestAnimationFrame(() => figures(true)); },
+      onTheme: () => { drawDirty = true; figuresDirty = true; requestAnimationFrame(() => { figures(true); drawTheKey(); }); },
       onHelp: () => {},
     });
   }
@@ -601,6 +615,7 @@ window.addEventListener('DOMContentLoaded', () => {
     { key: '1', group: 'View', label: 'Relief', action: () => setView('relief') },
     { key: '2', group: 'View', label: 'Climate', action: () => setView('climate') },
     { key: '3', group: 'View', label: 'Weather', action: () => setView('weather') },
+    { key: 'k', group: 'View', label: 'Key', action: () => setKey(els.key.hidden) },
     { key: '=', group: 'View', label: 'Zoom in', action: () => { camera.zoomBy(1.2); drawDirty = true; } },
     { key: '-', group: 'View', label: 'Zoom out', action: () => { camera.zoomBy(1 / 1.2); drawDirty = true; } },
     { key: '0', group: 'View', label: 'Fit the globe', action: () => { camera.zoom = 1; drawDirty = true; } },
@@ -626,7 +641,7 @@ window.addEventListener('DOMContentLoaded', () => {
       lastUpdated: '2026-11-14',
     });
   }
-  if (typeof _loadTextFonts === 'function') _loadTextFonts().then(() => { drawDirty = true; figures(true); });
+  if (typeof _loadTextFonts === 'function') _loadTextFonts().then(() => { drawDirty = true; figures(true); drawTheKey(); });
 });
 
 // ── The loop ──

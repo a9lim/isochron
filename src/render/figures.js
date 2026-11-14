@@ -176,7 +176,7 @@ export function drawPolarity(canvas, polarity, t, pal, span = 160) {
 }
 
 // The zones' patterns in 2D, the same screens as the globe's shader.
-function zonePattern(ctx, k, x, y, w, h, pal) {
+export function zonePattern(ctx, k, x, y, w, h, pal) {
   const inks = [pal.inks.viridian, pal.inks.ochre, pal.inks.sap, pal.inks.verdigris, pal.inks.indigo];
   const g = k < 4 ? 0 : k < 6 ? 1 : k < 9 ? 2 : k < 12 ? 3 : 4;
   const ink = inks[g];

@@ -31,7 +31,16 @@ export const LAND = {
   SHELF: 0.12,       // km below sea level that sediment builds a shelf to
   SED_FELSIC: 0.9,   // felsic fraction of river sediment
   RUNOFF0: 0.3,      // m/yr: the runoff at which K applies
+  ROUGH: 0.025,      // km: relief below the grid's scale, fixed to the crust, that water routes over
 };
+
+/** A fixed value in [−1, 1) for a plate's own cell: the crust's sub-grid roughness, which moves with it. */
+function rough(plate, j) {
+  let h = Math.imul(plate + 1, 0x9E3779B1) ^ Math.imul(j + 7, 0x85EBCA77);
+  h = Math.imul(h ^ (h >>> 15), 0x2C1B3C6D);
+  h ^= h >>> 13;
+  return ((h >>> 0) / 4294967296) * 2 - 1;
+}
 
 const R_KM = 6371;
 const CONTINENTAL = 0.5;
@@ -172,18 +181,29 @@ export class Landscape {
     this.flux = { eroded: 0, toSea: 0, toLakes: 0 };   // km³/yr, last step
   }
 
-  /** Re-route on the current crust (no change to it): rivers and lakes for drawing. */
+  /**
+   * Re-route on the current crust (no change to it): rivers and lakes for drawing.
+   * Water routes over the surface plus a little roughness fixed to the crust:
+   * on flat ground steepest descent on a hexagonal grid otherwise runs in
+   * straight parallel lines, and the roughness branches them as real drainage
+   * does. Steep ground is unaffected.
+   */
   reroute() {
-    const tec = this.tec, n = this.grid.n, s = tec.seaLevel;
-    for (let i = 0; i < n; i++) { this.z[i] = tec.elev[i]; this.base[i] = tec.elev[i] < s ? 1 : 0; }
-    this.r = route(this.grid, this.z, this.base, this.r);
+    const tec = this.tec, n = this.grid.n, s = tec.seaLevel, R = LAND.ROUGH;
+    const zr = this.zr || (this.zr = new Float64Array(n));
+    for (let i = 0; i < n; i++) {
+      this.z[i] = tec.elev[i];
+      this.base[i] = tec.elev[i] < s ? 1 : 0;
+      zr[i] = tec.elev[i] + (this.base[i] ? 0 : R * rough(tec.owner[i], tec.ref[i]));
+    }
+    this.r = route(this.grid, zr, this.base, this.r);
     const r0 = LAND.RUNOFF0;
     for (let i = 0; i < n; i++) this.w[i] = this.base[i] ? 0 : this.areaKm[i] * this.runoff[i] / r0;
     accumulate(this.r.order, this.r.count, this.r.rcv, this.w, this.Q);
     const toM3s = r0 * 1e6 / 3.156e7;    // km² at r0 m/yr → m³/s
     for (let i = 0; i < n; i++) {
       this.discharge[i] = this.base[i] ? 0 : this.Q[i] * toM3s;
-      this.lake[i] = this.r.lake[i] ? this.r.zf[i] - this.z[i] : 0;
+      this.lake[i] = this.r.lake[i] ? Math.max(0, this.r.zf[i] - this.z[i] - LAND.ROUGH) : 0;
     }
   }
 
@@ -205,7 +225,8 @@ export class Landscape {
       for (let k = 0; k < count; k++) {
         const i = order[k], j = rcv[i];
         if (j < 0 || lake[i]) continue;
-        const zr = rcv[j] < 0 ? s : lake[j] ? zf[j] : z[j];
+        const zr = rcv[j] < 0 ? s : lake[j] ? Math.min(zf[j], z0[j] + 1) : z[j];
+        if (!(z[i] > zr)) continue;              // the roughness routed it uphill: no cutting
         const F = f[i] * K * dt * Math.pow(Q[i], m) / rlen[i];
         z[i] = Math.max(zr, (z[i] + F * zr) / (1 + F));
       }

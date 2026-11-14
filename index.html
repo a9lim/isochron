@@ -50,7 +50,9 @@
             <button class="view-btn" data-view="climate" role="radio" aria-checked="false">Climate</button>
             <button class="view-btn" data-view="weather" role="radio" aria-checked="false">Weather</button>
           </div>
+          <button id="key-btn" class="key-btn" aria-pressed="true" aria-controls="globe-key">Key</button>
         </div>
+        <div id="globe-key" class="globe-key"><canvas id="key-canvas" aria-label="Key to the view's symbols"></canvas></div>
       </div>
       <figcaption class="figure-bar">
         <p class="caption globe-caption"><span class="caption-n">Fig. 1.</span> <span id="globe-caption"></span></p>

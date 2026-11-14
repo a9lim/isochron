@@ -82,6 +82,18 @@ Phase 5:
 - **Fig. 7 is drawn from the code's actual couplings.** The weather's feedback to the climate (running means) isn't built, so the diagram has no arrow for it rather than imply one.
 - **Five margin tabs** (Experiments, Record, Climate, Crust, Model); the margin is 372 px, as Miasma's.
 
+## After a9's review (2026-11-15)
+
+a9's notes: rivers look unnatural; ice caps stand out, their pattern is fixed to the screen and should be more conventional with harder edges; patterns don't scale with zoom; a legend; vegetation colour in the Relief view; biological carbon; the weather looks erratic; no Japanese (only Worldline has it).
+- **Patterns are fixed to the globe**, triplanar and octave-blended, so they move and scale with it; marks stay a constant width on screen. The mosaic was already fixed to the globe.
+- **Snow, sea ice and ice sheets are drawn as a map draws them**: a light fill with a hard, antialiased edge and a hairline. Ice sheets lost their flow hachures for contours of the ice's surface every 500 m (the flow crosses them downhill), which reads the same quantity conventionally.
+- **The Relief view takes the climate's vegetation** as natural colours blended by the zones' mixture (not a mosaic), rock toward the summits.
+- **A key per view**, at the globe's lower left, toggled by `K`.
+- **Rivers route over ±25 m of roughness fixed to the crust**, so flats branch instead of draining in parallel straight lines, and are no longer drawn across lakes. It's sub-grid relief, the same idea as the coastline's easing; erosion still uses the true surface.
+- **Fronts lie in troughs** (cyclonic low-level flow) and **hold their type in runs**: they had flipped cold and warm point to point.
+- **Organic carbon**: burial with sediment and oxidation of old organic carbon in eroded rock, each a fifth of the reference outgassing at the opening; a new arrow in Fig. 7.
+- **Conservation tolerance** in the landscape test is now 10⁻⁷: plates store thickness in float32.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

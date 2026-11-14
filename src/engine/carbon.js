@@ -7,6 +7,14 @@
 // CO₂ as pCO₂^0.3 (soil CO₂), and with the supply of fresh rock that erosion
 // exposes (standard: the Walker–Hays–Kasting thermostat; the exponents and Tₑ
 // from memory).
+// Organic carbon is the other half (standard; GEOCARB's organic subcycle):
+// plankton and plant debris buried with sediment at the coasts take carbon
+// out, and old organic carbon in rock oxidizes when erosion exposes it. Here
+// burial scales with the sediment the rivers deliver to the sea and
+// oxidation with the rock they erode, each a fifth of the reference
+// outgassing at the opening (Earth's organic share of burial is about a
+// fifth); mountains raised fast bury more than they expose, and the
+// difference moves the CO₂.
 // Weathering is measured on the climate's own map of runoff, temperature and
 // erosion each time the climate completes; between climate solves, the
 // temperature's answer to a change in CO₂ is the climate sensitivity, so the
@@ -30,6 +38,7 @@ export const CARBON = {
   RIDGE_REF: 500, ARC_REF: 490,   // cells per Myr at level 6 that outgas V0 when there's no spin-up to measure
   OUTGAS: 1,          // the outgassing's multiplier (the Thermostat's knob)
   FIXED: 0,           // > 0 holds pCO₂ there (ppm): the carbon cycle switched off
+  ORG: 0.2,           // organic burial (and oxidation) as a share of V0, at the opening's sediment flux
   MIN_PCO2: 10, MAX_PCO2: 20000,
 };
 
@@ -47,7 +56,8 @@ export class Carbon {
     this.ridge = this.ridge0; this.arc = this.arc0;
     this.lastMade = tec.counters.made; this.lastConsumed = tec.counters.consumed; this.lastT = tec.t;
     this.wF = 0; this.wF0 = 0; this.wCO2 = this.pco2;   // the climate's weathering factor, at genesis, and the pCO₂ it saw
-    this.flux = { out: CARBON.V0, weather: CARBON.V0, lip: 0 };   // Pg C/yr
+    this.flux = { out: CARBON.V0, weather: CARBON.V0, lip: 0, burial: 0, oxid: 0 };   // Pg C/yr
+    this.sed0 = 0; this.ero0 = 0;    // the landscape's fluxes at the opening (km³/yr)
   }
 
   /** Weathering's map, from the climate's latest state. */
@@ -87,6 +97,7 @@ export class Carbon {
     }
     const lip = this.plumes ? this.plumes.co2Rate / 1e6 : 0;          // Pg C/yr
     const V = CARBON.V0 * CARBON.OUTGAS * (CARBON.RIDGE * this.ridge / this.ridge0 + CARBON.ARC * this.arc / this.arc0) + lip;
+    const { burial, oxid } = this.organic();
     const wRel = this.wF0 > 0 ? this.wF / this.wF0 : 1;
     // Substeps of at most 20 kyr (the reservoir's response is ~400 kyr), implicit in R.
     let left = dtYears;
@@ -99,7 +110,7 @@ export class Carbon {
         const ex = Math.exp(CARBON.SENS * Math.log2(p / this.wCO2) / CARBON.TE) * Math.pow(p / CARBON.PCO2_0, CARBON.CO2_EXP);
         const W = CARBON.V0 * wRel * ex;
         const dW = W * CARBON.BUFFER * (CARBON.SENS / (Math.LN2 * CARBON.TE) + CARBON.CO2_EXP) / R;
-        const F = R - this.R - h * (V - W);
+        const F = R - this.R - h * (V + oxid - burial - W);
         R -= F / (1 + h * dW);
       }
       this.R = Math.max(CARBON.R0 * Math.sqrt(CARBON.MIN_PCO2 / CARBON.PCO2_0), Math.min(CARBON.R0 * Math.sqrt(CARBON.MAX_PCO2 / CARBON.PCO2_0), R));
@@ -107,7 +118,16 @@ export class Carbon {
     }
     this.pco2 = this.pco2Of(this.R);
     const W = CARBON.V0 * wRel * Math.exp(CARBON.SENS * Math.log2(this.pco2 / this.wCO2) / CARBON.TE) * Math.pow(this.pco2 / CARBON.PCO2_0, CARBON.CO2_EXP);
-    this.flux = { out: V, weather: W, lip };
+    this.flux = { out: V, weather: W, lip, burial, oxid };
+  }
+
+  /** Organic carbon: buried with the sediment reaching the sea, oxidized from the rock eroded. */
+  organic() {
+    const f = this.land ? this.land.flux : null;
+    if (!f || !(f.eroded > 0)) return { burial: 0, oxid: 0 };
+    if (!(this.sed0 > 0)) { this.sed0 = Math.max(1e-6, f.toSea); this.ero0 = f.eroded; }
+    const k = CARBON.ORG * CARBON.V0;
+    return { burial: k * f.toSea / this.sed0, oxid: k * f.eroded / this.ero0 };
   }
 
   /**
@@ -116,6 +136,8 @@ export class Carbon {
    * a = S/(Tₑ ln 2).
    */
   equilibrium(V) {
+    const o = this.organic();
+    V = Math.max(1e-6, V + o.oxid - o.burial);
     const wRel = this.wF0 > 0 ? this.wF / this.wF0 : 1;
     const a = CARBON.SENS / (CARBON.TE * Math.LN2), b = CARBON.CO2_EXP;
     const lnp = (Math.log(V / (CARBON.V0 * wRel)) + a * Math.log(this.wCO2) + b * Math.log(CARBON.PCO2_0)) / (a + b);
