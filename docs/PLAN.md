@@ -8,7 +8,7 @@ Claims carry one of three marks: **standard** (textbook geoscience), **synthesis
 
 ## Status
 
-2026-11-15: phases 1–4 are built and phase 5 in part (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). Open: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm), the worker and level 7, the Storm track, Spin, Tilt and Supercontinent experiments, the social card and registration. No Japanese (a9, 2026-11-15). Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
+2026-11-15: phases 1–4 are built and phase 5 in part (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). Open: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm), the Storm track, Spin, Tilt and Supercontinent experiments. The site registration and social card are done. Ideas for what comes after the plan are in `docs/IDEAS.md`, unratified. No Japanese (a9, 2026-11-15). Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
 
 ## Decisions
 

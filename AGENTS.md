@@ -2,7 +2,7 @@
 
 An Earth-like planet on one globe, from plate tectonics down to weather, with every layer coupled to the others. `docs/PLAN.md` is the plan of record: the thesis (one planet, one state, one dial), the nine layers, their couplings, the scene, the figures, the experiments and the phases. This file describes the code as it is.
 
-It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron). It isn't registered on the site yet (the build requires a social card for a registered project; `docs/LOG.md` has the checklist), so no build stages it. The parent's dev server serves it. The root `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build.
+It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron). It is registered on the site (`content/projects/isochron.md`, with its social card) and staged by the parent's build; the parent's dev server serves it. The root `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build.
 
 ## Status
 
@@ -15,7 +15,7 @@ Phases 1 (the tectonic globe), 2 (surface and climate), 3 (ice and carbon) and 4
 - **Phase 5:** Fig. 7, the model diagram, on its own margin tab: every layer a node with its live value, every coupling the code has an arrow weighted by its flux (the weather's feedback to the climate isn't built, so it has no arrow).
 - **Optimization pass (2026-11-15):** the planet runs on a worker, the weather and the season's drawing on the GPU, the chart on its own worker (see "Threads and the GPU"). The engine runs at level 7 (55 km), or level 6 (110 km, a quarter of the work) on phones and tablets (`?level=` overrides); the globe and the weather run at level 7, a coarser engine's fields refined onto the mesh on the GPU (`src/gpu/refine.js`, Loop subdivision); the ice and the climate's moisture run on the engine's own GPU device, the energy balance and the ocean on a 220 km grid at every level. WebGPU is required in the page; the engine's CPU code stays as the headless reference (tools and tests), and `tests/gpu-node.test.mjs` checks the GPU paths against it.
 - **Tides and the Moon (2026-11-14):** the tide solved as shallow water on the rotating sphere (CPU reference `src/engine/tides.js`, GPU `src/gpu/tides.js`, re-solved on the engine's worker), its dissipation slowing the spin and receding the Moon (`Moon`), the spin read by the climate, the gyres and the weather; the Tides view (a co-tidal chart); the sky behind the globe (`src/render/sky.js`: stars, the Sun, the Moon); rivers by the month at a slow dial.
-- **Not built:** the climate's energy balance, template and zones on the GPU; the Storm track, Spin, Tilt and Supercontinent experiments; the social card and registration on the site (they go together: see `docs/LOG.md`, "Registering on the site"). No Japanese (a9, 2026-11-15: only Worldline has it).
+- **Not built:** the climate's energy balance, template and zones on the GPU; the Storm track, Spin, Tilt and Supercontinent experiments. No Japanese (a9, 2026-11-15: only Worldline has it).
 
 ## Running and checking
 
