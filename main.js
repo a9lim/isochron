@@ -21,6 +21,9 @@ import { drawOverlay } from './src/render/overlay.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit } from './src/render/figures.js';
+import { WEATHER } from './src/engine/weather.js';
+import { chartLines } from './src/render/chart.js';
+import { prolong } from './src/grid/transfer.js';
 
 const RELIEF = 20;            // vertical exaggeration of the hillshade
 const R_KM = 6371;
@@ -29,6 +32,8 @@ const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years
 const CLIMATE_MS = 5;         // the climate's share of a frame
 const ICE_MS = 3;             // the ice's
+const WEATHER_MS = 8;         // the weather's, when it runs live
+const SPINUP_DAYS = 12;       // the weather's spin-up from the climate's state
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
 const query = new URLSearchParams(location.search);
@@ -48,7 +53,7 @@ const els = {
 
 // ── The planet ──
 const P = new Planet(seed);
-const { grid, tec, land, climate, ice, carbon, plumes } = P;
+const { grid, tec, land, climate, ice, carbon, plumes, weather: wx } = P;
 const polarity = new Polarity(seed);
 const scheduler = new Scheduler([{ name: 'plates', step: PLATE_STEP, budget: 4 }]);
 const camera = new Orbit();
@@ -68,6 +73,8 @@ const grad = new Float64Array(3 * grid.n);
 const tfDraw = new Float32Array(grid.n), tfTmp = new Float32Array(grid.n);
 const lakeDraw = new Float32Array(grid.n);
 const climDraw = new Float32Array(4 * grid.n);
+const wxDraw = new Float32Array(4 * grid.n);
+const wxFine = new Float64Array(grid.n), wxFine2 = new Float64Array(grid.n), wxEddy = new Float64Array(wx.n);
 const areaM2 = Float64Array.from(grid.area, a => a * 6.371e6 * 6.371e6);
 
 function palette() {
@@ -172,6 +179,77 @@ function refreshClimate(force) {
   drawDirty = true;
 }
 
+// ── The weather ──
+// Runs only while its view is shown. It starts from the climate at the
+// season, spins up for ~12 days, then steps in real time within a budget; when
+// the dial outruns it the chart crossfades to the climate's mean (the
+// template's pressure and the mean rain), which is what weather averages to.
+let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastChart = 0, lastWxDraw = 0;
+const wxTmp = new Float64Array(grid.n);
+function smoothFine(f, passes) {
+  const nbrOff = grid.nbrOff, nbr = grid.nbr;
+  for (let p = 0; p < passes; p++) {
+    wxTmp.set(f);
+    for (let i = 0; i < grid.n; i++) {
+      let s = 0;
+      const o = nbrOff[i], e = nbrOff[i + 1];
+      for (let t = o; t < e; t++) s += wxTmp[nbr[t]];
+      f[i] = 0.4 * wxTmp[i] + 0.6 * s / (e - o);
+    }
+  }
+}
+const wxP = new Float64Array(grid.n);
+function weatherLive() {
+  // Fully live below ~3 days a second, the climate's mean above ~30.
+  return 1 - smooth(Math.log10(3 / 365.25), Math.log10(30 / 365.25), Math.log10(rate()));
+}
+function stepWeather(advYears, now) {
+  if (climate.stats.cycles < 2) return;     // the weather starts from a warm climate
+  const tau = ((P.years % 1) + 1) % 1;
+  if (!wx.started) { wx.start(tau); wxSeason = tau; wxVersion = climate.version; }
+  if (Math.abs(tau - wxSeason) > 1 / 120 || climate.version !== wxVersion) { wx.forcing(tau); wxSeason = tau; wxVersion = climate.version; }
+  const t0 = performance.now();
+  if (wx.t < SPINUP_DAYS * 86400) {
+    while (performance.now() - t0 < 24 && wx.t < SPINUP_DAYS * 86400) wx.step();
+  } else {
+    wxBehind = Math.min(2 * 86400, wxBehind + advYears * 3.156e7);
+    while (wxBehind >= WEATHER.DT && performance.now() - t0 < WEATHER_MS) { wx.step(); wxBehind -= WEATHER.DT; }
+    if (wxBehind > 86400) wxBehind = 86400;    // what it couldn't keep up with is dropped
+  }
+}
+function refreshWeather(force) {
+  const nowMs = performance.now();
+  if (!force && nowMs - lastWxDraw < 100) return;
+  lastWxDraw = nowMs;
+  const tau = ((P.years % 1) + 1) % 1;
+  const spun = wx.started ? Math.min(1, wx.t / (SPINUP_DAYS * 86400)) : 0;
+  wxLive = spun >= 1 ? weatherLive() : 0;
+  if (wx.started && wxLive > 0) {
+    wx.eddyPressure(wxEddy);
+    prolong(climate.T, wxEddy, wxFine);
+    prolong(climate.T, wx.rain, wxFine2);
+  }
+  // Pressure is drawn smoothed: isobars on the grid's cells would stair-step.
+  for (let i = 0; i < grid.n; i++) wxP[i] = climate.presAt(i, tau) + wxLive * wxFine[i];
+  smoothFine(wxP, 3);
+  for (let i = 0; i < grid.n; i++) {
+    wxDraw[4 * i] = wxP[i];
+    wxDraw[4 * i + 1] = (1 - wxLive) * climate.pAt(i, tau) + wxLive * wxFine2[i];
+  }
+  if (globe) globe.setWeather(wxDraw);
+  const now = performance.now();
+  if (wxLive > 0 && now - lastChart > 250) {
+    lastChart = now;
+    const pc = new Float64Array(wx.n);
+    for (let i = 0; i < wx.n; i++) pc[i] = 0;
+    // The chart's highs and lows on the coarse grid: the template's belts plus the storms.
+    const T = climate.T;
+    for (let i = 0; i < wx.n; i++) pc[i] = climate.presAt(i, tau) + wxEddy[i];   // coarse cells are the fine grid's first
+    chart = chartLines(wx, pc);
+  }
+  drawDirty = true;
+}
+
 // ── Canvas sizing ──
 let cssW = 1, cssH = 1, dpr = 1;
 const octx = els.overlay.getContext('2d');
@@ -198,6 +276,7 @@ function setDial(v) { els.dial.value = String(v); syncDial(); }
 // ── The view ──
 function setView(v) {
   view = v;
+  if (v === 'weather') { refreshWeather(true); }
   for (const b of els.views) b.setAttribute('aria-checked', b.dataset.view === v ? 'true' : 'false');
   drawDirty = true;
   caption(true);
@@ -291,6 +370,15 @@ function icePeriod() {
 // ── Captions: the view's name and live values ──
 const setCaption = window._colophon ? window._colophon.caption(els.caption, 250) : t => { els.caption.textContent = t; };
 let lastCaption = 0;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function dateOf(tau) {
+  const day = ((tau * 365.2422 + 78.5) % 365.2422 + 365.2422) % 365.2422;
+  const ends = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365.25];
+  let m = 0;
+  while (m < 11 && day >= ends[m]) m++;
+  const d = Math.floor(day - (m ? ends[m - 1] : 0)) + 1, h = Math.floor((day % 1) * 24);
+  return `${d} ${MONTHS[m]}, ${String(h).padStart(2, '0')}:00`;
+}
 const signed = (v, unit) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} ${unit}`;
 function zoneShares() {
   const share = new Float64Array(NZ);
@@ -307,8 +395,18 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const parts = [view === 'climate' ? 'Climate' : 'Relief', formatTime(P.years)];
-  if (rate() < 300) parts.push(monthName(((P.years % 1) + 1) % 1));
+  const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? 'Weather' : 'Relief', formatTime(P.years)];
+  if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
+  if (view === 'weather') {
+    const spun = wx.started ? Math.min(1, wx.t / (SPINUP_DAYS * 86400)) : 0;
+    if (spun < 1 && wx.started) parts.push('spinning up');
+    else if (wxLive > 0.5 && chart) {
+      const nf = chart.fronts.length, nd = chart.dry.length;
+      parts.push(`${chart.lows.length} lows`, `${chart.highs.length} highs`, `${nf} ${nf === 1 ? 'front' : 'fronts'}`, `${nd} dry ${nd === 1 ? 'line' : 'lines'}`, `wind to ${Math.round(wx.stats.maxWind)} m/s`);
+    } else parts.push('the climate’s mean pressure and rain');
+    setCaption(parts.join(' · '), true);
+    return;
+  }
   // The experiment's measured number.
   const cs = climate.stats;
   if (experiment.id === 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
@@ -446,6 +544,7 @@ window.addEventListener('DOMContentLoaded', () => {
     { key: '[', group: 'Simulation', label: 'Slower', action: () => nudgeDial(-0.25) },
     { key: '1', group: 'View', label: 'Relief', action: () => setView('relief') },
     { key: '2', group: 'View', label: 'Climate', action: () => setView('climate') },
+    { key: '3', group: 'View', label: 'Weather', action: () => setView('weather') },
     { key: '=', group: 'View', label: 'Zoom in', action: () => { camera.zoomBy(1.2); drawDirty = true; } },
     { key: '-', group: 'View', label: 'Zoom out', action: () => { camera.zoomBy(1 / 1.2); drawDirty = true; } },
     { key: '0', group: 'View', label: 'Fit the globe', action: () => { camera.zoom = 1; drawDirty = true; } },
@@ -463,7 +562,7 @@ window.addEventListener('DOMContentLoaded', () => {
         { label: 'Turn the globe', value: 'Drag' },
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
         { label: 'Rate', value: 'The dial, or [ and ]' },
-        { label: 'View', value: 'Relief or Climate, or 1 and 2' },
+        { label: 'View', value: 'Relief, Climate or Weather, or 1, 2, 3' },
         { label: 'Experiments', value: 'The margin; each has one knob' },
       ],
       shortcuts,
@@ -488,6 +587,7 @@ function frame(now) {
     P.setOrbit(rate() * 2);
     P.fast(adv, ICE_MS);
     P.record.push(P.years, P.sample());
+    if (view === 'weather') stepWeather(adv, now);
     // Ice moves the sea; redraw the coast when it has moved a few metres.
     if (now - lastSeaCheck > 250) { lastSeaCheck = now; if (Math.abs(tec.seaLevel - seaDrawn) > 0.004) surfaceDirty = true; }
     figuresDirty = true;
@@ -495,13 +595,14 @@ function frame(now) {
   if (surfaceDirty) { refreshSurface(); surfaceDirty = false; drawDirty = true; climateDirty = true; caption(false); }
   if ((playing || climatePending > 0) && P.climateWork(CLIMATE_MS)) { climatePending = Math.max(0, climatePending - 1); climateDirty = true; }
   if (climateDirty || playing) { refreshClimate(climateDirty); climateDirty = false; }
+  if (view === 'weather' && (playing || !wx.started || wx.t < SPINUP_DAYS * 86400)) { if (!playing) stepWeather(0, now); refreshWeather(); }
   if (playing) caption(false);
   if (figuresDirty) figures(false);
   if (drawDirty && globe && !globe.lost) {
     const pal = palette();
     const pl = { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) };
     globe.draw(camera, tec.t, pal, { view });
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view, chart, chartFade: wxLive }, pal);
     drawDirty = false;
   }
   requestAnimationFrame(frame);
@@ -521,4 +622,4 @@ createGlobe(els.gpu, grid).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment };
+window.__isochron = { P, grid, tec, land, climate, ice, carbon, plumes, wx, polarity, camera, scheduler, setPlaying, setView, setExperiment, get chart() { return chart; } };

@@ -13,6 +13,7 @@
 // red points ringed, and a province in eruption a red stippled disc: the
 // mantle at the surface.
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
+import { drawChart } from './chart.js';
 
 const TOOTH_GAP = 13, TOOTH = 3.2;
 const ARC_GAP = 17, ARC_OFF = 8.5, ARC_R = 1.25;
@@ -83,8 +84,9 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
-  const climate = layers.view === 'climate';
-  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : 0.9);
+  const climate = layers.view === 'climate', weather = layers.view === 'weather';
+  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather ? 0.35 : 0.9);
+  if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1); return; }
   if (!climate && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
   const lines = climate ? null : layers.boundaries;
   if (!lines) return;

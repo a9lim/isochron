@@ -69,10 +69,18 @@ Phase 3:
 - **Margin tabs**: Experiments, Record (Figs. 2, 3), Climate (Fig. 4, the key), Crust (Figs. 5, 6). The record's window is 40 s of the dial.
 - **The ice-age rhythm didn't emerge** in a 600 kyr run at 220 ppm on the default seed: ice grows to 76 m of sea level and holds, with small orbital wobbles. The forcing is there (July on 55–72°N land swings 10 K between extreme orbits); this seed may lack land in the 50–70°N band. Open: survey seeds and CO₂ for marginal northern ice.
 
+Phase 4:
+- **Stommel's gyres, not Munk's**: the same western intensification with one boundary condition (Munk's ∇⁴ needs two). The layer is two cells wide (~220 km), numerically resolved; currents peak ~0.2 m/s at this width.
+- **Outgassing's reference is the plates' activity at the end of the spin-up.** Right after genesis the plates make crust at ~40% of their settled rate; against the settled reference, CO₂ crashed to 57 ppm in 0.5 Myr and the planet froze. Now the opening is in balance and CO₂ drifts from ~260 to ~450 ppm as the plates speed up.
+- **The weather runs on the 220 km grid, at 20-minute steps**, only while its view is shown, and only from a warm climate (from a cold one it drew noise). Its storms are drawn on the climate's own pressure belts (ρfψ₂ less its zonal mean, plus the template): the QG model's zonal flow drifts toward a 70 hPa polar high, a known weakness of two-layer models whose eddies don't carry enough westerly momentum down.
+- **Isobars at whole hPa**, so a flat field doesn't sit on a contour; the drawn pressure is smoothed three passes.
+- **Fronts by Hewson's TFP with percentile thresholds** (upper quarter of |∇θ| at mid-latitudes), chains of at least five segments.
+
 Open from phase 2: mean ocean depth is 5.3 km (Earth 3.7) because isostasy ignores the water's load and lithospheric roots; D climates are short (14–18% of land against Earth's ~25%); a climate cycle costs ~190 ms warm, spread over frames.
 
 ## Progress
 
 - 2026-11-14, before the run: phase 1 is built (see `AGENTS.md`). The repo is github.com/a9lim/isochron, a submodule of the parent (parent b073e84). It isn't registered on the site.
 - Phase 2 built: landscape, climate engine, Relief and Climate views, the margin's figures, the season at slow dial. Verified in the browser (light, dark, phone); 34 tests pass.
+- Phase 4 built: ocean gyres and SST, the QG weather and the synoptic chart, the dial to 2.8 h/s. Verified in the browser (a chart with lows, highs, fronts and a dry line); 39 tests pass, including Sverdrup and Phillips.
 - Phase 3 built: orbit cycles, ice sheets, carbon thermostat, hotspots and provinces, the record and orbit figures, the five experiments. Verified in the browser (Snowball freezes at 88% sunlight; Ice ages and the record run); 36 tests pass, including Vialov's ice cap and the thermostat's balance.

@@ -48,6 +48,7 @@
           <div id="view-picker" class="view-picker" role="radiogroup" aria-label="View">
             <button class="view-btn" data-view="relief" role="radio" aria-checked="true">Relief</button>
             <button class="view-btn" data-view="climate" role="radio" aria-checked="false">Climate</button>
+            <button class="view-btn" data-view="weather" role="radio" aria-checked="false">Weather</button>
           </div>
         </div>
       </div>
@@ -60,7 +61,7 @@
         </label>
         <label class="dial">
           <span class="dial-label">Rate</span>
-          <input id="dial" type="range" min="0" max="7" step="0.05" value="6" aria-label="Simulated time per second, on a logarithmic scale">
+          <input id="dial" type="range" min="-3.5" max="7" step="0.05" value="6" aria-label="Simulated time per second, on a logarithmic scale">
           <output id="dial-out" for="dial">1 Myr/s</output>
         </label>
       </figcaption>

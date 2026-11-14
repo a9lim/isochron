@@ -1,7 +1,7 @@
 ---
 name: Isochron
 title: Isochron — Planet Simulator
-description: Run an Earth-like planet from plate tectonics to climate on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, and a carbon thermostat.
+description: Run an Earth-like planet from plate tectonics to weather on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, a carbon thermostat, ocean gyres and weather fronts.
 updated: 2026-11-14
 ---
 
@@ -55,6 +55,14 @@ Columns of hot mantle rise beneath the plates at fixed points. Each builds volca
 
 Each experiment starts from the opening planet and has one knob. Snowball turns down the sunlight: below a threshold the ice runs to the equator, and turning the sunlight back up doesn't thaw it until well past where it froze. Ice ages holds the carbon dioxide and lets the orbit drive the ice. High stand turns up the mantle's heat: faster plates make younger, shallower ocean floor, and the sea floods the continents. Thermostat turns up the volcanoes' outgassing and compares the carbon dioxide the planet settles at with the balance the weathering law predicts.
 
+## The ocean
+
+The winds drive the ocean's surface into great gyres. In the open ocean the water drifts toward the equator or the pole as the wind's twisting requires, and it returns in a narrow, fast current along each basin's western shore, so western boundary currents form in whatever basins the continents enclose. Warm water runs poleward on the west of each basin and cold water equatorward on the east, and where the wind pushes surface water off a coast, cold water wells up from below. Cold coasts evaporate little and rain little, which makes coastal deserts.
+
+## Weather
+
+Slowed to days a second, the weather runs live: two layers of air, each turning with the planet, whose difference is the temperature contrast between the equator and the poles. The contrast is unstable: it breaks into cyclones and anticyclones that carry heat poleward, and the storms stretch the surface temperature into fronts. Warm sea air carries moisture that rains out as it rises and cools; where dry air from a high desert meets moist air from a warm sea, a dry line forms. Faster than the weather can run, the chart blurs into the climate's mean pressure and rain, which is what weather averages to.
+
 ## Climate zones
 
 The zones follow Köppen's classes, which are thresholds on monthly temperature and rainfall: tropical (A), arid (B), temperate (C), continental (D) and polar (E), with a second letter for when the dry season falls. Here each threshold is soft, standing for the variation from year to year, so each place holds a mixture of classes. The Climate view draws the mixture as a mosaic, so the boundary between two climates is a band where both appear.
@@ -64,6 +72,8 @@ The zones follow Köppen's classes, which are thresholds on monthly temperature 
 Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Plate boundaries follow the conventions of a tectonic map. Trenches have sawteeth on the plate that stays on top, with red marks for the volcanic arc on that side, and ridges are red. Transform faults carry paired half-arrows showing which way each side slides, and boundaries where the plates barely move are dotted. Rivers are blue lines whose weight is their discharge. Snow and sea ice leave the paper bare; sea ice is stippled.
 
 In the Climate view each class is its group's colour in a pattern for its second letter: solid where it's wet all year, hatched one way or the other where the dry season falls in winter or in summer, cross-hatched for monsoon climates, stippled for deserts (densely) and steppes (sparsely), finely ruled for tundra, and bare for ice caps. The key lists each class with its share of the land.
+
+The Weather view is a synoptic chart: isobars every 4 hPa, rain as stipple, cold fronts with triangles and warm fronts with semicircles pointing the way they move, dry lines with scallops toward the moist air, and the highs and lows. In the Climate view the sea carries isotherms of its surface temperature and the gyres' streamlines.
 
 Ice sheets are bare paper ruled along their flow, the lines closer where the ice moves faster. Hotspots are red rings, and a province erupting is a red stippled disc.
 

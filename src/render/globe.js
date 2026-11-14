@@ -19,7 +19,9 @@
 //   ice sheets       the paper with hachures along the ice's flow, closer
 //                    where it flows faster
 // In the Climate view the sea carries isotherms of its surface temperature
-// every 5 °C and the gyres' streamlines every 3 Sv.
+// every 5 °C and the gyres' streamlines every 3 Sv. The Weather view is a
+// synoptic chart's base: pale land, the paper for sea, isobars every 4 hPa
+// (heavier every 20) and rain as a stipple whose density is the rate.
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
 // tesserae fixed to the surface (a jittered 3D lattice), each taking one class
 // with the cell's probability, so a boundary is an ecotone that interleaves.
@@ -35,7 +37,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate), mosaic frequency, device px per CSS px, spare
+  mode: vec4f,       // view (0 relief, 1 climate, 2 weather), mosaic frequency, device px per CSS px, spare
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
 };
 @group(0) @binding(0) var<uniform> u: U;
@@ -53,6 +55,7 @@ struct VOut {
   @location(7) z2: vec4f,
   @location(8) z3: vec4f,
   @location(9) iv: vec4f,
+  @location(10) wx: vec4f,
 };
 
 fn toView(p: vec3f) -> vec3f {
@@ -61,7 +64,7 @@ fn toView(p: vec3f) -> vec3f {
 
 @vertex fn vs(@location(0) p: vec3f, @location(1) f: vec4f, @location(2) n: vec3f, @location(3) c: vec4f,
               @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
-              @location(8) iv: vec4f) -> VOut {
+              @location(8) iv: vec4f, @location(9) wx: vec4f) -> VOut {
   var o: VOut;
   let v = toView(p);
   o.clip = vec4f(v.x * u.frame.x, v.y * u.frame.y, 0.5 - 0.5 * v.z, 1.0);
@@ -72,6 +75,7 @@ fn toView(p: vec3f) -> vec3f {
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = vec4f(toView(iv.xyz), iv.w);
+  o.wx = wx;
   return o;
 }
 
@@ -189,9 +193,12 @@ fn hair(d: f32, w: f32) -> f32 {
   let ftf = fwidth(tf);
   let fa = max(fwidth(age), 0.05);
   let fsst = fwidth(sst);
+  let pw = i.wx.x;         // sea-level pressure about 1013 hPa
+  let fpw = fwidth(pw);
   let fpsi = fwidth(psi);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
-  let climate = u.mode.x > 0.5;
+  let climate = u.mode.x > 0.5 && u.mode.x < 1.5;
+  let weather = u.mode.x > 1.5;
 
   // Sea: depth tint, stripes on oceanic crust, isobaths every kilometre.
   let d = -e;
@@ -252,10 +259,26 @@ fn hair(d: f32, w: f32) -> f32 {
   land = mix(land, iceC, sheet);
   sea = mix(sea, iceC, sheet);
 
-  var c = select(land * shade, sea * seaShade, e < 0.0);
+  // The Weather view: a chart's base, isobars, and rain as stipple.
+  var wland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
+  var wsea = mix(u.canvas.rgb, u.ocean.rgb, 0.05);
+  let ib = (pw + 1013.0) / 4.0;          // isobars at whole hPa: …1012, 1016…
+  let iso4 = hair(abs(ib - round(ib)), max(fpw / 4.0, 1e-4));
+  let ib20 = (pw + 1013.0) / 20.0;
+  let iso20 = hair(abs(ib20 - round(ib20)), max(fpw / 10.0, 1e-4));
+  let rainR = i.wx.y;
+  let rainDots = dots(px, mix(10.0, 3.6, smoothstep(1.0, 25.0, rainR)) * u.mode.z, 0.85 * u.mode.z) * smoothstep(0.5, 2.0, rainR);
+  wland = mix(wland, u.ocean.rgb, 0.85 * rainDots);
+  wsea = mix(wsea, u.ocean.rgb, 0.85 * rainDots);
+  wland = mix(wland, u.text.rgb, max(0.4 * iso4, 0.6 * iso20));
+  wsea = mix(wsea, u.text.rgb, max(0.4 * iso4, 0.6 * iso20));
+  land = select(land, wland, weather);
+  sea = select(sea, wsea, weather);
+
+  var c = select(land * select(shade, 1.0, weather), sea * select(seaShade, 1.0, weather), e < 0.0);
 
   // The ridge axes: crust younger than 1 Myr (the Relief view).
-  let young = (1.0 - smoothstep(0.6, 0.6 + max(0.6, 1.5 * fa), age)) * oceanic * select(1.0, 0.0, climate) * (1.0 - ice);
+  let young = (1.0 - smoothstep(0.6, 0.6 + max(0.6, 1.5 * fa), age)) * oceanic * select(1.0, 0.0, climate || weather) * (1.0 - ice);
   c = mix(c, u.accent.rgb, 0.85 * young);
 
   // The coastline.
@@ -288,6 +311,7 @@ export async function createGlobe(canvas, grid) {
   const climBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const zoneBuf = device.createBuffer({ size: n * 64, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const iceBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const wxBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const idxBuf = device.createBuffer({ size: grid.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, grid.tris);
   const uniBuf = device.createBuffer({ size: 17 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -305,6 +329,7 @@ export async function createGlobe(canvas, grid) {
         { arrayStride: 16, attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x4' }] },
         { arrayStride: 64, attributes: [0, 1, 2, 3].map(k => ({ shaderLocation: 4 + k, offset: 16 * k, format: 'float32x4' })) },
         { arrayStride: 16, attributes: [{ shaderLocation: 8, offset: 0, format: 'float32x4' }] },
+        { arrayStride: 16, attributes: [{ shaderLocation: 9, offset: 0, format: 'float32x4' }] },
       ],
     },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
@@ -359,6 +384,8 @@ export async function createGlobe(canvas, grid) {
     setZones(z) { device.queue.writeBuffer(zoneBuf, 0, z); },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceBuf, 0, v); },
+    /** Per cell: the chart's sea-level pressure (hPa about 1013), rain (mm/day), and two spares. */
+    setWeather(v) { device.queue.writeBuffer(wxBuf, 0, v); },
 
     draw(camera, tNow, palette, mode = {}) {
       if (lost || !bind) return;
@@ -381,7 +408,7 @@ export async function createGlobe(canvas, grid) {
       // The mosaic's lattice, snapped to octaves so tesserae stay put while zooming: ~14 CSS px each.
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
-      uni.set([mode.view === 'climate' ? 1 : 0, freq, dprNow, 0], 44);
+      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? 2 : 0, freq, dprNow, 0], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
@@ -398,6 +425,7 @@ export async function createGlobe(canvas, grid) {
       pass.setVertexBuffer(3, climBuf);
       pass.setVertexBuffer(4, zoneBuf);
       pass.setVertexBuffer(5, iceBuf);
+      pass.setVertexBuffer(6, wxBuf);
       pass.setIndexBuffer(idxBuf, 'uint32');
       pass.drawIndexed(grid.tris.length);
       pass.end();

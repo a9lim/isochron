@@ -17,6 +17,7 @@ import { Carbon, CARBON } from './carbon.js';
 import { Plumes } from './plumes.js';
 import { OrbitCycles } from './orbit.js';
 import { Ocean } from './ocean.js';
+import { Weather } from './weather.js';
 import { genesis } from './genesis.js';
 
 export const SERIES = ['T', 'co2', 'sea', 'ice', 'land', 'ridge'];
@@ -68,6 +69,7 @@ export class Planet {
     this.climate.ice = this.ice;
     this.ocean = new Ocean(this.climate);
     this.climate.ocean = this.ocean;
+    this.weather = new Weather(this.climate, seed);
     this.carbon = new Carbon(this.tec, this.land, this.climate, this.plumes);
     this.orbit = new OrbitCycles(seed);
     this.years = this.tec.t * 1e6;

@@ -194,6 +194,7 @@ export class Climate {
     this.wind = new Float32Array(3 * n);   // the last phase's surface wind (m/s), for drawing
     this.windPhase = Array.from({ length: NP }, () => new Float32Array(3 * n));
     this.pres = new Float32Array(n);
+    this.presPhase = Array.from({ length: NP }, () => new Float32Array(n));   // the template's pressure at each point of the year
     this.itcz = new Float32Array(NP * 36);
     this.zonal = null;
     this.stats = { meanT: 14, iceLat: 90, cycles: 0, hadley: 30 };
@@ -241,6 +242,11 @@ export class Climate {
     const c2 = c * c - s * s, s2 = 2 * s * c;
     const P = this.Pf;
     return Math.max(0, P[0][i] + P[1][i] * c - P[2][i] * s + P[3][i] * c2 - P[4][i] * s2);
+  }
+  /** The template's sea-level pressure (hPa about the mean) at year phase τ, by the six points' harmonics. */
+  presAt(i, tau) {
+    const x = ((tau * NP - 0.5) % NP + NP) % NP, k = Math.floor(x), w = x - k;
+    return this.presPhase[k][i] * (1 - w) + this.presPhase[(k + 1) % NP][i] * w;
   }
   /** Surface temperature: the sea-level value less the lapse rate over land. */
   surfaceT(i, tau) { return this.tAt(i, tau) - CLIMATE.LAPSE * this.elevPos[i]; }
@@ -406,6 +412,7 @@ export class Climate {
       pres[i] = -7 * G(la - pi, 0.2) + 11 * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
         + 8 * (G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28)) - 0.75 * anom[i];
     }
+    this.presPhase[p].set(pres);
     // Winds: r u + f k×u = −∇p/ρ.
     if (!this.gp) this.gp = new Float64Array(3 * n);
     gradient(g, pres, this.gp);

@@ -6,19 +6,20 @@ It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9
 
 ## Status
 
-Phases 1 (the tectonic globe), 2 (surface and climate) and 3 (ice and carbon) are built, apart from the items below.
+Phases 1 (the tectonic globe), 2 (surface and climate), 3 (ice and carbon) and 4 (ocean and weather) are built, apart from the items below.
 
 - **Phase 1:** the grid, the clock and scheduler, plates with exact rigid motion, gaps and overlaps, slabs and arcs, collisions and merges, rifting, passive-margin subduction initiation, boundary relaxation, the torque balance, isostasy, solved sea level, the polarity record, and the WebGPU globe with stripes, ridge axes, hillshade, coastline and contours. Plate boundaries are traced into smooth, classified lines and drawn in tectonic-map symbols.
 - **Phase 2:** the landscape (routing, stream power, sediment, crustal diffusion), the seasonal energy-balance model, the circulation template, moisture and rain, the soft Köppen zones, the Climate view, the margin's figures (zonal means, hypsometry, polarity) and the zones' key. The dial runs from 1 yr/s to 10 Myr/s; below a few years a second the globe shows the season.
 - **Phase 3:** the orbit's seeded cycles (averaged over what the dial passes in ~2 s), ice sheets (shallow ice, degree-day mass balance, the bed's load, the sea's loss), the carbon thermostat, hotspots and large igneous provinces (with rifting through a plume head), Figs. 2 (the record) and 3 (the orbit), and the Experiments tab: Earth-like, Snowball, Ice ages, High stand, Thermostat, each with one knob in the figure bar and its number in the caption.
-- **Not built:** the engine in a worker, level 7; phases 4 (ocean and weather) and 5.
+- **Phase 4:** the wind-driven ocean (Stommel's gyres, surface currents, SST anomalies with upwelling) feeding evaporation and rain; the two-layer QG weather on the 220 km grid with surface temperature and moisture tracers; the Weather view as a synoptic chart (isobars, rain stipple, fronts, dry lines, highs and lows), crossfading to the climate's mean chart when the dial outruns it. The dial reaches 2.8 h/s.
+- **Not built:** the engine in a worker, level 7; the Storm track and Spin experiments; phase 5 (Fig. 7, Japanese, registration).
 
 ## Running and checking
 
 Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet. `window.__isochron` exposes `{ grid, tec, polarity, camera, scheduler, setPlaying }`.
 
 ```bash
-node --test tests/                       # grid, clock, plates, landscape, climate, ice, carbon (36 checks)
+node --test tests/                       # grid, clock, plates, landscape, climate, ice, carbon, ocean, weather (39 checks)
 node tools/planet-run.mjs earthlike 600 1000 10 '{"CARBON":{"FIXED":220}}'   # the coupled planet: 600 kyr of ice ages
 node tools/ice-check.mjs earthlike 80     # ice grown under the climate and orbit
 node tools/survey.mjs '{}' 600 b         # 300 Myr of plates and landscape: continents, land, sea level, erosion, speeds
@@ -53,6 +54,8 @@ src/engine/climate.js the seasonal EBM (harmonics, COCG), the circulation templa
 src/engine/ice.js     ice sheets: shallow ice, degree days, the bed's load, calving; ICE
 src/engine/carbon.js  the long carbon cycle: outgassing against weathering; CARBON
 src/engine/plumes.js  hotspots, swells, large igneous provinces; PLUMES
+src/engine/ocean.js   Stommel's gyres (BiCGSTAB), surface currents, the SST anomaly; OCEAN
+src/engine/weather.js two-layer QG on the coarse grid, θ and moisture tracers; WEATHER
 src/engine/planet.js  every layer on one grid and how they step together; the multi-resolution record
 src/render/camera.js  the orbit camera
 src/render/globe.js   the WebGPU globe and its shader
@@ -60,6 +63,7 @@ src/render/lines.js   plate boundaries traced into polylines, smoothed, classifi
 src/render/overlay.js the limb, rivers, and the boundary symbols at even screen spacing
 src/render/rivers.js  drainage traced into smoothed polylines with discharge
 src/render/figures.js the margin's figures and the zones' key, on 2D canvases
+src/render/chart.js   the synoptic chart: fronts (Hewson's TFP), dry lines, highs and lows, traced and drawn
 tests/                grid, clock, plates, landscape and climate tests (not staged)
 tools/survey.mjs      long headless runs of plates and landscape
 tools/climate-check.mjs  the climate of a seeded planet
@@ -112,6 +116,12 @@ tools/plates-survey.mjs  plates alone, for tuning PARAMS
 - **Carbon** (`Carbon`): an exogenic reservoir R (atmosphere and ocean), pCO₂ ∝ R². Outgassing scales with crust made and consumed against the rates this model's plates settle to (`RIDGE_REF`, `ARC_REF`, ~500 cells/Myr at level 6), plus provinces' pulses. Weathering is the climate's map (runoff^0.65 × e^{(T − 15)/Tₑ} × fresh-rock supply, summed over ice-free land), times the response to CO₂ since the climate last solved (the sensitivity through Tₑ, and pCO₂^0.3 directly). Implicit in R, substeps of 20 kyr; `equilibrium(V)` is the analytic balance (tested).
 - **Plumes** (`Plumes`): ten hotspots fixed in the mantle build crust on whatever passes (seamount chains) and lift swells (`tec.swell`). Plume heads arrive as a Poisson process (every ~30 Myr): a flood of basalt over a disc ~1,100 km across within 1 Myr, 8,000 Pg of carbon, a new hotspot, and, under a large continent, a rift through the plume (`tec.rift(k, point)`).
 
+## How the ocean and the weather work
+
+- **Gyres** (`Ocean`): the depth-integrated flow under the annual-mean wind stress, steady, Stommel's form on the unit sphere, ε∇²ψ + ∂ψ/∂λ = a² curl τ/(2Ωρ₀), coasts at ψ = 0 (islands too), ε set for a two-cell western boundary layer. BiCGSTAB with a Jacobi preconditioner, warm-started, 120 iterations a cycle and the gyres only every third climate cycle (the basins change slowly). Surface currents u = k × ∇ψ/H (H = 400 m). The SST anomaly T′ solves upwinded u·∇(T + T′) + λT′ = κ∇²T′ + upwelling, where upwelling cools coasts the Ekman drift leaves. Moisture uses the SST (T + T′) for the sea's saturation. Tested against Sverdrup's interior and the western boundary current in a box basin.
+- **Weather** (`Weather`): two-layer QG on the climate's coarse grid (220 km), L_d = 800 km. PV is carried by fluxes that are differences of ψ at Voronoi corners (exactly non-divergent), 20% upwinded, with ∇⁴ hyperviscosity; Adams–Bashforth 2 at 20 minutes (30 minutes blew up with 80 m/s jets aloft). Inversion each step: barotropic Poisson and baroclinic Helmholtz by Jacobi-PCG, warm-started. Forcing: the baroclinic ψ relaxes over 15 days toward SHEAR · (f/f₀) · (T − T̄) from the climate's temperature at the season; Ekman friction on the lower layer; damping in the tropics. Tracers on the lower layer: θ relaxed to the climate's over 5 days, and moisture from the sea, raining past 90% of saturation. ~8 ms a step in the browser, so live up to ~1 day/s. Tested: storms grow above Phillips' criterion and die below.
+- **The chart** (`chart.js`, `refreshWeather` in `main.js`): sea-level pressure is the climate's template at the season plus the storms (ρfψ₂ less its zonal mean), smoothed, drawn as isobars at whole hPa (every 4, heavier every 20); rain as stipple. Fronts are the zero of ∇TFP·n̂ on θ where |∇θ| and TFP are in their upper ranges, traced on triangles, chained, smoothed, typed by v·n̂ (cold, warm, stationary). Dry lines are the same on moisture over land where θ's gradient is weak. The weather runs only in its view, waits for a warm climate, spins up ~12 days, and crossfades to the climate's mean between ~3 and ~30 days a second.
+
 ## The experiments
 
 Each starts from the planet's opening (choosing one reloads with `?exp=`), sets the dial and the view, and has one knob; the caption carries its measured number.
@@ -124,6 +134,7 @@ Each starts from the planet's opening (choosing one reloads with `?exp=`), sets 
 ## Drawing the climate
 
 - **Relief view.** Snow and sea ice are the paper (sea ice with a sparse stipple), ice sheets the paper with hachures along their flow (closer where faster), lakes are water where their inflow beats ~1 m/yr of evaporation, and rivers above 1,500 m³/s and three cells long are drawn in the sea's ink, their weight the discharge. Hotspots are red ringed points and an erupting province a red stippled disc.
+- **Weather view.** Pale land, the paper for sea, isobars, rain stipple; cold fronts are prussian with triangles toward the warm air, warm fronts sienna with semicircles toward the cold, stationary fronts alternate, dry lines are ochre with open scallops toward the moist air, and H and L mark the highs and lows.
 - **Climate view.** Land is a mosaic of tesserae fixed to the globe (a jittered 3D lattice, snapped to octaves of zoom). Each takes one class with probability ∝ p², so ecotones interleave and the logistic tails don't speckle. Each class is its group's ink in its second letter's screen-space pattern (`zoneColor` in the shader and `zonePattern` in `figures.js` must match). A, C and D also step in value, so the groups part in grayscale. The sea is a plain wash, and the tectonic symbols are hidden.
 - **The season.** Below ~4 yr/s the globe shows snow and ice at the planet's clock (`years`; the plates still step in banked half-Myr); above ~40 yr/s, the share of the year under them; between, a blend. The caption names the month below 300 yr/s.
 
