@@ -109,6 +109,11 @@ Fourth round (2026-11-15): the chart got messy between charts, and boundaries an
 - **Lines drift whole** with their mean wind (moving each point by its own wind folded them), for at most three model hours, with charts every 150 ms; chart lines are relaxed before corner-cutting; any stretch lying right on a longer one goes, whatever its type.
 - **Boundaries and rivers morph** from their predecessor's course between retraces: turning them with their plates kept their position continuous, but their shapes, re-traced from the grid each step, had snapped.
 
+Fifth round (2026-11-15): rivers morphing strangely, faults wiggling and teeth sliding, hexagonal ice that jumps, and convergence without subduction.
+- **Nearest-point morphs**: resampling by share of length made every point slide along a boundary that grew at a junction, and the symbols with it. Rivers pair strictly or fade.
+- **Snow and ice smoothed and eased**; lakes freeze under snow.
+- **Collision drawn with open sawteeth** (the model already stacks crust, sutures and welds there; only the symbol was subduction's).
+
 ## Next: resolution (a9, 2026-11-15, after a compaction)
 
 a9 wants an optimization pass and then finer grids: the fronts fragment because the weather runs at 220 km. Measured costs to start from (M5 Max, Chrome; headless node is similar):

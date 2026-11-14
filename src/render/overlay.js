@@ -4,6 +4,8 @@
 //   trench       a rule with sawteeth on the plate that stays on top, and,
 //                where ocean is going down, red marks for the arc of volcanoes
 //                standing on that side
+//   collision    continent against continent (nothing sinks): open sawteeth,
+//                as a thrust belt, and no arc
 //   ridge        a red rule: the mantle reaching the surface (the globe also
 //                tints crust younger than 1 Myr)
 //   transform    a lighter rule with paired half-arrows giving the sense of slip
@@ -44,8 +46,10 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
   const lw = Math.sqrt(symbolScale(r));
   const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D());
   const v = [0, 0, 0];
+  const faded = [];
   for (const river of rivers) {
     const { W } = river, P = river.shown || river.P;
+    if (river.alpha !== undefined && river.alpha < 0.999) { faded.push(river); continue; }
     let px = 0, py = 0, pv = false;
     for (let k = 0; k < W.length; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
@@ -64,6 +68,22 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
   for (let b = 0; b < RIVER_BUCKETS; b++) {
     ctx.lineWidth = (0.6 + 0.42 * b) * lw;
     ctx.stroke(paths[b]);
+  }
+  // Rivers appearing or vanishing between landscape steps fade.
+  for (const river of faded) {
+    const { W } = river, P = river.shown || river.P;
+    ctx.strokeStyle = withAlpha(color, alpha * Math.max(0, river.alpha));
+    let px = 0, py = 0, pv = false;
+    for (let k = 0; k < W.length; k++) {
+      camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
+      const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
+      if (vis && pv) {
+        const q = Math.log10(Math.max(1, W[k] / 1500));
+        ctx.lineWidth = (0.6 + 0.42 * Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2))) * lw;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
+      }
+      px = x; py = y; pv = vis;
+    }
   }
 }
 
@@ -116,7 +136,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   const SLIP_GAP = 70 * sc, SLIP_LEN = 8 * sc, SLIP_OFF = 3.5 * sc;
 
   const paths = { [INACTIVE]: new Path2D(), [RIDGE]: new Path2D(), [TRENCH]: new Path2D(), [TRANSFORM]: new Path2D() };
-  const teeth = new Path2D(), arcs = new Path2D(), slips = new Path2D();
+  const teeth = new Path2D(), openTeeth = new Path2D(), arcs = new Path2D(), slips = new Path2D();
   const v = [0, 0, 0];
 
   for (const line of lines) {
@@ -156,11 +176,13 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
         if (dTooth <= 1e-6) {
           dTooth = TOOTH_GAP;
           if (ty_ === TRENCH) {
-            const ox = side * nx, oy = side * ny;
-            teeth.moveTo(px - tx * TOOTH, py - ty * TOOTH);
-            teeth.lineTo(px + ox * TOOTH * 1.5, py + oy * TOOTH * 1.5);
-            teeth.lineTo(px + tx * TOOTH, py + ty * TOOTH);
-            teeth.closePath();
+            // Subduction: filled teeth on the plate on top. Collision (continent
+            // against continent, nothing sinks): open teeth, as a thrust belt.
+            const ox = side * nx, oy = side * ny, path = arc[k] > 0.5 ? teeth : openTeeth;
+            path.moveTo(px - tx * TOOTH, py - ty * TOOTH);
+            path.lineTo(px + ox * TOOTH * 1.5, py + oy * TOOTH * 1.5);
+            path.lineTo(px + tx * TOOTH, py + ty * TOOTH);
+            path.closePath();
           }
         }
         if (dArc <= 1e-6) {
@@ -210,6 +232,11 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.stroke(paths[TRENCH]);
   ctx.fillStyle = withAlpha(palette.text, 0.85);
   ctx.fill(teeth);
+  ctx.fillStyle = palette.canvas;
+  ctx.fill(openTeeth);
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = withAlpha(palette.text, 0.85);
+  ctx.stroke(openTeeth);
   ctx.fillStyle = palette.accent;
   ctx.fill(arcs);
 }
@@ -219,51 +246,84 @@ function withAlpha(hex, a) {
   return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`;
 }
 
-/** A line resampled to `m` points evenly along its length (on the sphere's chords). */
-function resample(P, m) {
-  const n = P.length / 3;
-  if (n === m) return P;
-  const cum = new Float64Array(n);
-  for (let k = 1; k < n; k++) cum[k] = cum[k - 1] + Math.hypot(P[3 * k] - P[3 * k - 3], P[3 * k + 1] - P[3 * k - 2], P[3 * k + 2] - P[3 * k - 1]);
-  const out = new Float32Array(3 * m), L = cum[n - 1] || 1;
-  let j = 0;
+/**
+ * For each point of a new line, its nearest point on the old line (segment
+ * index and fraction), searched near the same share of the way along. Points
+ * then move across the line as it changes, not along it, so symbols placed
+ * along it don't slide. The old line is reversed first if it runs the other way.
+ */
+function correspond(prev, cur) {
+  const n = prev.length / 3, m = cur.length / 3;
+  const d2 = (A, i, B, j) => (A[3 * i] - B[3 * j]) ** 2 + (A[3 * i + 1] - B[3 * j + 1]) ** 2 + (A[3 * i + 2] - B[3 * j + 2]) ** 2;
+  const flip = d2(cur, 0, prev, n - 1) + d2(cur, m - 1, prev, 0) < d2(cur, 0, prev, 0) + d2(cur, m - 1, prev, n - 1);
+  const corr = new Float32Array(2 * m);
+  if (n < 2) return { corr, flip };
+  const win = Math.max(4, Math.ceil(0.3 * n));
   for (let k = 0; k < m; k++) {
-    const s = m > 1 ? L * k / (m - 1) : 0;
-    while (j < n - 2 && cum[j + 1] < s) j++;
-    const t = cum[j + 1] > cum[j] ? Math.min(1, Math.max(0, (s - cum[j]) / (cum[j + 1] - cum[j]))) : 0;
-    for (let c = 0; c < 3; c++) out[3 * k + c] = P[3 * j + c] + t * (P[3 * j + 3 + c] - P[3 * j + c]);
+    if (k === 0 || k === m - 1) { const e = (k === 0) !== flip ? 0 : n - 2; corr[2 * k] = e; corr[2 * k + 1] = (k === 0) !== flip ? 0 : 1; continue; }
+    const f = k / (m - 1), c = (flip ? 1 - f : f) * (n - 1);
+    let best = Infinity, bj = 0, bt = 0;
+    for (let j = Math.max(0, Math.floor(c) - win); j <= Math.min(n - 2, Math.floor(c) + win); j++) {
+      const ax = prev[3 * j], ay = prev[3 * j + 1], az = prev[3 * j + 2];
+      const ux = prev[3 * j + 3] - ax, uy = prev[3 * j + 4] - ay, uz = prev[3 * j + 5] - az, uu = ux * ux + uy * uy + uz * uz || 1e-12;
+      const px = cur[3 * k] - ax, py = cur[3 * k + 1] - ay, pz = cur[3 * k + 2] - az;
+      const t = Math.max(0, Math.min(1, (px * ux + py * uy + pz * uz) / uu));
+      const dd = (px - t * ux) ** 2 + (py - t * uy) ** 2 + (pz - t * uz) ** 2;
+      if (dd < best) { best = dd; bj = j; bt = t; }
+    }
+    corr[2 * k] = bj; corr[2 * k + 1] = bt;
+  }
+  return { corr, flip };
+}
+
+/** A line between its predecessor's course (φ = 0) and its own (φ = 1), point by corresponding point. */
+export function morphed(prev, cur, phi, corr) {
+  if (!prev || !corr || phi >= 1) return cur;
+  const out = new Float32Array(cur.length), m = cur.length / 3;
+  for (let k = 0; k < m; k++) {
+    const j = corr[2 * k], t = corr[2 * k + 1], a = 3 * j, b = 3 * (j + 1);
+    const qx = prev[a] + t * (prev[b] - prev[a]), qy = prev[a + 1] + t * (prev[b + 1] - prev[a + 1]), qz = prev[a + 2] + t * (prev[b + 2] - prev[a + 2]);
+    const x = qx + phi * (cur[3 * k] - qx), y = qy + phi * (cur[3 * k + 1] - qy), z = qz + phi * (cur[3 * k + 2] - qz), r = Math.hypot(x, y, z) || 1;
+    out[3 * k] = x / r; out[3 * k + 1] = y / r; out[3 * k + 2] = z / r;
   }
   return out;
 }
 
 /**
- * Between retraces a line morphs from its predecessor's course to its own:
- * both resampled to the same number of points along their length and blended
- * by φ, so a boundary or river changes shape continuously rather than snapping.
+ * Pair each new line with its predecessor (same key, nearest middle within
+ * ~500 km) and work out their correspondence. `strict` also asks that both
+ * ends lie near the old line's ends and the lengths agree within 40% (rivers:
+ * otherwise one would morph into another); unpaired lines fade instead.
+ * Returns the old lines left unpaired.
  */
-export function morphed(prev, cur, phi) {
-  if (!prev || phi >= 1) return cur;
-  const m = cur.length / 3, A = resample(prev, m), out = new Float32Array(cur.length);
-  for (let k = 0; k < cur.length; k += 3) {
-    const x = A[k] + phi * (cur[k] - A[k]), y = A[k + 1] + phi * (cur[k + 1] - A[k + 1]), z = A[k + 2] + phi * (cur[k + 2] - A[k + 2]), r = Math.hypot(x, y, z) || 1;
-    out[k] = x / r; out[k + 1] = y / r; out[k + 2] = z / r;
-  }
-  return out;
-}
-
-/** For each new line, its predecessor among the old: the nearest by middle point, of the same key. */
-export function matchLines(prev, cur, key) {
-  if (!prev) return;
-  const mid = P => { const k = 3 * Math.floor(P.length / 6); return [P[k], P[k + 1], P[k + 2]]; };
+export function matchLines(prev, cur, key, strict = false) {
+  if (!prev) { for (const l of cur) { l.prev = null; l.corr = null; } return []; }
+  const pt = (P, k) => [P[3 * k], P[3 * k + 1], P[3 * k + 2]];
+  const mid = P => pt(P, Math.floor(P.length / 6));
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const len = P => { let s = 0; for (let k = 3; k < P.length; k += 3) s += Math.hypot(P[k] - P[k - 3], P[k + 1] - P[k - 2], P[k + 2] - P[k - 1]); return s; };
   const byKey = new Map();
   for (const l of prev) { const k = key(l); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(l); }
+  const used = new Set();
   for (const l of cur) {
+    l.prev = null; l.corr = null;
     const cands = byKey.get(key(l));
-    l.prev = null;
     if (!cands) continue;
     const m = mid(l.P);
     let best = Math.cos(0.08), bl = null;
-    for (const c of cands) { const q = mid(c.P), d = m[0] * q[0] + m[1] * q[1] + m[2] * q[2]; if (d > best) { best = d; bl = c; } }
-    l.prev = bl;
+    for (const c of cands) {
+      if (used.has(c)) continue;
+      const d = dot(m, mid(c.P));
+      if (d <= best) continue;
+      if (strict) {
+        const a0 = pt(l.P, 0), a1 = pt(l.P, l.P.length / 3 - 1), b0 = pt(c.P, 0), b1 = pt(c.P, c.P.length / 3 - 1), near = Math.cos(0.03);
+        const ends = (dot(a0, b0) > near && dot(a1, b1) > near) || (dot(a0, b1) > near && dot(a1, b0) > near);
+        const r = len(l.P) / (len(c.P) || 1);
+        if (!ends || r < 0.6 || r > 1.6) continue;
+      }
+      best = d; bl = c;
+    }
+    if (bl) { used.add(bl); l.prev = bl; l.corr = correspond(bl.P, l.P).corr; }
   }
+  return prev.filter(l => !used.has(l));
 }

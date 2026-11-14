@@ -20,6 +20,11 @@ const GLYPHS = {
     c.fillStyle = rgba(P.text, 0.85);
     for (const t of [6, 19]) { c.beginPath(); c.moveTo(x + t - 3, y + 8); c.lineTo(x + t, y + 3); c.lineTo(x + t + 3, y + 8); c.fill(); }
   },
+  collision: (c, x, y, P) => {
+    c.strokeStyle = rgba(P.text, 0.85); c.lineWidth = 1.25; line(c, x, y + 8, x + 26, y + 8);
+    c.fillStyle = P.canvas; c.lineWidth = 1;
+    for (const t of [6, 19]) { c.beginPath(); c.moveTo(x + t - 3, y + 8); c.lineTo(x + t, y + 3); c.lineTo(x + t + 3, y + 8); c.closePath(); c.fill(); c.stroke(); }
+  },
   transform: (c, x, y, P) => {
     c.strokeStyle = rgba(P.text, 0.5); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6);
     c.strokeStyle = rgba(P.text, 0.7);
@@ -86,7 +91,7 @@ function vegetation(c, x, y, P, kind) {
 }
 
 const ITEMS = {
-  relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['river', 'River'],
+  relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['river', 'River'],
     ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
   climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv']],
   'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],

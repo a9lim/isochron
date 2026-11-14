@@ -93,7 +93,7 @@ function palette() {
   return { canvas: T.canvas, text: T.text, accent: T.accent, ocean: T.ocean, land: T.land, muted: T.textMuted, inks: T.inks, tint, dark };
 }
 
-let lastStepDt = PLATE_STEP, riversSteps = -1, riversT = 0, linesT = 0, surfaceFromStep = false;
+let lastStepDt = PLATE_STEP, riversSteps = -1, riversT = 0, linesT = 0, surfaceFromStep = false, riversGone = [];
 function refreshSurface() {
   const Pp = grid.pos, nbrOff = grid.nbrOff, nbr = grid.nbr;
   // Drawn relief is the model's, eased once toward its neighbours' mean: a
@@ -174,15 +174,18 @@ function refreshSurface() {
   matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
   for (const l of lines) {
     if (surfaceFromStep) { l.prevT = oldT; continue; }
-    // Retraced without a step (the sea moved): keep morphing from the same predecessor.
+    // Retraced without a step (the sea moved; boundaries don't care): the same line,
+    // so it carries on morphing from its predecessor's predecessor.
     const m = l.prev;
-    l.prev = m ? m.prev : null; l.prevT = m ? m.prevT : linesT;
+    if (m && m.P.length === l.P.length) { l.prev = m.prev; l.corr = m.corr; l.prevT = m.prevT; }
+    else { l.prev = null; l.corr = null; }
   }
   if (land.steps !== riversSteps) {
     const old = rivers, oldRT = riversT;
     rivers = traceRivers(grid, land); riversSteps = land.steps; riversT = tec.t;
-    matchLines(old, rivers, r => r.plate);
+    riversGone = matchLines(old, rivers, r => r.plate, true);
     for (const r of rivers) r.prevT = oldRT;
+    for (const r of riversGone) r.goneT = oldRT;
   }
   seaDrawn = tec.seaLevel;
   figuresDirty = true;
@@ -204,12 +207,30 @@ let polarityReady = false;
 // snow or ice). Between, it blends.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, iceFrame = 0;
+// Snow and ice are drawn smoothed (their edges are then curves, and one-cell patches
+// melt away) and eased over ~0.8 s when the climate updates, so they don't jump.
+const coldRaw = new Float32Array(grid.n), coldShown = new Float32Array(grid.n), coldFrom = new Float32Array(grid.n), coldTmp = new Float32Array(grid.n);
+const iceShown = new Float32Array(grid.n);
+let coldEaseStart = -1e9;
+function smoothCells(f, passes) {
+  const nbrOff = grid.nbrOff, nbr = grid.nbr;
+  for (let p = 0; p < passes; p++) {
+    coldTmp.set(f);
+    for (let i = 0; i < grid.n; i++) {
+      let s = 0;
+      const o = nbrOff[i], e = nbrOff[i + 1];
+      for (let t = o; t < e; t++) s += coldTmp[nbr[t]];
+      f[i] = 0.4 * coldTmp[i] + 0.6 * s / (e - o);
+    }
+  }
+}
 function refreshClimate(force) {
   const tau = ((P.years % 1) + 1) % 1;
   const sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
   const moved = Math.abs(tau - seasonDrawn) > 1 / 240 || Math.abs(sw - seasonWeightDrawn) > 0.02;
   const iceTick = playing && ++iceFrame % 6 === 0;
-  if (!force && !moved && !iceTick && climate.version === climateVersionDrawn) return;
+  const easing = performance.now() - coldEaseStart < 900;
+  if (!force && !moved && !iceTick && !easing && climate.version === climateVersionDrawn) return;
   const L = CLIMATE.LAPSE;
   for (let i = 0; i < grid.n; i++) {
     let cold = climate.snowAnn[i];
@@ -220,10 +241,21 @@ function refreshClimate(force) {
     }
     // Land newly dry or drowned since the climate last saw it takes no snow or ice.
     if ((elevRel[i] > 0) !== (climate.landMask[i] === 1) && !(ice.H[i] > 0)) cold = 0;
-    climDraw[4 * i] = cold;
+    coldRaw[i] = cold;
+  }
+  smoothCells(coldRaw, 2);
+  const nowMs = performance.now();
+  if (climate.version !== climateVersionDrawn && climateVersionDrawn >= 0) { coldFrom.set(coldShown); coldEaseStart = nowMs; }
+  const ease = smooth(0, 1, (nowMs - coldEaseStart) / 800);
+  for (let i = 0; i < grid.n; i++) coldShown[i] = coldFrom[i] + ease * (coldRaw[i] - coldFrom[i]);
+  if (ease >= 1) coldFrom.set(coldShown);
+  for (let i = 0; i < grid.n; i++) iceShown[i] = ice.H[i];
+  smoothCells(iceShown, 2);
+  for (let i = 0; i < grid.n; i++) {
+    climDraw[4 * i] = coldShown[i];
     climDraw[4 * i + 1] = climate.Tf[0][i] + P.ocean.sst[i];
     climDraw[4 * i + 2] = P.ocean.psi[i] / 1e6;
-    climDraw[4 * i + 3] = ice.H[i];
+    climDraw[4 * i + 3] = iceShown[i];
   }
   seasonDrawn = tau; seasonWeightDrawn = sw;
   if (globe) {
@@ -744,7 +776,7 @@ function frame(now) {
   }
   if (surfaceDirty) { refreshSurface(); surfaceDirty = false; drawDirty = true; climateDirty = true; caption(false); }
   if ((playing || climatePending > 0) && P.climateWork(CLIMATE_MS)) { climatePending = Math.max(0, climatePending - 1); climateDirty = true; }
-  if (climateDirty || playing) { refreshClimate(climateDirty); climateDirty = false; }
+  if (climateDirty || playing || performance.now() - coldEaseStart < 900) { refreshClimate(climateDirty); climateDirty = false; }
   if (view === 'weather' && (playing || !wx.started || wx.t < SPINUP_DAYS * 86400)) { if (!playing) stepWeather(0, now); refreshWeather(); }
   if (playing) caption(false);
   if (figuresDirty) figures(false);
@@ -761,20 +793,26 @@ function frame(now) {
       const a = tec.plates[ln.left], b = tec.plates[ln.right];
       const w = [0.5 * (a.w[0] + b.w[0]), 0.5 * (a.w[1] + b.w[1]), 0.5 * (a.w[2] + b.w[2])];
       const cur = turned(ln.P, w, tShow - linesT);
-      ln.shown = ln.prev ? morphed(turned(ln.prev.P, w, tShow - ln.prevT), cur, phi) : cur;
+      ln.shown = ln.prev ? morphed(turned(ln.prev.P, w, tShow - ln.prevT), cur, phi, ln.corr) : cur;
       ln.shownL = turned(ln.L, w, tShow - linesT);
     }
     if (rivers) {
       const phiL = Math.min(1, ((P.landBank || 0) + phi * lastStepDt) / 2.5e5);
       for (const rv of rivers) {
         const pl = tec.plates[rv.plate];
+        rv.alpha = rv.prev ? 1 : phiL;           // a river with no predecessor fades in
         if (!pl || !pl.alive) { rv.shown = rv.P; continue; }
         const cur = turned(rv.P, pl.w, tShow - riversT);
-        rv.shown = rv.prev ? morphed(turned(rv.prev.P, pl.w, tShow - rv.prevT), cur, phiL) : cur;
+        rv.shown = rv.prev ? morphed(turned(rv.prev.P, pl.w, tShow - rv.prevT), cur, phiL, rv.corr) : cur;
+      }
+      for (const rv of riversGone) {
+        const pl = tec.plates[rv.plate];
+        rv.alpha = 1 - phiL;                     // and one with no successor fades out
+        rv.shown = pl && pl.alive ? turned(rv.P, pl.w, tShow - rv.goneT) : rv.P;
       }
     }
     globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi });
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view, chart, chartFade: wxLive, wxNow: wx.t }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes: pl, view, chart, chartFade: wxLive, wxNow: wx.t }, pal);
     drawDirty = false;
   }
   requestAnimationFrame(frame);

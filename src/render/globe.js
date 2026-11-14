@@ -307,7 +307,7 @@ fn hair(d: f32, w: f32) -> f32 {
   land = mix(land, u.text.rgb, 0.22 * iceEdge);
   // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
   // depth is smoothed and signed (dry land below zero), so the shore is a curve.
-  let lk = clamp(0.5 + lake / flake, 0.0, 1.0);
+  let lk = clamp(0.5 + lake / flake, 0.0, 1.0) * (1.0 - ice);   // a lake under snow is frozen over
   land = mix(land, mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(lake / 6.0, 0.0, 1.0))), lk);
   land = mix(land, u.text.rgb, 0.55 * hair(abs(lake), flake));
 
