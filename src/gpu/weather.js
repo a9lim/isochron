@@ -534,6 +534,16 @@ export class GpuWeather {
     }
     dev.queue.submit([enc.finish()]);
     this.t += k * this.dt;
+    if (!this.qs && !this.qBusy && this.calls++ % 15 === 0) {
+      // No timestamps: time the batch by when the queue drains (an upper bound: it waits on what was queued before).
+      this.qBusy = true;
+      const t0 = performance.now();
+      dev.queue.onSubmittedWorkDone().then(() => {
+        const ms = (performance.now() - t0) / k;
+        if (ms > 0 && ms < 100) this.msPerStep = 0.7 * this.msPerStep + 0.3 * ms;
+        this.qBusy = false;
+      });
+    }
     if (timed) {
       this.qBusy = true;
       this.qRead.mapAsync(GPUMapMode.READ).then(() => {
