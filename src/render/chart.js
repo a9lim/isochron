@@ -23,6 +23,7 @@
 // flicker.
 
 import { matchLines, morphed } from './overlay.js';
+import { freshU, shownU, octaves, marks, dashes } from './along.js';
 
 export const COLD = 1, WARM = 2, STATIONARY = 3, DRY = 4, OCCLUDED = 5;
 
@@ -527,9 +528,9 @@ export function chartFrame(chart, gone, phi, now) {
   for (const k of ['fronts', 'dry', 'troughs', 'ridges', 'shear']) {
     const live = chart[k].map(l => {
       const P = carry(l, chart.t);
-      return { ...l, P: l.prev && l.corr && phi < 1 ? morphed(carry(l.prev, chart.prevT), P, phi, l.corr) : P, alpha: l.prev ? 1 : phi };
+      return { ...l, P: l.prev && l.corr && phi < 1 ? morphed(carry(l.prev, chart.prevT), P, phi, l.corr) : P, uS: shownU(l, phi), alpha: l.prev ? 1 : phi };
     });
-    const old = gone && phi < 1 ? gone[k].map(l => ({ ...l, P: carry(l, chart.prevT), alpha: 1 - phi })) : [];
+    const old = gone && phi < 1 ? gone[k].map(l => ({ ...l, P: carry(l, chart.prevT), uS: l.u, alpha: 1 - phi })) : [];
     out[k] = live.concat(old);
   }
   for (const k of ['highs', 'lows']) {
@@ -547,8 +548,6 @@ export function chartFrame(chart, gone, phi, now) {
 
 const withAlpha = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
 
-/** Draw the chart's symbols: fronts (cold triangles in prussian, warm semicircles in sienna,
- * stationary alternating), dry lines (ochre scallops toward the moist side), H and L. */
 /**
  * A line carried whole by its mean wind for dt seconds (between charts): moving
  * each point by its own wind folds the line, so the line keeps its shape and
@@ -576,6 +575,12 @@ function drift(P, V, dt) {
   return out;
 }
 
+/**
+ * Draw the chart's symbols: fronts (cold triangles in prussian, warm semicircles in
+ * sienna, stationary alternating in stretches, occluded alternating in mulberry), dry
+ * lines (ochre scallops toward the moist side), troughs, ridges and shear lines, H and
+ * L. Symbols, dashes and zigzags are pinned to their lines (along.js).
+ */
 export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1, wxNow = null) {
   if (!chart0 || fade <= 0.01) return;
   // Between charts every line and centre drifts with its wind, so the chart moves
@@ -586,125 +591,111 @@ export function drawChart(ctx, cx, cy, r, camera, chart0, pal, fade = 1, sc = 1,
   ctx.globalAlpha = fade;
   const A = l => { ctx.globalAlpha = fade * (l.alpha ?? 1); };
   const v = [0, 0, 0], sv = [0, 0, 0];
-  const project = (P, k) => { camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v); return [cx + v[0] * r, cy - v[1] * r, v[2]]; };
-  const sideOnScreen = (side, k, x, y, P) => {
-    // A point a little along the side vector, projected; its direction from the line's point.
+  // A line's points on screen, which of them show, and its coordinate along (along.js).
+  const screen = l => {
+    const P = l.P, M = P.length / 3, sx = new Float32Array(M), sy = new Float32Array(M), vis = new Uint8Array(M);
+    for (let k = 0; k < M; k++) { camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v); sx[k] = cx + v[0] * r; sy[k] = cy - v[1] * r; vis[k] = v[2] >= 0.05 ? 1 : 0; }
+    if (!l.uS && !l.u) freshU(l);
+    return { M, sx, sy, vis, u: l.uS || l.u, seg: k => vis[k] && vis[k + 1] };
+  };
+  const run = (path, S) => { let on = false; for (let k = 0; k < S.M; k++) { if (!S.vis[k]) { on = false; continue; } if (on) path.lineTo(S.sx[k], S.sy[k]); else path.moveTo(S.sx[k], S.sy[k]); on = true; } };
+  // The side vector at point k on screen, made perpendicular to the segment's direction.
+  const sideOf = (side, P, k, x, y, tx, ty) => {
     const e = 0.01;
     camera.view(P[3 * k] + e * side[3 * k], P[3 * k + 1] + e * side[3 * k + 1], P[3 * k + 2] + e * side[3 * k + 2], sv);
-    const dx = cx + sv[0] * r - x, dy = cy - sv[1] * r - y, m = Math.hypot(dx, dy) || 1;
-    return [dx / m, dy / m];
+    const s = Math.sign((cx + sv[0] * r - x) * -ty + (cy - sv[1] * r - y) * tx) || 1;
+    return [-ty * s, tx * s];
   };
   const inkOf = t => t === COLD ? pal.inks.prussian : t === WARM ? pal.inks.sienna : pal.inks.mulberry;   // occluded: mulberry
-  const GAP = 22 * sc, SZ = 4.6 * sc, lw = Math.sqrt(sc);
+  const GAP = 22, SZ = 4.6 * sc, lw = Math.sqrt(sc), PER = GAP / 380;   // PER: u between the usual zoom's symbols
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (const fr of chart.fronts) {
     A(fr);
-    const M = fr.type.length;
-    const S = Array.from({ length: M }, (_, k) => project(fr.P, k));
-    ctx.lineWidth = 1.6 * lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (let k = 0; k < M - 1; k++) {
-      if (S[k][2] < 0.05 || S[k + 1][2] < 0.05) continue;
-      ctx.strokeStyle = fr.type[k] === STATIONARY ? (Math.floor(k / 4) % 2 ? pal.inks.prussian : pal.inks.sienna) : inkOf(fr.type[k]);
-      ctx.beginPath(); ctx.moveTo(S[k][0], S[k][1]); ctx.lineTo(S[k + 1][0], S[k + 1][1]); ctx.stroke();
-    }
-    let d = GAP / 2, nsym = 0;
-    for (let k = 0; k < M - 1; k++) {
-      const [ax, ay, az] = S[k], [bx, by, bz] = S[k + 1];
-      if (az < 0.05 || bz < 0.05) continue;
-      const seg = Math.hypot(bx - ax, by - ay);
-      if (seg < 1e-6) continue;
-      const tx = (bx - ax) / seg, ty = (by - ay) / seg;
-      let s = 0;
-      while (s + d <= seg) {
-        s += d; d = GAP;
-        const px = ax + tx * s, py = ay + ty * s;
-        let [nx, ny] = sideOnScreen(fr.side, k, ax, ay, fr.P);
-        // Perpendicular to the line, on the side's half.
-        const pdot = nx * -ty + ny * tx;
-        nx = -ty * Math.sign(pdot || 1); ny = tx * Math.sign(pdot || 1);
-        // A stationary front alternates its symbols, each on its own side; an
-        // occluded one alternates them on one side, in mulberry.
-        const ft = fr.type[k];
-        const t = ft === STATIONARY || ft === OCCLUDED ? (nsym % 2 ? COLD : WARM) : ft;
-        const sgn = ft === STATIONARY && t === WARM ? -1 : 1;
-        ctx.fillStyle = ft === OCCLUDED ? pal.inks.mulberry : ft === STATIONARY ? (t === COLD ? pal.inks.prussian : pal.inks.sienna) : inkOf(t);
-        ctx.beginPath();
-        if (t === COLD) {
-          ctx.moveTo(px - tx * SZ, py - ty * SZ);
-          ctx.lineTo(px + sgn * nx * SZ * 1.5, py + sgn * ny * SZ * 1.5);
-          ctx.lineTo(px + tx * SZ, py + ty * SZ);
-        } else {
-          const ang = Math.atan2(ty, tx);
-          ctx.arc(px, py, SZ * 0.95, ang, ang + Math.PI, (sgn * nx) * -ty + (sgn * ny) * tx > 0 ? false : true);
+    const S = screen(fr), ft = fr.type[0];
+    ctx.lineWidth = 1.6 * lw;
+    if (ft === STATIONARY) {
+      // Alternating prussian and sienna, a stretch per symbol, centred on it: stretch j spans u/PER in (j − ½, j + ½).
+      const pc = new Path2D(), pw = new Path2D();
+      for (let k = 0; k < S.M - 1; k++) {
+        if (!S.seg(k)) continue;
+        const ua = S.u[k] / PER, ub = S.u[k + 1] / PER, lo = Math.min(ua, ub), hi = Math.max(ua, ub), cuts = [0, 1];
+        for (let b = Math.ceil(lo - 0.5) + 0.5; b < hi; b++) if (b > lo) cuts.push((b - ua) / (ub - ua));
+        cuts.sort((a, b) => a - b);
+        for (let i = 0; i < cuts.length - 1; i++) {
+          const f0 = cuts[i], f1 = cuts[i + 1], um = ua + 0.5 * (f0 + f1) * (ub - ua), p = Math.floor(um + 0.5) & 1 ? pc : pw;
+          p.moveTo(S.sx[k] + f0 * (S.sx[k + 1] - S.sx[k]), S.sy[k] + f0 * (S.sy[k + 1] - S.sy[k]));
+          p.lineTo(S.sx[k] + f1 * (S.sx[k + 1] - S.sx[k]), S.sy[k] + f1 * (S.sy[k + 1] - S.sy[k]));
         }
-        ctx.closePath(); ctx.fill();
-        nsym++;
       }
-      d -= seg - s;
+      ctx.strokeStyle = pal.inks.prussian; ctx.stroke(pc);
+      ctx.strokeStyle = pal.inks.sienna; ctx.stroke(pw);
+    } else {
+      const p = new Path2D();
+      run(p, S);
+      ctx.strokeStyle = inkOf(ft); ctx.stroke(p);
     }
+    const fills = { c: new Path2D(), w: new Path2D() };
+    marks(S.sx, S.sy, S.u, GAP, octaves(S.sx, S.sy, S.vis, S.u, sc), (px, py, tx, ty, size, k, q) => {
+      const [nx, ny] = sideOf(fr.side, fr.P, k, S.sx[k], S.sy[k], tx, ty);
+      // A stationary front alternates its symbols, each on its own side; an occluded one
+      // alternates them on one side, in mulberry. Which is which: the stretch the symbol centres.
+      const alt = Math.floor(q / 16 + 0.5) & 1;
+      const t = ft === STATIONARY || ft === OCCLUDED ? (alt ? COLD : WARM) : ft;
+      const sgn = ft === STATIONARY && t === WARM ? -1 : 1, z = SZ * size, p = ft === STATIONARY && t === WARM ? fills.w : fills.c;
+      if (t === COLD) {
+        p.moveTo(px - tx * z, py - ty * z);
+        p.lineTo(px + sgn * nx * z * 1.5, py + sgn * ny * z * 1.5);
+        p.lineTo(px + tx * z, py + ty * z);
+        p.closePath();
+      } else {
+        const ang = Math.atan2(ty, tx);
+        p.moveTo(px + tx * z * 0.95, py + ty * z * 0.95);
+        p.arc(px, py, z * 0.95, ang, ang + Math.PI, (sgn * nx) * -ty + (sgn * ny) * tx > 0 ? false : true);
+        p.closePath();
+      }
+    });
+    if (ft === STATIONARY) { ctx.fillStyle = pal.inks.prussian; ctx.fill(fills.c); ctx.fillStyle = pal.inks.sienna; ctx.fill(fills.w); }
+    else { ctx.fillStyle = inkOf(ft); ctx.fill(fills.c); }
   }
-  // Troughs (umber, dashed), ridges (umber zigzag), shear lines (prussian, dash-dot).
-  const visPath = (P, fn) => {
-    const M = P.length / 3;
-    let prev = null;
-    for (let k = 0; k < M; k++) {
-      const q = project(P, k);
-      if (q[2] < 0.05) { prev = null; continue; }
-      if (prev) fn(prev, q);
-      prev = q;
-    }
-  };
+  // Troughs (umber, dashed), shear lines (prussian, dash-dot), ridges (umber zigzag): patterns pinned to the line.
   ctx.lineCap = 'butt';
   for (const [list, ink, dash, w] of [[chart.troughs, pal.inks.umber, [7, 4], 1.4], [chart.shear, pal.inks.prussian, [8, 3, 1.5, 3], 1.2]]) {
-    ctx.strokeStyle = ink; ctx.lineWidth = w * lw; ctx.setLineDash(dash.map(d => d * sc));
-    for (const t of list) { A(t); ctx.beginPath(); visPath(t.P, (a, b) => { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }); ctx.stroke(); }
+    ctx.strokeStyle = ink; ctx.lineWidth = w * lw;
+    for (const t of list) { A(t); const S = screen(t), p = new Path2D(); dashes(p, S.sx, S.sy, S.seg, S.u, dash, sc, r); ctx.stroke(p); }
   }
-  ctx.setLineDash([]);
   ctx.strokeStyle = pal.inks.umber; ctx.lineWidth = 1.2 * lw;
+  const ZIG = 5 * sc / r;   // u between the zigzag's corners
   for (const rd of chart.ridges) {
     A(rd);
-    ctx.beginPath();
-    let d = 0, up = 1, started = false;
-    visPath(rd.P, (a, b) => {
-      const seg = Math.hypot(b[0] - a[0], b[1] - a[1]); if (seg < 1e-6) return;
-      const tx = (b[0] - a[0]) / seg, ty = (b[1] - a[1]) / seg;
-      if (!started) { ctx.moveTo(a[0], a[1]); started = true; }
-      let s = 0;
-      while (s + (5 * sc - d) <= seg) {
-        s += 5 * sc - d; d = 0; up = -up;
-        ctx.lineTo(a[0] + tx * s - ty * up * 2.6 * sc, a[1] + ty * s + tx * up * 2.6 * sc);
+    const S = screen(rd), p = new Path2D();
+    let started = false;
+    for (let k = 0; k < S.M - 1; k++) {
+      if (!S.seg(k)) { started = false; continue; }
+      const ua = S.u[k] / ZIG, ub = S.u[k + 1] / ZIG, dir = ub >= ua ? 1 : -1;
+      const seg = Math.hypot(S.sx[k + 1] - S.sx[k], S.sy[k + 1] - S.sy[k]);
+      if (!(seg > 1e-6) || ua === ub) continue;
+      const tx = (S.sx[k + 1] - S.sx[k]) / seg, ty = (S.sy[k + 1] - S.sy[k]) / seg;
+      for (let q = dir > 0 ? Math.ceil(ua) : Math.floor(ua); dir > 0 ? q < ub : q > ub; q += dir) {
+        const f = (q - ua) / (ub - ua), up = q & 1 ? 1 : -1;
+        const X = S.sx[k] + f * (S.sx[k + 1] - S.sx[k]) - ty * up * 2.6 * sc, Y = S.sy[k] + f * (S.sy[k + 1] - S.sy[k]) + tx * up * 2.6 * sc;
+        if (started) p.lineTo(X, Y); else { p.moveTo(X, Y); started = true; }
       }
-      d += seg - s;
-    });
-    ctx.stroke();
+    }
+    ctx.stroke(p);
   }
   ctx.lineCap = 'round';
   // Dry lines: an ochre line with open scallops toward the moist air.
+  ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = 1.3 * lw;
   for (const dl of chart.dry) {
     A(dl);
-    const M = dl.P.length / 3;
-    const S = Array.from({ length: M }, (_, k) => project(dl.P, k));
-    ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = 1.3 * lw;
-    ctx.beginPath();
-    let on = false;
-    for (let k = 0; k < M; k++) { if (S[k][2] < 0.05) { on = false; continue; } if (on) ctx.lineTo(S[k][0], S[k][1]); else ctx.moveTo(S[k][0], S[k][1]); on = true; }
-    ctx.stroke();
-    let d = 8 * sc;
-    for (let k = 0; k < M - 1; k++) {
-      const [ax, ay, az] = S[k], [bx, by, bz] = S[k + 1];
-      if (az < 0.05 || bz < 0.05) continue;
-      const seg = Math.hypot(bx - ax, by - ay); if (seg < 1e-6) continue;
-      const tx = (bx - ax) / seg, ty = (by - ay) / seg;
-      let s = 0;
-      while (s + d <= seg) {
-        s += d; d = 16 * sc;
-        const px = ax + tx * s, py = ay + ty * s;
-        const [nx, ny] = sideOnScreen(dl.side, k, ax, ay, dl.P);
-        const ccw = nx * -ty + ny * tx > 0;
-        const ang = Math.atan2(ty, tx);
-        ctx.beginPath(); ctx.arc(px, py, 3.6 * sc, ang, ang + Math.PI, !ccw); ctx.stroke();
-      }
-      d -= seg - s;
-    }
+    const S = screen(dl), p = new Path2D();
+    run(p, S);
+    marks(S.sx, S.sy, S.u, 16, octaves(S.sx, S.sy, S.vis, S.u, sc), (px, py, tx, ty, size, k) => {
+      const [nx, ny] = sideOf(dl.side, dl.P, k, S.sx[k], S.sy[k], tx, ty), ang = Math.atan2(ty, tx), z = 3.6 * sc * size;
+      p.moveTo(px - tx * z, py - ty * z);
+      p.arc(px, py, z, ang + Math.PI, ang, nx * -ty + ny * tx > 0);
+    });
+    ctx.stroke(p);
   }
   // H and L, in the text's ink.
   ctx.font = `600 ${Math.round(15 * Math.min(2, Math.sqrt(sc)))}px 'Newsreader', 'STIX Two Text', serif`;

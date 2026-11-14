@@ -1,6 +1,7 @@
 // The 2D layer over the globe: the limb, and the plate boundaries as smooth
-// lines (src/render/lines.js) in the symbols of a tectonic map, placed at even
-// spacing along each line on screen:
+// lines (src/render/lines.js) in the symbols of a tectonic map, pinned to the
+// line (src/render/along.js: a symbol keeps its place as the line moves, and
+// spacing is even on screen at the usual zoom):
 //   trench       a rule with sawteeth on the plate that stays on top, and,
 //                where ocean is going down, red marks for the arc of volcanoes
 //                standing on that side
@@ -16,6 +17,7 @@
 // mantle at the surface.
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 import { drawChart } from './chart.js';
+import { freshU, inheritU, octaves, marks, dashes } from './along.js';
 
 // Symbols scale with the globe (the radius on screen against 380 px), within
 // limits that keep them legible far out and unobtrusive close in.
@@ -132,94 +134,82 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   const lines = climate ? null : layers.boundaries;
   if (!lines) return;
   const sc = symbolScale(r), lw = Math.sqrt(sc);
-  const TOOTH_GAP = 13 * sc, TOOTH = 3.2 * sc, ARC_GAP = 17 * sc, ARC_OFF = 8.5 * sc, ARC_R = 1.25 * sc;
-  const SLIP_GAP = 70 * sc, SLIP_LEN = 8 * sc, SLIP_OFF = 3.5 * sc;
+  // Gaps in px at scale 1 (along.js scales them); sizes in px.
+  const TOOTH_GAP = 13, TOOTH = 3.2 * sc, ARC_GAP = 17, ARC_OFF = 8.5 * sc, ARC_R = 1.25 * sc;
+  const SLIP_GAP = 70, SLIP_LEN = 8 * sc, SLIP_OFF = 3.5 * sc;
 
   const paths = { [INACTIVE]: new Path2D(), [RIDGE]: new Path2D(), [TRENCH]: new Path2D(), [TRANSFORM]: new Path2D() };
   const teeth = new Path2D(), openTeeth = new Path2D(), arcs = new Path2D(), slips = new Path2D();
   const v = [0, 0, 0];
 
   for (const line of lines) {
-    const { T, type, over, arc, slide } = line, P = line.shown || line.P, L = line.shownL || line.L;
-    const M = type.length;
+    const { type, over, arc, slide } = line, P = line.shown || line.P, L = line.shownL || line.L;
+    if (!line.u) freshU(line);
+    const M = type.length, u = line.shownU || line.u;
     const sx = new Float32Array(M), sy = new Float32Array(M), vis = new Uint8Array(M);
+    let has = 0;
     for (let k = 0; k < M; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
       sx[k] = cx + v[0] * r; sy[k] = cy - v[1] * r; vis[k] = v[2] > 0.03 ? 1 : 0;
+      has |= 1 << type[k];
     }
-    // Rules: one subpath per run of a type on the visible side.
+    // Rules: one subpath per run of a type on the visible side; inactive ones dotted, the dots pinned too.
     for (let k = 0; k < M - 1; k++) {
-      if (!vis[k] || !vis[k + 1]) continue;
+      if (!vis[k] || !vis[k + 1] || type[k] === INACTIVE) continue;
       const p = paths[type[k]];
       if (k === 0 || type[k - 1] !== type[k] || !vis[k - 1]) p.moveTo(sx[k], sy[k]);
       p.lineTo(sx[k + 1], sy[k + 1]);
     }
-    // Symbols at even spacing along the line on screen.
-    let dTooth = TOOTH_GAP / 2, dArc = ARC_GAP / 2, dSlip = SLIP_GAP / 2;
-    for (let k = 0; k < M - 1; k++) {
-      if (!vis[k] || !vis[k + 1]) { dTooth = TOOTH_GAP / 2; dArc = ARC_GAP / 2; dSlip = SLIP_GAP / 2; continue; }
-      const ax = sx[k], ay = sy[k], bx = sx[k + 1], by = sy[k + 1];
-      const seg = Math.hypot(bx - ax, by - ay);
-      if (seg < 1e-6) continue;
-      const tx = (bx - ax) / seg, ty = (by - ay) / seg;
-      const ty_ = type[k];
-      // Screen direction of the line's left side, from its world vector.
+    if (has & (1 << INACTIVE)) dashes(paths[INACTIVE], sx, sy, k => vis[k] && vis[k + 1] && type[k] === INACTIVE, u, [0.5, 3.5], sc, r);
+    // The screen direction of the line's left side at segment k, from its world vector.
+    const lf = [0, 0], leftOf = (k, tx, ty) => {
       camera.view(L[3 * k], L[3 * k + 1], L[3 * k + 2], v);
-      let nx = -ty, ny = tx;
-      if (nx * v[0] + ny * -v[1] < 0) { nx = -nx; ny = -ny; }   // (nx, ny) now points left
-      let s = 0;
-      while (s < seg) {
-        const step = Math.min(seg - s, Math.min(dTooth, dArc, dSlip));
-        s += step; dTooth -= step; dArc -= step; dSlip -= step;
-        const f = s / seg, px = ax + f * (bx - ax), py = ay + f * (by - ay);
-        const side = over[k] >= 0 ? 1 : -1;            // +1: the left plate stays on top
-        if (dTooth <= 1e-6) {
-          dTooth = TOOTH_GAP;
-          if (ty_ === TRENCH) {
-            // Subduction: filled teeth on the plate on top. Collision (continent
-            // against continent, nothing sinks): open teeth, as a thrust belt.
-            const ox = side * nx, oy = side * ny, path = arc[k] > 0.5 ? teeth : openTeeth;
-            path.moveTo(px - tx * TOOTH, py - ty * TOOTH);
-            path.lineTo(px + ox * TOOTH * 1.5, py + oy * TOOTH * 1.5);
-            path.lineTo(px + tx * TOOTH, py + ty * TOOTH);
-            path.closePath();
-          }
-        }
-        if (dArc <= 1e-6) {
-          dArc = ARC_GAP;
-          if (ty_ === TRENCH && arc[k] > 0.5) {
-            const qx = px + side * nx * ARC_OFF, qy = py + side * ny * ARC_OFF;
-            arcs.moveTo(qx + ARC_R, qy);
-            arcs.arc(qx, qy, ARC_R, 0, 2 * Math.PI);
-          }
-        }
-        if (dSlip <= 1e-6) {
-          dSlip = SLIP_GAP;
-          if (ty_ === TRANSFORM) {
-            // The right side moves along +t relative to the left when slide > 0.
-            const dir = slide[k] >= 0 ? 1 : -1;
-            for (const sideSign of [1, -1]) {
-              const along = sideSign === -1 ? dir : -dir;          // −1 is the right side
-              const ox = px + sideSign * nx * SLIP_OFF, oy = py + sideSign * ny * SLIP_OFF;
-              const ex = ox + along * tx * SLIP_LEN / 2, ey = oy + along * ty * SLIP_LEN / 2;
-              slips.moveTo(ox - along * tx * SLIP_LEN / 2, oy - along * ty * SLIP_LEN / 2);
-              slips.lineTo(ex, ey);
-              // Half-head on the outer side.
-              slips.lineTo(ex - along * tx * 3 * sc + sideSign * nx * 2.4 * sc, ey - along * ty * 3 * sc + sideSign * ny * 2.4 * sc);
-            }
-          }
-        }
-      }
+      const s = -ty * v[0] + tx * -v[1] < 0 ? -1 : 1;
+      lf[0] = -ty * s; lf[1] = tx * s;
+      return lf;
+    };
+    const oct = has & (1 << TRENCH | 1 << TRANSFORM) ? octaves(sx, sy, vis, u, sc) : null;
+    if (has & (1 << TRENCH)) {
+      marks(sx, sy, u, TOOTH_GAP, oct, (px, py, tx, ty, size, k) => {
+        if (type[k] !== TRENCH) return;
+        // Subduction: filled teeth on the plate on top (+1: the left one). Collision
+        // (continent against continent, nothing sinks): open teeth, as a thrust belt.
+        const [nx, ny] = leftOf(k, tx, ty), side = over[k] >= 0 ? 1 : -1, ox = side * nx, oy = side * ny;
+        const path = arc[k] > 0.5 ? teeth : openTeeth, T = TOOTH * size;
+        path.moveTo(px - tx * T, py - ty * T);
+        path.lineTo(px + ox * T * 1.5, py + oy * T * 1.5);
+        path.lineTo(px + tx * T, py + ty * T);
+        path.closePath();
+      });
+      marks(sx, sy, u, ARC_GAP, oct, (px, py, tx, ty, size, k) => {
+        if (type[k] !== TRENCH || arc[k] <= 0.5) return;
+        const [nx, ny] = leftOf(k, tx, ty), side = over[k] >= 0 ? 1 : -1;
+        const qx = px + side * nx * ARC_OFF, qy = py + side * ny * ARC_OFF, R = ARC_R * size;
+        arcs.moveTo(qx + R, qy);
+        arcs.arc(qx, qy, R, 0, 2 * Math.PI);
+      });
     }
+    if (has & (1 << TRANSFORM)) marks(sx, sy, u, SLIP_GAP, oct, (px, py, tx, ty, size, k) => {
+      if (type[k] !== TRANSFORM) return;
+      // The right side moves along +t relative to the left when slide > 0.
+      const [nx, ny] = leftOf(k, tx, ty), dir = slide[k] >= 0 ? 1 : -1, len = SLIP_LEN * size, hd = size * sc;
+      for (const sideSign of [1, -1]) {
+        const along = sideSign === -1 ? dir : -dir;          // −1 is the right side
+        const ox = px + sideSign * nx * SLIP_OFF, oy = py + sideSign * ny * SLIP_OFF;
+        const ex = ox + along * tx * len / 2, ey = oy + along * ty * len / 2;
+        slips.moveTo(ox - along * tx * len / 2, oy - along * ty * len / 2);
+        slips.lineTo(ex, ey);
+        // Half-head on the outer side.
+        slips.lineTo(ex - along * tx * 3 * hd + sideSign * nx * 2.4 * hd, ey - along * ty * 3 * hd + sideSign * ny * 2.4 * hd);
+      }
+    });
   }
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.setLineDash([1 * lw, 3 * sc]);
   ctx.lineWidth = lw;
   ctx.strokeStyle = withAlpha(palette.text, 0.35);
   ctx.stroke(paths[INACTIVE]);
-  ctx.setLineDash([]);
   ctx.strokeStyle = withAlpha(palette.text, 0.5);
   ctx.stroke(paths[TRANSFORM]);
   ctx.strokeStyle = withAlpha(palette.text, 0.7);
@@ -249,8 +239,8 @@ function withAlpha(hex, a) {
 /**
  * For each point of a new line, its nearest point on the old line (segment
  * index and fraction), searched near the same share of the way along. Points
- * then move across the line as it changes, not along it, so symbols placed
- * along it don't slide. The old line is reversed first if it runs the other way.
+ * then move across the line as it changes, not along it, and the coordinate its
+ * symbols sit on (along.js) carries over. `flip`: the old line runs the other way.
  */
 export function correspond(prev, cur) {
   const n = prev.length / 3, m = cur.length / 3;
@@ -294,6 +284,13 @@ export function morphed(prev, cur, phi, corr) {
   return out;
 }
 
+/** A line linked to its predecessor: their correspondence, and the coordinate its symbols keep (along.js). */
+export function link(l, prev) {
+  const { corr, flip } = correspond(prev.P, l.P);
+  l.prev = prev; l.corr = corr;
+  inheritU(l, prev, corr, flip);
+}
+
 /**
  * Pair each new line with its predecessor (same key, nearest middle within
  * ~500 km) and work out their correspondence. `strict` also asks that both
@@ -302,7 +299,7 @@ export function morphed(prev, cur, phi, corr) {
  * Returns the old lines left unpaired.
  */
 export function matchLines(prev, cur, key, strict = false) {
-  if (!prev) { for (const l of cur) { l.prev = null; l.corr = null; } return []; }
+  if (!prev) { for (const l of cur) { l.prev = null; l.corr = null; freshU(l); } return []; }
   const pt = (P, k) => [P[3 * k], P[3 * k + 1], P[3 * k + 2]];
   const mid = P => pt(P, Math.floor(P.length / 6));
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -313,7 +310,7 @@ export function matchLines(prev, cur, key, strict = false) {
   for (const l of cur) {
     l.prev = null; l.corr = null;
     const cands = byKey.get(key(l));
-    if (!cands) continue;
+    if (!cands) { freshU(l); continue; }
     const m = mid(l.P);
     let best = Math.cos(0.08), bl = null;
     for (const c of cands) {
@@ -328,7 +325,7 @@ export function matchLines(prev, cur, key, strict = false) {
       }
       best = d; bl = c;
     }
-    if (bl) { used.add(bl); l.prev = bl; l.corr = correspond(bl.P, l.P).corr; }
+    if (bl) { used.add(bl); link(l, bl); } else freshU(l);
   }
   return prev.filter(l => !used.has(l));
 }

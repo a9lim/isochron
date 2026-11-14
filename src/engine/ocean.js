@@ -21,7 +21,7 @@
 
 const R_M = 6.371e6, OMEGA = 7.292e-5, RHO_W = 1025, RHO_A = 1.2, CD = 1.3e-3;
 
-import { restrict } from '../grid/transfer.js';
+import { restrict, prolong } from '../grid/transfer.js';
 
 export const OCEAN = {
   LAYER_CELLS: 2,     // the western boundary layer's width, in cells
@@ -66,20 +66,20 @@ export class Ocean {
       const idx = Array.from({ length: n }, (_, i) => i);
       const byLon = idx.slice().sort((a, b) => lon(a) - lon(b)), byLat = idx.slice().sort((a, b) => lat(a) - lat(b));
       this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
-      this.tauF = new Float64Array(3 * fn); this.landC = new Float64Array(n); this.comp = [new Float64Array(fn), new Float64Array(n)];
+      this.tauF = new Float64Array(3 * fn); this.landC = new Float64Array(n); this.comp = [new Float64Array(fn), new Float64Array(n)]; this.up = [new Float64Array(fn), new Float64Array(fn)];
     }
   }
 
   /** ψ, the anomaly and the sea on the climate's grid. */
   publish() {
     if (!this.coarse) return;
-    const c = this.climate, T = c.T, f = this.fine, fn = c.grid.n, nc = T.nc, par = T.par;
-    const up = (src, i) => i < nc ? src[i] : 0.5 * (src[par[2 * (i - nc)]] + src[par[2 * (i - nc) + 1]]);
+    const c = this.climate, f = this.fine, fn = c.grid.n, [psi, sst] = this.up;
+    prolong(c.T, this.psi, psi); prolong(c.T, this.sst, sst);
     for (let i = 0; i < fn; i++) {
       const sea = c.landMask[i] ? 0 : 1;
       f.sea[i] = sea;
-      f.psi[i] = sea ? up(this.psi, i) : 0;
-      f.sst[i] = sea ? up(this.sst, i) : 0;
+      f.psi[i] = sea ? psi[i] : 0;
+      f.sst[i] = sea ? sst[i] : 0;
     }
   }
 

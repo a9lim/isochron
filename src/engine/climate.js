@@ -150,7 +150,10 @@ export class Climate {
     this.land = land;
     const fine = this.grid = tec.grid;
     const n = fine.n;
-    this.coarse = buildGrid(fine.level - 1);
+    // The energy balance (and the ocean's gyres, on the same grid) at 220 km whatever the
+    // engine's level: the temperature is smooth at that scale, and at 110 km the cold
+    // cycle's three solves cost ~2 s of a level-7 opening.
+    this.coarse = buildGrid(Math.min(fine.level - 1, 5));
     this.T = makeTransfer(fine, this.coarse);
     const nc = this.coarse.n;
     this.orbit = { ...EARTH_ORBIT, ...(opts.orbit || {}) };

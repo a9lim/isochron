@@ -177,6 +177,16 @@ a9: beautiful; fix the slow opening and the spin-up; the tectonics lag; fault sy
 - **Weather**: the globe's fields blend the last two steps; chart lines morph from the last chart's and fade in and out; more smoothing and a wider bridging gap; ends within ~320 km meet (fronts, dry and shear lines alike), with no near misses left in a sampled chart.
 - Not reproduced: two straight-edged pale bands across the globe in a9's first screenshot (zoomed in; not seen here live or zoomed).
 
+## Pinned symbols, and the engine at level 7
+
+a9: "let's chase level 7; also currently the weather front symbols seem to slide across them back and forth when it moves, as do the fault lines. could we make them more stable so that they appear to advance or retreat but not slide as much?"
+- **Symbols pinned to their lines** (`src/render/along.js`). They were counted from each line's start, so any change at that end slid every symbol along the line. Now each point carries a coordinate along its line that every retrace inherits from its predecessor at the corresponding point, and symbols sit at fixed values of it, on a lattice whose octaves fade with foreshortening and zoom. Measured per retrace, along the line: trench teeth 0.073 → 0.021 of a gap (jumps over a fifth of a gap 16% → 0.8%); the chart's symbols 0.19 → 0.012 (42% → 0.8%). Dashes, dots, zigzags and a stationary front's colours follow it too. The overlay's JS went from ~0.25 to ~0.5 ms a frame.
+- **Why level 7 ran hot.** Not a runaway: kicked ×0.7 or ×1.3, each level returns to its own speed within ~6 Myr, and refined to level 7 the planet settles ~30% faster than at level 6 (level 5, ~40% slower). Read on one state at both levels, ridge push's one-sided edge gradient makes level 7's ~12% stronger; slab pull, counted per edge cell beside one-cell slab memory, is the bigger lever. Not boundary relaxation: a second pass a step relaxed ~2 more cells per 2 Myr and changed nothing.
+- **Tried and dropped:** ridge push to the axis exactly (the depth mirrored to age zero at opening boundaries). Levels then agreed on one state (3% apart against 12%), but the push moved onto the ridges and level 6 itself drifted (1.2×, +112 m in 30 Myr).
+- **The fix, a fitted calibration:** K_RIDGE × res^0.2 and K_SLAB × √res, level 6 unchanged. Over 60 Myr level 7 holds rms 2.8–3.2 cm/yr and activity 0.90–1.13× (level 6: 2.9–3.5, 0.84–1.01×), sea and land alike; coupled over 20 Myr, CO₂ ~375 ppm against ~390.
+- **The climate's coarse grid stays at 220 km** at every level (transfers chain through the levels between): at level 7 a cold cycle 2.7 → 1.0 s, a warm one 710 → 480 ms, and its climate now matches level 6's (13.5 against 13.2 °C, 1,139 against 1,061 mm).
+- **The engine at level 7 by default**, level 6 on phones and tablets (`pointer: coarse`). Costs against level 6: boot +0.5 s, the first climate ~1 s later, and the engine keeps ~1 Myr/s (the experiments all run at or below it; the top of the dial is engine-limited to ~2–3 Myr/s).
+
 ## Registering on the site
 
 When the social card is made (a9's session):

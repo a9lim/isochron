@@ -41,11 +41,11 @@ export const PARAMS = {
   MERGE_TAU: 20,
   K_COLLIDE: 0.03,  // resistance of a collision front, per cell, against convergence
   COLLIDE_TAU: 8,  // Myr
-  K_SLAB: 0.005,  // slab pull per cell of trench
+  K_SLAB: 0.005,  // slab pull per cell of trench (at level 6; × √res elsewhere: see balance)
   FOUNDER_AGE: 140,  // Myr: seafloor this old at a plate's edge, or at its own continent's margin, begins to sink
   INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active (at level 6; per length elsewhere)
   INITIATE_GAP: 20,  // Myr between initiations anywhere on the planet
-  K_RIDGE: 6e-4,  // ridge push per unit area and subsidence gradient
+  K_RIDGE: 6e-4,  // ridge push per unit area and subsidence gradient (at level 6; × res^0.2 elsewhere)
   KEEL: 2,  // extra drag of continental crust
   V_RELAX: 2,  // Myr, how fast ω follows its torque balance
   V_MAX: 0.0235,  // rad/Myr (15 cm/yr)
@@ -422,10 +422,24 @@ export class Tectonics {
     if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater), this.seaLevel);
   }
 
-  /** ω from slab pull and ridge push against basal drag, per plate. */
+  /**
+   * ω from slab pull and ridge push against basal drag, per plate.
+   *
+   * The forces are discretized on the cells, and the same planet on a finer grid
+   * pushes and pulls harder: refined from level 6 to 7 its plates settled ~30%
+   * faster (rms 4.4 against 3.4 cm/yr; kicked slower or faster, each level returns
+   * to its own speed, so it's a stable equilibrium, not a runaway), and at level 5
+   * ~40% slower. Ridge push sums a one-sided gradient at the plate's edge, which ends
+   * at the edge cell's own depth, nearer the axis on a finer grid (read on one state
+   * at both levels, level 7's ~12% stronger); slab pull counts the edge cells beside
+   * slab memory one cell wide, whose band and staircase change with the cell. PARAMS
+   * are tuned at level 6, so the two scale with the cell, fitted (a calibration, not
+   * a derivation): × res^0.2 and × √res, under which level 7 opens as level 6 does.
+   */
   balance(dt) {
     const g = this.grid, n = g.n, pos = g.pos, area = g.area;
     const cellLen = Math.sqrt(4 * Math.PI / n);
+    const kRidge = PARAMS.K_RIDGE * this.res ** 0.2, kSlab = PARAMS.K_SLAB * Math.sqrt(this.res);
     const np = this.plates.length;
     const M = new Float64Array(9 * np), T = new Float64Array(3 * np);
     for (let k = 0; k < np; k++) { const p = this.plates[k]; p.area = 0; p.land = 0; T[3 * k] = p.torqueExt[0]; T[3 * k + 1] = p.torqueExt[1]; T[3 * k + 2] = p.torqueExt[2]; }
@@ -450,7 +464,7 @@ export class Tectonics {
         const d = subs[j] - si;
         gx += d * gw[3 * t]; gy += d * gw[3 * t + 1]; gz += d * gw[3 * t + 2];
       }
-      const f = PARAMS.K_RIDGE * A;
+      const f = kRidge * A;
       const fx = f * gx, fy = f * gy, fz = f * gz;
       T[3 * k] += y * fz - z * fy; T[3 * k + 1] += z * fx - x * fz; T[3 * k + 2] += x * fy - y * fx;
     }
@@ -480,7 +494,7 @@ export class Tectonics {
         this.slabDir[3 * i] = dx / r; this.slabDir[3 * i + 1] = dy / r; this.slabDir[3 * i + 2] = dz / r;
         this.counters.foundered = (this.counters.foundered || 0) + 1;
       }
-      const f = PARAMS.K_SLAB * (s / PARAMS.SLAB_MAX) * Math.sqrt(Math.max(0, Math.min(this.slabAge[si], 150)) / 100) * cellLen;
+      const f = kSlab * (s / PARAMS.SLAB_MAX) * Math.sqrt(Math.max(0, Math.min(this.slabAge[si], 150)) / 100) * cellLen;
       const fx = f * this.slabDir[3 * si], fy = f * this.slabDir[3 * si + 1], fz = f * this.slabDir[3 * si + 2];
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
       T[3 * k] += y * fz - z * fy; T[3 * k + 1] += z * fx - x * fz; T[3 * k + 2] += x * fy - y * fx;

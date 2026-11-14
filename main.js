@@ -21,7 +21,8 @@ import { monthName, S0 } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
-import { drawOverlay, turned, morphed, matchLines, correspond } from './src/render/overlay.js';
+import { drawOverlay, turned, morphed, matchLines, link } from './src/render/overlay.js';
+import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
@@ -35,9 +36,10 @@ const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
 const WEATHER_GPU_MS = 12;    // the weather's share of the GPU's frame, when it runs live
-// The engine's grid (110 km; ?level=7 runs it at 55 km, slower, and its plates still need tuning
-// there), and the drawn mesh and the weather's (55 km), onto which the engine's fields are refined.
-const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || 6)));
+// The engine's grid: 55 km (level 7), or 110 km on phones and tablets (a quarter of the work;
+// ?level= overrides), and the drawn mesh and the weather's (55 km), onto which a coarser
+// engine's fields are refined.
+const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || (matchMedia('(pointer: coarse)').matches ? 6 : 7))));
 const MESH_LEVEL = 7;
 const SPINUP_DAYS = 12;       // the weather's spin-up from the climate's state
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
@@ -139,8 +141,6 @@ function onSurface(m) {
   figuresDirty = true; drawDirty = true; climateDirty = true;
   caption(false);
 }
-/** A line's correspondence with its (reassigned) predecessor. */
-function matchCorr(l) { l.corr = correspond(l.prev.P, l.P).corr; }
 /**
  * Which side stays on top, remembered: each point takes half its predecessor's value at
  * the corresponding point (negated if the plates are on the other sides), so a trench's
@@ -187,7 +187,7 @@ function show(m, mode) {
     matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
     for (const l of lines) {
       const q = l.prev;
-      if (q && q.prev) { l.prev = q.prev; l.prevT = q.prevT; l.corr = null; matchCorr(l); }
+      if (q && q.prev) { link(l, q.prev); l.prevT = q.prevT; }
       else { l.prev = null; l.corr = null; }
     }
     keepSides(lines);
@@ -800,6 +800,7 @@ function tick(now) {
       const cur = turned(ln.P, w, tShow - linesT);
       ln.shown = ln.prev ? morphed(turned(ln.prev.P, w, tShow - ln.prevT), cur, phi, ln.corr) : cur;
       ln.shownL = turned(ln.L, w, tShow - linesT);
+      ln.shownU = shownU(ln, phi);
     }
     if (rivers) {
       // Rivers morph over the landscape's own step, from their predecessors' time to theirs.

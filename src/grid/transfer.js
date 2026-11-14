@@ -4,6 +4,8 @@
 //   prolong   coarse → fine: copy, and average the parents at midpoints
 //   restrict  fine → coarse: the area-weighted transpose (full weighting), so
 //             a flux per unit area keeps its integral
+// Levels further apart chain through the levels between.
+import { buildGrid } from './icosphere.js';
 
 /** Parent pairs for the fine cells past the coarse count: Int32Array(2 (nf − nc)). */
 export function parents(fine, nc) {
@@ -20,8 +22,12 @@ export function parents(fine, nc) {
   return par;
 }
 
-/** A pair of levels: fine grid, coarse count, parents and restriction weights. */
+/** A pair of levels: fine grid, coarse count, parents and restriction weights (or a chain of them). */
 export function makeTransfer(fine, coarse) {
+  if (fine.level - coarse.level > 1) {
+    const mid = buildGrid(fine.level - 1);
+    return { fine, coarse, nc: coarse.n, chain: [makeTransfer(fine, mid), makeTransfer(mid, coarse)], tmp: new Float64Array(mid.n) };
+  }
   const nc = coarse.n, par = parents(fine, nc);
   const wsum = new Float64Array(nc);
   for (let i = 0; i < nc; i++) wsum[i] = fine.area[i];
@@ -33,6 +39,7 @@ export function makeTransfer(fine, coarse) {
 }
 
 export function prolong(T, c, f) {
+  if (T.chain) return prolong(T.chain[0], prolong(T.chain[1], c, T.tmp), f);
   const { nc, par, fine } = T;
   for (let i = 0; i < nc; i++) f[i] = c[i];
   for (let i = nc; i < fine.n; i++) f[i] = 0.5 * (c[par[2 * (i - nc)]] + c[par[2 * (i - nc) + 1]]);
@@ -40,6 +47,7 @@ export function prolong(T, c, f) {
 }
 
 export function restrict(T, f, c) {
+  if (T.chain) return restrict(T.chain[1], restrict(T.chain[0], f, T.tmp), c);
   const { nc, par, fine, wsum } = T;
   const A = fine.area;
   for (let i = 0; i < nc; i++) c[i] = A[i] * f[i];
