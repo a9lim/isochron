@@ -124,6 +124,23 @@ a9 wants an optimization pass and then finer grids: the fronts fragment because 
 - Everything runs on the main thread. The plan's architecture (a module worker with shared buffers; the site is cross-origin isolated) is the lever for all of it.
 - Candidates: the sea-level solve by sorted hypsometry; multigrid for the weather and the EBM; the weather (and maybe the chart) in a worker; the weather at level 6, or the chart's fields at level 6 by prolongation with sub-grid front placement; level 7 for crust and landscape last.
 
+## The optimization pass (2026-11-15)
+
+a9: "a comprehensive optimization pass … making heavy use of webgpu so that we can improve the spatial and temporal resolution"; WebGPU only, no CPU fallback (the old WGSL→JS transpiler in the parent's `lib/wgsl` is legacy and unsupported, so the GPU's tests run on the device, in `tests/gpu.html`).
+
+Measured first, in the browser (a frame at the default dial, Relief): climate 16.5 ms (a 5 ms budget overshot by its slices), surface refresh 13.8, ice and carbon 8, plates 2.8, the season's snow 2.0, lines and overlay ~3: ~49 ms, ~20 fps, before the weather.
+
+Decisions:
+- **The weather on the GPU, at the surface's grid (110 km).** Multigrid V-cycles on levels 6→2 with an exact coarse solve beat CG on the GPU: no reductions, a fixed dispatch list (54 a step), a tenfold error cut per cycle. Both inversions share one vec2 pass. The CPU weather is gone (one path); its Phillips test moved to the device. Level 7 was timed (0.58 ms a step, ~170 ms of GPU a model day) and left for a level-7 render mesh, since the weather's fields go straight into the globe's vertex buffer.
+- **A 400 s step.** At 110 km the spin-up's transient (lower-layer winds to ~90 m/s on day 3, settling to ~45 by day 10; the 220 km CPU model peaked at 74 and settled at 25) broke 600 s on day 4. Smoothing the thermal-wind target didn't help; the CFL did. A run that still goes non-finite restarts from the climate.
+- **Orography as part of the state, not the PV.** The lower layer carries q₂ less f₀h/H and transports the orographic part alongside, so a changed ground doesn't jolt ψ (the CPU model subtracted ψ's mean each step instead).
+- **Tropical damping in flux form** (−∇·(e∇ψ)/τ rather than −eζ/τ), so the barotropic PV's integral is conserved and the screened Poisson solve (1/k₀ ≈ 32,000 km) has no drifting constant.
+- **The engine on a worker**, the page keeping the clock: ticks out, snapshots back (surface, climate, fast). Surfaces arrive a step late and are blended in over the time to the next, so motion stays continuous whichever thread is slower. SharedArrayBuffer wasn't used: the dev server isn't cross-origin isolated, and snapshots copy ~2 MB a step.
+- **The season's snow and ice on the GPU** (per-cell evaluation of the harmonics at the date, two smoothing passes, the ease), and **the chart on a worker**, from a read-back of the weather; its grid counts scale with the level.
+- **The carbon cycle's weathering reference** is now taken from the third climate cycle, not the first: the first is cold, so warm cycles read ~40% more weathering and drew CO₂ down at every opening (headless, a cycle every 400 kyr: to ~90 ppm and 8.7 °C by 1.8 Myr; in the browser to ~175 ppm). With the warm reference the opening holds 14.1–14.4 °C over 3 Myr while CO₂ settles toward ~420 ppm.
+
+After: the page's thread ~1.5 ms a frame (overlay and line morphs); the weather live to ~10 days/s at 110 km.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

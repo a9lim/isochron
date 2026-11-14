@@ -387,11 +387,7 @@ function hexToRgb(hex) {
   return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
 }
 
-export async function createGlobe(canvas, grid) {
-  if (!navigator.gpu) throw new Error('no WebGPU');
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) throw new Error('no WebGPU adapter');
-  const device = await adapter.requestDevice();
+export async function createGlobe(canvas, grid, device) {
   const context = canvas.getContext('webgpu');
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: 'opaque' });
@@ -403,10 +399,10 @@ export async function createGlobe(canvas, grid) {
   device.queue.writeBuffer(posBuf, 0, Float32Array.from(grid.pos));
   const fieldBuf = device.createBuffer({ size: n * 32, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });   // current, previous
   const normBuf = device.createBuffer({ size: n * 24, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-  const climBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const climBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });   // written by the season's kernels
   const zoneBuf = device.createBuffer({ size: n * 64, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const iceBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-  const wxBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  const wxBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });   // written by the weather's kernels
   const idxBuf = device.createBuffer({ size: grid.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, grid.tris);
   const uniBuf = device.createBuffer({ size: 18 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -482,14 +478,14 @@ export async function createGlobe(canvas, grid) {
       device.queue.writeBuffer(normBuf, 0, norm);
     },
 
-    /** Per cell: snow or sea ice (0..1), and three spare values (vec4 per cell). */
-    setClimate(clim) { device.queue.writeBuffer(climBuf, 0, clim); },
+    /** Per cell: snow or sea ice (0..1), sea-surface temperature, the gyres' streamfunction (Sv), ice thickness (m); the season writes it. */
+    climBuffer: climBuf,
     /** Per cell: the zones' probabilities, 16 floats (14 used). */
     setZones(z) { device.queue.writeBuffer(zoneBuf, 0, z); },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceBuf, 0, v); },
-    /** Per cell: the chart's sea-level pressure (hPa about 1013), rain (mm/day), surface temperature (°C), column humidity (0..1). */
-    setWeather(v) { device.queue.writeBuffer(wxBuf, 0, v); },
+    /** Per cell: the chart's sea-level pressure (hPa about 1013), rain (mm/day), surface temperature (°C), column humidity (0..1); the weather writes it. */
+    wxBuffer: wxBuf,
 
     draw(camera, tNow, palette, mode = {}) {
       if (lost || !bind) return;

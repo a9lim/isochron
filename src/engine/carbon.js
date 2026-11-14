@@ -75,7 +75,8 @@ export class Carbon {
     }
     this.wF = f;
     this.wCO2 = c.co2Seen || CARBON.PCO2_0;
-    if (!(this.wF0 > 0)) this.wF0 = f;
+    // The reference is taken once the climate has warmed (its first cycle starts cold).
+    if (!(this.wF0 > 0) && c.stats.cycles >= 3) this.wF0 = f;
   }
 
   pco2Of(R) { return CARBON.PCO2_0 * Math.pow(R / CARBON.R0, CARBON.BUFFER); }

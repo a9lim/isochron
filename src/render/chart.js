@@ -49,7 +49,7 @@ function grad(g, f, out) {
 
 /** The locator (∇TFP·n̂), the strength |∇θ| and n̂, for a field on the grid (gradients per radian). */
 function locate(g, field) {
-  const n = g.n, f = smoothField(g, Float64Array.from(field), 4);
+  const n = g.n, f = smoothField(g, Float64Array.from(field), 4 * scale(g));
   const gf = grad(g, f, new Float64Array(3 * n)), G = new Float64Array(n), nh = new Float64Array(3 * n);
   for (let i = 0; i < n; i++) {
     const m = Math.hypot(gf[3 * i], gf[3 * i + 1], gf[3 * i + 2]);
@@ -68,10 +68,36 @@ function locate(g, field) {
 }
 
 function percentile(a, mask, q) {
-  const v = [];
-  for (let i = 0; i < a.length; i++) if (mask(i)) v.push(a[i]);
-  v.sort((x, y) => x - y);
-  return v.length ? v[Math.min(v.length - 1, Math.floor(q * v.length))] : Infinity;
+  const v = new Float64Array(a.length);
+  let m = 0;
+  for (let i = 0; i < a.length; i++) if (mask(i)) v[m++] = a[i];
+  const u = v.subarray(0, m).sort();
+  return m ? u[Math.min(m - 1, Math.floor(q * m))] : Infinity;
+}
+
+// Counts on the grid's own lines (smoothing passes, chain lengths) scale with
+// its cells, so the chart reads alike at every level; after corner-cutting,
+// one pass fewer per level up keeps the points as dense as they were.
+const scale = g => 2 ** (g.level - 5);
+const cuts = (g, passes) => Math.max(1, passes - (g.level - 5));
+
+/** Each cell's neighbours out to R rings (cached per grid and R). */
+function rings(g, R) {
+  const key = `rings${R}`;
+  if (g[key]) return g[key];
+  const { n, nbrOff, nbr } = g, off = new Int32Array(n + 1), list = [];
+  const mark = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    let front = [i];
+    mark[i] = i;
+    for (let r = 0; r < R; r++) {
+      const next = [];
+      for (const a of front) for (let t = nbrOff[a], e = nbrOff[a + 1]; t < e; t++) { const b = nbr[t]; if (mark[b] !== i) { mark[b] = i; next.push(b); list.push(b); } }
+      front = next;
+    }
+    off[i + 1] = list.length;
+  }
+  return (g[key] = { off, list: Int32Array.from(list) });
 }
 
 /** Zero contour of loc on triangles whose corners all pass `ok`, chained into polylines. */
@@ -120,7 +146,7 @@ function trace(g, loc, ok, local = null) {
         end = far;
       }
     }
-    if (chain.length >= 5) lines.push(chain);
+    if (chain.length >= 5 * scale(g)) lines.push(chain);
   }
   return lines;
 }
@@ -158,7 +184,7 @@ function ridgeLines(g, f, ok, q = 0.85) {
     const L = j => gf[3 * j] * ev[3 * j] + gf[3 * j + 1] * ev[3 * j + 1] + gf[3 * j + 2] * ev[3 * j + 2];
     return [L(a), sgn(b) * L(b), sgn(c) * L(c)];
   };
-  return trace(g, null, okR, local).map(chain => chaikin(relax(chain.map(c => c.p.slice()), 6), 3));
+  return trace(g, null, okR, local).map(chain => chaikin(relax(chain.map(c => c.p.slice()), 6 * scale(g)), cuts(g, 3)));
 }
 
 /** Join chains whose ends meet (within `gap` rad) and line up; chains are arrays of {p}. */
@@ -227,36 +253,37 @@ const lerp3 = (F, a, b, t) => [F[3 * a] + t * (F[3 * b] - F[3 * a]), F[3 * a + 1
  * the side their symbols go (a unit vector, toward where the front moves),
  * dry lines with the moist side, and the highs and lows.
  */
-export function chartLines(wx, pres) {
-  const g = wx.grid, n = g.n, lat = wx.lat;
+export function chartLines(wx, pres, st) {
+  const g = wx.grid, n = g.n, lat = wx.lat, S = 2 ** (g.level - 5);
   const out = { fronts: [], dry: [], highs: [], lows: [], troughs: [], ridges: [], shear: [], t: wx.t };
-  const vNow = wx.wind();
+  const vNow = wx.vel;
   // Successive charts are averaged: the fields, and below, the thresholds.
-  const st = wx.chartState || (wx.chartState = { th: Float64Array.from(wx.theta), qv: Float64Array.from(wx.qv), v: Float64Array.from(vNow), zeta: Float64Array.from(wx.zeta2), thr: null });
+  if (!st.th) Object.assign(st, { th: Float64Array.from(wx.theta), qv: Float64Array.from(wx.qv), v: Float64Array.from(vNow), zeta: Float64Array.from(wx.zeta2), thr: null });
   for (let i = 0; i < n; i++) { st.th[i] = 0.5 * (st.th[i] + wx.theta[i]); st.qv[i] = 0.5 * (st.qv[i] + wx.qv[i]); st.zeta[i] = 0.5 * (st.zeta[i] + wx.zeta2[i]); }
   for (let i = 0; i < 3 * n; i++) st.v[i] = 0.5 * (st.v[i] + vNow[i]);
   const vel = st.v;
   // Highs and lows first: the occlusions are found near the deep lows.
-  const lowsDeep = [];
+  // An extreme over ~440 km (two rings of 220 km cells): a cell beats every cell that near.
   {
-    const { nbrOff, nbr, pos } = g;
+    // Extremes of the pressure eased at the scale of 220 km cells (so ripples along a trough
+    // aren't each a low), at least 3 hPa from their surroundings.
+    const { pos } = g, R = rings(g, 2 * S), pr = smoothField(g, Float64Array.from(pres), S * S);
     for (let i = 0; i < n; i++) {
       if (Math.abs(lat[i]) < 0.26) continue;
-      let mn = true, mx = true, s = 0, c = 0;
-      for (let k = nbrOff[i], e = nbrOff[i + 1]; k < e; k++) {
-        const j = nbr[k];
-        for (let k2 = nbrOff[j], e2 = nbrOff[j + 1]; k2 < e2; k2++) {
-          const m = nbr[k2];
-          if (m === i) continue;
-          if (pres[m] <= pres[i]) mn = false;
-          if (pres[m] >= pres[i]) mx = false;
-          s += pres[m]; c++;
-        }
+      let mn = true, mx = true, s = 0;
+      const o = R.off[i], e = R.off[i + 1];
+      for (let k = o; k < e; k++) {
+        const m = R.list[k];
+        if (pr[m] <= pr[i]) mn = false;
+        if (pr[m] >= pr[i]) mx = false;
+        if (!mn && !mx) break;
+        s += pres[m];
       }
-      const d = pres[i] - s / c;
+      if (!mn && !mx) continue;
+      const d = pres[i] - s / (e - o);
       const Pt = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]];
       const Vt = [vel[3 * i], vel[3 * i + 1], vel[3 * i + 2]];
-      if (mn && d < -3) { out.lows.push({ p: Pt, v: pres[i], V: Vt }); if (d < -4) lowsDeep.push(Pt); }
+      if (mn && d < -3) out.lows.push({ p: Pt, v: pres[i], V: Vt });
       if (mx && d > 3) out.highs.push({ p: Pt, v: pres[i], V: Vt });
     }
   }
@@ -274,7 +301,7 @@ export function chartLines(wx, pres) {
   // typical value: low-level flow runs nearly along the isotherms in this model,
   // so an absolute threshold would call almost every front stationary.
   const traced = bridge(trace(g, T.loc, okF), 0.045).map(chain => {
-    const P = chaikin(relax(chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; }), 4));
+    const P = chaikin(relax(chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; }), 4 * S), cuts(g, 2));
     const V = [];
     const adv = P.map(q => {
       const a = Math.round(q[3]), b = Math.round(q[4]), t = q[5];
@@ -384,7 +411,7 @@ export function chartLines(wx, pres) {
   const q80 = percentile(Q.G, okD, 0.85), tq = percentile(Q.tfp, i => okD(i) && Q.G[i] > q80, 0.4);
   const okDry = i => okD(i) && Q.G[i] > q80 && Q.tfp[i] > tq && T.G[i] < g70;
   for (const chain of trace(g, Q.loc, okDry)) {
-    let P = chaikin(relax(chain.map(c => c.p.slice()), 4));
+    let P = chaikin(relax(chain.map(c => c.p.slice()), 4 * S), cuts(g, 2));
     const pts = new Float32Array(3 * P.length), side = new Float32Array(3 * P.length), V = new Float32Array(3 * P.length);
     P.forEach((q, k) => {
       pts[3 * k] = q[0]; pts[3 * k + 1] = q[1]; pts[3 * k + 2] = q[2];
@@ -397,7 +424,7 @@ export function chartLines(wx, pres) {
   // Troughs and ridges of pressure, and subtropical shear lines (vorticity ridges
   // where temperature barely changes). Troughs that a front already marks aren't
   // drawn twice.
-  const pS = smoothField(g, Float64Array.from(pres), 5);
+  const pS = smoothField(g, Float64Array.from(pres), 5 * S * S);
   const velAt = P => { const V = new Float32Array(P.length * 3); P.forEach((q, k) => V.set(lerp3(vel, Math.round(q[3]), Math.round(q[4]), q[5]), 3 * k)); return V; };
   const pack = P => { const a = new Float32Array(3 * P.length); P.forEach((q, k) => { a[3 * k] = q[0]; a[3 * k + 1] = q[1]; a[3 * k + 2] = q[2]; }); return a; };
   const fronted = (P) => {
@@ -417,7 +444,7 @@ export function chartLines(wx, pres) {
   // The longest of each, so the chart stays readable.
   out.troughs = out.troughs.sort((a, b) => b.P.length - a.P.length).slice(0, 10);
   out.ridges = out.ridges.sort((a, b) => b.P.length - a.P.length).slice(0, 8);
-  const cycV = smoothField(g, Float64Array.from(st.zeta, (z, i) => z * Math.sign(lat[i])), 2);
+  const cycV = smoothField(g, Float64Array.from(st.zeta, (z, i) => z * Math.sign(lat[i])), 2 * S * S);
   const sub = i => Math.abs(lat[i]) > 0.17 && Math.abs(lat[i]) < 0.62 && T.G[i] < 0.5 * g70;
   for (const P of ridgeLines(g, cycV, sub, 0.9)) if (P.length >= 16) out.shear.push({ P: pack(P), V: velAt(P) });
   return out;

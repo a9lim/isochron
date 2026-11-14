@@ -1,17 +1,21 @@
-// Isochron: an Earth-like planet on one globe (docs/PLAN.md). Boots a seeded
-// planet (src/engine/planet.js), spins it up so it opens in motion, and runs
-// it under the dial: plates, plumes and landscape step in banked half-Myr;
-// carbon and ice follow each frame; the climate relaxes toward everything in
-// the background, a few milliseconds a frame.
+// Isochron: an Earth-like planet on one globe (docs/PLAN.md). The planet runs
+// on its own thread (src/engine/worker.js): it boots a seeded planet, spins it
+// up so it opens in motion, and steps it as this page's clock asks (plates,
+// plumes and landscape in banked steps; carbon and ice each frame; the
+// climate's cycles in between), posting back what is drawn. This thread keeps
+// the clock and the dial, runs the weather on the GPU (src/gpu/weather.js),
+// and draws: the globe blends each step's surface into the next, and the
+// lines turn with their plates.
 //
 // Globals from the shared layer: _PALETTE, _themePalette, _colophon,
 // initAboutPanel, initShortcuts, _loadTextFonts.
-import { gradient } from './src/grid/icosphere.js';
-import { Planet } from './src/engine/planet.js';
+import { buildGrid } from './src/grid/icosphere.js';
+import { Record } from './src/engine/record.js';
+import { ClimateView } from './src/engine/mirror.js';
+import { OrbitCycles } from './src/engine/orbit.js';
 import { PARAMS } from './src/engine/plates.js';
 import { CLIMATE, NZ } from './src/engine/climate.js';
 import { CARBON } from './src/engine/carbon.js';
-import { PLUMES } from './src/engine/plumes.js';
 import { Polarity } from './src/engine/polarity.js';
 import { monthName, S0 } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
@@ -21,19 +25,15 @@ import { drawOverlay, turned, morphed, matchLines } from './src/render/overlay.j
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
-import { WEATHER } from './src/engine/weather.js';
-import { chartLines } from './src/render/chart.js';
+import { gpuDevice } from './src/gpu/device.js';
+import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
+import { GpuSeason } from './src/gpu/season.js';
 import { drawKey } from './src/render/key.js';
-import { prolong } from './src/grid/transfer.js';
 
-const RELIEF = 20;            // vertical exaggeration of the hillshade
-const R_KM = 6371;
 const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
-const CLIMATE_MS = 5;         // the climate's share of a frame
-const ICE_MS = 3;             // the ice's
-const WEATHER_MS = 8;         // the weather's, when it runs live
+const WEATHER_GPU_MS = 6;     // the weather's share of the GPU's frame, when it runs live
 const SPINUP_DAYS = 12;       // the weather's spin-up from the climate's state
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
@@ -56,33 +56,32 @@ const els = {
 };
 
 // ── The planet ──
-const P = new Planet(seed);
-const { grid, tec, land, climate, ice, carbon, plumes, weather: wx } = P;
+// Mirrors of the engine's state, as of its last snapshots (src/engine/mirror.js).
+const grid = buildGrid(6);
+const engine = new Worker(new URL('./src/engine/worker.js', import.meta.url), { type: 'module' });
+let tecStats = { plates: 0, land: 0, seaLevel: 0, fastest: 0, meanOceanAge: 0 };
+const tec = { grid, t: 0, seaLevel: 0, elev: new Float32Array(grid.n), plates: [], stats: () => tecStats };
+const climate = new ClimateView(grid);
+const ice = { H: new Float32Array(grid.n), vel: null, stats: { seaLevel: 0, volume: 0 } };
+const carbon = { pco2: 280, flux: { out: 0, weather: 0, lip: 0, burial: 0, oxid: 0 }, wF: 0, wF0: 0, balance: 280 };
+const land = { flux: { eroded: 0, toSea: 0 } };
+const plumes = { hot: [], lips: [] };
+const P = { years: 0, seaLevel0: 0, landBank: 0, record: new Record(), orbit: new OrbitCycles(seed), agg: null, get ocean() { return climate.ocean; } };
+let wx = null;                     // the weather, on the GPU (src/gpu/weather.js), once there is a device
 const polarity = new Polarity(seed);
 const scheduler = new Scheduler([{ name: 'plates', step: PLATE_STEP, budget: 4 }]);
 const camera = new Orbit();
-let climatePending = 3;            // cycles owed while paused (the first is cold)
 
 const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
 let globe = null;
-let surfaceDirty = true, drawDirty = true, climateDirty = true, figuresDirty = true;
+let drawDirty = true, climateDirty = true, figuresDirty = true;
 let lines = null, rivers = null;
-let seaDrawn = tec.seaLevel;
-
-const elevRel = new Float32Array(grid.n);
-const normals = new Float32Array(3 * grid.n);
-const grad = new Float64Array(3 * grid.n);
-const tfDraw = new Float32Array(grid.n), tfTmp = new Float32Array(grid.n);
-const lakeDraw = new Float32Array(grid.n);
-const climDraw = new Float32Array(4 * grid.n);
-const wxDraw = new Float32Array(4 * grid.n);
-const wxFine = new Float64Array(grid.n), wxFine2 = new Float64Array(grid.n), wxEddy = new Float64Array(wx.n);
-const wxFineT = new Float64Array(grid.n), wxFineH = new Float64Array(grid.n), wxRH = new Float64Array(wx.n);
+let elevRel = new Float32Array(grid.n);
+const wxForc = new Float32Array(4 * grid.n), wxMean = new Float32Array(4 * grid.n);
 const wsatW = T => 25 * Math.exp(0.065 * (Math.max(-45, Math.min(45, T)) - 15));
-const areaM2 = Float64Array.from(grid.area, a => a * 6.371e6 * 6.371e6);
 
 function palette() {
   const T = _themePalette();
@@ -93,111 +92,66 @@ function palette() {
   return { canvas: T.canvas, text: T.text, accent: T.accent, ocean: T.ocean, land: T.land, muted: T.textMuted, inks: T.inks, tint, dark };
 }
 
-let lastStepDt = PLATE_STEP, riversSteps = -1, riversT = 0, linesT = 0, surfaceFromStep = false, riversGone = [];
-function refreshSurface() {
-  const Pp = grid.pos, nbrOff = grid.nbrOff, nbr = grid.nbr;
-  // Drawn relief is the model's, eased once toward its neighbours' mean: a
-  // margin then reads as a slope across a cell rather than a stair of hexagons.
-  for (let i = 0; i < grid.n; i++) {
-    let s = 0;
-    const o = nbrOff[i], e = nbrOff[i + 1];
-    for (let t = o; t < e; t++) s += tec.elev[nbr[t]];
-    elevRel[i] = 0.5 * tec.elev[i] + 0.5 * s / (e - o) - tec.seaLevel;
-  }
-  // The deep sea is eased further, so isobaths read as curves, not facets; the
-  // coast and the shelf keep the single easing.
-  for (let pass = 0; pass < 2; pass++) {
-    tfTmp.set(elevRel);
-    for (let i = 0; i < grid.n; i++) {
-      if (tfTmp[i] > -0.4) continue;
-      let s = 0, deep = true;
-      const o = nbrOff[i], e = nbrOff[i + 1];
-      for (let t = o; t < e; t++) { const v = tfTmp[nbr[t]]; if (v > -0.4) { deep = false; break; } s += v; }
-      if (deep) elevRel[i] = 0.4 * tfTmp[i] + 0.6 * s / (e - o);
-    }
-  }
-  gradient(grid, elevRel, grad);
-  for (let i = 0; i < grid.n; i++) {
-    // Land relief at full exaggeration; the sea floor at a third (depth is shown by tint).
-    const k = (elevRel[i] < 0 ? RELIEF / 3 : RELIEF) / R_KM;
-    let x = Pp[3 * i] - k * grad[3 * i], y = Pp[3 * i + 1] - k * grad[3 * i + 1], z = Pp[3 * i + 2] - k * grad[3 * i + 2];
-    const r = Math.hypot(x, y, z);
-    normals[3 * i] = x / r; normals[3 * i + 1] = y / r; normals[3 * i + 2] = z / r;
-  }
-  // Formation times are laid down a step and a cell at a time; eased twice
-  // across each plate's own seafloor, the stripes follow the ridge rather than
-  // the hexagons. Ridges (where two plates meet) stay sharp.
-  tfDraw.set(tec.tf);
-  for (let pass = 0; pass < 2; pass++) {
-    tfTmp.set(tfDraw);
-    for (let i = 0; i < grid.n; i++) {
-      if (tec.phi[i] >= 0.5) continue;
-      let s = 0, c = 0;
-      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-        const j = nbr[t];
-        if (tec.owner[j] !== tec.owner[i] || tec.phi[j] >= 0.5) continue;
-        s += tfTmp[j]; c++;
-      }
-      if (c) tfDraw[i] = 0.5 * tfTmp[i] + 0.5 * s / c;
-    }
-  }
-  // Lakes hold water only where their inflow outpaces evaporation off them (~1 m/yr).
-  // Lakes are drawn from a smoothed depth (signed: dry land below zero), so their
-  // shores are curves like the coast's rather than the grid's hexagons.
-  for (let i = 0; i < grid.n; i++) {
-    const L = land.lake[i];
-    lakeDraw[i] = L > 0 && !(ice.H[i] > 20) ? L * Math.min(1, land.discharge[i] * 3.156e7 / (areaM2[i] * 1.0)) : 0;
-    if (!(lakeDraw[i] > 0.03)) lakeDraw[i] = elevRel[i] > 0 ? -0.05 : 0;
-  }
-  // A lake of one cell would draw as a hexagon (interpolation round one vertex can't
-  // make a curve), so lakes are drawn from two cells up.
-  for (let i = 0; i < grid.n; i++) {
-    if (!(lakeDraw[i] > 0)) continue;
-    let mate = false;
-    for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (lakeDraw[nbr[t]] > 0) { mate = true; break; }
-    if (!mate) lakeDraw[i] = -0.05;
-  }
-  for (let pass = 0; pass < 2; pass++) {
-    tfTmp.set(lakeDraw);
-    for (let i = 0; i < grid.n; i++) {
-      if (elevRel[i] <= 0) continue;
-      let s = 0;
-      const o = nbrOff[i], e = nbrOff[i + 1];
-      for (let t = o; t < e; t++) s += elevRel[nbr[t]] > 0 ? tfTmp[nbr[t]] : -0.05;
-      lakeDraw[i] = 0.4 * tfTmp[i] + 0.6 * s / (e - o);
-    }
+// ── The surface, as the engine posts it ──
+// Each step's surface arrives a little after the dial passed it, and is shown
+// blended in from the last over about as long as the next takes to come.
+let stepYears = PLATE_STEP, stepArrive = -1e9, stepSpan = 100, riversT = 0, linesT = 0, riversGone = [], surfaceMsg = null;
+function onSurface(m) {
+  surfaceMsg = m;
+  tec.t = m.t; tec.seaLevel = m.seaLevel; tec.elev = m.elev; tec.plates = m.plates; tecStats = m.stats;
+  P.landBank = m.landBank;
+  elevRel = m.elevRel;
+  if (m.fromStep) {
+    const now = performance.now(), gap = now - stepArrive;
+    stepYears = m.stepYears;
+    // The blend lasts as long as the dial takes to pass the step, or as long as steps are taking to come.
+    stepSpan = Math.max(16, Math.min(1000, Math.max(1000 * stepYears / rate(), gap < 2000 ? 0.9 * gap : 0)));
+    if (stepOnceAt > now - 500) stepSpan = 1;
+    stepArrive = now;
   }
   // Each new line remembers its predecessor (and when that was traced), to morph from.
   const oldLines = lines, oldT = linesT;
-  lines = traceBoundaries(tec);
+  lines = m.lines;
   linesT = tec.t;
   matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
   for (const l of lines) {
-    if (surfaceFromStep) { l.prevT = oldT; continue; }
+    if (m.fromStep) { l.prevT = oldT; continue; }
     // Retraced without a step (the sea moved; boundaries don't care): the same line,
     // so it carries on morphing from its predecessor's predecessor.
-    const m = l.prev;
-    if (m && m.P.length === l.P.length) { l.prev = m.prev; l.corr = m.corr; l.prevT = m.prevT; }
+    const q = l.prev;
+    if (q && q.P.length === l.P.length) { l.prev = q.prev; l.corr = q.corr; l.prevT = q.prevT; }
     else { l.prev = null; l.corr = null; }
   }
-  if (land.steps !== riversSteps) {
+  if (m.rivers) {
     const old = rivers, oldRT = riversT;
-    rivers = traceRivers(grid, land); riversSteps = land.steps; riversT = tec.t;
+    rivers = m.rivers; riversT = tec.t;
     riversGone = matchLines(old, rivers, r => r.plate, true);
     for (const r of rivers) r.prevT = oldRT;
     for (const r of riversGone) r.goneT = oldRT;
   }
-  seaDrawn = tec.seaLevel;
-  figuresDirty = true;
-  if (!globe) return;
+  figuresDirty = true; drawDirty = true; climateDirty = true;
+  caption(false);
+  if (globe) uploadSurface(m);
+}
+function onFast(m) {
+  for (let k = 0; k < m.samples.length; k += 7) P.record.push(m.samples[k], m.samples.subarray(k + 1, k + 7));
+  ice.H = m.iceH; ice.vel = m.iceVel; ice.stats = m.iceStats;
+  Object.assign(carbon, m.carbon);
+  land.flux = m.landFlux;
+  plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
+  if (m.agg) P.agg = m.agg;
+  if (globe) { globe.setIce(ice.vel); season.setIce(ice.H); climateDirty = true; }
+  if (!playing) drawDirty = true;
+}
+function uploadSurface(m) {
   const T0 = globe.polarityOrigin;
   if (!polarityReady || tec.t > T0 + POL_SPAN - 10) {
     const origin = tec.t - (POL_SPAN - 60);
     globe.setPolarity(polarity.table(origin, POL_DT, Math.ceil(POL_SPAN / POL_DT)), origin, POL_DT);
     polarityReady = true;
   }
-  globe.setFields(elevRel, tfDraw, tec.phi, lakeDraw, normals, surfaceFromStep);
-  surfaceFromStep = false;
+  globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.lakeDraw, m.normals, m.fromStep);
+  season.setSurface(m.elevRel);
 }
 let polarityReady = false;
 
@@ -206,144 +160,93 @@ let polarityReady = false;
 // clock; above a few tens it shows the year's average (the share of it under
 // snow or ice). Between, it blends.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, iceFrame = 0;
-// Snow and ice are drawn smoothed (their edges are then curves, and one-cell patches
-// melt away) and eased over ~0.8 s when the climate updates, so they don't jump.
-const coldRaw = new Float32Array(grid.n), coldShown = new Float32Array(grid.n), coldFrom = new Float32Array(grid.n), coldTmp = new Float32Array(grid.n);
-const iceShown = new Float32Array(grid.n);
-let coldEaseStart = -1e9;
-function smoothCells(f, passes) {
-  const nbrOff = grid.nbrOff, nbr = grid.nbr;
-  for (let p = 0; p < passes; p++) {
-    coldTmp.set(f);
-    for (let i = 0; i < grid.n; i++) {
-      let s = 0;
-      const o = nbrOff[i], e = nbrOff[i + 1];
-      for (let t = o; t < e; t++) s += coldTmp[nbr[t]];
-      f[i] = 0.4 * coldTmp[i] + 0.6 * s / (e - o);
-    }
-  }
-}
+let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, coldEaseStart = -1e9, season = null;
 function refreshClimate(force) {
-  const tau = ((P.years % 1) + 1) % 1;
+  if (!season) return;
+  const tau = ((P.years % 1) + 1) % 1, nowMs = performance.now();
   const sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
   const moved = Math.abs(tau - seasonDrawn) > 1 / 240 || Math.abs(sw - seasonWeightDrawn) > 0.02;
-  const iceTick = playing && ++iceFrame % 6 === 0;
-  const easing = performance.now() - coldEaseStart < 900;
-  if (!force && !moved && !iceTick && !easing && climate.version === climateVersionDrawn) return;
-  const L = CLIMATE.LAPSE;
-  for (let i = 0; i < grid.n; i++) {
-    let cold = climate.snowAnn[i];
-    if (sw > 0.001) {
-      const T = climate.tAt(i, tau);
-      const now = climate.landMask[i] ? smooth(-1, 5, -(T - L * climate.elevPos[i])) : smooth(1.5, 6, -T);
-      cold = sw * now + (1 - sw) * cold;
-    }
-    // Land newly dry or drowned since the climate last saw it takes no snow or ice.
-    if ((elevRel[i] > 0) !== (climate.landMask[i] === 1) && !(ice.H[i] > 0)) cold = 0;
-    coldRaw[i] = cold;
+  const easing = nowMs - coldEaseStart < 900;
+  if (!force && !moved && !easing && climate.version === climateVersionDrawn) return;
+  if (climate.version !== climateVersionDrawn) {
+    season.setClimate(climate);
+    if (climateVersionDrawn >= 0) coldEaseStart = nowMs;
+    globe.setZones(climate.zones);
+    figuresDirty = true;
+    climateVersionDrawn = climate.version;
   }
-  smoothCells(coldRaw, 2);
-  const nowMs = performance.now();
-  if (climate.version !== climateVersionDrawn && climateVersionDrawn >= 0) { coldFrom.set(coldShown); coldEaseStart = nowMs; }
-  const ease = smooth(0, 1, (nowMs - coldEaseStart) / 800);
-  for (let i = 0; i < grid.n; i++) coldShown[i] = coldFrom[i] + ease * (coldRaw[i] - coldFrom[i]);
-  if (ease >= 1) coldFrom.set(coldShown);
-  for (let i = 0; i < grid.n; i++) iceShown[i] = ice.H[i];
-  smoothCells(iceShown, 2);
-  for (let i = 0; i < grid.n; i++) {
-    climDraw[4 * i] = coldShown[i];
-    climDraw[4 * i + 1] = climate.Tf[0][i] + P.ocean.sst[i];
-    climDraw[4 * i + 2] = P.ocean.psi[i] / 1e6;
-    climDraw[4 * i + 3] = iceShown[i];
-  }
+  season.draw(tau, sw, CLIMATE.LAPSE, smooth(0, 1, (nowMs - coldEaseStart) / 800));
   seasonDrawn = tau; seasonWeightDrawn = sw;
-  if (globe) {
-    globe.setClimate(climDraw);
-    globe.setIce(ice.vel);
-    if (climate.version !== climateVersionDrawn) globe.setZones(climate.zones);
-  }
-  if (climate.version !== climateVersionDrawn) figuresDirty = true;
-  climateVersionDrawn = climate.version;
   drawDirty = true;
 }
 
 // ── The weather ──
-// Runs only while its view is shown. It starts from the climate at the
-// season, spins up for ~12 days, then steps in real time within a budget; when
-// the dial outruns it the chart crossfades to the climate's mean (the
-// template's pressure and the mean rain), which is what weather averages to.
-let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastChart = 0, lastWxDraw = 0;
-const wxTmp = new Float64Array(grid.n);
-function smoothFine(f, passes) {
-  const nbrOff = grid.nbrOff, nbr = grid.nbr;
-  for (let p = 0; p < passes; p++) {
-    wxTmp.set(f);
-    for (let i = 0; i < grid.n; i++) {
-      let s = 0;
-      const o = nbrOff[i], e = nbrOff[i + 1];
-      for (let t = o; t < e; t++) s += wxTmp[nbr[t]];
-      f[i] = 0.4 * wxTmp[i] + 0.6 * s / (e - o);
-    }
-  }
-}
-const wxP = new Float64Array(grid.n);
+// Runs on the GPU (src/gpu/weather.js) only while its view is shown. It
+// starts from the climate at the season, spins up for ~12 days, then steps
+// with the dial within a share of the GPU's frame; when the dial outruns it
+// the globe crossfades to the climate's mean (the template's pressure and the
+// mean rain), which is what weather averages to. A kernel writes the globe's
+// weather fields each frame; the chart is read back and traced in a worker.
+let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastChart = 0, lastMean = -1e9, chartBusy = false;
+const SPINUP = SPINUP_DAYS * 86400;
+const chartWorker = new Worker(new URL('./src/render/chart-worker.js', import.meta.url), { type: 'module' });
+chartWorker.postMessage({ type: 'init', level: grid.level });
+chartWorker.onmessage = e => { chart = e.data; chartBusy = false; drawDirty = true; };
+chartWorker.onerror = e => { console.warn('[isochron] chart:', e.message); chartBusy = false; };
 function weatherLive() {
   // Fully live below ~3 days a second, the climate's mean above ~30.
   return 1 - smooth(Math.log10(3 / 365.25), Math.log10(30 / 365.25), Math.log10(rate()));
 }
-function stepWeather(advYears, now) {
-  if (climate.stats.cycles < 2) return;     // the weather starts from a warm climate
+function wxForcing(tau) {
+  if (Math.abs(tau - wxSeason) <= 1 / 120 && climate.version === wxVersion) return;
+  wx.setForcing(wxForc, weatherForcing(climate, tau, wxForc));
+  wxSeason = tau; wxVersion = climate.version;
+}
+function stepWeather(advYears) {
+  if (!wx || climate.stats.cycles < 2) return;     // the weather starts from a warm climate
   const tau = ((P.years % 1) + 1) % 1;
-  if (!wx.started) { wx.start(tau); wxSeason = tau; wxVersion = climate.version; }
-  if (Math.abs(tau - wxSeason) > 1 / 120 || climate.version !== wxVersion) { wx.forcing(tau); wxSeason = tau; wxVersion = climate.version; }
-  const t0 = performance.now();
-  if (wx.t < SPINUP_DAYS * 86400) {
-    while (performance.now() - t0 < 24 && wx.t < SPINUP_DAYS * 86400) wx.step();
-  } else {
+  wxForcing(tau);
+  if (!wx.started) { wx.start(); wxBehind = 0; chartWorker.postMessage({ type: 'reset' }); }
+  const budget = Math.max(1, Math.floor(WEATHER_GPU_MS / Math.max(0.02, wx.msPerStep)));
+  if (wx.t < SPINUP) wx.advance(Math.min(Math.ceil((SPINUP - wx.t) / wx.dt), 3 * budget));
+  else {
     wxBehind = Math.min(2 * 86400, wxBehind + advYears * 3.156e7);
-    while (wxBehind >= WEATHER.DT && performance.now() - t0 < WEATHER_MS) { wx.step(); wxBehind -= WEATHER.DT; }
-    if (wxBehind > 86400) wxBehind = 86400;    // what it couldn't keep up with is dropped
+    const k = Math.min(Math.floor(wxBehind / wx.dt), budget);
+    wx.advance(k);
+    wxBehind = Math.min(86400, wxBehind - k * wx.dt);    // what it couldn't keep up with is dropped
   }
 }
 function refreshWeather(force) {
-  const nowMs = performance.now();
-  if (!force && nowMs - lastWxDraw < 100) return;
-  lastWxDraw = nowMs;
-  const tau = ((P.years % 1) + 1) % 1;
-  const spun = wx.started ? Math.min(1, wx.t / (SPINUP_DAYS * 86400)) : 0;
+  if (!wx || !globe) return;
+  const tau = ((P.years % 1) + 1) % 1, nowMs = performance.now();
+  wxForcing(tau);
+  const spun = wx.started ? Math.min(1, wx.t / SPINUP) : 0;
   wxLive = spun >= 1 ? weatherLive() : 0;
-  if (wx.started && wxLive > 0) {
-    wx.eddyPressure(wxEddy);
-    prolong(climate.T, wxEddy, wxFine);
-    prolong(climate.T, wx.rain, wxFine2);
-    prolong(climate.T, wx.theta, wxFineT);
-    for (let i = 0; i < wx.n; i++) wxRH[i] = Math.min(1.2, wx.qv[i] / wsatW(wx.theta[i]));
-    prolong(climate.T, wxRH, wxFineH);
+  // The climate's own pressure, rain, temperature and humidity at the season, for the blend.
+  if (force || nowMs - lastMean > 100) {
+    lastMean = nowMs;
+    const ph = Math.min(5, Math.max(0, Math.round(tau * 6 - 0.5))), Wc = climate.W[ph], L = CLIMATE.LAPSE;
+    for (let i = 0; i < grid.n; i++) {
+      const Tsl = climate.tAt(i, tau);
+      wxMean[4 * i] = climate.presAt(i, tau);
+      wxMean[4 * i + 1] = climate.pAt(i, tau);
+      wxMean[4 * i + 2] = Tsl;
+      wxMean[4 * i + 3] = Wc[i] / wsatW(Tsl - L * climate.elevPos[i]);
+    }
+    wx.setMean(wxMean);
   }
-  // The climate's own temperature and humidity at the season, for the mean chart.
-  const ph = Math.min(5, Math.max(0, Math.round(tau * 6 - 0.5))), Wc = climate.W[ph];
-  // Pressure is drawn smoothed: isobars on the grid's cells would stair-step.
-  for (let i = 0; i < grid.n; i++) wxP[i] = climate.presAt(i, tau) + wxLive * wxFine[i];
-  smoothFine(wxP, 3);
-  const L = CLIMATE.LAPSE;
-  for (let i = 0; i < grid.n; i++) {
-    const Tsl = climate.tAt(i, tau), lapse = L * climate.elevPos[i];
-    wxDraw[4 * i] = wxP[i];
-    wxDraw[4 * i + 1] = (1 - wxLive) * climate.pAt(i, tau) + wxLive * wxFine2[i];
-    wxDraw[4 * i + 2] = (1 - wxLive) * Tsl + wxLive * wxFineT[i] - lapse;
-    wxDraw[4 * i + 3] = Math.min(1, (1 - wxLive) * Wc[i] / wsatW(Tsl - lapse) + wxLive * wxFineH[i]);
-  }
-  if (globe) globe.setWeather(wxDraw);
-  const now = performance.now();
-  if (wxLive > 0 && now - lastChart > 150) {
-    lastChart = now;
-    const pc = new Float64Array(wx.n);
-    for (let i = 0; i < wx.n; i++) pc[i] = 0;
-    // The chart's highs and lows on the coarse grid: the template's belts plus the storms.
-    const T = climate.T;
-    for (let i = 0; i < wx.n; i++) pc[i] = climate.presAt(i, tau) + wxEddy[i];   // coarse cells are the fine grid's first
-    chart = chartLines(wx, pc);
+  wx.draw(globe.wxBuffer, wxLive);
+  // The chart: one read and one trace in flight at a time.
+  if (wxLive > 0 && !chartBusy && nowMs - lastChart > 120) {
+    lastChart = nowMs; chartBusy = true;
+    wx.read().then(r => {
+      if (!r) { chartBusy = false; return; }
+      // A blown-up run (an experiment far outside the model's range) starts again from the climate.
+      if (!r.psi2.every(Number.isFinite)) { wx.started = false; chartBusy = false; chart = null; return; }
+      const pres = new Float32Array(grid.n), landF = new Float32Array(grid.n);
+      for (let i = 0; i < grid.n; i++) { pres[i] = climate.presAt(i, tau); landF[i] = climate.landMask[i]; }
+      chartWorker.postMessage({ type: 'chart', ...r, pres, land: landF }, [r.psi2.buffer, r.theta.buffer, r.qv.buffer, pres.buffer, landF.buffer]);
+    }, () => { chartBusy = false; });
   }
   drawDirty = true;
 }
@@ -407,7 +310,7 @@ const pct = v => `${Math.round(v)}%`;
 const EXPERIMENTS = [
   { id: 'earth', name: 'Earth-like', dial: 6, view: 'relief' },
   { id: 'snowball', name: 'Snowball', dial: 4, view: 'relief',
-    setup: () => { CARBON.FIXED = Math.round(carbon.pco2); },
+    setup: () => { CARBON.FIXED = 'now'; },
     knob: { label: 'Sunlight', min: 82, max: 106, step: 0.5, value: 100, fmt: v => `${(+v).toFixed(1)}%`, apply: v => { CLIMATE.S = S0 * v / 100; } } },
   { id: 'iceages', name: 'Ice ages', dial: 4, view: 'relief',
     knob: { label: 'CO₂', min: 150, max: 450, step: 5, value: 220, fmt: v => `${v} ppm`, apply: v => { CARBON.FIXED = +v; } } },
@@ -426,6 +329,11 @@ function chooseExperiment(id) {
   if (id === 'earth') q.delete('exp'); else q.set('exp', id);
   location.search = q.toString();
 }
+/** The experiments' parameters, as the engine's thread holds them. */
+function params() {
+  return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX } };
+}
+function sendParams() { if (engineStarted) engine.postMessage({ type: 'params', params: params() }); }
 function defaults() {
   CLIMATE.S = S0; CARBON.FIXED = 0; CARBON.OUTGAS = 1;
   Object.assign(PARAMS, BASE);
@@ -446,7 +354,7 @@ function setExperiment(id) {
   setDial(experiment.dial);
   setView(experiment.view);
   for (const b of els.experiments.querySelectorAll('.exp-btn')) b.setAttribute('aria-pressed', b.dataset.exp === experiment.id ? 'true' : 'false');
-  climatePending = Math.max(climatePending, 2);
+  sendParams();
   setPlaying(true);
   caption(true);
 }
@@ -455,7 +363,7 @@ els.knobInput.addEventListener('input', () => {
   if (!k) return;
   els.knobOut.textContent = k.fmt(els.knobInput.value);
   k.apply(+els.knobInput.value);
-  climatePending = Math.max(climatePending, 2);
+  sendParams();
   caption(true);
 });
 for (const e of EXPERIMENTS) {
@@ -516,11 +424,11 @@ function caption(force) {
   const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? `Weather, ${wxMode}` : 'Relief', formatTime(P.years)];
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (view === 'weather') {
-    const spun = wx.started ? Math.min(1, wx.t / (SPINUP_DAYS * 86400)) : 0;
-    if (spun < 1 && wx.started) parts.push('spinning up');
+    const spun = wx && wx.started ? Math.min(1, wx.t / SPINUP) : 0;
+    if (spun < 1 && wx && wx.started) parts.push('spinning up');
     else if (wxLive > 0.5 && chart) {
       const nf = chart.fronts.length, nd = chart.dry.length;
-      parts.push(`${chart.lows.length} lows`, `${chart.highs.length} highs`, `${nf} ${nf === 1 ? 'front' : 'fronts'}`, `${nd} dry ${nd === 1 ? 'line' : 'lines'}`, `wind to ${Math.round(wx.stats.maxWind)} m/s`);
+      parts.push(`${chart.lows.length} lows`, `${chart.highs.length} highs`, `${nf} ${nf === 1 ? 'front' : 'fronts'}`, `${nd} dry ${nd === 1 ? 'line' : 'lines'}`, `wind to ${Math.round(chart.maxWind || 0)} m/s`);
     } else parts.push('the climate’s mean pressure and rain');
     setCaption(parts.join(' · '), true);
     return;
@@ -529,7 +437,7 @@ function caption(force) {
   const cs = climate.stats;
   if (experiment.id === 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
   if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${Math.round(ice.stats.seaLevel)} m of sea`, p ? `period ${p} kyr` : 'period —'); }
-  if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.equilibrium(carbon.flux.out))} ppm`);
+  if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.balance)} ppm`);
   if (view === 'climate') {
     const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
@@ -550,15 +458,7 @@ function caption(force) {
 // ── Fig. 7: the model, with its live fluxes ──
 function modelSnapshot() {
   const cs = climate.stats, z = climate.zonal, cf = carbon.flux, st = tec.stats();
-  let snow = 0, iceArea = 0, run = 0, la = 0, hiLand = 0, sstLo = 0, sstHi = 0, bShare = 0;
-  for (let i = 0; i < grid.n; i++) {
-    const a = areaM2[i];
-    if (ice.H[i] > 0 && ice.M[i] > 0) snow += ice.M[i] * a;
-    if (ice.H[i] > 20) iceArea += a;
-    if (climate.landMask[i]) { run += climate.runoff[i] * a; la += a; bShare += a * (climate.zones[NZ * i + 4] + climate.zones[NZ * i + 5]); }
-    hiLand = Math.max(hiLand, tec.elev[i] - tec.seaLevel);
-    if (P.ocean.sea[i]) { sstLo = Math.min(sstLo, P.ocean.sst[i]); sstHi = Math.max(sstHi, P.ocean.sst[i]); }
-  }
+  const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
   const dT = z ? z.T[45] - 0.5 * (z.T[15] + z.T[75]) : 40;
   const forcing = 5.35 * Math.log(carbon.pco2 / CARBON.PCO2_0);
   const s65 = P.orbit.summer65(P.years / 1000);
@@ -569,7 +469,7 @@ function modelSnapshot() {
     values: {
       climate: `${cs.meanT.toFixed(1)} °C`, carbon: `${Math.round(carbon.pco2)} ppm`, ice: `${(ice.stats.volume / 1e15).toFixed(1)} M km³`,
       sea: `${sea > 0 ? '+' : sea < 0 ? '−' : ''}${Math.abs(sea)} m`, plates: `${st.plates} plates`, plumes: `${plumes.hot.length} hotspots`,
-      ocean: `${P.ocean.stats.maxSv.toFixed(0)} Sv`, weather: wx.started && chart ? `${chart.lows.length} lows` : 'idle',
+      ocean: `${P.ocean.stats.maxSv.toFixed(0)} Sv`, weather: wx && wx.started && chart ? `${chart.lows.length} lows` : 'idle',
       orbit: `tilt ${(P.orbit.at(P.years / 1000).obliquity * 180 / Math.PI).toFixed(1)}°`,
       landscape: `${land.flux.eroded.toFixed(1)} km³/yr`, zones: `B ${Math.round(100 * bShare / (la || 1))}%`,
     },
@@ -684,20 +584,14 @@ let colophon = null;
 function setPlaying(p) {
   playing = p;
   if (colophon) colophon.setPlaying(p);
+  engine.postMessage({ type: 'play', playing: p });
 }
-function stepPlates(dt) {
-  P.plateStep(dt);
-  lastStepDt = dt;
-  surfaceFromStep = true;
-  climatePending = Math.max(climatePending, 1);
-  surfaceDirty = true;
-}
+let stepOnceAt = -1e9;
 function stepOnce() {
   setPlaying(false);
   P.years += PLATE_STEP;
-  stepPlates(PLATE_STEP);
-  surfaceFromStep = false;                  // a single step shows at once
-  scheduler.layers[0].bank = 0.999 * scheduler.layers[0].step;
+  stepOnceAt = performance.now();           // a single step shows at once
+  engine.postMessage({ type: 'tick', adv: PLATE_STEP, steps: [PLATE_STEP], window: rate() * 2 });
 }
 function nudgeDial(d) {
   setDial(Math.min(+els.dial.max, Math.max(+els.dial.min, +els.dial.value + d)));
@@ -753,40 +647,47 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── The loop ──
-let last = performance.now(), lastSeaCheck = 0;
+let last = performance.now();
 function frame(now) {
+  tick(now);
+  requestAnimationFrame(frame);
+}
+// Where the frame's time goes, in ms (an exponential mean), for tuning: __isochron.prof.
+const prof = {};
+let profT = 0;
+const lap = k => { const t = performance.now(); prof[k] = 0.95 * (prof[k] || 0) + 0.05 * (t - profT); profT = t; };
+function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  profT = performance.now();
   if (playing) {
     // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr.
     scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10));
     const { dt: adv, plan } = scheduler.advance(rate() * dt);
     P.years += adv;
     const p = plan[0];
-    for (let s = 0; s < p.steps; s++) stepPlates(p.step);
-    // The orbit the climate sees, averaged over what the dial passes in ~2 s.
-    P.setOrbit(rate() * 2);
-    P.fast(adv, ICE_MS);
-    P.record.push(P.years, P.sample());
-    if (view === 'weather') stepWeather(adv, now);
-    // Ice moves the sea; redraw the coast when it has moved a few metres.
-    if (now - lastSeaCheck > 250) { lastSeaCheck = now; if (Math.abs(tec.seaLevel - seaDrawn) > 0.004) surfaceDirty = true; }
+    // The engine's tick: the years, the plate steps, and the orbit the climate sees
+    // (averaged over what the dial passes in ~2 s).
+    if (engineStarted) engine.postMessage({ type: 'tick', adv, steps: Array(p.steps).fill(p.step), window: rate() * 2 });
+    if (view === 'weather') stepWeather(adv);
     figuresDirty = true;
     drawDirty = true;
   }
-  if (surfaceDirty) { refreshSurface(); surfaceDirty = false; drawDirty = true; climateDirty = true; caption(false); }
-  if ((playing || climatePending > 0) && P.climateWork(CLIMATE_MS)) { climatePending = Math.max(0, climatePending - 1); climateDirty = true; }
+  lap('weather');
   if (climateDirty || playing || performance.now() - coldEaseStart < 900) { refreshClimate(climateDirty); climateDirty = false; }
-  if (view === 'weather' && (playing || !wx.started || wx.t < SPINUP_DAYS * 86400)) { if (!playing) stepWeather(0, now); refreshWeather(); }
+  lap('season');
+  if (view === 'weather' && wx && (playing || !wx.started || wx.t < SPINUP)) { if (!playing) stepWeather(0); refreshWeather(); }
   if (playing) caption(false);
+  lap('chart');
   if (figuresDirty) figures(false);
+  lap('figures');
   if (drawDirty && globe && !globe.lost) {
     const pal = palette();
-    const pl = { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) };
     // Between steps the globe shows the blend of the last two states, and the
     // lines turn with their plates to the same moment.
-    const L0 = scheduler.layers[0], phi = Math.min(1, Math.max(0, L0.bank / L0.step));
-    const tShow = tec.t - (1 - phi) * lastStepDt / 1e6;
+    const phi = Math.min(1, Math.max(0, (performance.now() - stepArrive) / stepSpan));
+    if (phi < 1) drawDirty = true;
+    const tShow = tec.t - (1 - phi) * stepYears / 1e6;
     // Each line is turned with its plates to the shown moment and morphed from its
     // predecessor's course (rivers over the landscape's own step).
     if (lines) for (const ln of lines) {
@@ -797,7 +698,7 @@ function frame(now) {
       ln.shownL = turned(ln.L, w, tShow - linesT);
     }
     if (rivers) {
-      const phiL = Math.min(1, ((P.landBank || 0) + phi * lastStepDt) / 2.5e5);
+      const phiL = Math.min(1, ((P.landBank || 0) + phi * stepYears) / 2.5e5);
       for (const rv of rivers) {
         const pl = tec.plates[rv.plate];
         rv.alpha = rv.prev ? 1 : phiL;           // a river with no predecessor fades in
@@ -811,18 +712,39 @@ function frame(now) {
         rv.shown = pl && pl.alive ? turned(rv.P, pl.w, tShow - rv.goneT) : rv.P;
       }
     }
+    lap('lines');
     globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi });
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes: pl, view, chart, chartFade: wxLive, wxNow: wx.t }, pal);
-    drawDirty = false;
+    lap('globe');
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart, chartFade: wxLive, wxNow: wx ? wx.t : 0 }, pal);
+    if (phi >= 1) drawDirty = false;
+    lap('overlay');
   }
-  requestAnimationFrame(frame);
 }
 
-if (query.get('exp')) setExperiment(query.get('exp'));
+// ── The engine's snapshots ──
+let engineStarted = false;
+engine.onmessage = e => {
+  const m = e.data;
+  if (m.type === 'ready') {
+    P.seaLevel0 = m.seaLevel0; P.years = m.years; carbon.pco2 = m.pco2;
+  } else if (m.type === 'surface') onSurface(m);
+  else if (m.type === 'climate') { climate.update(m); climateDirty = true; figuresDirty = true; caption(false); }
+  else if (m.type === 'fast') onFast(m);
+};
+engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
-createGlobe(els.gpu, grid).then(g => {
+if (query.get('exp')) setExperiment(query.get('exp'));
+engine.postMessage({ type: 'init', seed, params: params() });
+engineStarted = true;
+engine.postMessage({ type: 'play', playing });
+
+gpuDevice().then(device => createGlobe(els.gpu, grid, device)).then(g => {
   globe = g;
-  surfaceDirty = true; climateDirty = true;
+  season = new GpuSeason(g.device, grid, g.climBuffer);
+  wx = new GpuWeather(g.device, grid, seed);
+  if (view === 'weather') refreshWeather(true);
+  if (surfaceMsg) uploadSurface(surfaceMsg);
+  climateDirty = true;
   climateVersionDrawn = -1;
   caption(true);
 }).catch(err => {
@@ -832,4 +754,4 @@ createGlobe(els.gpu, grid).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, grid, tec, land, climate, ice, carbon, plumes, wx, polarity, camera, scheduler, setPlaying, setView, setExperiment, get chart() { return chart; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, tick, prof, get chart() { return chart; } };
