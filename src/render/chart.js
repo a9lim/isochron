@@ -9,11 +9,16 @@
 //              where it barely moves. Symbols point the way the front moves.
 //   dry lines  over land, where moisture changes sharply and temperature
 //              doesn't: the same tracer on the column's water
+//   occluded   the stretch of a front within ~500 km of a deep low, where the
+//              cold front has caught the warm one and lifted it
 //   H and L    pressure's local extremes, two rings wide
-// Each line is chained from its triangle segments, smoothed, and kept if long
-// enough to read.
+// Each line is chained from its triangle segments, bridged where two pieces'
+// ends meet and line up, smoothed, and kept if long enough to read. The fields
+// and thresholds behind them are averaged over successive charts (about a
+// quarter of a model day each at a day a second), so fronts move rather than
+// flicker.
 
-export const COLD = 1, WARM = 2, STATIONARY = 3, DRY = 4;
+export const COLD = 1, WARM = 2, STATIONARY = 3, DRY = 4, OCCLUDED = 5;
 
 function smoothField(g, f, passes) {
   const n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, t = new Float64Array(n);
@@ -109,6 +114,34 @@ function trace(g, loc, ok) {
   return lines;
 }
 
+/** Join chains whose ends meet (within `gap` rad) and line up; chains are arrays of {p}. */
+function bridge(chains, gap) {
+  const P = c => c.p, d3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const dir = (a, b) => { const v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], m = Math.hypot(...v) || 1; return v.map(x => x / m); };
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let a = 0; a < chains.length; a++) {
+      for (let b = 0; b < chains.length; b++) {
+        if (a === b) continue;
+        for (const flipB of [false, true]) {
+          const A = chains[a], B = flipB ? chains[b].slice().reverse() : chains[b];
+          const ae = P(A[A.length - 1]), bs = P(B[0]);
+          if (d3(ae, bs) > gap) continue;
+          const tA = dir(P(A[A.length - 2]), ae), tB = dir(bs, P(B[1])), tj = dir(ae, bs);
+          if (dot(tA, tB) < 0.3 || (d3(ae, bs) > 1e-6 && dot(tA, tj) < 0.2)) continue;
+          chains[a] = A.concat(B);
+          chains.splice(b, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return chains;
+}
+
 function chaikin(P, passes = 2) {
   for (let p = 0; p < passes; p++) {
     if (P.length < 3) break;
@@ -137,27 +170,67 @@ const lerp3 = (F, a, b, t) => [F[3 * a] + t * (F[3 * b] - F[3 * a]), F[3 * a + 1
 export function chartLines(wx, pres) {
   const g = wx.grid, n = g.n, lat = wx.lat;
   const out = { fronts: [], dry: [], highs: [], lows: [] };
-  const vel = wx.wind();
+  const vNow = wx.wind();
+  // Successive charts are averaged: the fields, and below, the thresholds.
+  const st = wx.chartState || (wx.chartState = { th: Float64Array.from(wx.theta), qv: Float64Array.from(wx.qv), v: Float64Array.from(vNow), zeta: Float64Array.from(wx.zeta2), thr: null });
+  for (let i = 0; i < n; i++) { st.th[i] = 0.5 * (st.th[i] + wx.theta[i]); st.qv[i] = 0.5 * (st.qv[i] + wx.qv[i]); st.zeta[i] = 0.5 * (st.zeta[i] + wx.zeta2[i]); }
+  for (let i = 0; i < 3 * n; i++) st.v[i] = 0.5 * (st.v[i] + vNow[i]);
+  const vel = st.v;
+  // Highs and lows first: the occlusions are found near the deep lows.
+  const lowsDeep = [];
+  {
+    const { nbrOff, nbr, pos } = g;
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(lat[i]) < 0.26) continue;
+      let mn = true, mx = true, s = 0, c = 0;
+      for (let k = nbrOff[i], e = nbrOff[i + 1]; k < e; k++) {
+        const j = nbr[k];
+        for (let k2 = nbrOff[j], e2 = nbrOff[j + 1]; k2 < e2; k2++) {
+          const m = nbr[k2];
+          if (m === i) continue;
+          if (pres[m] <= pres[i]) mn = false;
+          if (pres[m] >= pres[i]) mx = false;
+          s += pres[m]; c++;
+        }
+      }
+      const d = pres[i] - s / c;
+      const Pt = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]];
+      if (mn && d < -3) { out.lows.push({ p: Pt, v: pres[i] }); if (d < -4) lowsDeep.push(Pt); }
+      if (mx && d > 3) out.highs.push({ p: Pt, v: pres[i] });
+    }
+  }
   // Fronts on the surface temperature.
-  const T = locate(g, wx.theta);
+  const T = locate(g, st.th);
   const mid = i => Math.abs(lat[i]) > 0.35 && Math.abs(lat[i]) < 1.35;
-  const g70 = percentile(T.G, mid, 0.74), t60 = percentile(T.tfp, i => mid(i) && T.G[i] > g70, 0.4);
+  const raw = { g: percentile(T.G, mid, 0.74) };
+  raw.t = percentile(T.tfp, i => mid(i) && T.G[i] > raw.g, 0.4);
+  st.thr = st.thr ? { g: 0.7 * st.thr.g + 0.3 * raw.g, t: 0.7 * st.thr.t + 0.3 * raw.t } : raw;
+  const g70 = st.thr.g, t60 = st.thr.t;
   // Fronts lie in troughs: the low-level flow turns cyclonically there.
-  const cyc = i => wx.zeta2[i] * Math.sign(lat[i]) > 0;
+  const cyc = i => st.zeta[i] * Math.sign(lat[i]) > 0;
   const okF = i => mid(i) && T.G[i] > g70 && T.tfp[i] > t60 && cyc(i);
-  for (const chain of trace(g, T.loc, okF)) {
-    let P = chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; });
-    P = chaikin(P);
+  // The wind across each front point; fronts are typed against this chart's own
+  // typical value: low-level flow runs nearly along the isotherms in this model,
+  // so an absolute threshold would call almost every front stationary.
+  const traced = bridge(trace(g, T.loc, okF), 0.045).map(chain => {
+    const P = chaikin(chain.map(c => { const [x, y, z, a, b, t] = c.p; return [x, y, z, a, b, t]; }));
+    const adv = P.map(q => {
+      const a = Math.round(q[3]), b = Math.round(q[4]), t = q[5];
+      const nh = lerp3(T.nh, a, b, t), v = lerp3(vel, a, b, t);
+      return v[0] * nh[0] + v[1] * nh[1] + v[2] * nh[2];   // > 0: wind from cold toward warm
+    });
+    return { P, adv };
+  });
+  const allAdv = traced.flatMap(f => f.adv.map(Math.abs)).sort((x, y) => x - y);
+  const rawCut = allAdv.length ? 0.45 * allAdv[allAdv.length >> 1] : 1;
+  st.cut = st.cut ? 0.7 * st.cut + 0.3 * rawCut : rawCut;
+  for (const { P, adv } of traced) {
     const pts = new Float32Array(3 * P.length), side = new Float32Array(3 * P.length), type = new Uint8Array(P.length);
-    let ncold = 0, nwarm = 0;
     P.forEach((q, k) => {
       pts[3 * k] = q[0]; pts[3 * k + 1] = q[1]; pts[3 * k + 2] = q[2];
       const a = Math.round(q[3]), b = Math.round(q[4]), t = q[5];
-      const nh = lerp3(T.nh, a, b, t), v = lerp3(vel, a, b, t);
-      const adv = v[0] * nh[0] + v[1] * nh[1] + v[2] * nh[2];   // > 0: wind from cold toward warm
-      const ty = adv > 1.2 ? COLD : adv < -1.2 ? WARM : STATIONARY;
-      type[k] = ty;
-      if (ty === COLD) ncold++; else if (ty === WARM) nwarm++;
+      const nh = lerp3(T.nh, a, b, t);
+      type[k] = adv[k] > st.cut ? COLD : adv[k] < -st.cut ? WARM : STATIONARY;
       side[3 * k] = nh[0]; side[3 * k + 1] = nh[1]; side[3 * k + 2] = nh[2];   // toward the warm air, for now
     });
     // Runs: a front's type reads in stretches, not point by point. A majority over
@@ -175,6 +248,12 @@ export function chartLines(wx, pres) {
       k = e;
     }
     type.set(maj);
+    // Occlusion: the stretch near a deep low.
+    for (let q = 0; q < M; q++) {
+      for (const L of lowsDeep) {
+        if (P[q][0] * L[0] + P[q][1] * L[1] + P[q][2] * L[2] > Math.cos(0.1)) { type[q] = OCCLUDED; break; }
+      }
+    }
     // Symbols point where the front moves: toward the warm air for a cold front, the cold for a warm one.
     for (let q = 0; q < M; q++) if (type[q] === WARM) { side[3 * q] *= -1; side[3 * q + 1] *= -1; side[3 * q + 2] *= -1; }
     // A front's symbols keep to one side through each run: the side's majority there.
@@ -192,7 +271,7 @@ export function chartLines(wx, pres) {
     out.fronts.push({ P: pts, side, type });
   }
   // Dry lines: over land, moisture sharp and temperature not.
-  const Q = locate(g, wx.qv);
+  const Q = locate(g, st.qv);
   const okD = i => wx.land[i] > 0.6 && Math.abs(lat[i]) > 0.2 && Math.abs(lat[i]) < 0.9;
   const q80 = percentile(Q.G, okD, 0.85), tq = percentile(Q.tfp, i => okD(i) && Q.G[i] > q80, 0.4);
   const okDry = i => okD(i) && Q.G[i] > q80 && Q.tfp[i] > tq && T.G[i] < g70;
@@ -206,26 +285,6 @@ export function chartLines(wx, pres) {
     });
     out.dry.push({ P: pts, side });
   }
-  // Highs and lows: extremes over two rings, standing out by 3 hPa.
-  const { nbrOff, nbr, pos } = g;
-  for (let i = 0; i < n; i++) {
-    if (Math.abs(lat[i]) < 0.26) continue;
-    let mn = true, mx = true, s = 0, c = 0;
-    for (let k = nbrOff[i], e = nbrOff[i + 1]; k < e; k++) {
-      const j = nbr[k];
-      for (let k2 = nbrOff[j], e2 = nbrOff[j + 1]; k2 < e2; k2++) {
-        const m = nbr[k2];
-        if (m === i) continue;
-        if (pres[m] <= pres[i]) mn = false;
-        if (pres[m] >= pres[i]) mx = false;
-        s += pres[m]; c++;
-      }
-    }
-    const d = pres[i] - s / c;
-    const P = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]];
-    if (mn && d < -3) out.lows.push({ p: P, v: pres[i] });
-    if (mx && d > 3) out.highs.push({ p: P, v: pres[i] });
-  }
   return out;
 }
 
@@ -233,7 +292,7 @@ const withAlpha = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${p
 
 /** Draw the chart's symbols: fronts (cold triangles in prussian, warm semicircles in sienna,
  * stationary alternating), dry lines (ochre scallops toward the moist side), H and L. */
-export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1) {
+export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1, sc = 1) {
   if (!chart || fade <= 0.01) return;
   ctx.save();
   ctx.globalAlpha = fade;
@@ -246,12 +305,12 @@ export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1) {
     const dx = cx + sv[0] * r - x, dy = cy - sv[1] * r - y, m = Math.hypot(dx, dy) || 1;
     return [dx / m, dy / m];
   };
-  const inkOf = t => t === COLD ? pal.inks.prussian : t === WARM ? pal.inks.sienna : pal.inks.mulberry;
-  const GAP = 22, SZ = 4.6;
+  const inkOf = t => t === COLD ? pal.inks.prussian : t === WARM ? pal.inks.sienna : pal.inks.mulberry;   // occluded: mulberry
+  const GAP = 22 * sc, SZ = 4.6 * sc, lw = Math.sqrt(sc);
   for (const fr of chart.fronts) {
     const M = fr.type.length;
     const S = Array.from({ length: M }, (_, k) => project(fr.P, k));
-    ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = 1.6 * lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (let k = 0; k < M - 1; k++) {
       if (S[k][2] < 0.05 || S[k + 1][2] < 0.05) continue;
       ctx.strokeStyle = fr.type[k] === STATIONARY ? (Math.floor(k / 4) % 2 ? pal.inks.prussian : pal.inks.sienna) : inkOf(fr.type[k]);
@@ -272,11 +331,12 @@ export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1) {
         // Perpendicular to the line, on the side's half.
         const pdot = nx * -ty + ny * tx;
         nx = -ty * Math.sign(pdot || 1); ny = tx * Math.sign(pdot || 1);
-        const t = fr.type[k] === STATIONARY ? (nsym % 2 ? COLD : WARM) : fr.type[k];
-        // A stationary front alternates, each symbol on its own side.
-        const sgn = fr.type[k] === STATIONARY && t === WARM ? -1 : 1;
-        ctx.fillStyle = inkOf(t === STATIONARY ? COLD : t);
-        if (fr.type[k] === STATIONARY) ctx.fillStyle = t === COLD ? pal.inks.prussian : pal.inks.sienna;
+        // A stationary front alternates its symbols, each on its own side; an
+        // occluded one alternates them on one side, in mulberry.
+        const ft = fr.type[k];
+        const t = ft === STATIONARY || ft === OCCLUDED ? (nsym % 2 ? COLD : WARM) : ft;
+        const sgn = ft === STATIONARY && t === WARM ? -1 : 1;
+        ctx.fillStyle = ft === OCCLUDED ? pal.inks.mulberry : ft === STATIONARY ? (t === COLD ? pal.inks.prussian : pal.inks.sienna) : inkOf(t);
         ctx.beginPath();
         if (t === COLD) {
           ctx.moveTo(px - tx * SZ, py - ty * SZ);
@@ -284,7 +344,7 @@ export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1) {
           ctx.lineTo(px + tx * SZ, py + ty * SZ);
         } else {
           const ang = Math.atan2(ty, tx);
-          ctx.arc(px, py, SZ * 0.95, ang, ang + Math.PI, sgn * (nx * -ty + ny * tx) > 0 ? false : true);
+          ctx.arc(px, py, SZ * 0.95, ang, ang + Math.PI, (sgn * nx) * -ty + (sgn * ny) * tx > 0 ? false : true);
         }
         ctx.closePath(); ctx.fill();
         nsym++;
@@ -296,12 +356,12 @@ export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1) {
   for (const dl of chart.dry) {
     const M = dl.P.length / 3;
     const S = Array.from({ length: M }, (_, k) => project(dl.P, k));
-    ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = 1.3;
+    ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = 1.3 * lw;
     ctx.beginPath();
     let on = false;
     for (let k = 0; k < M; k++) { if (S[k][2] < 0.05) { on = false; continue; } if (on) ctx.lineTo(S[k][0], S[k][1]); else ctx.moveTo(S[k][0], S[k][1]); on = true; }
     ctx.stroke();
-    let d = 8;
+    let d = 8 * sc;
     for (let k = 0; k < M - 1; k++) {
       const [ax, ay, az] = S[k], [bx, by, bz] = S[k + 1];
       if (az < 0.05 || bz < 0.05) continue;
@@ -309,18 +369,18 @@ export function drawChart(ctx, cx, cy, r, camera, chart, pal, fade = 1) {
       const tx = (bx - ax) / seg, ty = (by - ay) / seg;
       let s = 0;
       while (s + d <= seg) {
-        s += d; d = 16;
+        s += d; d = 16 * sc;
         const px = ax + tx * s, py = ay + ty * s;
         const [nx, ny] = sideOnScreen(dl.side, k, ax, ay, dl.P);
         const ccw = nx * -ty + ny * tx > 0;
         const ang = Math.atan2(ty, tx);
-        ctx.beginPath(); ctx.arc(px, py, 3.6, ang, ang + Math.PI, !ccw); ctx.stroke();
+        ctx.beginPath(); ctx.arc(px, py, 3.6 * sc, ang, ang + Math.PI, !ccw); ctx.stroke();
       }
       d -= seg - s;
     }
   }
   // H and L, in the text's ink.
-  ctx.font = `600 15px 'Newsreader', 'STIX Two Text', serif`;
+  ctx.font = `600 ${Math.round(15 * Math.min(2, Math.sqrt(sc)))}px 'Newsreader', 'STIX Two Text', serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [list, L] of [[chart.highs, 'H'], [chart.lows, 'L']]) {
     for (const h of list) {

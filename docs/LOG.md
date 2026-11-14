@@ -94,6 +94,12 @@ a9's notes: rivers look unnatural; ice caps stand out, their pattern is fixed to
 - **Organic carbon**: burial with sediment and oxidation of old organic carbon in eroded rock, each a fifth of the reference outgassing at the opening; a new arrow in Fig. 7.
 - **Conservation tolerance** in the landscape test is now 10⁻⁷: plates store thickness in float32.
 
+Second round (2026-11-15): grid-like lakes and rivers, symbols that don't scale, flickering and broken fronts that flip, no occlusions, no temperature or humidity.
+- **Lakes** are drawn from a smoothed, signed depth with a hard shore (one-cell lakes not drawn); **rivers** are continuous main stems with tributaries snapped onto them; the **deep sea** is eased twice more; the **young-crust tint** is gone (it drew the grid's cells, and the ridge rule already draws the axis).
+- **Overlay symbols scale with the globe** (×0.75–3.5 by its radius on screen).
+- **Fronts**: fields and thresholds averaged over successive charts, pieces bridged, typed against the chart's own typical cross-front wind (an absolute 2.5 m/s called 95% of fronts stationary), occlusions near deep lows.
+- **Weather charts**: pressure, temperature and humidity, each with its key.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

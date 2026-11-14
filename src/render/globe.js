@@ -10,8 +10,6 @@
 //                    polarity's running integral over the pixel's span of
 //                    formation times, so chrons finer than a pixel read as the
 //                    mid-tone rather than shimmering.
-//   red              crust younger than 1 Myr: the ridge axes, where the
-//                    mantle reaches the surface
 //   hairlines        the coastline, and every kilometre of depth and height
 //   vegetation       land is coloured by the climate's zones (forests,
 //                    savanna, steppe, desert, boreal forest, tundra), rock
@@ -42,6 +40,7 @@ struct U {
   mode: vec4f,       // view (0 relief, 1 climate, 2 weather), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
+  inkF: vec4f,       // sienna (the temperature chart's warmth)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -246,14 +245,21 @@ fn hair(d: f32, w: f32) -> f32 {
   let fsst = fwidth(sst);
   let pw = i.wx.x;         // sea-level pressure about 1013 hPa
   let fpw = fwidth(pw);
+  let wT = i.wx.z;         // the chart's surface temperature, °C
+  let fwT = fwidth(wT);
+  let wH = i.wx.w;         // the column's relative humidity (0..1)
+  let fwH = fwidth(wH);
   let fpsi = fwidth(psi);
   let fcold = max(fwidth(cold), 1e-3);
   let fice = max(fwidth(iceH), 1.0);
+  let flake = max(fwidth(lake), 1e-4);
   let iceSurf = max(e, 0.0) + iceH / 1000.0;
   let fsurf = fwidth(iceSurf);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
   let climate = u.mode.x > 0.5 && u.mode.x < 1.5;
   let weather = u.mode.x > 1.5;
+  let wxTemp = u.mode.x > 2.5 && u.mode.x < 3.5;
+  let wxHum = u.mode.x > 3.5;
 
   // Sea: depth tint, stripes on oceanic crust, isobaths every kilometre.
   let d = -e;
@@ -294,9 +300,11 @@ fn hair(d: f32, w: f32) -> f32 {
   land = mix(land, u.text.rgb, 0.07 * hair(abs(e - round(e)), fe) * step(0.5, e));
   land = mix(land, snowInk, ice);
   land = mix(land, u.text.rgb, 0.22 * iceEdge);
-  // Lakes, in the sea's tint by depth.
-  let lk = smoothstep(0.0, 0.03, lake);
+  // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
+  // depth is smoothed and signed (dry land below zero), so the shore is a curve.
+  let lk = clamp(0.5 + lake / flake, 0.0, 1.0);
   land = mix(land, mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(lake / 6.0, 0.0, 1.0))), lk);
+  land = mix(land, u.text.rgb, 0.55 * hair(abs(lake), flake));
 
   // The Climate view: the zones' mosaic on land.
   var probs = array<f32, 16>(i.z0.x, i.z0.y, i.z0.z, i.z0.w, i.z1.x, i.z1.y, i.z1.z, i.z1.w,
@@ -337,18 +345,31 @@ fn hair(d: f32, w: f32) -> f32 {
   let iso20 = hair(abs(ib20 - round(ib20)), max(fpw / 10.0, 1e-4));
   let rainR = i.wx.y;
   let rainDots = stipple(T, mix(10.0, 3.6, smoothstep(1.0, 25.0, rainR)) * u.mode.z, 0.85 * u.mode.z) * smoothstep(0.5, 2.0, rainR);
-  wland = mix(wland, u.ocean.rgb, 0.85 * rainDots);
-  wsea = mix(wsea, u.ocean.rgb, 0.85 * rainDots);
-  wland = mix(wland, u.text.rgb, max(0.4 * iso4, 0.6 * iso20));
-  wsea = mix(wsea, u.text.rgb, max(0.4 * iso4, 0.6 * iso20));
+  // Temperature: a wash from prussian (cold) to sienna (warm), isotherms every 5 °C, 0 °C heavier.
+  let tT = clamp((wT - 10.0) / 25.0, -1.0, 1.0);
+  let tTint = select(u.ocean.rgb, u.inkF.rgb, tT > 0.0);
+  let isoT = wT / 5.0;
+  let isoTl = hair(abs(isoT - round(isoT)), max(fwT / 5.0, 1e-4));
+  let iso0 = hair(abs(wT), max(fwT, 1e-4));
+  // Humidity: ochre where dry, verdigris where moist, a line every 20%.
+  let hTint = select(u.inkB.rgb, u.inkD.rgb, wH > 0.5);
+  let isoH = wH * 5.0;
+  let isoHl = hair(abs(isoH - round(isoH)), max(fwH * 5.0, 1e-4));
+  wland = select(wland, mix(wland, tTint, 0.3 * abs(tT)), wxTemp);
+  wsea = select(wsea, mix(wsea, tTint, 0.3 * abs(tT)), wxTemp);
+  wland = select(wland, mix(wland, hTint, 0.7 * abs(wH - 0.5)), wxHum);
+  wsea = select(wsea, mix(wsea, hTint, 0.7 * abs(wH - 0.5)), wxHum);
+  // Rain in the pressure and humidity charts; then each chart's lines.
+  let showRain = select(1.0, 0.0, wxTemp);
+  wland = mix(wland, u.ocean.rgb, 0.85 * rainDots * showRain);
+  wsea = mix(wsea, u.ocean.rgb, 0.85 * rainDots * showRain);
+  let chartLines = select(select(max(0.4 * iso4, 0.6 * iso20), max(0.32 * isoTl, 0.7 * iso0), wxTemp), 0.32 * isoHl, wxHum);
+  wland = mix(wland, u.text.rgb, chartLines);
+  wsea = mix(wsea, u.text.rgb, chartLines);
   land = select(land, wland, weather);
   sea = select(sea, wsea, weather);
 
   var c = select(land * select(shade, 1.0, weather), sea * select(seaShade, 1.0, weather), e < 0.0);
-
-  // The ridge axes: crust younger than 1 Myr (the Relief view).
-  let young = (1.0 - smoothstep(0.6, 0.6 + max(0.6, 1.5 * fa), age)) * oceanic * select(1.0, 0.0, climate || weather) * (1.0 - ice);
-  c = mix(c, u.accent.rgb, 0.85 * young);
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
@@ -383,7 +404,7 @@ export async function createGlobe(canvas, grid) {
   const wxBuf = device.createBuffer({ size: n * 16, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
   const idxBuf = device.createBuffer({ size: grid.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, grid.tris);
-  const uniBuf = device.createBuffer({ size: 17 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 18 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -406,7 +427,7 @@ export async function createGlobe(canvas, grid) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(68);
+  const uni = new Float32Array(72);
   const field = new Float32Array(4 * n);
   const norm = new Float32Array(3 * n);
   let polN = 0, polDT = 1, polT0 = 0;
@@ -453,7 +474,7 @@ export async function createGlobe(canvas, grid) {
     setZones(z) { device.queue.writeBuffer(zoneBuf, 0, z); },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceBuf, 0, v); },
-    /** Per cell: the chart's sea-level pressure (hPa about 1013), rain (mm/day), and two spares. */
+    /** Per cell: the chart's sea-level pressure (hPa about 1013), rain (mm/day), surface temperature (°C), column humidity (0..1). */
     setWeather(v) { device.queue.writeBuffer(wxBuf, 0, v); },
 
     draw(camera, tNow, palette, mode = {}) {
@@ -477,9 +498,11 @@ export async function createGlobe(canvas, grid) {
       // The mosaic's lattice, snapped to octaves so tesserae stay put while zooming: ~14 CSS px each.
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
-      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? 2 : 0, freq, dprNow, rPx], 44);
+      const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
+      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? wxm : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
+      put(68, palette.inks.sienna);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();

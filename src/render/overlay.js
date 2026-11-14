@@ -15,13 +15,14 @@
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 import { drawChart } from './chart.js';
 
-const TOOTH_GAP = 13, TOOTH = 3.2;
-const ARC_GAP = 17, ARC_OFF = 8.5, ARC_R = 1.25;
-const SLIP_GAP = 70, SLIP_LEN = 8, SLIP_OFF = 3.5;
+// Symbols scale with the globe (the radius on screen against 380 px), within
+// limits that keep them legible far out and unobtrusive close in.
+const symbolScale = r => Math.max(0.75, Math.min(3.5, r / 380));
 
 const RIVER_BUCKETS = 6;
 
 function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
+  const lw = Math.sqrt(symbolScale(r));
   const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D());
   const v = [0, 0, 0];
   for (const { P, W } of rivers) {
@@ -41,13 +42,13 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
   ctx.lineJoin = 'round';
   ctx.strokeStyle = withAlpha(color, alpha);
   for (let b = 0; b < RIVER_BUCKETS; b++) {
-    ctx.lineWidth = 0.6 + 0.42 * b;
+    ctx.lineWidth = (0.6 + 0.42 * b) * lw;
     ctx.stroke(paths[b]);
   }
 }
 
 function drawPlumes(ctx, cx, cy, r, camera, plumes, palette) {
-  const v = [0, 0, 0];
+  const v = [0, 0, 0], sc = symbolScale(r);
   ctx.fillStyle = palette.accent;
   ctx.strokeStyle = palette.accent;
   ctx.lineWidth = 1;
@@ -55,8 +56,8 @@ function drawPlumes(ctx, cx, cy, r, camera, plumes, palette) {
     camera.view(p[0], p[1], p[2], v);
     if (v[2] < 0.05) continue;
     const x = cx + v[0] * r, y = cy - v[1] * r;
-    ctx.beginPath(); ctx.arc(x, y, 1.9, 0, 2 * Math.PI); ctx.fill();
-    ctx.beginPath(); ctx.arc(x, y, 4.6, 0, 2 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 1.9 * sc, 0, 2 * Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 4.6 * sc, 0, 2 * Math.PI); ctx.stroke();
   }
   for (const L of plumes.lips) {
     camera.view(L.p[0], L.p[1], L.p[2], v);
@@ -86,10 +87,13 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.stroke();
   const climate = layers.view === 'climate', weather = layers.view === 'weather';
   if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather ? 0.35 : 0.9);
-  if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1); return; }
+  if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r)); return; }
   if (!climate && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
   const lines = climate ? null : layers.boundaries;
   if (!lines) return;
+  const sc = symbolScale(r), lw = Math.sqrt(sc);
+  const TOOTH_GAP = 13 * sc, TOOTH = 3.2 * sc, ARC_GAP = 17 * sc, ARC_OFF = 8.5 * sc, ARC_R = 1.25 * sc;
+  const SLIP_GAP = 70 * sc, SLIP_LEN = 8 * sc, SLIP_OFF = 3.5 * sc;
 
   const paths = { [INACTIVE]: new Path2D(), [RIDGE]: new Path2D(), [TRENCH]: new Path2D(), [TRANSFORM]: new Path2D() };
   const teeth = new Path2D(), arcs = new Path2D(), slips = new Path2D();
@@ -159,7 +163,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
               slips.moveTo(ox - along * tx * SLIP_LEN / 2, oy - along * ty * SLIP_LEN / 2);
               slips.lineTo(ex, ey);
               // Half-head on the outer side.
-              slips.lineTo(ex - along * tx * 3 + sideSign * nx * 2.4, ey - along * ty * 3 + sideSign * ny * 2.4);
+              slips.lineTo(ex - along * tx * 3 * sc + sideSign * nx * 2.4 * sc, ey - along * ty * 3 * sc + sideSign * ny * 2.4 * sc);
             }
           }
         }
@@ -169,8 +173,8 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.setLineDash([1, 3]);
-  ctx.lineWidth = 1;
+  ctx.setLineDash([1 * lw, 3 * sc]);
+  ctx.lineWidth = lw;
   ctx.strokeStyle = withAlpha(palette.text, 0.35);
   ctx.stroke(paths[INACTIVE]);
   ctx.setLineDash([]);
@@ -178,10 +182,10 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.stroke(paths[TRANSFORM]);
   ctx.strokeStyle = withAlpha(palette.text, 0.7);
   ctx.stroke(slips);
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1.5 * lw;
   ctx.strokeStyle = palette.accent;
   ctx.stroke(paths[RIDGE]);
-  ctx.lineWidth = 1.25;
+  ctx.lineWidth = 1.25 * lw;
   ctx.strokeStyle = withAlpha(palette.text, 0.85);
   ctx.stroke(paths[TRENCH]);
   ctx.fillStyle = withAlpha(palette.text, 0.85);

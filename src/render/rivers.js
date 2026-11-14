@@ -1,8 +1,11 @@
-// Rivers for drawing: the landscape's drainage traced into polylines, from
-// each source (where discharge first passes a threshold) down to the sea or
-// to a larger river. Each point keeps its discharge, which sets line weight
-// (docs/PLAN.md, "Depict, don't decorate": line weight on rivers is discharge).
-// Lines are smoothed on the sphere by corner-cutting, ends held fixed.
+// Rivers for drawing: the landscape's drainage traced into continuous lines.
+// At each confluence the larger river runs on and the smaller ends there, so
+// a main stem is one line from its source to the sea, and each tributary is
+// its own line that joins it. Lines are smoothed on the sphere (corner-cutting,
+// ends held), and a tributary's last point is moved onto its main stem's
+// smoothed course, so the joins stay joined. Each point keeps its discharge,
+// which sets line weight (docs/PLAN.md, "Depict, don't decorate"). Rivers
+// stop at lakes and start again at their outlets.
 
 export const RIVER_MIN = 1500;   // m³/s: a river worth drawing at this grid's scale
 
@@ -10,40 +13,76 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
   const n = grid.n, pos = grid.pos, r = land.r;
   if (!r) return [];
   const Q = land.discharge, rcv = r.rcv, base = land.base, lake = land.lake;
-  const big = new Uint8Array(n), donors = new Uint8Array(n), seen = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (Q[i] >= qmin && rcv[i] >= 0) big[i] = 1;
-  for (let i = 0; i < n; i++) if (big[i] && rcv[i] >= 0 && big[rcv[i]]) donors[rcv[i]] = 1;
-  const lines = [];
-  for (let s = 0; s < n; s++) {
-    if (!big[s] || donors[s]) continue;            // sources: big, with no big donor
-    let P = [], W = [];
-    let i = s;
-    const keep = () => { if (W.length >= 4 || (W.length >= 2 && W[W.length - 1] > 4 * qmin)) lines.push(smooth({ P, W })); };
+  // A lake of one cell isn't drawn (it would be a hexagon), so rivers run through it.
+  const isLake = i => {
+    if (!(lake[i] > 0.03)) return false;
+    for (let t = grid.nbrOff[i], e = grid.nbrOff[i + 1]; t < e; t++) if (lake[grid.nbr[t]] > 0.03) return true;
+    return false;
+  };
+  const big = new Uint8Array(n);
+  for (let i = 0; i < n; i++) if (Q[i] >= qmin && rcv[i] >= 0 && !isLake(i)) big[i] = 1;
+  // Each cell's main donor: its largest big donor.
+  const main = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    if (!big[i]) continue;
+    const j = rcv[i];
+    if (j < 0 || !big[j]) continue;
+    if (main[j] < 0 || Q[i] > Q[main[j]]) main[j] = i;
+  }
+  // Chains: start where no big river flows in, follow main-donor links downstream.
+  const chainOf = new Int32Array(n).fill(-1), chains = [];
+  for (let h = 0; h < n; h++) {
+    if (!big[h] || main[h] >= 0) continue;
+    const cells = [];
+    let i = h, end = -1, mouth = null;
     for (;;) {
-      // Through a lake the river is the lake: end the line, start again at the outlet.
-      if (lake[i] > 0.03) { keep(); P = []; W = []; seen[i] = 1; const j = rcv[i]; if (j < 0 || base[j]) break; i = j; continue; }
-      P.push(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]); W.push(Q[i]);
-      if (seen[i]) break;                          // joined a river already traced
-      seen[i] = 1;
+      cells.push(i);
+      chainOf[i] = chains.length;
       const j = rcv[i];
       if (j < 0) break;
       if (base[j]) {                               // the mouth: halfway to the sea's cell
         const x = pos[3 * i] + pos[3 * j], y = pos[3 * i + 1] + pos[3 * j + 1], z = pos[3 * i + 2] + pos[3 * j + 2], m = Math.hypot(x, y, z);
-        P.push(x / m, y / m, z / m); W.push(Q[i]);
+        mouth = [x / m, y / m, z / m];
         break;
       }
+      if (!big[j]) break;                          // into a lake
+      if (main[j] !== i) { end = j; break; }        // a tributary: it ends at the confluence
       i = j;
     }
-    // A river is at least three cells long, or a large one: wet coasts otherwise
-    // sprout a comb of one-cell streams.
-    keep();
+    chains.push({ cells, end, mouth, q: Q[cells[cells.length - 1]] });
   }
-  return lines;
+  // Smooth the main stems first, then snap each tributary's end onto its stem.
+  const order = chains.map((_, k) => k).sort((a, b) => chains[b].q - chains[a].q);
+  const out = new Array(chains.length);
+  for (const k of order) {
+    const c = chains[k];
+    const P = [], W = [];
+    for (const i of c.cells) { P.push(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]); W.push(Q[i]); }
+    if (c.mouth) { P.push(...c.mouth); W.push(W[W.length - 1]); }
+    if (c.end >= 0) { P.push(pos[3 * c.end], pos[3 * c.end + 1], pos[3 * c.end + 2]); W.push(Q[c.cells[c.cells.length - 1]]); }
+    if (W.length < 2) continue;
+    const line = smooth({ P, W }, 3);
+    if (c.end >= 0) {
+      const stem = out[chainOf[c.end]];
+      if (stem) {
+        const m = line.W.length - 1;
+        let best = 0, bd = -2;
+        for (let q = 0; q < stem.W.length; q++) {
+          const d = stem.P[3 * q] * line.P[3 * m] + stem.P[3 * q + 1] * line.P[3 * m + 1] + stem.P[3 * q + 2] * line.P[3 * m + 2];
+          if (d > bd) { bd = d; best = q; }
+        }
+        line.P[3 * m] = stem.P[3 * best]; line.P[3 * m + 1] = stem.P[3 * best + 1]; line.P[3 * m + 2] = stem.P[3 * best + 2];
+      }
+    }
+    out[k] = line;
+  }
+  // Short streams on wet coasts are dropped: a river is three cells, or a large one.
+  return out.filter((l, k) => l && (chains[k].cells.length >= 3 || chains[k].q > 4 * qmin));
 }
 
-function smooth(line) {
+function smooth(line, passes) {
   let { P, W } = line;
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < passes; pass++) {
     const m = W.length;
     if (m < 3) break;
     const P2 = [P[0], P[1], P[2]], W2 = [W[0]];

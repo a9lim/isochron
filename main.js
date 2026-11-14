@@ -47,6 +47,7 @@ const els = {
   knob: $('knob'), knobLabel: $('knob-label'), knobInput: $('knob-input'), knobOut: $('knob-out'),
   views: document.querySelectorAll('#view-picker .view-btn'),
   keyBtn: $('key-btn'), key: $('globe-key'), keyCanvas: $('key-canvas'),
+  wxPicker: $('wx-picker'), wxBtns: document.querySelectorAll('#wx-picker .view-btn'),
   experiments: $('experiments'),
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
@@ -65,6 +66,7 @@ let climatePending = 3;            // cycles owed while paused (the first is col
 const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let playing = !reducedMotion;
 let view = 'relief';
+let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
 let globe = null;
 let surfaceDirty = true, drawDirty = true, climateDirty = true, figuresDirty = true;
 let lines = null, rivers = null;
@@ -78,6 +80,8 @@ const lakeDraw = new Float32Array(grid.n);
 const climDraw = new Float32Array(4 * grid.n);
 const wxDraw = new Float32Array(4 * grid.n);
 const wxFine = new Float64Array(grid.n), wxFine2 = new Float64Array(grid.n), wxEddy = new Float64Array(wx.n);
+const wxFineT = new Float64Array(grid.n), wxFineH = new Float64Array(grid.n), wxRH = new Float64Array(wx.n);
+const wsatW = T => 25 * Math.exp(0.065 * (Math.max(-45, Math.min(45, T)) - 15));
 const areaM2 = Float64Array.from(grid.area, a => a * 6.371e6 * 6.371e6);
 
 function palette() {
@@ -98,6 +102,18 @@ function refreshSurface() {
     const o = nbrOff[i], e = nbrOff[i + 1];
     for (let t = o; t < e; t++) s += tec.elev[nbr[t]];
     elevRel[i] = 0.5 * tec.elev[i] + 0.5 * s / (e - o) - tec.seaLevel;
+  }
+  // The deep sea is eased further, so isobaths read as curves, not facets; the
+  // coast and the shelf keep the single easing.
+  for (let pass = 0; pass < 2; pass++) {
+    tfTmp.set(elevRel);
+    for (let i = 0; i < grid.n; i++) {
+      if (tfTmp[i] > -0.4) continue;
+      let s = 0, deep = true;
+      const o = nbrOff[i], e = nbrOff[i + 1];
+      for (let t = o; t < e; t++) { const v = tfTmp[nbr[t]]; if (v > -0.4) { deep = false; break; } s += v; }
+      if (deep) elevRel[i] = 0.4 * tfTmp[i] + 0.6 * s / (e - o);
+    }
   }
   gradient(grid, elevRel, grad);
   for (let i = 0; i < grid.n; i++) {
@@ -125,9 +141,30 @@ function refreshSurface() {
     }
   }
   // Lakes hold water only where their inflow outpaces evaporation off them (~1 m/yr).
+  // Lakes are drawn from a smoothed depth (signed: dry land below zero), so their
+  // shores are curves like the coast's rather than the grid's hexagons.
   for (let i = 0; i < grid.n; i++) {
     const L = land.lake[i];
     lakeDraw[i] = L > 0 && !(ice.H[i] > 20) ? L * Math.min(1, land.discharge[i] * 3.156e7 / (areaM2[i] * 1.0)) : 0;
+    if (!(lakeDraw[i] > 0.03)) lakeDraw[i] = elevRel[i] > 0 ? -0.05 : 0;
+  }
+  // A lake of one cell would draw as a hexagon (interpolation round one vertex can't
+  // make a curve), so lakes are drawn from two cells up.
+  for (let i = 0; i < grid.n; i++) {
+    if (!(lakeDraw[i] > 0)) continue;
+    let mate = false;
+    for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (lakeDraw[nbr[t]] > 0) { mate = true; break; }
+    if (!mate) lakeDraw[i] = -0.05;
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    tfTmp.set(lakeDraw);
+    for (let i = 0; i < grid.n; i++) {
+      if (elevRel[i] <= 0) continue;
+      let s = 0;
+      const o = nbrOff[i], e = nbrOff[i + 1];
+      for (let t = o; t < e; t++) s += elevRel[nbr[t]] > 0 ? tfTmp[nbr[t]] : -0.05;
+      lakeDraw[i] = 0.4 * tfTmp[i] + 0.6 * s / (e - o);
+    }
   }
   lines = traceBoundaries(tec);
   rivers = traceRivers(grid, land);
@@ -231,13 +268,22 @@ function refreshWeather(force) {
     wx.eddyPressure(wxEddy);
     prolong(climate.T, wxEddy, wxFine);
     prolong(climate.T, wx.rain, wxFine2);
+    prolong(climate.T, wx.theta, wxFineT);
+    for (let i = 0; i < wx.n; i++) wxRH[i] = Math.min(1.2, wx.qv[i] / wsatW(wx.theta[i]));
+    prolong(climate.T, wxRH, wxFineH);
   }
+  // The climate's own temperature and humidity at the season, for the mean chart.
+  const ph = Math.min(5, Math.max(0, Math.round(tau * 6 - 0.5))), Wc = climate.W[ph];
   // Pressure is drawn smoothed: isobars on the grid's cells would stair-step.
   for (let i = 0; i < grid.n; i++) wxP[i] = climate.presAt(i, tau) + wxLive * wxFine[i];
   smoothFine(wxP, 3);
+  const L = CLIMATE.LAPSE;
   for (let i = 0; i < grid.n; i++) {
+    const Tsl = climate.tAt(i, tau), lapse = L * climate.elevPos[i];
     wxDraw[4 * i] = wxP[i];
     wxDraw[4 * i + 1] = (1 - wxLive) * climate.pAt(i, tau) + wxLive * wxFine2[i];
+    wxDraw[4 * i + 2] = (1 - wxLive) * Tsl + wxLive * wxFineT[i] - lapse;
+    wxDraw[4 * i + 3] = Math.min(1, (1 - wxLive) * Wc[i] / wsatW(Tsl - lapse) + wxLive * wxFineH[i]);
   }
   if (globe) globe.setWeather(wxDraw);
   const now = performance.now();
@@ -278,7 +324,15 @@ function setDial(v) { els.dial.value = String(v); syncDial(); }
 
 // ── The view ──
 // ── The key ──
-function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view, palette()); }
+function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view, palette()); }
+function setWxMode(m) {
+  wxMode = m;
+  for (const b of els.wxBtns) b.setAttribute('aria-checked', b.dataset.wx === m ? 'true' : 'false');
+  drawTheKey();
+  drawDirty = true;
+  caption(true);
+}
+for (const b of els.wxBtns) b.addEventListener('click', () => setWxMode(b.dataset.wx));
 function setKey(on) {
   els.key.hidden = !on;
   els.keyBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -289,6 +343,7 @@ setKey(window.innerWidth > 860);
 
 function setView(v) {
   view = v;
+  els.wxPicker.hidden = v !== 'weather';
   drawTheKey();
   if (v === 'weather') { refreshWeather(true); }
   for (const b of els.views) b.setAttribute('aria-checked', b.dataset.view === v ? 'true' : 'false');
@@ -409,7 +464,7 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? 'Weather' : 'Relief', formatTime(P.years)];
+  const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? `Weather, ${wxMode}` : 'Relief', formatTime(P.years)];
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (view === 'weather') {
     const spun = wx.started ? Math.min(1, wx.t / (SPINUP_DAYS * 86400)) : 0;
@@ -672,7 +727,7 @@ function frame(now) {
   if (drawDirty && globe && !globe.lost) {
     const pal = palette();
     const pl = { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) };
-    globe.draw(camera, tec.t, pal, { view });
+    globe.draw(camera, tec.t, pal, { view, wx: wxMode });
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers, plumes: pl, view, chart, chartFade: wxLive }, pal);
     drawDirty = false;
   }

@@ -44,6 +44,13 @@ const GLYPHS = {
     c.fillStyle = P.inks.prussian; c.beginPath(); c.moveTo(x + 3, y + 7); c.lineTo(x + 6.5, y + 1.5); c.lineTo(x + 10, y + 7); c.fill();
     c.fillStyle = P.inks.sienna; c.beginPath(); c.arc(x + 19.5, y + 7, 3.6, 0, Math.PI); c.fill();
   },
+  occluded: (c, x, y, P) => {
+    c.strokeStyle = P.inks.mulberry; c.fillStyle = P.inks.mulberry; c.lineWidth = 1.6; line(c, x, y + 8, x + 26, y + 8);
+    c.beginPath(); c.moveTo(x + 3, y + 8); c.lineTo(x + 6.5, y + 2); c.lineTo(x + 10, y + 8); c.fill();
+    c.beginPath(); c.arc(x + 19, y + 8, 3.6, Math.PI, 2 * Math.PI); c.fill();
+  },
+  iso0: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.7); c.lineWidth = 1.3; line(c, x, y + 6, x + 26, y + 6); },
+  isohume: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; c.beginPath(); c.moveTo(x, y + 8); c.bezierCurveTo(x + 8, y, x + 18, y + 12, x + 26, y + 4); c.stroke(); },
   dry: (c, x, y, P) => {
     c.strokeStyle = P.inks.ochre; c.lineWidth = 1.3; line(c, x, y + 5, x + 26, y + 5);
     for (const t of [7, 19]) { c.beginPath(); c.arc(x + t, y + 5, 3.4, 0, Math.PI); c.stroke(); }
@@ -65,6 +72,10 @@ function front(c, x, y, ink, kind) {
 }
 
 /** The vegetation swatches the Relief view blends (as its shader's biome colours). */
+function wash(c, x, y, P, ink, a) {
+  c.fillStyle = mixHex(P.canvas, ink, a); c.fillRect(x, y, 26, 12);
+  c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+}
 function vegetation(c, x, y, P, kind) {
   const ink = { forest: [P.inks.viridian, 0.42], grass: [P.inks.sap, 0.34], desert: [P.inks.ochre, 0.17], boreal: [P.inks.verdigris, 0.34], tundra: [P.inks.indigo, 0.17] }[kind];
   c.fillStyle = mixHex(P.canvas, ink[0], ink[1]); c.fillRect(x, y, 26, 12);
@@ -75,11 +86,13 @@ const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['river', 'River'],
     ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
   climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv']],
-  weather: [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
+  'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
+  'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
+  'weather-humidity': [['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['rain', 'Rain'], ['hl', 'High, low']],
 };
 
 export function drawKey(canvas, view, P) {
-  const items = ITEMS[view] || ITEMS.relief;
+  const items = ITEMS[view] || ITEMS[`${view}-pressure`] || ITEMS.relief;
   const cols = 2, colW = 118, rowH = 18;
   const rows = Math.ceil(items.length / cols);
   const w = cols * colW, h = rows * rowH + 2;
@@ -92,6 +105,8 @@ export function drawKey(canvas, view, P) {
   items.forEach(([g, name], k) => {
     const x = (k % cols) * colW, y = Math.floor(k / cols) * rowH + 2;
     if (g.startsWith('v:')) vegetation(c, x, y, P, g.slice(2));
+    else if (g.startsWith('t:')) wash(c, x, y, P, g === 't:warm' ? P.inks.sienna : P.ocean, 0.3);
+    else if (g.startsWith('h:')) wash(c, x, y, P, g === 'h:moist' ? P.inks.verdigris : P.inks.ochre, 0.3);
     else if (g.startsWith('z:')) zonePattern(c, +g.slice(2), x, y, 26, 12, P);
     else GLYPHS[g](c, x, y, P);
     c.font = `12px ${FONT}`; c.fillStyle = P.text; c.textAlign = 'left'; c.textBaseline = 'middle';
