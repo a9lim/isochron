@@ -208,6 +208,7 @@ export class Climate {
     const byLat = idx.slice().sort((a, b) => this.lat[a] - this.lat[b]);
     this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
     this.ice = null;     // src/engine/ice.js, when there is one
+    this.ocean = null;   // src/engine/ocean.js, when there is one
     this.warm = false;
     this.it = null;
     this.version = 0;
@@ -448,7 +449,7 @@ export class Climate {
     const areaKm = R_KM * R_KM;
     for (let i = 0; i < n; i++) {
       const land = this.landMask[i];
-      const Ts = land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, T[i]);
+      const Ts = land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, T[i] + (this.ocean ? this.ocean.sst[i] : 0));
       Ws[i] = wsat(Ts);
       const speed = Math.hypot(wind[3 * i], wind[3 * i + 1], wind[3 * i + 2]);
       const lift = wind[3 * i] * this.upz[3 * i] + wind[3 * i + 1] * this.upz[3 * i + 1] + wind[3 * i + 2] * this.upz[3 * i + 2];
@@ -604,6 +605,7 @@ export class Climate {
     yield;
     yield* this.ebm();
     if (!this.warm) { yield* this.ebm(); yield* this.ebm(); }
+    if (this.ocean) yield* this.ocean.solve();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
     this.finish();
     this.warm = true;

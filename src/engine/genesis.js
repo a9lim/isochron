@@ -181,7 +181,14 @@ export function genesis(tec, seed, opts = {}) {
   // for the land fraction asked: the seafloor's age (and so sea level) has
   // settled toward what the plates' own speeds keep it at.
   const spin = opts.spinup ?? 0;
-  for (let t = 0; t < spin; t += 1) { tec.step(1); if (opts.landscape) opts.landscape.step(1e6); }
+  let m0 = 0, c0 = 0, tm = 0;
+  for (let t = 0; t < spin; t += 1) {
+    if (t === Math.max(0, spin - 10)) { m0 = tec.counters.made; c0 = tec.counters.consumed; tm = tec.t; }
+    tec.step(1);
+    if (opts.landscape) opts.landscape.step(1e6);
+  }
+  // The plates' activity at the end of the spin-up (crust made and consumed per Myr): the carbon cycle's reference.
+  if (spin > 0) tec.spinRate = { made: (tec.counters.made - m0) / (tec.t - tm), consumed: (tec.counters.consumed - c0) / (tec.t - tm) };
   if (spin > 0) {
     tec.water = waterForLand(g, tec.elev, landFraction);
     tec.updateElevation();

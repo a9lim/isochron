@@ -157,8 +157,8 @@ function refreshClimate(force) {
     // Land newly dry or drowned since the climate last saw it takes no snow or ice.
     if ((elevRel[i] > 0) !== (climate.landMask[i] === 1) && !(ice.H[i] > 0)) cold = 0;
     climDraw[4 * i] = cold;
-    climDraw[4 * i + 1] = climate.Pf[0][i] * 0.36525;
-    climDraw[4 * i + 2] = climate.Tf[0][i];
+    climDraw[4 * i + 1] = climate.Tf[0][i] + P.ocean.sst[i];
+    climDraw[4 * i + 2] = P.ocean.psi[i] / 1e6;
     climDraw[4 * i + 3] = ice.H[i];
   }
   seasonDrawn = tau; seasonWeightDrawn = sw;

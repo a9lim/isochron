@@ -18,6 +18,8 @@
 //   lakes            filled depressions, in the sea's tint by depth
 //   ice sheets       the paper with hachures along the ice's flow, closer
 //                    where it flows faster
+// In the Climate view the sea carries isotherms of its surface temperature
+// every 5 °C and the gyres' streamlines every 3 Sv.
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
 // tesserae fixed to the surface (a jittered 3D lattice), each taking one class
 // with the cell's probability, so a boundary is an ecotone that interleaves.
@@ -171,6 +173,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let phi = i.f.z;         // felsic fraction
   let lake = i.f.w;        // lake depth, km
   let cold = i.c.x;        // snow on land, ice on the sea (0..1)
+  let sst = i.c.y;         // sea-surface temperature, °C
+  let psi = i.c.z;         // the gyres' streamfunction, Sv
   let age = u.frame.z - tf;
   let px = i.clip.xy;
 
@@ -184,6 +188,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let fe = fwidth(e);
   let ftf = fwidth(tf);
   let fa = max(fwidth(age), 0.05);
+  let fsst = fwidth(sst);
+  let fpsi = fwidth(psi);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
   let climate = u.mode.x > 0.5;
 
@@ -195,8 +201,14 @@ fn hair(d: f32, w: f32) -> f32 {
   let pbar = (polC(tf + w) - polC(tf - w)) / (2.0 * w);
   sea = mix(sea, u.text.rgb, 0.075 * (0.5 + 0.5 * pbar) * oceanic * (1.0 - cold));
   sea = mix(sea, u.text.rgb, 0.09 * hair(abs(d - round(d)), fe) * step(0.5, d));
-  // In the Climate view the sea is a plain wash.
-  sea = select(sea, mix(u.canvas.rgb, u.ocean.rgb, 0.16), climate);
+  // In the Climate view the sea is a plain wash, with isotherms every 5 °C and
+  // the gyres' streamlines every 3 Sv (the currents run along them).
+  var wash = mix(u.canvas.rgb, u.ocean.rgb, 0.16);
+  let iso = sst / 5.0;
+  wash = mix(wash, u.text.rgb, 0.22 * hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4)));
+  let st = psi / 3.0;
+  wash = mix(wash, u.ocean.rgb, 0.75 * hair(abs(st - round(st)), max(fpsi / 3.0, 1e-4)) * step(0.5, abs(psi)));
+  sea = select(sea, wash, climate);
   // Sea ice: the paper, with a sparse stipple.
   let ice = smoothstep(0.15, 0.6, cold);
   sea = mix(sea, mix(u.canvas.rgb, u.ocean.rgb, 0.85 * dots(px, 7.0 * u.mode.z, 0.8 * u.mode.z)), ice);

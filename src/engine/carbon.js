@@ -1,7 +1,7 @@
 // The long carbon cycle (docs/PLAN.md, layer 6): dR/dt = outgassing − weathering.
 //
 // Outgassing scales with the plates' activity, crust made at ridges and
-// consumed at trenches (against the rate this model's plates settle to),
+// consumed at trenches (against their rate at the opening),
 // plus the pulses of large igneous provinces. Silicate weathering scales
 // with runoff (as runoff^0.65), with temperature as e^{ΔT/Tₑ}, directly with
 // CO₂ as pCO₂^0.3 (soil CO₂), and with the supply of fresh rock that erosion
@@ -27,7 +27,7 @@ export const CARBON = {
   SENS: 3,            // K per doubling, for the response between climate solves
   E_HALF: 0.01,       // km/Myr of erosion at which weathering is half supply-limited
   CO2_EXP: 0.3,       // weathering ∝ pCO₂^CO2_EXP directly
-  RIDGE_REF: 500, ARC_REF: 490,   // cells per Myr at level 6 that outgas V0 (this model's settled rates)
+  RIDGE_REF: 500, ARC_REF: 490,   // cells per Myr at level 6 that outgas V0 when there's no spin-up to measure
   OUTGAS: 1,          // the outgassing's multiplier (the Thermostat's knob)
   FIXED: 0,           // > 0 holds pCO₂ there (ppm): the carbon cycle switched off
   MIN_PCO2: 10, MAX_PCO2: 20000,
@@ -38,10 +38,13 @@ export class Carbon {
     this.tec = tec; this.land = land; this.climate = climate; this.plumes = plumes;
     this.R = CARBON.R0;
     this.pco2 = CARBON.PCO2_0;
-    // The reference activity, per cell of this grid; the spin-up's rates start the smoothing.
-    const scale = tec.grid.n / 40962, span = Math.max(1, tec.t0 || tec.t || 40);
-    this.ridge0 = CARBON.RIDGE_REF * scale; this.arc0 = CARBON.ARC_REF * scale;
-    this.ridge = tec.counters.made / span; this.arc = tec.counters.consumed / span;
+    // The reference activity: the plates' at the opening (the spin-up's last 10 Myr),
+    // so the opening is in balance and later changes in the plates move the CO₂.
+    // Without a spin-up, this model's settled rates (per cell of this grid).
+    const scale = tec.grid.n / 40962;
+    this.ridge0 = tec.spinRate ? Math.max(1, tec.spinRate.made) : CARBON.RIDGE_REF * scale;
+    this.arc0 = tec.spinRate ? Math.max(1, tec.spinRate.consumed) : CARBON.ARC_REF * scale;
+    this.ridge = this.ridge0; this.arc = this.arc0;
     this.lastMade = tec.counters.made; this.lastConsumed = tec.counters.consumed; this.lastT = tec.t;
     this.wF = 0; this.wF0 = 0; this.wCO2 = this.pco2;   // the climate's weathering factor, at genesis, and the pCO₂ it saw
     this.flux = { out: CARBON.V0, weather: CARBON.V0, lip: 0 };   // Pg C/yr
