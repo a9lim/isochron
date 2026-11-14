@@ -8,13 +8,42 @@
 //                tints crust younger than 1 Myr)
 //   transform    a lighter rule with paired half-arrows giving the sense of slip
 //   inactive     a dotted rule (the plates hardly move against each other)
+// Under them, rivers in the sea's ink, their weight the discharge. The Climate
+// view keeps the rivers, lighter, and drops the tectonic symbols.
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 
 const TOOTH_GAP = 13, TOOTH = 3.2;
 const ARC_GAP = 17, ARC_OFF = 8.5, ARC_R = 1.25;
 const SLIP_GAP = 70, SLIP_LEN = 8, SLIP_OFF = 3.5;
 
-export function drawOverlay(ctx, w, h, dpr, camera, lines, palette) {
+const RIVER_BUCKETS = 6;
+
+function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha) {
+  const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D());
+  const v = [0, 0, 0];
+  for (const { P, W } of rivers) {
+    let px = 0, py = 0, pv = false;
+    for (let k = 0; k < W.length; k++) {
+      camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
+      const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
+      if (vis && pv) {
+        const q = Math.log10(Math.max(1, W[k] / 1500));
+        const b = Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2));
+        paths[b].moveTo(px, py); paths[b].lineTo(x, y);
+      }
+      px = x; py = y; pv = vis;
+    }
+  }
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = withAlpha(color, alpha);
+  for (let b = 0; b < RIVER_BUCKETS; b++) {
+    ctx.lineWidth = 0.6 + 0.42 * b;
+    ctx.stroke(paths[b]);
+  }
+}
+
+export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const r = camera.radius(w * dpr, h * dpr) / dpr;
@@ -25,6 +54,9 @@ export function drawOverlay(ctx, w, h, dpr, camera, lines, palette) {
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
+  const climate = layers.view === 'climate';
+  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : 0.9);
+  const lines = climate ? null : layers.boundaries;
   if (!lines) return;
 
   const paths = { [INACTIVE]: new Path2D(), [RIDGE]: new Path2D(), [TRENCH]: new Path2D(), [TRANSFORM]: new Path2D() };

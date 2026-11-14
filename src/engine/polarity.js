@@ -5,7 +5,7 @@
 // Times are in Myr.
 import { stream } from '../rng.js';
 
-const MEAN_LOG_RATE = Math.log(2.5);   // reversals per Myr
+const MEAN_LOG_RATE = Math.log(1.2);   // reversals per Myr (the median; the mean is ~1.8, near Earth's over 160 Myr)
 const LOG_RATE_SD = 0.9;
 const LOG_RATE_RELAX = 25;             // Myr
 

@@ -21,6 +21,7 @@
   <script defer src="/shared/about.js"></script>
   <script defer src="/shared/icons.js"></script>
   <script defer src="/shared/colophon.js"></script>
+  <script defer src="/shared/tabs.js"></script>
   <script defer src="colors.js"></script>
   <script type="module" src="main.js"></script>
 </head>
@@ -43,16 +44,49 @@
         <canvas id="globe-gpu" aria-hidden="true"></canvas>
         <canvas id="globe-overlay" class="cursor-grab" aria-label="A physiographic globe of an Earth-like planet: relief on land and sea, plate boundaries, and the magnetic stripes of the seafloor"></canvas>
         <p id="globe-nogpu" class="globe-notice" role="status" hidden>This globe needs WebGPU.</p>
+        <div class="globe-head">
+          <div id="view-picker" class="view-picker" role="radiogroup" aria-label="View">
+            <button class="view-btn" data-view="relief" role="radio" aria-checked="true">Relief</button>
+            <button class="view-btn" data-view="climate" role="radio" aria-checked="false">Climate</button>
+          </div>
+        </div>
       </div>
       <figcaption class="figure-bar">
         <p class="caption globe-caption"><span class="caption-n">Fig. 1.</span> <span id="globe-caption"></span></p>
         <label class="dial">
           <span class="dial-label">Rate</span>
-          <input id="dial" type="range" min="4" max="7" step="0.05" value="6" aria-label="Simulated time per second, on a logarithmic scale">
+          <input id="dial" type="range" min="0" max="7" step="0.05" value="6" aria-label="Simulated time per second, on a logarithmic scale">
           <output id="dial-out" for="dial">1 Myr/s</output>
         </label>
       </figcaption>
     </figure>
+
+    <aside class="margin" aria-label="Figures">
+      <div class="margin-tabs" role="tablist" aria-label="Figures">
+        <button class="tab-btn active" data-tab="climate" role="tab" aria-selected="true">Climate</button>
+        <button class="tab-btn" data-tab="crust" role="tab" aria-selected="false" tabindex="-1">Crust</button>
+      </div>
+      <div class="margin-panels">
+        <div class="tab-panel active" id="tab-climate" role="tabpanel">
+          <figure class="fig">
+            <canvas id="fig-zonal" class="fig-canvas fig-tall" aria-label="Temperature and precipitation by latitude, with the seasonal range of temperature, the ITCZ's range and the Hadley cells' edges"></canvas>
+            <figcaption class="caption"><span class="caption-n">Fig. 2.</span> <span id="cap-zonal"></span></figcaption>
+          </figure>
+          <h2 class="margin-head">Zones, % of land</h2>
+          <canvas id="zone-key" class="zone-key" aria-label="Key to the climate zones"></canvas>
+        </div>
+        <div class="tab-panel" id="tab-crust" role="tabpanel">
+          <figure class="fig">
+            <canvas id="fig-hyps" class="fig-canvas fig-tall" aria-label="Share of the surface by elevation"></canvas>
+            <figcaption class="caption"><span class="caption-n">Fig. 3.</span> <span id="cap-hyps"></span></figcaption>
+          </figure>
+          <figure class="fig">
+            <canvas id="fig-pol" class="fig-canvas fig-strip" aria-label="The polarity of the field over the last 160 million years"></canvas>
+            <figcaption class="caption"><span class="caption-n">Fig. 4.</span> <span id="cap-pol"></span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </aside>
   </main>
 </body>
 

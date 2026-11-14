@@ -42,8 +42,26 @@ The working log for the overnight run that a9 asked for on 2026-11-14: "go throu
 
 ## Decisions made overnight
 
-(None yet.)
+Phase 2:
+- **Erosion replaces the relaxation of thick crust.** Phase 1's `ERODE_TAU` relaxed crust over 40 km toward 35 km and destroyed the difference. The landscape now takes thickness by stream power and returns it as sediment, and continental thickness diffuses (faster under thick crust, for orogenic collapse). Crust is conserved (tested).
+- **A slow water buffer.** Sediment filling basins and young seafloor raised the sea until land fell to 12–21%. The ocean's volume now relaxes toward the genesis land fraction over 150 Myr (`WATER_TAU`), a stand-in for water exchanged with the mantle. It's a closure for something unmodelled, marked speculation. Short high stands remain (seed `c` falls to 18% land and recovers).
+- **Erodibility** K = 1.2 × 10⁻⁷ /yr (half the first try) keeps more relief; erosion runs at 3–6 km³/yr, Earth's natural order.
+- **The EBM runs a level coarser** (220 km cells) than the surface, with transfer operators between levels: heat spreads over thousands of km, and it's 8× cheaper. Mean and two harmonics, solved by COCG.
+- **Two diffusivities.** One D for the mean and a smaller one for the seasons (`D_SEASON` 0.1 against 0.45). With one D the continents had the ocean's seasons (45°N land ranged −4 to 11 °C); now −13 to 18 °C, near Earth's.
+- **Rain rises exponentially with column humidity** (the shape of Bretherton and others' tropical fit, constants from memory, kept out of public text). A hard humidity threshold dumped all tropical moisture in one row of cells at 15 m/yr.
+- **Moisture rides a less divergent wind**: the geostrophic part plus 40% of the frictional drift. With the full surface drift the trades dried to 30% humidity and evaporated 15 mm/day.
+- **Climate constants tuned on the default seed** for mean 13–14 °C, ~1,000 mm/yr of rain, zone shares near Earth's: albedos 0.25 (sea) and 0.27 (land) + 0.12 sin²φ, evaporation 0.35/day, background rain 0.08/day.
+- **Fourteen classes**: Af Am Aw As BW BS Cf Cs Cw Df Ds Dw ET EF (the plan's second letters; third letters and h/k left out). Logistic widths 1.5 K and 0.25 in log rain.
+- **The mosaic draws p², not p.** The logistic tails gave every desert a few percent of green tesserae. Squaring keeps even ecotones even and drops the speckle. A, C and D also step in value (A darkest), so they part in grayscale: pattern before hue.
+- **Figures are numbered by page order**: Fig. 1 the globe, 2 zonal means, 3 hypsometry, 4 polarity. The plan's list numbered them by topic. The margin has tabs, Climate and Crust.
+- **The dial reaches 1 yr/s**, past the phase's 10 yr/s, because the seasonal solution is analytic: below ~4 yr/s the globe shows the season at the planet's clock, above ~40 yr/s the share of the year under snow and ice.
+- **Snow and sea ice are the paper**, sea ice with a sparse stipple. Lakes show only where inflow beats ~1 m/yr of evaporation. Rivers are drawn above 1,500 m³/s and three cells long (wet coasts sprouted combs of one-cell streams).
+- **Shallow water got a visible tint** (square-root depth curve, higher floor): the new shelves read as paper.
+- **Reversals halved** (median rate 1.2/Myr, mean ~1.8): 1,203 reversals in 160 Myr made stripes finer than a pixel; Earth's record has ~300.
+
+Open from phase 2: mean ocean depth is 5.3 km (Earth 3.7) because isostasy ignores the water's load and lithospheric roots; D climates are short (14–18% of land against Earth's ~25%); a climate cycle costs ~190 ms warm, spread over frames.
 
 ## Progress
 
 - 2026-11-14, before the run: phase 1 is built (see `AGENTS.md`). The repo is github.com/a9lim/isochron, a submodule of the parent (parent b073e84). It isn't registered on the site.
+- Phase 2 built: landscape, climate engine, Relief and Climate views, the margin's figures, the season at slow dial. Verified in the browser (light, dark, phone); 34 tests pass.

@@ -6,6 +6,8 @@
    Shared: the colophon and caption (base.css), the about panel, toasts.
    ═══════════════════════════════════════════════════════════════ */
 
+body.sim-body { --margin-w: 340px; }
+
 html {
   font-size: clamp(14px, 1.5vw, 16px);
   -webkit-text-size-adjust: 100%;
@@ -17,16 +19,102 @@ body.sim-body { background: var(--bg-canvas); }
 .planet {
   position: fixed;
   inset: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--margin-w);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .globe {
   margin: 0;
-  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
+
+/* ───── Over the globe: the view ───── */
+.globe-head {
+  position: absolute;
+  z-index: 3;
+  top: 17px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  height: 32px;
+}
+.view-picker { display: flex; align-items: center; gap: 15px; }
+.view-btn {
+  border: 0;
+  padding: 4px 0 3px;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-text);
+  font-size: var(--font-base);
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: underline 1px transparent;
+  text-underline-offset: 0.32em;
+  transition: color 0.15s var(--ease-out), text-decoration-color 0.15s var(--ease-out);
+}
+.view-btn:hover { color: var(--text); }
+.view-btn[aria-checked="true"] { color: var(--accent); text-decoration-color: var(--accent); }
+.view-btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+
+/* ───── The margin: figures ───── */
+.margin {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-canvas);
+}
+.margin-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  height: 58px;
+  padding: 0 12px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.margin-tabs .tab-btn {
+  padding: 0 0 15px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-text);
+  font-size: 1.02rem;
+  cursor: pointer;
+  box-shadow: inset 0 -1px 0 transparent;
+  transition: color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+.margin-tabs .tab-btn:hover { color: var(--text); }
+.margin-tabs .tab-btn.active { color: var(--accent); box-shadow: inset 0 -1px 0 var(--accent); }
+.margin-tabs .tab-btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: -2px; }
+.margin-panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 10px 20px 28px;
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.margin-head {
+  margin: 1.3rem 0 0.5rem;
+  font-size: var(--font-base);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.fig { margin: 0.6rem 0 1.4rem; }
+.fig .caption { margin: 0.45rem 0 0; font-size: 0.95rem; }
+.fig-canvas { display: block; width: 100%; }
+.fig-tall { height: 300px; }
+.fig-strip { height: 58px; }
+.zone-key { display: block; width: 100%; height: 116px; }
 
 .globe-stage {
   position: relative;
@@ -120,7 +208,20 @@ body.sim-body { background: var(--bg-canvas); }
 }
 .dial input[type="range"]:focus-visible { outline: 1px solid var(--accent); outline-offset: 4px; }
 
+@media (max-width: 860px) {
+  /* The body stays locked (shared); the planet scrolls, the globe first. */
+  .planet {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .globe { height: 78vh; height: 78svh; }
+  .margin { border-left: 0; border-top: 1px solid var(--border); }
+  .margin-panels { overflow: visible; }
+}
+
 @media (max-width: 600px) {
+  .globe-head { top: 52px; right: 16px; }
   .figure-bar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 16px 12px; }
   .dial input[type="range"] { flex: 1 1 auto; width: auto; }
 }

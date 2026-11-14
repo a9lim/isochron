@@ -8,7 +8,7 @@ Claims carry one of three marks: **standard** (textbook geoscience), **synthesis
 
 ## Status
 
-2026-11-13: phase 1 started. The grid, the scheduler, plates (motion, overlaps and gaps, slabs, arcs, collisions, merges, rifting, initiation, the torque balance), isostasy, solved sea level, the polarity record and the WebGPU globe are built; `AGENTS.md` describes them. Open in phase 1: tuning `PARAMS` across seeds (the default seed is stable; others drown their land or let seafloor age without limit), hotspots and large igneous provinces, Figs. 2 and 4, the worker, level 7.
+2026-11-14: phases 1 and 2 are built (`AGENTS.md` describes them): plates, isostasy and sea level, the polarity record, the landscape, the seasonal EBM, the circulation template, moisture and rain, the soft zones, the Relief and Climate views, and the margin's figures (zonal means, hypsometry, polarity). Open from phase 1: tuning `PARAMS` across seeds, hotspots and large igneous provinces, the worker, level 7. Figures are numbered by their order on the page (the globe is Fig. 1), not by the list below.
 
 ## Decisions
 
