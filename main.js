@@ -12,6 +12,7 @@ import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
 import { drawOverlay } from './src/render/overlay.js';
+import { traceBoundaries } from './src/render/lines.js';
 
 const LEVEL = 6;              // 40,962 cells, ~110 km
 const RELIEF = 20;            // vertical exaggeration of the hillshade
@@ -42,7 +43,7 @@ const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-m
 let playing = !reducedMotion;
 let globe = null;
 let surfaceDirty = true, drawDirty = true;
-let edges = null;
+let lines = null;
 
 const elevRel = new Float32Array(grid.n);
 const normals = new Float32Array(3 * grid.n);
@@ -93,7 +94,7 @@ function refreshSurface() {
       if (c) tfDraw[i] = 0.5 * tfTmp[i] + 0.5 * s / c;
     }
   }
-  edges = tec.boundaries();
+  lines = traceBoundaries(tec);
   if (!globe) return;
   const T0 = globe.polarityOrigin;
   if (!polarityReady || tec.t > T0 + POL_SPAN - 10) {
@@ -253,7 +254,7 @@ function frame(now) {
   if (drawDirty && globe && !globe.lost) {
     const pal = palette();
     globe.draw(camera, tec.t, pal);
-    drawOverlay(octx, cssW, cssH, dpr, camera, grid, edges, tec.arc, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, lines, pal);
     drawDirty = false;
   }
   requestAnimationFrame(frame);

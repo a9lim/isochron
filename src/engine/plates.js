@@ -42,7 +42,7 @@ export const PARAMS = {
   MERGE_TAU: 20,
   K_COLLIDE: 0.03,  // resistance of a collision front, per cell, against convergence
   COLLIDE_TAU: 8,  // Myr
-  K_SLAB: 0.003,  // slab pull per cell of trench
+  K_SLAB: 0.005,  // slab pull per cell of trench
   FOUNDER_AGE: 140,  // Myr: seafloor this old at a plate's edge, or at its own continent's margin, begins to sink
   INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active
   INITIATE_GAP: 20,  // Myr between initiations anywhere on the planet
@@ -300,6 +300,8 @@ export class Tectonics {
       this.ref[i] = jt;
     }
 
+    this.relaxBoundaries();
+
     // Sample the crust on top; thick crust relaxes (a stand-in for erosion).
     const relax = 1 - Math.exp(-dt / PARAMS.ERODE_TAU);
     for (let i = 0; i < n; i++) {
@@ -319,6 +321,43 @@ export class Tectonics {
     this.mergeWelded();
     this.maybeRift();
     this.maybeInitiate();
+  }
+
+  /**
+   * Boundary relaxation: a cell held by one plate but surrounded mostly by
+   * another passes its crust to the plate around it. Nearest-cell rounding
+   * otherwise roughens boundaries a cell at a time until they are fractal;
+   * this is a curvature flow at the scale of one cell (a numerical
+   * regularization, not geology), and it moves crust without making or
+   * destroying any.
+   */
+  relaxBoundaries() {
+    const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner;
+    const ks = new Int32Array(8), cs = new Int32Array(8), gs = new Int32Array(8);
+    for (let i = 0; i < n; i++) {
+      const own = owner[i], o = nbrOff[i], e = nbrOff[i + 1], d = e - o;
+      let nk = 0, same = 0;
+      for (let t = o; t < e; t++) {
+        const k = owner[nbr[t]];
+        if (k === own) { same++; continue; }
+        let c = 0;
+        while (c < nk && ks[c] !== k) c++;
+        if (c === nk) { ks[nk] = k; cs[nk] = 0; gs[nk] = this.ref[nbr[t]]; nk++; }
+        cs[c]++;
+      }
+      if (same > 1) continue;
+      let m = -1;
+      for (let c = 0; c < nk; c++) if (cs[c] >= d - 2) { m = c; break; }
+      if (m < 0) continue;
+      const to = ks[m], P = this.plates[own], Q = this.plates[to], R = Q.R;
+      const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
+      const jf = this.ref[i];
+      const jt = nearest(g, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z, gs[m]);
+      Q.mask[jt] = 1; Q.h[jt] = P.h[jf]; Q.phi[jt] = P.phi[jf]; Q.tf[jt] = P.tf[jf]; Q.sut[jt] = P.sut[jf];
+      P.mask[jf] = 0;
+      owner[i] = to; this.ref[i] = jt;
+      this.counters.relaxed = (this.counters.relaxed || 0) + 1;
+    }
   }
 
   updateElevation() {

@@ -2,7 +2,7 @@
 name: Isochron
 title: Isochron — Planet Simulator
 description: Run an Earth-like planet from plate tectonics to weather on one globe, and watch seafloor spread, sink and record the magnetic field in stripes.
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 # Isochron
@@ -23,4 +23,4 @@ Elevation comes from isostasy: thicker and lighter crust floats higher. Sea leve
 
 ## On the globe
 
-Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Trenches are drawn with barbs on the plate that stays on top, transform faults as plain lines. Drag to turn the globe, scroll to zoom, and set the rate with the dial.
+Depth is shaded in blue and height in brown, with a contour every kilometre. The red is crust younger than a million years, at the ridge axes, and the volcanoes above sinking slabs. Plate boundaries follow the conventions of a tectonic map. Trenches have sawteeth on the plate that stays on top, with red marks for the volcanic arc on that side, and ridges are red. Transform faults carry paired half-arrows showing which way each side slides, and boundaries where the plates barely move are dotted. Drag to turn the globe, scroll to zoom, and set the rate with the dial.

@@ -18,18 +18,6 @@ export function genesis(tec, seed, opts = {}) {
   const continentalArea = opts.continentalArea ?? 0.38;
   const landFraction = opts.landFraction ?? 0.29;
 
-  // ── Plate seeds, spread by best-candidate sampling ──
-  const seeds = [];
-  for (let k = 0; k < NP; k++) {
-    let best = null, bd = -1;
-    for (let c = 0; c < 24; c++) {
-      const u = rng.unitVector();
-      let md = Infinity;
-      for (const s of seeds) md = Math.min(md, Math.acos(Math.max(-1, Math.min(1, u[0] * s[0] + u[1] * s[1] + u[2] * s[2]))));
-      if (md > bd) { bd = md; best = u; }
-    }
-    seeds.push(best);
-  }
   // ── Continents ──
   const v = new Float64Array(n);
   for (let i = 0; i < n; i++) {
@@ -43,12 +31,52 @@ export function genesis(tec, seed, opts = {}) {
     const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
     const s = Math.min(1, Math.max(0, (v[i] - thr) / 0.06 + 0.5));
     phi[i] = s * s * (3 - 2 * s);
-    h[i] = H_OCEANIC + (H_CONTINENTAL - H_OCEANIC) * phi[i] + phi[i] * 5 * noise.fbm(x, y, z, 3, 4);
+    h[i] = H_OCEANIC + (H_CONTINENTAL - H_OCEANIC) * phi[i] + phi[i] * 8 * noise.fbm(x, y, z, 2.2, 5);
   }
 
-  // Plates grow from their seeds at their own pace; crossing continental crust
-  // costs more, so boundaries run through ocean where they can.
-  const weight = seeds.map(() => rng.range(0.7, 1.35));
+  // ── Plate seeds: one at the heart of each large continent, the rest spread
+  // over the ocean by best-candidate sampling. Plates then grow from their
+  // seeds at their own pace, so boundaries fall roughly midway between
+  // continents, through ocean: the continents open as passengers, with
+  // passive margins, as most of Earth's do. ──
+  const seeds = [];
+  {
+    const comp = new Int32Array(n).fill(-1);
+    const comps = [];
+    for (let i = 0; i < n; i++) {
+      if (phi[i] < 0.5 || comp[i] >= 0) continue;
+      const id = comps.length, stack = [i];
+      let A = 0, sx = 0, sy = 0, sz = 0, far = i;
+      comp[i] = id;
+      while (stack.length) {
+        const q = stack.pop();
+        const a = g.area[q];
+        A += a; sx += a * pos[3 * q]; sy += a * pos[3 * q + 1]; sz += a * pos[3 * q + 2];
+        for (let t = g.nbrOff[q]; t < g.nbrOff[q + 1]; t++) {
+          const j = g.nbr[t];
+          if (phi[j] >= 0.5 && comp[j] < 0) { comp[j] = id; stack.push(j); }
+        }
+      }
+      const r = Math.hypot(sx, sy, sz) || 1;
+      comps.push({ A, c: [sx / r, sy / r, sz / r] });
+    }
+    comps.sort((p, q) => q.A - p.A);
+    for (const cp of comps) {
+      if (seeds.length >= Math.floor(NP / 2) || cp.A < 0.01 * 4 * Math.PI) break;
+      seeds.push(cp.c);
+    }
+  }
+  while (seeds.length < NP) {
+    let best = null, bd = -1;
+    for (let c = 0; c < 24; c++) {
+      const u = rng.unitVector();
+      let md = Infinity;
+      for (const s of seeds) md = Math.min(md, Math.acos(Math.max(-1, Math.min(1, u[0] * s[0] + u[1] * s[1] + u[2] * s[2]))));
+      if (md > bd) { bd = md; best = u; }
+    }
+    seeds.push(best);
+  }
+  const weight = seeds.map(() => rng.range(0.8, 1.25));
   const owner = tec.owner;
   const seedCell = seeds.map(s => nearestByScan(g, s));
   const cost = new Float64Array(n).fill(Infinity);
@@ -61,8 +89,11 @@ export function genesis(tec, seed, opts = {}) {
     for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
       const j = g.nbr[t];
       const x = pos[3 * j], y = pos[3 * j + 1], z = pos[3 * j + 2];
-      const rough = 1 + 0.6 * noise.fbm(x + 13 * k, y, z, 2.4, 3);
-      const nc = c + g.dist[t] * weight[k] * Math.max(0.2, rough) * (1 + 5 * phi[j]);
+      const rough = 1 + 0.5 * noise.fbm(x + 13 * k, y, z, 2.4, 3);
+      // Continental crust is quick going: a continent's own plate floods it
+      // before meeting anyone, then carries on into the ocean, so boundaries
+      // meet out at sea rather than at the coast.
+      const nc = c + g.dist[t] * weight[k] * Math.max(0.3, rough) * (1 - 0.6 * phi[j]);
       if (nc < cost[j]) { cost[j] = nc; owner[j] = k; grow.push(nc, j); }
     }
   }

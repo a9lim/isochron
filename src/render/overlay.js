@@ -1,76 +1,129 @@
-// The 2D layer over the globe: the limb, plate boundaries in the symbols of a
-// tectonic map, and arc volcanoes.
-//   convergent   a rule with barbs on the overriding side (the plate that stays on top)
-//   transform    a plain lighter rule
-//   divergent    no rule: the globe draws the ridge axis itself, in red, as young crust
-//   arcs         small red marks where ocean is going down beneath them
+// The 2D layer over the globe: the limb, and the plate boundaries as smooth
+// lines (src/render/lines.js) in the symbols of a tectonic map, placed at even
+// spacing along each line on screen:
+//   trench       a rule with sawteeth on the plate that stays on top, and,
+//                where ocean is going down, red marks for the arc of volcanoes
+//                standing on that side
+//   ridge        a red rule: the mantle reaching the surface (the globe also
+//                tints crust younger than 1 Myr)
+//   transform    a lighter rule with paired half-arrows giving the sense of slip
+//   inactive     a dotted rule (the plates hardly move against each other)
+import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 
-const CONVERGENT = 2, TRANSFORM = 3;
+const TOOTH_GAP = 13, TOOTH = 3.2;
+const ARC_GAP = 17, ARC_OFF = 8.5, ARC_R = 1.25;
+const SLIP_GAP = 70, SLIP_LEN = 8, SLIP_OFF = 3.5;
 
-export function drawOverlay(ctx, w, h, dpr, camera, grid, edges, arc, palette) {
+export function drawOverlay(ctx, w, h, dpr, camera, lines, palette) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const r = camera.radius(w * dpr, h * dpr) / dpr;
   const cx = w / 2, cy = h / 2;
-  const a = [0, 0, 0], b = [0, 0, 0], p = [0, 0, 0], q = [0, 0, 0];
-  const C = grid.centre, P = grid.pos;
 
   ctx.lineWidth = 1;
   ctx.strokeStyle = withAlpha(palette.text, 0.28);
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
+  if (!lines) return;
 
-  if (edges) {
-    const conv = new Path2D(), trans = new Path2D(), barbs = new Path2D();
-    for (let e = 0; e < edges.length; e += 7) {
-      const type = edges[e + 2];
-      if (type !== CONVERGENT && type !== TRANSFORM) continue;
-      const ca = edges[e], cb = edges[e + 1];
-      camera.view(C[3 * ca], C[3 * ca + 1], C[3 * ca + 2], a);
-      camera.view(C[3 * cb], C[3 * cb + 1], C[3 * cb + 2], b);
-      if (a[2] < 0.02 && b[2] < 0.02) continue;
-      const ax = cx + a[0] * r, ay = cy - a[1] * r, bx = cx + b[0] * r, by = cy - b[1] * r;
-      if (type === TRANSFORM) { trans.moveTo(ax, ay); trans.lineTo(bx, by); continue; }
-      conv.moveTo(ax, ay); conv.lineTo(bx, by);
-      // A barb at the midpoint, pointing into the overriding side.
-      const over = edges[e + 3] > 0 ? edges[e + 4] : edges[e + 5];
-      camera.view(P[3 * over], P[3 * over + 1], P[3 * over + 2], p);
-      const mx = 0.5 * (ax + bx), my = 0.5 * (ay + by);
-      let tx = bx - ax, ty = by - ay;
-      const len = Math.hypot(tx, ty);
-      if (len < 2.5) continue;
-      tx /= len; ty /= len;
+  const paths = { [INACTIVE]: new Path2D(), [RIDGE]: new Path2D(), [TRENCH]: new Path2D(), [TRANSFORM]: new Path2D() };
+  const teeth = new Path2D(), arcs = new Path2D(), slips = new Path2D();
+  const v = [0, 0, 0];
+
+  for (const line of lines) {
+    const { P, T, L, type, over, arc, slide } = line;
+    const M = type.length;
+    const sx = new Float32Array(M), sy = new Float32Array(M), vis = new Uint8Array(M);
+    for (let k = 0; k < M; k++) {
+      camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
+      sx[k] = cx + v[0] * r; sy[k] = cy - v[1] * r; vis[k] = v[2] > 0.03 ? 1 : 0;
+    }
+    // Rules: one subpath per run of a type on the visible side.
+    for (let k = 0; k < M - 1; k++) {
+      if (!vis[k] || !vis[k + 1]) continue;
+      const p = paths[type[k]];
+      if (k === 0 || type[k - 1] !== type[k] || !vis[k - 1]) p.moveTo(sx[k], sy[k]);
+      p.lineTo(sx[k + 1], sy[k + 1]);
+    }
+    // Symbols at even spacing along the line on screen.
+    let dTooth = TOOTH_GAP / 2, dArc = ARC_GAP / 2, dSlip = SLIP_GAP / 2;
+    for (let k = 0; k < M - 1; k++) {
+      if (!vis[k] || !vis[k + 1]) { dTooth = TOOTH_GAP / 2; dArc = ARC_GAP / 2; dSlip = SLIP_GAP / 2; continue; }
+      const ax = sx[k], ay = sy[k], bx = sx[k + 1], by = sy[k + 1];
+      const seg = Math.hypot(bx - ax, by - ay);
+      if (seg < 1e-6) continue;
+      const tx = (bx - ax) / seg, ty = (by - ay) / seg;
+      const ty_ = type[k];
+      // Screen direction of the line's left side, from its world vector.
+      camera.view(L[3 * k], L[3 * k + 1], L[3 * k + 2], v);
       let nx = -ty, ny = tx;
-      const ox = cx + p[0] * r - mx, oy = cy - p[1] * r - my;
-      if (nx * ox + ny * oy < 0) { nx = -nx; ny = -ny; }
-      const s = Math.min(3.2, 0.42 * len);
-      barbs.moveTo(mx - tx * s, my - ty * s);
-      barbs.lineTo(mx + nx * s * 1.3, my + ny * s * 1.3);
-      barbs.lineTo(mx + tx * s, my + ty * s);
-      barbs.closePath();
+      if (nx * v[0] + ny * -v[1] < 0) { nx = -nx; ny = -ny; }   // (nx, ny) now points left
+      let s = 0;
+      while (s < seg) {
+        const step = Math.min(seg - s, Math.min(dTooth, dArc, dSlip));
+        s += step; dTooth -= step; dArc -= step; dSlip -= step;
+        const f = s / seg, px = ax + f * (bx - ax), py = ay + f * (by - ay);
+        const side = over[k] >= 0 ? 1 : -1;            // +1: the left plate stays on top
+        if (dTooth <= 1e-6) {
+          dTooth = TOOTH_GAP;
+          if (ty_ === TRENCH) {
+            const ox = side * nx, oy = side * ny;
+            teeth.moveTo(px - tx * TOOTH, py - ty * TOOTH);
+            teeth.lineTo(px + ox * TOOTH * 1.5, py + oy * TOOTH * 1.5);
+            teeth.lineTo(px + tx * TOOTH, py + ty * TOOTH);
+            teeth.closePath();
+          }
+        }
+        if (dArc <= 1e-6) {
+          dArc = ARC_GAP;
+          if (ty_ === TRENCH && arc[k] > 0.5) {
+            const qx = px + side * nx * ARC_OFF, qy = py + side * ny * ARC_OFF;
+            arcs.moveTo(qx + ARC_R, qy);
+            arcs.arc(qx, qy, ARC_R, 0, 2 * Math.PI);
+          }
+        }
+        if (dSlip <= 1e-6) {
+          dSlip = SLIP_GAP;
+          if (ty_ === TRANSFORM) {
+            // The right side moves along +t relative to the left when slide > 0.
+            const dir = slide[k] >= 0 ? 1 : -1;
+            for (const sideSign of [1, -1]) {
+              const along = sideSign === -1 ? dir : -dir;          // −1 is the right side
+              const ox = px + sideSign * nx * SLIP_OFF, oy = py + sideSign * ny * SLIP_OFF;
+              const ex = ox + along * tx * SLIP_LEN / 2, ey = oy + along * ty * SLIP_LEN / 2;
+              slips.moveTo(ox - along * tx * SLIP_LEN / 2, oy - along * ty * SLIP_LEN / 2);
+              slips.lineTo(ex, ey);
+              // Half-head on the outer side.
+              slips.lineTo(ex - along * tx * 3 + sideSign * nx * 2.4, ey - along * ty * 3 + sideSign * ny * 2.4);
+            }
+          }
+        }
+      }
     }
-    ctx.strokeStyle = withAlpha(palette.text, 0.42);
-    ctx.stroke(trans);
-    ctx.strokeStyle = withAlpha(palette.text, 0.78);
-    ctx.stroke(conv);
-    ctx.fillStyle = withAlpha(palette.text, 0.78);
-    ctx.fill(barbs);
   }
 
-  if (arc) {
-    const dots = new Path2D();
-    for (let i = 0; i < grid.n; i++) {
-      if (arc[i] < 1.2) continue;
-      camera.view(P[3 * i], P[3 * i + 1], P[3 * i + 2], q);
-      if (q[2] < 0.05) continue;
-      const x = cx + q[0] * r, y = cy - q[1] * r;
-      dots.moveTo(x + 1.1, y);
-      dots.arc(x, y, 1.1, 0, 2 * Math.PI);
-    }
-    ctx.fillStyle = palette.accent;
-    ctx.fill(dots);
-  }
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.setLineDash([1, 3]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = withAlpha(palette.text, 0.35);
+  ctx.stroke(paths[INACTIVE]);
+  ctx.setLineDash([]);
+  ctx.strokeStyle = withAlpha(palette.text, 0.5);
+  ctx.stroke(paths[TRANSFORM]);
+  ctx.strokeStyle = withAlpha(palette.text, 0.7);
+  ctx.stroke(slips);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = palette.accent;
+  ctx.stroke(paths[RIDGE]);
+  ctx.lineWidth = 1.25;
+  ctx.strokeStyle = withAlpha(palette.text, 0.85);
+  ctx.stroke(paths[TRENCH]);
+  ctx.fillStyle = withAlpha(palette.text, 0.85);
+  ctx.fill(teeth);
+  ctx.fillStyle = palette.accent;
+  ctx.fill(arcs);
 }
 
 function withAlpha(hex, a) {

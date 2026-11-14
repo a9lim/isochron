@@ -1,6 +1,6 @@
 # Isochron: plan
 
-*Isochron* is a working name: a line joining rock of the same age. It fits the seafloor stripes and the dial, and a9 has not chosen it yet.
+*Isochron* is a line joining rock of the same age, which fits the seafloor stripes and the dial (name chosen 2026-11-14).
 
 This is a fifth sim for a9l.im: an Earth-like planet on one globe, from plate tectonics down to weather, with every layer coupled to the others. It was proposed on 2026-11-13, and a9 set its scope that day (see Decisions). This file is the plan of record. Once the project has an `AGENTS.md` describing what is built, this file keeps only what isn't built yet, as Worldline's and Miasma's roadmaps do.
 
@@ -20,6 +20,15 @@ From a9, 2026-11-13:
 - Glaciers are in, as continental ice sheets (Ice below).
 - Climate zones on the map are in (Climate zones below).
 - The project is meant to be very ambitious.
+
+From a9, 2026-11-14:
+
+- The name is Isochron.
+- The red is where the mantle reaches the surface: ridge axes, arc volcanoes, hotspots. Warm fronts on the future weather chart take sienna.
+- The page opens at plate speed, with the continents visibly moving.
+- The carbon thermostat and orbital forcing are wanted (phase 3).
+- The tectonic view should read more easily. Boundaries are now smooth traced lines in the conventions of a tectonic map (The scene).
+
 
 ## Thesis: one planet, one state, one dial
 
@@ -197,7 +206,7 @@ The seam between weather and climate is the main technical risk. The weather cor
 - **Medium.** A physiographic globe in the manner of Heinrich Berann's paintings of the Tharp–Heezen ocean floor: shaded relief on land and sea, the ridges and trenches that made the case for seafloor spreading. The Weather view is a synoptic chart, the Climate view a soft Köppen map, all on the same globe.
 - **The red** is where the mantle reaches the surface: ridge axes (crust younger than ~1 Myr), active arc volcanoes, hotspots and large igneous provinces. In the carbon loop that's the CO₂ source, so the red reads a quantity. Weather maps conventionally draw warm fronts red, and here they take sienna instead: the semicircle carries the meaning (pattern before hue).
 - **Inks**: prussian for the ocean's depth tint; umber for land hillshade; graphite (textMuted) for isobars and contours. The zones are in their table above. On the chart, cold fronts are prussian triangles, warm fronts sienna semicircles, occlusions mulberry, stationary fronts alternate, and dry lines are ochre scallops. Precipitation is stipple, its density the rate.
-- **Pattern before hue.** The stripes are a pattern: polarity is light against dark. The tectonic symbols are already patterns: barbs on the overriding side of a trench, a double line at a ridge, a single line at a transform. Front symbols survive grayscale by construction. Ice is the paper with flow hachures, whose direction is the ice flow and spacing its speed.
+- **Pattern before hue.** The stripes are a pattern: polarity is light against dark. The tectonic symbols follow geologic-map convention and are patterns too: sawteeth on the overriding plate at a trench, half-arrows for the sense of slip on a transform, a red rule at a ridge, and a dotted rule where plates hardly move. Weather notation is kept for weather. A cold front's triangles are the same glyph as a trench's sawteeth, so the two must never share a view or an ink: tectonic symbols are in the text colour, and fronts will be in inks. Front symbols survive grayscale by construction. Ice is the paper with flow hachures, whose direction is the ice flow and spacing its speed.
 - **Depict, don't decorate.**
   - Stripes are chrons and isochrons are equal age.
   - Hachures are ice flow, stipple is rain, and line weight on rivers is discharge.
@@ -265,9 +274,6 @@ Each phase ships on its own.
 
 ## Open decisions
 
-- The name. The GitHub repository and the parent's submodule wait on it.
-- The red as the mantle at the surface, and warm fronts in sienna.
-- The opening: the dial at plate speed (continents visibly moving) or at weather speed (storms moving). The first is more striking; the second is the more familiar planet.
 - Globe only, or globe plus an Equal Earth map toggle.
 - Resolution for crust and land: level 7 (55 km) is the target, so measure it in phase 1.
 - Vegetation beyond the zones' feedback (Daisyworld-style biology) is out of scope unless a9 wants it.
