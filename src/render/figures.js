@@ -322,3 +322,54 @@ export function drawOrbit(canvas, orbit, nowKyr, pal) {
     label(ctx, k === 0 ? 'now' : `${k > 0 ? '+' : '−'}${Math.abs(k)} kyr`, x, bot + 10, pal.muted, k === -400 ? 'left' : k === 100 ? 'right' : 'center', 10.5);
   }
 }
+
+// ── Fig. 7: the model ──
+// Every layer a node with its live value; every coupling the code has an arrow,
+// as heavy as its flux against a typical size. The mantle's CO₂ is the red.
+const NODES = {
+  orbit: [0.84, 0.07, 'Orbit'], weather: [0.16, 0.07, 'Weather'],
+  ocean: [0.14, 0.31, 'Ocean'], climate: [0.5, 0.24, 'Climate'], zones: [0.86, 0.31, 'Zones'],
+  ice: [0.16, 0.55, 'Ice'], carbon: [0.84, 0.56, 'Carbon'], landscape: [0.5, 0.6, 'Landscape'],
+  sea: [0.16, 0.83, 'Sea level'], plates: [0.5, 0.9, 'Plates'], plumes: [0.86, 0.85, 'Plumes'],
+};
+
+export function drawModel(canvas, s, pal) {
+  const { ctx, w, h } = setup(canvas);
+  if (!s) return;
+  const P = k => [NODES[k][0] * w, NODES[k][1] * h + 4];
+  const R = 20;
+  // Arrows first, under the labels.
+  for (const e of s.edges) {
+    const [ax, ay] = P(e.from), [bx, by] = P(e.to);
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+    // Bend: pairs going both ways part to either side.
+    const bend = e.bend ?? 0.12;
+    const mx = (ax + bx) / 2 - uy * L * bend, my = (ay + by) / 2 + ux * L * bend;
+    const sx = ax + ux * R, sy = ay + uy * R * 0.8, ex = bx - ux * R, ey = by - uy * R * 0.8;
+    const wgt = Math.max(0, Math.min(1, e.w));
+    const ink = e.red ? pal.accent : pal.text;
+    ctx.strokeStyle = alpha(ink, 0.25 + 0.6 * wgt);
+    ctx.lineWidth = 0.6 + 2.6 * wgt;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(mx, my, ex, ey); ctx.stroke();
+    // Head along the curve's end tangent.
+    const tx = ex - mx, ty = ey - my, tl = Math.hypot(tx, ty) || 1, hx = tx / tl, hy = ty / tl, hs = 4 + 2 * wgt;
+    ctx.fillStyle = alpha(ink, 0.35 + 0.6 * wgt);
+    ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - hx * hs - hy * hs * 0.55, ey - hy * hs + hx * hs * 0.55); ctx.lineTo(ex - hx * hs + hy * hs * 0.55, ey - hy * hs - hx * hs * 0.55); ctx.closePath(); ctx.fill();
+    // The flux's value at the bend.
+    if (e.label) {
+      const lx = 0.25 * sx + 0.5 * mx + 0.25 * ex, ly = 0.25 * sy + 0.5 * my + 0.25 * ey;
+      ctx.font = `italic 10px ${FONT}`;
+      const tw = ctx.measureText(e.label).width;
+      ctx.fillStyle = pal.canvas; ctx.fillRect(lx - tw / 2 - 2, ly - 6, tw + 4, 12);
+      label(ctx, e.label, lx, ly, e.red ? pal.accent : pal.muted, 'center', 10, true);
+    }
+  }
+  for (const k of Object.keys(NODES)) {
+    const [x, y] = P(k);
+    ctx.font = `13px ${FONT}`;
+    const tw = Math.max(ctx.measureText(NODES[k][2]).width, 40);
+    ctx.fillStyle = pal.canvas; ctx.fillRect(x - tw / 2 - 4, y - 10, tw + 8, 26);
+    label(ctx, NODES[k][2], x, y - 2, pal.text, 'center', 13);
+    if (s.values[k]) label(ctx, s.values[k], x, y + 11, pal.muted, 'center', 10.5);
+  }
+}

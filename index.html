@@ -73,6 +73,7 @@
         <button class="tab-btn active" data-tab="record" role="tab" aria-selected="true">Record</button>
         <button class="tab-btn" data-tab="climate" role="tab" aria-selected="false" tabindex="-1">Climate</button>
         <button class="tab-btn" data-tab="crust" role="tab" aria-selected="false" tabindex="-1">Crust</button>
+        <button class="tab-btn" data-tab="model" role="tab" aria-selected="false" tabindex="-1">Model</button>
       </div>
       <div class="margin-panels">
         <div class="tab-panel" id="tab-experiments" role="tabpanel">
@@ -104,6 +105,12 @@
           <figure class="fig">
             <canvas id="fig-pol" class="fig-canvas fig-strip" aria-label="The polarity of the field over the last 160 million years"></canvas>
             <figcaption class="caption"><span class="caption-n">Fig. 6.</span> <span id="cap-pol"></span></figcaption>
+          </figure>
+        </div>
+        <div class="tab-panel" id="tab-model" role="tabpanel">
+          <figure class="fig">
+            <canvas id="fig-model" class="fig-canvas fig-model" aria-label="The model: every layer and every coupling between them, each arrow as heavy as its flux"></canvas>
+            <figcaption class="caption"><span class="caption-n">Fig. 7.</span> <span id="cap-model"></span></figcaption>
           </figure>
         </div>
       </div>

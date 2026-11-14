@@ -20,7 +20,7 @@ import { createGlobe } from './src/render/globe.js';
 import { drawOverlay } from './src/render/overlay.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { traceRivers } from './src/render/rivers.js';
-import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit } from './src/render/figures.js';
+import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
 import { WEATHER } from './src/engine/weather.js';
 import { chartLines } from './src/render/chart.js';
 import { prolong } from './src/grid/transfer.js';
@@ -49,6 +49,7 @@ const els = {
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
+  figModel: $('fig-model'), capModel: $('cap-model'),
 };
 
 // ── The planet ──
@@ -429,6 +430,56 @@ function caption(force) {
   setCaption(parts.join(' · '), true);
 }
 
+// ── Fig. 7: the model, with its live fluxes ──
+function modelSnapshot() {
+  const cs = climate.stats, z = climate.zonal, cf = carbon.flux, st = tec.stats();
+  let snow = 0, iceArea = 0, run = 0, la = 0, hiLand = 0, sstLo = 0, sstHi = 0, bShare = 0;
+  for (let i = 0; i < grid.n; i++) {
+    const a = areaM2[i];
+    if (ice.H[i] > 0 && ice.M[i] > 0) snow += ice.M[i] * a;
+    if (ice.H[i] > 20) iceArea += a;
+    if (climate.landMask[i]) { run += climate.runoff[i] * a; la += a; bShare += a * (climate.zones[NZ * i + 4] + climate.zones[NZ * i + 5]); }
+    hiLand = Math.max(hiLand, tec.elev[i] - tec.seaLevel);
+    if (P.ocean.sea[i]) { sstLo = Math.min(sstLo, P.ocean.sst[i]); sstHi = Math.max(sstHi, P.ocean.sst[i]); }
+  }
+  const dT = z ? z.T[45] - 0.5 * (z.T[15] + z.T[75]) : 40;
+  const forcing = 5.35 * Math.log(carbon.pco2 / CARBON.PCO2_0);
+  const s65 = P.orbit.summer65(P.years / 1000);
+  const wRel = carbon.wF0 > 0 ? carbon.wF / carbon.wF0 : 1;
+  const fmt = (v, d = 2) => v.toFixed(d);
+  const sea = Math.round((tec.seaLevel - P.seaLevel0) * 1000);
+  return {
+    values: {
+      climate: `${cs.meanT.toFixed(1)} °C`, carbon: `${Math.round(carbon.pco2)} ppm`, ice: `${(ice.stats.volume / 1e15).toFixed(1)} M km³`,
+      sea: `${sea > 0 ? '+' : sea < 0 ? '−' : ''}${Math.abs(sea)} m`, plates: `${st.plates} plates`, plumes: `${plumes.hot.length} hotspots`,
+      ocean: `${P.ocean.stats.maxSv.toFixed(0)} Sv`, weather: wx.started && chart ? `${chart.lows.length} lows` : 'idle',
+      orbit: `tilt ${(P.orbit.at(P.years / 1000).obliquity * 180 / Math.PI).toFixed(1)}°`,
+      landscape: `${land.flux.eroded.toFixed(1)} km³/yr`, zones: `B ${Math.round(100 * bShare / (la || 1))}%`,
+    },
+    edges: [
+      { from: 'orbit', to: 'climate', w: (s65 - 420) / 120, label: `${Math.round(s65)} W/m²`, bend: -0.1 },
+      { from: 'climate', to: 'weather', w: dT / 45, label: `${Math.round(dT)} K` },
+      { from: 'climate', to: 'ocean', w: P.ocean.stats.maxSv / 30, label: 'wind' },
+      { from: 'ocean', to: 'climate', w: (sstHi - sstLo) / 12, label: `±${Math.round(Math.max(-sstLo, sstHi))} K` },
+      { from: 'climate', to: 'zones', w: 0.5 },
+      { from: 'zones', to: 'climate', w: bShare / (la || 1) / 0.6, label: 'albedo' },
+      { from: 'climate', to: 'ice', w: snow / 1e9 / 4000, label: `${Math.round(snow / 1e9)} km³/yr` },
+      { from: 'ice', to: 'climate', w: iceArea / 1e12 / 20, label: 'albedo' },
+      { from: 'ice', to: 'sea', w: ice.stats.seaLevel / 100, label: `−${Math.round(ice.stats.seaLevel)} m` },
+      { from: 'climate', to: 'landscape', w: run / (la || 1) / 0.5, label: `${Math.round(1000 * run / (la || 1))} mm/yr` },
+      { from: 'landscape', to: 'sea', w: land.flux.toSea / 6, label: `${land.flux.toSea.toFixed(1)} km³/yr`, bend: 0.08 },
+      { from: 'climate', to: 'carbon', w: cf.weather / 0.2, label: `${fmt(cf.weather, 3)} Pg/yr` },
+      { from: 'carbon', to: 'climate', w: Math.abs(forcing) / 6, label: `${forcing >= 0 ? '+' : '−'}${Math.abs(forcing).toFixed(1)} W/m²` },
+      { from: 'plates', to: 'carbon', w: cf.out / 0.2, label: `${fmt(cf.out - cf.lip, 3)} Pg/yr`, red: true },
+      { from: 'plumes', to: 'carbon', w: cf.lip / 0.5, label: cf.lip > 0.001 ? `${fmt(cf.lip, 3)} Pg/yr` : '', red: true, bend: 0 },
+      { from: 'plates', to: 'landscape', w: hiLand / 6, label: `${hiLand.toFixed(1)} km`, bend: 0 },
+      { from: 'plates', to: 'sea', w: 60 / Math.max(20, st.meanOceanAge), label: `${Math.round(st.meanOceanAge)} Myr` },
+      { from: 'plumes', to: 'plates', w: 0.3, bend: 0 },
+      { from: 'zones', to: 'carbon', w: wRel / 2, label: `${wRel.toFixed(2)}×`, bend: 0 },
+    ],
+  };
+}
+
 // ── The margin's figures ──
 let lastFigures = 0;
 const visible = el => el && el.offsetParent !== null && el.clientWidth > 0;
@@ -465,6 +516,11 @@ function figures(force) {
       if (e > 0) { la += a; lh += a * e; } else { sa += a; sd -= a * e; }
     }
     els.capHyps.textContent = `Hypsometry · land ${Math.round(100 * la / (4 * Math.PI))}% · mean height ${(lh / la).toFixed(2)} km · mean depth ${(sd / sa).toFixed(1)} km`;
+  }
+  if (visible(els.figModel)) {
+    drawModel(els.figModel, modelSnapshot(), pal);
+    const cf = carbon.flux;
+    els.capModel.textContent = `The model · outgassing ${cf.out.toFixed(3)} and weathering ${cf.weather.toFixed(3)} Pg C/yr · erosion ${land.flux.eroded.toFixed(1)} km³/yr`;
   }
   if (visible(els.figPol)) {
     drawPolarity(els.figPol, polarity, tec.t, pal);
