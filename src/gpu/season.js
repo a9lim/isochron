@@ -25,7 +25,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let b = clim[3u * i + 1u];
   var cold = b.y;
   if (U.sw > 0.001) {
-    let T = a.x + a.y * U.c1 - a.z * U.s1 + a.w * U.c2 - b.x * U.s2;
+    // At sea, the surface's temperature: the air's plus the gyres' anomaly (clim's sea-surface slot less T̄).
+    let tp = select(clim[3u * i + 2u].x - a.x, 0.0, b.w > 0.5);
+    let T = a.x + a.y * U.c1 - a.z * U.s1 + a.w * U.c2 - b.x * U.s2 + tp;
     let now = select(ramp(1.5, 6.0, -T), ramp(-1.0, 5.0, -(T - U.lapse * b.z)), b.w > 0.5);
     cold = U.sw * now + (1.0 - U.sw) * cold;
   }

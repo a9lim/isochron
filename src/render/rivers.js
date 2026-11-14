@@ -1,15 +1,19 @@
 // Rivers for drawing: the landscape's drainage traced into continuous lines.
 // At each confluence the larger river runs on and the smaller ends there, so
 // a main stem is one line from its source to the sea, and each tributary is
-// its own line that joins it. Lines are smoothed on the sphere (corner-cutting,
-// ends held), and a tributary's last point is moved onto its main stem's
-// smoothed course, so the joins stay joined. Each point keeps its discharge,
-// which sets line weight (docs/PLAN.md, "Depict, don't decorate"). Rivers
-// stop at lakes and start again at their outlets.
+// its own line that joins it. Lines are smoothed on the sphere (relaxed toward
+// their neighbours, then corner-cutting, ends held: cut corners alone kept the
+// grid's straight runs between them), and a tributary's last point is moved
+// onto its main stem's smoothed course, so the joins stay joined. A river
+// reaches the sea where the drawn relief crosses sea level along its course,
+// so it ends on the coast the globe draws. Each point keeps its discharge,
+// which sets line weight (docs/PLAN.md, "Depict, don't decorate"). Rivers stop
+// at lakes and start again at their outlets.
 
 export const RIVER_MIN = 1500;   // m³/s: a river worth drawing at this grid's scale
 
-export function traceRivers(grid, land, qmin = RIVER_MIN) {
+/** `drawn`: the relief as the globe draws it (surface.js, metres over the sea ÷ 1000), whose zero is the coast. */
+export function traceRivers(grid, land, drawn = null, qmin = RIVER_MIN) {
   const n = grid.n, pos = grid.pos, r = land.r;
   if (!r) return [];
   const Q = land.discharge, rcv = r.rcv, base = land.base, lake = land.lake;
@@ -20,7 +24,8 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
     return false;
   };
   const big = new Uint8Array(n);
-  for (let i = 0; i < n; i++) if (Q[i] >= qmin && rcv[i] >= 0 && !isLake(i)) big[i] = 1;
+  const onLand = i => !drawn || drawn[i] > 0;
+  for (let i = 0; i < n; i++) if (Q[i] >= qmin && rcv[i] >= 0 && !isLake(i) && onLand(i)) big[i] = 1;
   // Each cell's main donor: its largest big donor.
   const main = new Int32Array(n).fill(-1);
   for (let i = 0; i < n; i++) {
@@ -40,8 +45,9 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
       chainOf[i] = chains.length;
       const j = rcv[i];
       if (j < 0) break;
-      if (base[j]) {                               // the mouth: halfway to the sea's cell
-        const x = pos[3 * i] + pos[3 * j], y = pos[3 * i + 1] + pos[3 * j + 1], z = pos[3 * i + 2] + pos[3 * j + 2], m = Math.hypot(x, y, z);
+      if (base[j] || !onLand(j)) {                 // the mouth: where the drawn coast crosses i → j
+        const f = drawn ? Math.min(0.95, Math.max(0.05, drawn[i] / (drawn[i] - drawn[j]))) : 0.5;
+        const x = pos[3 * i] + f * (pos[3 * j] - pos[3 * i]), y = pos[3 * i + 1] + f * (pos[3 * j + 1] - pos[3 * i + 1]), z = pos[3 * i + 2] + f * (pos[3 * j + 2] - pos[3 * i + 2]), m = Math.hypot(x, y, z);
         mouth = [x / m, y / m, z / m];
         break;
       }
@@ -61,7 +67,7 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
     if (c.mouth) { P.push(...c.mouth); W.push(W[W.length - 1]); }
     if (c.end >= 0) { P.push(pos[3 * c.end], pos[3 * c.end + 1], pos[3 * c.end + 2]); W.push(Q[c.cells[c.cells.length - 1]]); }
     if (W.length < 2) continue;
-    const line = smooth({ P, W }, 3);
+    const line = smooth(relax({ P, W }, Math.round(4 * Math.sqrt(n / 40962))), 3);
     if (c.end >= 0) {
       const stem = out[chainOf[c.end]];
       if (stem) {
@@ -80,6 +86,20 @@ export function traceRivers(grid, land, qmin = RIVER_MIN) {
   // Short streams on wet coasts are dropped: a river is three cells long at level 6, or a large one.
   const minCells = Math.round(3 * Math.sqrt(n / 40962));   // ~330 km at any level
   return out.filter((l, k) => l && (chains[k].cells.length >= minCells || chains[k].q > 4 * qmin));
+}
+
+/** Each inner point pulled halfway toward its neighbours' mean, `passes` times; the ends held. */
+function relax(line, passes) {
+  const P = Float64Array.from(line.P), m = P.length / 3, Q = new Float64Array(P.length);
+  for (let pass = 0; pass < passes && m > 2; pass++) {
+    Q.set(P);
+    for (let k = 1; k < m - 1; k++) {
+      let x = 0.5 * Q[3 * k] + 0.25 * (Q[3 * k - 3] + Q[3 * k + 3]), y = 0.5 * Q[3 * k + 1] + 0.25 * (Q[3 * k - 2] + Q[3 * k + 4]), z = 0.5 * Q[3 * k + 2] + 0.25 * (Q[3 * k - 1] + Q[3 * k + 5]);
+      const r = Math.hypot(x, y, z);
+      P[3 * k] = x / r; P[3 * k + 1] = y / r; P[3 * k + 2] = z / r;
+    }
+  }
+  return { P: Array.from(P), W: line.W };
 }
 
 function smooth(line, passes) {

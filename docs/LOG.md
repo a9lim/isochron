@@ -187,6 +187,13 @@ a9: "let's chase level 7; also currently the weather front symbols seem to slide
 - **The climate's coarse grid stays at 220 km** at every level (transfers chain through the levels between): at level 7 a cold cycle 2.7 → 1.0 s, a warm one 710 → 480 ms, and its climate now matches level 6's (13.5 against 13.2 °C, 1,139 against 1,061 mm).
 - **The engine at level 7 by default**, level 6 on phones and tablets (`pointer: coarse`). Costs against level 6: boot +0.5 s, the first climate ~1 s later, and the engine keeps ~1 Myr/s (the experiments all run at or below it; the top of the dial is engine-limited to ~2–3 Myr/s).
 
+## Rivers, sea ice, dry lines
+
+a9: rivers still a little gridlike, and sometimes past the coast; the ice caps too smooth and circular (bug or model?); dry lines conservative against the Humidity chart.
+- **Rivers**: relaxed before corner-cutting (the mean turn per point 4.3° → 0.8°: the staircase is gone), and ended where the drawn relief crosses sea level (points over drawn sea 2.1% → 0.4%).
+- **Sea ice on the sea's surface temperature** (air plus the gyres' anomaly) in the energy balance and the drawn season. The edge's spread ±1.4° → ±2.0°: mostly the model, since a diffusive energy balance puts the ice edge on a latitude circle, and this ocean's gyres are weak (~12 Sv; warm anomalies only to +1.7 K). Ice sheets' round domes are shallow ice on a smooth mass balance.
+- **Dry lines** on relative humidity (what the Humidity chart draws), the top quarter of gradients, bridged, thresholds averaged: 0–1 a chart → 2–7, along the dry band's edges.
+
 ## Registering on the site
 
 When the social card is made (a9's session):

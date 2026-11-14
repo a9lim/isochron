@@ -272,7 +272,7 @@ export class Climate {
     restrict(this.T, f6, this.landFracC);
   }
 
-  /** Albedo of fine cell i at sea-level temperature T. */
+  /** Albedo of fine cell i at sea-level temperature T (at sea, the surface's: the air's plus the gyres' anomaly). */
   albedo(i, T) {
     const C = CLIMATE, s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s;
     if (this.ice && this.ice.H[i] > 10) return C.ALB_SNOW;
@@ -293,17 +293,21 @@ export class Climate {
     // Absorbed sunlight through the year, and its harmonics (fine).
     const cs = new Float64Array(NS), sn = new Float64Array(NS);
     for (let s = 0; s < NS; s++) { cs[s] = Math.cos(2 * Math.PI * (s + 0.5) / NS); sn[s] = Math.sin(2 * Math.PI * (s + 0.5) / NS); }
+    // Sea ice reads the sea's own surface: the air's temperature plus the gyres' anomaly
+    // (warm currents keep a sea open poleward of its latitude's ice edge, cold ones carry
+    // ice toward the equator), so the edge isn't the energy balance's latitude circle.
+    const sstA = this.ocean ? this.ocean.fine.sst : null;
     for (let i = 0; i < n; i++) {
-      const l = this.row[i], w = this.roww[i];
+      const l = this.row[i], w = this.roww[i], land = this.landMask[i], tp = !land && sstA ? sstA[i] : 0;
       let f0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0, cold = 0;
       for (let s = 0; s < NS; s++) {
         const q = Q[l * NS + s] * (1 - w) + Q[(l + 1) * NS + s] * w;
         const c = cs[s], sv = sn[s], c2 = c * c - sv * sv, s2 = 2 * sv * c;
-        const T = this.Tf[0][i] + this.Tf[1][i] * c - this.Tf[2][i] * sv + this.Tf[3][i] * c2 - this.Tf[4][i] * s2;
+        const T = this.Tf[0][i] + this.Tf[1][i] * c - this.Tf[2][i] * sv + this.Tf[3][i] * c2 - this.Tf[4][i] * s2 + tp;
         const a = this.albedo(i, T);
         const fa = q * (1 - a);
         f0 += fa; a1 += fa * c; b1 -= fa * sv; a2 += fa * c2; b2 -= fa * s2;
-        cold += this.landMask[i] ? ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5) : ramp(-T, 1.5, 6);
+        cold += land ? ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5) : ramp(-T, 1.5, 6);
       }
       F[0][i] = f0 / NS; F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
       this.snowAnn[i] = cold / NS;

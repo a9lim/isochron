@@ -128,7 +128,7 @@ function sendSurface(fromStep, steps = 0, ms = 0) {
     landSteps: land.steps, landBank: P.landBank || 0, stepYears, stepsDone, msPerStep: msPerStep + (performance.now() - tSend),
   };
   stepYears = 0;
-  if (land.steps !== riversSteps) { m.rivers = traceRivers(grid, land); riversSteps = land.steps; }
+  if (land.steps !== riversSteps) { m.rivers = traceRivers(grid, land, f.elevRel); riversSteps = land.steps; }
   post(m, [f.elevRel.buffer, f.normals.buffer, f.tfDraw.buffer, f.lakeDraw.buffer, f.felsic.buffer, m.elev.buffer]);
 }
 

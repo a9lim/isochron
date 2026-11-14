@@ -261,8 +261,10 @@ export function chartLines(wx, pres, st) {
   const out = { fronts: [], dry: [], highs: [], lows: [], troughs: [], ridges: [], shear: [], t: wx.t };
   const vNow = wx.vel;
   // Successive charts are averaged: the fields, and below, the thresholds.
-  if (!st.th) Object.assign(st, { th: Float64Array.from(wx.theta), qv: Float64Array.from(wx.qv), v: Float64Array.from(vNow), zeta: Float64Array.from(wx.zeta2), thr: null });
-  for (let i = 0; i < n; i++) { st.th[i] = 0.5 * (st.th[i] + wx.theta[i]); st.qv[i] = 0.5 * (st.qv[i] + wx.qv[i]); st.zeta[i] = 0.5 * (st.zeta[i] + wx.zeta2[i]); }
+  // Relative humidity as the Humidity chart draws it (src/gpu/weather.js: the column's water over wsat(θ)).
+  const rh = i => Math.min(1.2, wx.qv[i] / (25 * Math.exp(0.065 * (Math.max(-45, Math.min(45, wx.theta[i])) - 15))));
+  if (!st.th) Object.assign(st, { th: Float64Array.from(wx.theta), rh: Float64Array.from({ length: n }, (_, i) => rh(i)), v: Float64Array.from(vNow), zeta: Float64Array.from(wx.zeta2), thr: null });
+  for (let i = 0; i < n; i++) { st.th[i] = 0.5 * (st.th[i] + wx.theta[i]); st.rh[i] = 0.5 * (st.rh[i] + rh(i)); st.zeta[i] = 0.5 * (st.zeta[i] + wx.zeta2[i]); }
   for (let i = 0; i < 3 * n; i++) st.v[i] = 0.5 * (st.v[i] + vNow[i]);
   const vel = st.v;
   // Highs and lows first: the occlusions are found near the deep lows.
@@ -408,12 +410,16 @@ export function chartLines(wx, pres, st) {
     }
     out.fronts.push({ P: pts, side, V, type: new Uint8Array(M).fill(r.type) });
   }
-  // Dry lines: over land, moisture sharp and temperature not.
-  const Q = locate(g, st.qv);
-  const okD = i => wx.land[i] > 0.6 && Math.abs(lat[i]) > 0.2 && Math.abs(lat[i]) < 0.9;
-  const q80 = percentile(Q.G, okD, 0.85), tq = percentile(Q.tfp, i => okD(i) && Q.G[i] > q80, 0.4);
-  const okDry = i => okD(i) && Q.G[i] > q80 && Q.tfp[i] > tq && T.G[i] < g70;
-  for (const chain of trace(g, Q.loc, okDry)) {
+  // Dry lines: over land, humidity sharp and temperature not much (a dry line can carry a
+  // little thermal contrast), on the relative humidity the Humidity chart shows; thresholds
+  // averaged over charts and pieces bridged, as fronts'.
+  const Q = locate(g, st.rh);
+  const okD = i => wx.land[i] > 0.5 && Math.abs(lat[i]) > 0.15 && Math.abs(lat[i]) < 1.0;
+  const rawD = { g: percentile(Q.G, okD, 0.75) };
+  rawD.t = percentile(Q.tfp, i => okD(i) && Q.G[i] > rawD.g, 0.3);
+  st.dthr = st.dthr ? { g: 0.7 * st.dthr.g + 0.3 * rawD.g, t: 0.7 * st.dthr.t + 0.3 * rawD.t } : rawD;
+  const okDry = i => okD(i) && Q.G[i] > st.dthr.g && Q.tfp[i] > st.dthr.t && T.G[i] < 1.25 * g70;
+  for (const chain of bridge(trace(g, Q.loc, okDry), 0.065)) {
     let P = chaikin(relax(chain.map(c => c.p.slice()), 4 * S), cuts(g, 2));
     const pts = new Float32Array(3 * P.length), side = new Float32Array(3 * P.length), V = new Float32Array(3 * P.length);
     P.forEach((q, k) => {
