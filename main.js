@@ -652,16 +652,17 @@ window.addEventListener('DOMContentLoaded', () => {
 // ── The loop ──
 let last = performance.now();
 function frame(now) {
+  requestAnimationFrame(frame);     // first, so a frame that throws doesn't stop the loop
   tick(now);
-  requestAnimationFrame(frame);
 }
 // Where the frame's time goes, in ms (an exponential mean), for tuning: __isochron.prof.
 const prof = {};
 let profT = 0;
 const lap = k => { const t = performance.now(); prof[k] = 0.95 * (prof[k] || 0) + 0.05 * (t - profT); profT = t; };
 function tick(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
+  // A frame's timestamp can precede the clock's start (or a driven tick's): never step backward.
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
+  last = Math.max(last, now);
   profT = performance.now();
   if (playing) {
     // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr.
@@ -671,7 +672,7 @@ function tick(now) {
     const p = plan[0];
     // The engine's tick: the years, the plate steps, and the orbit the climate sees
     // (averaged over what the dial passes in ~2 s).
-    if (engineStarted) engine.postMessage({ type: 'tick', adv, steps: Array(p.steps).fill(p.step), window: rate() * 2 });
+    if (engineStarted) engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2 });
     if (view === 'weather') stepWeather(adv);
     figuresDirty = true;
     drawDirty = true;
