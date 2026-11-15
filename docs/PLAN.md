@@ -569,6 +569,74 @@ Next, in order:
 4. **The experiments' numbers from runs:** Kremer's continents (culture at a date against each landmass's connected population), Axes (farming's spread east–west against north–south), Dispersal (the front against 2√(rD) on the planet's lattice: forager fronts are 14 km wide against 120 km cells, and a 1D lattice's linear speed there is ~1.0 km/yr against the continuum's 0.57, so the oracle is the lattice's).
 5. **Surveys across seeds** (`tools/people-survey.mjs`): how often a world tips, how many farming origins, the spread of t*, the follow dial's length.
 
+**v1's design: the factors split, and the write-back** (a9, 2026-11-15: "let's try this model"). v0 was Kremer's two factors, land (NPP as capacity) × ideas, with labour the Malthusian residual, energy only as ceilings and no capital. v1 splits the factors where a split brings its own dynamics and lands on a layer the planet has, and switches each on by era, so the early eras stay as simple as v0's.
+
+| Factor | Rival | Grows by | Lost by | On the planet | From |
+|---|---|---|---|---|---|
+| Flows: sunlight, rain, wind | — | (a rate per area) | — | NPP, absorbed sunlight, the template's wind | foragers |
+| Soil, a renewable stock | yes | Heimsath's production (`regolithStep`) | erosion, 10–100× under tillage on slopes (Montgomery 2007, from memory), less as conservation comes with z | the regolith, and through it the soil's water capacity | farmers |
+| Forest, a renewable stock | yes | the cover's own regrowth | clearing for fields | the cover's trees and their carbon | farmers |
+| Fossil carbon, non-renewable | yes | — | burning; its energy return falls as it's drawn down | the seeded map, then `OceanCarbon` | industry |
+| Ores, non-renewable | yes | — | extraction, whose energy per unit rises as grades fall (Goeller and Weinberg; Skinner's barrier past the crust's rich ores; from memory) | aggregate in v1 (the map from arcs, flood basalts and laterites is later) | industry |
+| Ideas z (and AI's weights) | no | minds within reach | forgetting, λ | — | all |
+| Fixed capital | yes | saving, s Y | δ ~ 5%/yr | — | industry |
+| Energy capital (fossil, surface renewables, fusion) | yes | investment to meet demand | δ ~ 4%/yr | renewables capped at F_SUN of absorbed sunlight | industry |
+| Compute | yes | investment where it earns most | δ ~ 25%/yr (chips last ~4 yr) | its power draw | compute |
+| Labour, people and AI | yes | births; building compute | — | — | all |
+
+- **Production** (standard forms): food stays the Malthusian capacity (v0's, now × the soil's yield factor 1 − e^{−h/0.3 m} and CO₂'s fertilization), lifted past the organic ceiling where industry's energy reaches it. Industrial output is Y = A(z) K^α L^{1−α} (α ⅓, saving ¼), held to the energy it can get (Leontief in energy, with an intensity falling with z: 200 W per subsistence-year a year at industry's start, ~80 at Earth's present, from memory).
+- **AI is capital that does labour** (synthesis on Aghion, Jones and Jones; Davidson; from memory): compute's minds are the compute stock × χ(z), rising e-fold per unit of z to a physical ceiling (speculation), drawing power. They join people in production and in research through a CES of elasticity σ: below 1, the tasks AI can't do bottleneck growth (Baumol), above 1 labour becomes something you build, and the demographic brake is gone. σ is the Takeoff experiment's knob.
+- **Investment** goes to energy first (to meet demand, to the source with the best return), then between fixed capital and compute by their marginal products. Building capital needs materials, so ore depletion raises its energy cost.
+- **Heat** (standard energy balance): surface solar is heat-neutral to first order (it takes sunlight the ground would have absorbed); fossil carbon and fusion add heat. The radiator binds only on the energy from beyond the surface's sunlight, so in v1 its ceiling (HEAT_MAX, W/m²) is fusion's, kept at v0's 11.8 W/m² until the ending is chosen. An off-world supply of ores (asteroids) is a backstop on materials' energy cost, off by default: it belongs to the same decision.
+- **Stores** (working capital's one distinct role, seed grain and granaries against the year's droughts) wait for the live year's anomaly: v1.1.
+- **The write-back** (`tools/people/couple.mjs`), from the first farming origin on (the hominin era runs on the cached opening, held fixed). The coupler steps a `Planet` alongside the people and changes nothing in `src/`: emissions go to `carbon.pulse`; the farmed share scales the cover's tree equilibrium and clips its trees (the cover's own carbon, albedo and evaporation do the rest); farming's erosion is added to `land.erosion` around each fast step (the regolith's exact step strips it); waste heat and sulfate are added to `F_VOLC` around each climate cycle. After each cycle the people re-read the climate, the cover, the soil, the sea level and the ice.
+- **Oracles:** the Solow steady state K/Y = s/δ; the CES's three limits (σ → 0 min, σ = 1 Cobb–Douglas, σ → ∞ the sum); fossil carbon kept (burned = emitted); soil at h₀ ln(P₀/E) under farming.
+
+**v1, as built (2026-11-15).** The factors are split as above. In place of a plain CES, AI enters through a task CES (synthesis on Aghion, Jones and Jones): a share β(z) of tasks can be automated, AI and people substitute within them until AI fills them, and past that the tasks combine at σ (0.5 by default). A plain CES with σ < 1 makes every input with weight essential, so production would collapse the moment AI's tasks appeared before any compute existed. Ten oracles pass (`tests/people.test.mjs`, ~3 s). `LIVE=1` writes back to a live planet from the first farming origin; the planet's side costs ~10 s of fast steps and ~75 s of climate cycles a run.
+
+Calibration anchors (a9, 2026-11-15): fossil carbon is still the cheaper delivered energy, and Earth is early in its takeoff. So Earth's present is read as β = 0.15 (the `present` event), and the renewables' crossover is set after the takeoff's start (Z_REN 11.5 against Z_AI 11).
+
+| | earthlike | b | c | earthlike, live |
+|---|---|---|---|---|
+| tip → the end | 51 kyr | 221 kyr | 153 kyr | 55 kyr |
+| farming origins | 5 | 4 | 4 | 5 |
+| industry → early takeoff (Earth ~245 yr) | 174 yr | 186 yr | 231 yr | 189 yr |
+| at early takeoff: people, energy, burned, CO₂ (Earth ~8 B, ~19 TW, ~500 Pg C, ~420 ppm) | 2.42 B, 2.7 TW, 39, 296 | 2.05 B, 2.3 TW, 34, 294 | 1.83 B, 2.2 TW, 38, 295 | 2.12 B, 2.5 TW, 38, 296 |
+| early takeoff → AI's labour passes people's → the ceiling | 37 → 17 yr | 42 → 26 yr | 44 → 24 yr | 44 → 24 yr |
+| fossil carbon burned of 5,000 Pg C; peak CO₂ | 4,778; 2,455 ppm | 3,953; 1,926 | 4,692; 2,404 | 4,056; 1,915 (the sea's chemistry) |
+| the people's hyperbola: exponent, R² (an exponential's) | 1.01, 0.98 (0.52) | 0.93, 0.96 (0.39) | 0.96, 0.97 (0.43) | 0.97, 0.98 (0.53) |
+| the follow dial | 175 s | 169 s | 165 s | 172 s |
+
+The live planet at the end: 25.6 °C (12 K warmer than the opening), CO₂ 1,523 ppm, the land's carbon 3,028 Pg C (900 more, fertilized), trees on 43% of land, the regolith's mean 0.84 m (0.88 at the opening). The sea's 2.8 m fall is the planet's own ice growing over the 24 kyr from its opening, not the people's.
+
+What v1 says:
+- **The industrial era keeps Earth's clock.** Early takeoff comes 174–231 years after industry on every seed (Earth's ~245) with z grown about Earth's e^{2.7}. The scale doesn't: 1.8–2.4 B people against 8, and with them energy, emissions and CO₂ ~10× short. Energy and output per person are near Earth's, so the miss is the population: it grows ×2 after industry, where Earth's grew ×8.
+- **A takeoff that starts while fossil carbon is cheapest burns it** (a9's anchors, the model's answer). 79–96% of the 5,000 Pg C burns, most of it within ~70 years around the takeoff, fossil carbon peaking at 1,500–2,000 TW (~100× Earth's now). Renewables pass it only after AI's labour has passed people's. Peak CO₂ is 1,900–2,450 ppm, and the live planet warms 12 K. That's the Carbon budget experiment's number, and its knob is the renewables' crossover against the takeoff.
+- **Ruddiman's signal comes out of the cover** (live). Farming's clearing takes the trees from 45.7% to 39% of land, the land loses 213 Pg C and CO₂ rises 280 → 297 ppm, then the sea and regrowth draw it back to ~283. Ruddiman's case is ~20 ppm by the pre-industrial (from memory). Nothing was tuned for it: it is the Long Anthropocene experiment's number arriving early.
+- **AI makes the loop steeper than a hyperbola.** The people's curve stays at exponent ~1. The minds' steepens to ~3 in the takeoff (R² 0.83), since compute both grows from output and multiplies per unit of capital. The takeoff holds most of the arc's doublings (~30, from ~10⁹ minds to 3×10¹⁸ in ~40 years), and on the follow dial it takes ~100 of ~170 s.
+- **Soil holds at the grid's scale.** Farmed soil stays at 0.6–1 m: slopes between 120 km cells are gentle, so tillage's erosion seldom outruns production. Montgomery's depleted heartlands need the slope within a cell.
+- **The ending is still the inputs.** The minds level at X_MAX × compute's share of the energy ceiling, and the 11.8 W/m² of heat is HEAT_MAX: the ending is still a9's to choose.
+
+Fixed on the way (each found by a run):
+- Energy was Leontief across the whole economy, so when potential output raced ahead compute got the same sliver as everything else. Compute now draws first, then materials, then output.
+- The demographic transition faded growth from income 1, so it began before industry's food could be used. It starts at 8× subsistence, fading over 12.
+- Renewables were set at parity with fossil carbon now; a9 corrected that.
+- The radiator capped fusion only, so the takeoff burned fossil carbon at 11,900 TW. Fossil carbon and fusion now share the ceiling.
+- Industry's food lift followed the economy's energy shortfall. It follows farming's own energy (E_AG a person fed).
+- The organic ceiling was ×40. It is ×100.
+- Culture raced to z ~ 34,000 at the step's floor. It is held at Z_SAT, past which nothing in the model changes.
+- People diffused down density, so after the transition the rich world drained into the poor and died there. They now spread down crowding N/K, toward the ideal free distribution.
+- Farming's explicit logistic sent the farmed share negative when the live climate moved a package's suitability below it, and the sea's solver failed on the cover's carbon. It is exact now.
+- The spread weighed edges and crowding by different capacities, and conjured 10³⁵ people. One capacity, the lineage's best, serves both.
+- The coupler let the regolith's last opening re-make take tillage as its balance. The regolith now settles before any tillage is added.
+
+Next, in order:
+1. **The population's scale:** mortality falling before fertility (Earth's growth peaked at ~2%/yr between ~10× and 25× subsistence), and the agrarian base at industry (~1 B against 0.9–1.1).
+2. **Stores** (v1.1): seed grain and granaries against the live year's droughts.
+3. **Soil within a cell** (the regolith's relief at sub-grid scale) and **the ore map** (arcs, flood basalts, laterites).
+4. **The ending** (a9).
+5. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds.
+
 ## Open decisions
 
 - Globe only, or globe plus an Equal Earth map toggle.

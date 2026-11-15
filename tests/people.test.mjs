@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People } from '../tools/people/model.mjs';
+import { People, PEOPLE, taskLabor, industrialStep, newEconomy } from '../tools/people/model.mjs';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -52,6 +52,7 @@ test('the spread keeps people', () => {
   const p = new People(uniformPlanet(4), { ...quiet, A_INV: 0, D0: 3e3, D_Z: 0, R0: 0 });
   const L = p.newLineage(null, 0, 0);
   L.N[7] = 1e4; L.N[100] = 3e3;
+  p.capacity(L);
   for (let k = 0; k < 30; k++) p.diffuse(L, 50);
   let s = 0; for (let c = 0; c < p.nL; c++) s += L.N[c];
   assert.ok(Math.abs(s / 1.3e4 - 1) < 1e-6, `people ${s} against 13,000`);   // the leading edge's floor (1e-6 a cell) drops a little
@@ -117,4 +118,56 @@ test('without loss the loop runs as 1/(t* − t), t* = 1/(θ A M₀)', () => {
   }
   const want = tStar * (1 - 1 / 100);
   assert.ok(tHit !== null && Math.abs(tHit / want - 1) < 0.02, `N reached 100 N₀ at ${tHit && tHit.toFixed(0)} yr against ${want.toFixed(0)}`);
+});
+
+test('the task CES: its limits, its boundary and its derivative', () => {
+  const close = (a, b, tol, what) => assert.ok(Math.abs(a / b - 1) < tol, `${what}: ${a} against ${b}`);
+  close(taskLabor(100, 50, 0, 0.5).L, 100, 1e-12, 'no automatable tasks');
+  close(taskLabor(100, 30, 0.5, 0.5).L, 130, 1e-12, 'AI within the automatable tasks adds');
+  for (const sigma of [0.3, 1, 3]) {   // continuous where AI fills the automatable tasks
+    const b = 0.4, edge = b / (1 - b) * 100;
+    close(taskLabor(100, edge * (1 + 1e-9), b, sigma).L, taskLabor(100, edge, b, sigma).L, 1e-6, `the boundary at σ ${sigma}`);
+  }
+  close(taskLabor(100, 1e6, 0.5, 1e6).L, 1e6 + 100, 1e-3, 'σ → ∞: the sum');
+  close(taskLabor(100, 1e12, 0.6, 0.5).L, Math.pow(0.4, 1 / (0.5 - 1)) * 100, 1e-3, 'σ < 1, β < 1: Baumol\'s bound');
+  close(taskLabor(100, 1e4, 0.6, 1).L, Math.pow(1e4 / 0.6, 0.6) * Math.pow(100 / 0.4, 0.4), 1e-9, 'σ = 1: Cobb–Douglas');
+  for (const sigma of [0.5, 1, 2]) {
+    const A = 3e3, h = 1e-4 * A, d = (taskLabor(100, A + h, 0.7, sigma).L - taskLabor(100, A - h, 0.7, sigma).L) / (2 * h);
+    close(taskLabor(100, A, 0.7, sigma).dLdA, d, 1e-5, `∂L/∂A at σ ${sigma}`);
+  }
+});
+
+test('fixed capital settles at the Solow balance, K/Y = s/δ', () => {
+  // Culture held below AI's (no compute), fossil carbon plenty: what's saved past energy's share
+  // builds fixed capital, which settles where its saving matches its wear.
+  const P = { ...PEOPLE, FOSSIL: 1e9 }, E = newEconomy(P), x = { Lh: 1e6, z: 8 };
+  E.on = true; E.Kf = 1e5; E.Ke[0] = 1e6;
+  let If = 0;
+  for (let k = 0; k < 4000; k++) {
+    industrialStep(E, x, 0.5, P);
+    If = E.I - (E.Ke[0] * P.DELTA_E);   // at balance the energy capital only replaces its wear
+  }
+  assert.ok(E.wc < 1e-3, `next to no compute well below Z_AI (${E.wc.toExponential(2)})`);
+  assert.ok(Math.abs(E.Kf * P.DELTA_F / If - 1) < 0.02, `K δ ${(E.Kf * P.DELTA_F).toExponential(3)} against what's saved for it ${If.toExponential(3)}`);
+  const A = P.A_I0 * Math.exp(P.THETA * (x.z - P.Z_IND)), sf = If / E.Y;
+  const Kstar = Math.pow(sf * A / P.DELTA_F, 1 / (1 - P.ALPHA)) * x.Lh;
+  assert.ok(Math.abs(E.Kf / Kstar - 1) < 0.02, `K ${E.Kf.toExponential(3)} against (s A/δ)^{1/(1−α)} L ${Kstar.toExponential(3)}`);
+  assert.ok(E.avail > 0.999, `energy meets demand (${E.avail})`);
+});
+
+test('fossil carbon is kept: burned is what the stock lost', () => {
+  const P = { ...PEOPLE, FOSSIL: 50 }, E = newEconomy(P);
+  E.on = true; E.Kf = 1e8; E.Ke[0] = 1e9;
+  let burned = 0;
+  for (let k = 0; k < 400; k++) { industrialStep(E, { Lh: 1e7, z: 8 }, 1, P); burned += E.burned; }
+  assert.ok(Math.abs(burned - (50 - E.S)) < 1e-9, `burned ${burned} against the stock's loss ${50 - E.S}`);
+  assert.ok(E.S < 50, 'some was burned');
+});
+
+test('soil under steady erosion settles at h₀ ln(P₀/E)', () => {
+  const p = new People(uniformPlanet(3), { ...quiet });
+  const Ef = new Float64Array(p.nL).fill(0.05);       // mm/yr, against production of 0.1 mm/yr at bare rock
+  for (let k = 0; k < 300; k++) p.env.soil(1000, Ef);
+  const want = 0.5 * Math.log(1e-4 / 5e-5);
+  assert.ok(Math.abs(p.soil[0] / want - 1) < 1e-3, `soil ${p.soil[0].toFixed(4)} m against h₀ ln(P₀/E) = ${want.toFixed(4)}`);
 });
