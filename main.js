@@ -519,7 +519,7 @@ const EXPERIMENTS = [
     setup: () => { CARBON.FIXED = 'now'; },
     knob: { label: 'Sunlight', min: 82, max: 106, step: 0.5, value: 100, fmt: v => `${(+v).toFixed(1)}%`, apply: v => { CLIMATE.S = S0 * v / 100; } } },
   { id: 'iceages', name: 'Ice ages', dial: 4, view: 'relief',
-    knob: { label: 'CO₂', min: 150, max: 450, step: 5, value: 220, fmt: v => `${v} ppm`, apply: v => { CARBON.FIXED = +v; } } },
+    knob: { label: 'CO₂', min: 100, max: 450, step: 5, value: 180, fmt: v => `${v} ppm`, apply: v => { CARBON.FIXED = +v; } } },
   { id: 'highstand', name: 'High stand', dial: 6, view: 'relief',
     knob: { label: 'Mantle heat', min: 0.5, max: 2, step: 0.05, value: 1.6, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { PARAMS.K_SLAB = BASE.K_SLAB * v; PARAMS.K_RIDGE = BASE.K_RIDGE * v; PARAMS.V_MAX = BASE.V_MAX * Math.sqrt(v); } } },
   { id: 'thermostat', name: 'Thermostat', dial: 5, view: 'climate',

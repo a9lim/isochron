@@ -7,7 +7,7 @@ import { Planet } from '../src/engine/planet.js';
 
 const seed = process.argv[2] || 'earthlike', sizes = process.argv.slice(3).map(Number);
 const P = new Planet(seed, { level: 6 });
-P.climate.solve(3); P.afterClimate();
+P.settleClimate();   // the opening's closure: until the climate has settled
 const yr = v => v == null ? '—' : `${v.toFixed(2)} yr`, K = v => `${v.toFixed(3)} K`;
 for (const M of sizes.length ? sizes : [1, 10, 30]) {
   const I = P.year.eruptTagged(M, P.years), lat = Math.asin(I.p[2]) * 180 / Math.PI;

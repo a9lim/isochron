@@ -9,7 +9,7 @@ import { OC } from '../src/engine/oceancarbon.js';
 // A small planet, its opening settled (the cover's closure and the sea on this planet's).
 function opening(seed = 'earthlike') {
   const P = new Planet(seed, { level: 5, spinLevel: 5, spinup: 20 });
-  for (let k = 0; k < 4; k++) { P.climate.solve(1); P.afterClimate(); }
+  P.settleClimate();   // the closure runs until the climate has settled
   return P;
 }
 const landC = P => { const t = P.life.veg.totals(); return t.veg + t.soil; };

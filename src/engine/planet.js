@@ -50,7 +50,6 @@ export const PLANET = {
   LAKES_LIVE: 1e4,       // yr/s: lakes step below this, and sit at their balance above
   LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
   LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
-  LAKES_SETTLE: 4,       // climate cycles: the opening's lakes sit at their balance until the climate has settled
 };
 
 export { Record, SERIES } from './record.js';
@@ -216,9 +215,10 @@ export class Planet {
     const landStepped = this.land.steps !== this.lakesSteps && now - this.lakesBuiltAt >= this.lakesMinGap / 2;
     if (landStepped || iceMoved) this.rebuildLakes();
     this.lakesBank += Math.max(0, dt);
-    // The opening's lakes sit at their balance with each of its first climate cycles, whatever
-    // the dial (the first, from a cold start, holds about half the lakes the third does).
-    const open = this.climate.soilWarm && this.climate.stats.cycles <= PLANET.LAKES_SETTLE && this.climate.version !== this.lakesClimate;
+    // The opening's lakes sit at their balance with each climate cycle until the climate has
+    // settled, whatever the dial (the first, from a cold start, holds about half the lakes the
+    // third does).
+    const cs = this.climate.stats, open = this.climate.soilWarm && !(cs.settled && cs.cycles > cs.settled) && this.climate.version !== this.lakesClimate;
     const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(0.25, rate / 20);
     if (!open && (live ? this.lakesBank < due : this.lakesBank < due && this.climate.version === this.lakesClimate)) return;
     const { runoff, pe } = this.lakeForcing();
@@ -246,6 +246,15 @@ export class Planet {
     const done = this.climate.work(ms);
     if (done) this.afterClimate();
     return done;
+  }
+  /**
+   * Headless: the opening's closure, climate cycles (each with what follows one) until the
+   * climate has settled (`stats.settled`); the references wait for it. Returns the cycles.
+   */
+  settleClimate() {
+    const c = this.climate;
+    while (!c.stats.settled) { c.solve(1); this.afterClimate(); }
+    return c.stats.settled;
   }
   afterClimate() {
     this.life.afterClimate();

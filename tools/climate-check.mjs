@@ -1,6 +1,12 @@
-// The climate on a seeded planet: global means, the zonal profile, the zones' shares.
+// The climate on a seeded planet, converged: global means, the zonal profile, the zones' shares.
+// It runs cycles until the climate has settled (the engine's criterion, `stats.settled`: two
+// cycles running that moved the mean temperature less than CLIMATE.SETTLE_T and rain, global and
+// on land, less than SETTLE_P), with the moisture converged each cycle; the opening's first
+// cycles are a transient (the cover and the rain feed each other), so the numbers to tune to are
+// these, not cycle 4's.
 // usage: node tools/climate-check.mjs [seed] [overrides-json for CLIMATE]
-//   env: FIXED=1 the zones' fixed widths, NOLAKES=1 no lakes, NOREG=1 no regolith
+//   env: FIXED=1 the zones' fixed widths, NOLAKES=1 no lakes, NOREG=1 no regolith, NOVEG=1 no cover,
+//        NOOCEAN=1 no gyres, LEVEL=n the grid (6), MAX=n cycles at most (40), TRACE=1 each cycle's means
 import { buildGrid } from '../src/grid/icosphere.js';
 import { Tectonics } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
@@ -11,17 +17,20 @@ import { Lakes } from '../src/engine/lakes.js';
 import { Regolith } from '../src/engine/regolith.js';
 import { Vegetation } from '../src/engine/vegetation.js';
 import { coverClimate } from '../src/engine/life.js';
+import { Ocean } from '../src/engine/ocean.js';
 Object.assign(CLIMATE, JSON.parse(process.argv[3] || '{}'));
-const g = buildGrid(6), tec = new Tectonics(g), land = new Landscape(tec);
+const g = buildGrid(+(process.env.LEVEL || 6)), tec = new Tectonics(g), land = new Landscape(tec);
 genesis(tec, process.argv[2] || 'earthlike', { spinup: 40, landscape: land });
 const clim = new Climate(tec, land);
+// The gyres, as the planet has them (NOOCEAN=1: none, as before the retune).
+if (!process.env.NOOCEAN) clim.ocean = new Ocean(clim, clim.coarse);
 // The year's spread sets the zones' widths (FIXED=1 in the env: the fixed widths, as before phase 6).
 if (!process.env.FIXED) clim.year = new Year(clim);
 // The lakes at their balance after each cycle, as at a fast dial (NOLAKES=1: none).
 const lakes = process.env.NOLAKES ? null : new Lakes(g);
 if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.seaLevel); }
 // The regolith sets the soil's capacity (NOREG=1: the fixed capacity, as before phase 7); its
-// opening layer settles with the climate's third cycle.
+// opening layer sits at its balance with the climate until the climate has settled.
 const reg = process.env.NOREG ? null : new Regolith(tec, land, clim);
 if (reg) { land.preview(); reg.init(); }
 // The plants' cover at its balance after each cycle, as at the opening (NOVEG=1: none, the zones' albedo).
@@ -32,18 +41,35 @@ const cycle = () => {
   if (lakes) lakes.equilibrium(clim.runoff, clim.peAnn, 1);
   if (veg) { coverClimate(veg, clim, CLIMATE.CO2); veg.equilibrate(); clim.cover = { ft: veg.ft, fg: veg.fg }; }
 };
-let t0 = performance.now();
-cycle();
-const cold = performance.now() - t0; t0 = performance.now();
-cycle();
-const warm = performance.now() - t0;
-cycle(); cycle();
+const seaIce = () => {
+  let sa = 0, si = 0;
+  for (let i = 0; i < g.n; i++) if (!clim.landMask[i]) { sa += g.area[i]; si += g.area[i] * clim.snowAnn[i]; }
+  return si / sa;
+};
+const MAX = +(process.env.MAX || 40), first = [];
+let cold = 0, warm = 0, last = 0;
+for (let k = 1; k <= MAX; k++) {
+  const t0 = performance.now();
+  cycle();
+  const ms = performance.now() - t0, s = clim.stats;
+  if (k === 1) cold = ms; else if (k === 2) warm = ms;
+  last = ms;
+  if (k === 4) first.push(s.meanT, s.meanP, s.landP);
+  if (process.env.TRACE) console.log(`  ${String(k).padStart(2)}  T ${s.meanT.toFixed(2)} · P ${s.meanP.toFixed(0)} (land ${s.landP.toFixed(0)}) · ice line ${s.iceLat.toFixed(1)}° · sea ice ${(100 * seaIce()).toFixed(1)}% · energy balance ${s.ebmSteps} step${s.ebmSteps > 1 ? 's' : ''} (${s.ebmRes.toFixed(3)} K) · sweeps ${s.sweeps} · ${ms.toFixed(0)} ms`);
+  if (s.settled) break;
+}
 const s = clim.stats, z = clim.zonal;
-console.log(`cycle ${cold.toFixed(0)} ms cold, ${warm.toFixed(0)} ms warm · mean T ${s.meanT.toFixed(1)} °C · ice line ${s.iceLat.toFixed(0)}° · Hadley ${s.hadley.toFixed(0)}° · P ${s.meanP.toFixed(0)} mm/yr (land ${s.landP.toFixed(0)}) · ITCZ ${z.itczLo.toFixed(0)}..${z.itczHi.toFixed(0)}°`);
+console.log(s.settled ? `settled after ${s.settled} cycles` : `not settled after ${MAX} cycles (ΔT ${s.dT.toFixed(3)} K, ΔP ${(100 * s.dP).toFixed(2)}%, land ${(100 * s.dPland).toFixed(2)}%)`,
+  `(cycle 4: ${first.length ? `${first[0].toFixed(1)} °C, ${first[1].toFixed(0)} mm/yr, land ${first[2].toFixed(0)}` : '-'}) · cycle ${cold.toFixed(0)} ms cold, ${warm.toFixed(0)} ms the second, ${last.toFixed(0)} ms settled`);
+console.log(`mean T ${s.meanT.toFixed(1)} °C · ice line ${s.iceLat.toFixed(0)}° · sea ice ${(100 * seaIce()).toFixed(1)}% of the sea · Hadley ${s.hadley.toFixed(0)}° · P ${s.meanP.toFixed(0)} mm/yr (land ${s.landP.toFixed(0)}) · ITCZ ${z.itczLo.toFixed(0)}..${z.itczHi.toFixed(0)}°`);
 for (let b = 0; b < 90; b += 5) console.log(`${(-89 + 2 * b).toString().padStart(4)}°  T ${z.T[b].toFixed(1).padStart(6)} (${z.Tlo[b].toFixed(0).padStart(4)}..${z.Thi[b].toFixed(0).padStart(3)})  P ${z.P[b].toFixed(0).padStart(5)}  land P ${isNaN(z.Pland[b]) ? '   -' : z.Pland[b].toFixed(0).padStart(5)}`);
 const share = new Float64Array(NZ); let la = 0;
 for (let i = 0; i < g.n; i++) if (clim.landMask[i]) { la += g.area[i]; for (let k = 0; k < NZ; k++) share[k] += clim.zones[NZ * i + k] * g.area[i]; }
 console.log(ZONES.map((name, k) => `${name} ${(100 * share[k] / la).toFixed(0)}`).join(' · '));
+{
+  const grp = [[0, 4, 'A'], [4, 6, 'B'], [6, 9, 'C'], [9, 12, 'D'], [12, 14, 'E']];
+  console.log('groups: ' + grp.map(([a, b, nm]) => { let v = 0; for (let k = a; k < b; k++) v += share[k]; return `${nm} ${(100 * v / la).toFixed(0)}`; }).join(' · ') + '  (Earth, Peel and others, from memory: A 19 · B 30 · C 13 · D 25 · E 13)');
+}
 {
   let run = 0, pl = 0, beta = 0, pf = 0;
   for (let i = 0; i < g.n; i++) if (clim.landMask[i]) { const a = g.area[i]; run += a * clim.runoff[i] * 1000; pl += a * clim.Pf[0][i] * 365.25; beta += a * clim.soil.beta[i]; pf += a * clim.soil.permafrost[i]; }

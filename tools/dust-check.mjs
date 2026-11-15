@@ -1,5 +1,6 @@
 // The dust on a seeded planet (src/engine/aeolian.js): emission, lifetime, where it lands, the
-// snow's darkening, the iron to the cold sea, and the loess, cycle by cycle from the opening.
+// snow's darkening, the iron to the cold sea, and the loess, cycle by cycle from the opening
+// (the climate settles within them: `settled` marks the cycle, where the sea and iron's reference settle).
 // With WebGPU in node (tests/webgpu-node.mjs; `cd tests && npm install`), the moisture and
 // the dust are solved on the GPU as the page's engine solves them; else on the CPU.
 //
@@ -30,7 +31,7 @@ for (let k = 0; k < +cycles; k++) {
   P.afterClimate();
   P.years += 10; P.fast(10, 1e9, 100);          // the regolith's update (its opening waits for the third cycle)
   const s = a.stats;
-  console.log(`cycle ${k + 1} ${tc.toFixed(0)} ms: ${c.stats.meanT.toFixed(2)} °C, ${Math.round(P.carbon.pco2)} ppm; dust ${s.emission.toFixed(0)} Tg/yr (deposited ${s.deposition.toFixed(0)}), ${s.lifetime.toFixed(2)} d, wet ${(100 * (s.wet || 0) / Math.max(1e-9, s.deposition)).toFixed(0)}%; τ ${s.tau.toFixed(4)}, ${s.forcing.toFixed(3)} W/m²; on land ${s.land.toFixed(0)}, sea ${s.sea.toFixed(0)}, ice ${s.ice.toFixed(1)}; sources ${s.source.toFixed(1)} M km², gust ${s.gust.toFixed(2)} m/s; iron ×${(s.iron || 1).toFixed(3)}`);
+  console.log(`cycle ${k + 1}${c.stats.settled === k + 1 ? ' settled' : ''} ${tc.toFixed(0)} ms: ${c.stats.meanT.toFixed(2)} °C, ${Math.round(P.carbon.pco2)} ppm; dust ${s.emission.toFixed(0)} Tg/yr (deposited ${s.deposition.toFixed(0)}), ${s.lifetime.toFixed(2)} d, wet ${(100 * (s.wet || 0) / Math.max(1e-9, s.deposition)).toFixed(0)}%; τ ${s.tau.toFixed(4)}, ${s.forcing.toFixed(3)} W/m²; on land ${s.land.toFixed(0)}, sea ${s.sea.toFixed(0)}, ice ${s.ice.toFixed(1)}; sources ${s.source.toFixed(1)} M km², gust ${s.gust.toFixed(2)} m/s; iron ×${(s.iron || 1).toFixed(3)}`);
 }
 // Where the sources are and what they are.
 const o = a.dust.out, L = c.landMask;

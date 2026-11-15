@@ -9,7 +9,7 @@ import { REGOLITH } from '../src/engine/regolith.js';
 const [seed = 'earthlike', co2 = '220', start = '-1', kyr = '800', win = '200', orbitWin = '20'] = process.argv.slice(2);
 CARBON.FIXED = +co2; REGOLITH.START = +start;
 const P = new Planet(seed, { level: 6 });
-P.climate.solve(3); P.afterClimate();
+P.settleClimate();   // the opening's closure: until the climate has settled
 if (+start >= 0) P.regolith.init();
 const vol = [], soft = [], t0 = performance.now();
 let plateBank = 0, since = 0;

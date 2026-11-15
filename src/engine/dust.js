@@ -13,10 +13,10 @@
 // (7.2 m/s, source-weighted, on the opening planet), and a source map of bare,
 // dry ground is far broader than Ginoux's basins, so GOCART's C with the arid
 // share gave ~600,000 Tg/yr. It is the one constant phase 9 calibrates, on
-// its sources (src/engine/aeolian.js) at level 7, the page's: C = 6e-12 gives
-// ~1,600 Tg/yr on the default seed's settled opening (~820 at 3e-12), inside
-// models' range for Earth (~500–4,000+; their median ~1,100–1,600, from
-// memory), with a lifetime of ~2.5 days. Marticorena and Bergametti's
+// its sources (src/engine/aeolian.js) at level 7, the page's: C = 6.5e-12 gives
+// ~1,570 Tg/yr on the default seed's settled opening (the retuned climate's),
+// inside models' range for Earth (~500–4,000+; their median ~1,100–1,600, from
+// memory), with a lifetime of ~2.2 days. Marticorena and Bergametti's
 // u*³(1 + R)(1 − R²) from White's saltation flux has the same cubic growth and
 // threshold. The
 // climate's surface wind is a seasonal mean, which a hard threshold would turn
@@ -63,7 +63,7 @@ import { buildGrid } from '../grid/icosphere.js';
 import { parents } from '../grid/transfer.js';
 
 export const DUST = {
-  C: 6e-12,         // kg s² m⁻⁵: GOCART's 1e-9 calibrated down, on phase 9's sources at level 7: the calibration (see the header)
+  C: 6.5e-12,         // kg s² m⁻⁵: GOCART's 1e-9 calibrated down, on phase 9's sources at level 7: the calibration (see the header)
   U_T: 6.5,         // m/s, threshold 10 m wind for dry loose ground (from memory: 5–8 in GOCART's sizes)
   GUST: 2.5,        // m/s, rms of each horizontal component about the template's mean (synthesis)
   H: 3000,          // m, the dust layer's depth

@@ -1,8 +1,9 @@
 // The ice ages with every amplifier (docs/PLAN.md, phase 9's survey): the regolith's beds, the
-// sea's carbon with CO₂ free, dust and the plants' cover. From the opening, the climate's
-// fixed point is spun up with CO₂ held at the baseline (SPIN cycles; the sea, the cover's
-// closure, the iron's and weathering's references all wait for it, so the run starts in
-// balance at the baseline), then the coupled planet runs at the Ice ages experiment's pace (a
+// sea's carbon with CO₂ free, dust and the plants' cover. From the opening, the climate is
+// settled with CO₂ held at the baseline (as `Planet.settleClimate`, asynchronously: the sea,
+// the cover's closure, the lakes, the regolith's layer and the iron's reference wait for it,
+// and weathering's is taken there too, so the run starts in balance at the baseline), then the
+// coupled planet runs at the Ice ages experiment's pace (a
 // climate cycle every 2 kyr, the orbit seen through the window the dial passes in ~2 s:
 // 20 kyr at 10 kyr/s) with CO₂ free or held. Per kyr it records the ice's volume, CO₂, dust,
 // the mean temperature, the orbit's summer insolation at 65° N and the summer's land
@@ -13,19 +14,16 @@
 //
 //   node tools/iceage-survey.mjs [seed] [baseline ppm] [free|held] [kyr] [orbit window kyr] [nodust] [out.json]
 import { Planet, CARBON } from '../src/engine/planet.js';
-import { LIFE } from '../src/engine/life.js';
-import { PLANET } from '../src/engine/planet.js';
 import { monthPhase } from '../src/engine/orbit.js';
 
 const [seed = 'earthlike', base = '260', mode = 'free', kyr = '800', orbitWin = '20', dustArg = 'dust', outFile = ''] = process.argv.slice(2);
-const SPIN = 24, level = +(process.env.LEVEL || 6);
+const level = +(process.env.LEVEL || 6);
 // Overrides for sensitivity runs, as JSON in OVERRIDES: {"ICE": {...}, "CLIMATE": {...}, "AEOLIAN": {...}}.
 {
   const o = JSON.parse(process.env.OVERRIDES || '{}');
   const { ICE } = await import('../src/engine/ice.js'), { CLIMATE } = await import('../src/engine/climate.js'), { AEOLIAN } = await import('../src/engine/aeolian.js');
   Object.assign(ICE, o.ICE || {}); Object.assign(CLIMATE, o.CLIMATE || {}); Object.assign(AEOLIAN, o.AEOLIAN || {});
 }
-LIFE.SETTLE = SPIN; PLANET.LAKES_SETTLE = SPIN;
 CARBON.FIXED = +base;
 let device = null;
 { const { hasGPU } = await import('../tests/webgpu-node.mjs'); if (hasGPU) device = await (await import('../src/gpu/device.js')).gpuDevice(); }
@@ -37,10 +35,12 @@ if (device) {
   if (P.aeolian) P.aeolian.gpu = new (await import('../src/gpu/dust.js')).GpuDust(device, P.aeolian.dust);
 }
 const cycle = async () => { await c.solveAsync(1); P.afterClimate(); };
-// The spin-up: the climate's fixed point at the opening's geography, CO₂ held at the baseline.
+// The opening's closure: cycles until the climate has settled, CO₂ held at the baseline (each with
+// a short fast step, so the regolith's opening layer follows the climate as it does in the page).
 P.setOrbit(1000 * +orbitWin);
-for (let k = 0; k < SPIN; k++) { await cycle(); P.years += 10; P.fast(10, 1e9, 100); }
-// Weathering's reference on the settled climate at the baseline (its own waits for the landscape's first step).
+do { await cycle(); P.years += 10; P.fast(10, 1e9, 100); } while (!c.stats.settled);
+// Weathering's reference on the settled climate at the baseline (its own waits for the landscape's
+// first step, 250 kyr into the run at this pace).
 P.carbon.wF0 = P.carbon.wF; P.carbon.wCO2 = +base;
 if (mode === 'free') CARBON.FIXED = null;
 const spun = performance.now();

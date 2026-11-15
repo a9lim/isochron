@@ -15,7 +15,7 @@ genesis(tec, seed, { spinup: 40, landscape: land });
 const clim = new Climate(tec, land), ice = new Ice(tec, clim);
 clim.ice = ice;
 const orbit = new OrbitCycles(seed);
-clim.solve(3);
+while (!clim.stats.settled) clim.solve(1);   // the converged climate (its first cycles are a transient)
 let t = 0, wall = 0;
 for (let k = 1; k <= kyr; k++) {
   const t0 = performance.now();

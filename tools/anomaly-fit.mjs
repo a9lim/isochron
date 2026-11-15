@@ -16,7 +16,7 @@ import { monthPhase } from '../src/engine/orbit.js';
 if (!hasGPU) { console.error('no WebGPU in node (npm install in tests/)'); process.exit(1); }
 const seed = process.argv[2] || 'earthlike', DAYS = +(process.argv[3] || 120), SPIN = 15, LAG = 30;
 const P = new Planet(seed, { level: 6 });
-P.climate.solve(3);
+P.settleClimate();   // the converged climate (its first cycles are a transient)
 const c = P.climate, g = P.grid, n = g.n, device = await gpuDevice();
 const lat = Float64Array.from({ length: n }, (_, i) => Math.asin(g.pos[3 * i + 2]) * 180 / Math.PI);
 const NB = 9, bandOf = i => Math.min(NB - 1, Math.floor(Math.abs(lat[i]) / 10));

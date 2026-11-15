@@ -109,13 +109,15 @@ export class Carbon {
         * (cover ? coverWeathering(cover.ft[i], cover.fg[i]) : 1);
     }
     this.wF = f;
-    // The reference is taken once the climate has warmed (its first cycle starts cold) and the
-    // landscape has stepped. (Before phase 7 the opening's erosion was zero until the first step,
-    // the supply a quarter, and the reference 2.7× low: headless and at slow dials, CO₂ crashed
-    // at the first step. The regolith's production and the landscape's preview fill it from the
-    // opening now; the wait keeps the reference on a stepped landscape's map.)
+    // The reference is taken once the climate has settled (its first cycles are a transient: from a
+    // cold start the cover and the rain take ~10 cycles to agree, and at cycle 3 the map stood
+    // ~2.5 K warmer and 15% wetter than where it settles) and the landscape has stepped. (Before
+    // phase 7 the opening's erosion was zero until the first step, the supply a quarter, and the
+    // reference 2.7× low: headless and at slow dials, CO₂ crashed at the first step. The
+    // regolith's production and the landscape's preview fill it from the opening now; the wait
+    // keeps the reference on a stepped landscape's map.)
     // Until then the map is the opening's, and so is the CO₂ it saw.
-    const ready = c.stats.cycles >= 3 && !(this.land && !this.land.steps);
+    const ready = !!c.stats.settled && !(this.land && !this.land.steps);
     if (this.wF0 > 0 || ready) this.wCO2 = c.co2Seen || CARBON.PCO2_0;
     if (!(this.wF0 > 0) && ready) this.wF0 = f;
   }
@@ -140,6 +142,10 @@ export class Carbon {
       this.lastMade = tec.counters.opened; this.lastConsumed = tec.counters.closed; this.lastT = tec.t;
       this.subduction = this.subduct();
     }
+    // Until the sea settles on the planet (at the end of the opening's closure, src/engine/life.js)
+    // the air is held at the opening's pCO₂, so the closure's climate and the references all see
+    // the same CO₂ (`holdOpening`, which the planet's life sets).
+    if (this.holdOpening && !this.settled) this.sea.hold = CARBON.PCO2_0;
     const lip = this.plumes ? this.plumes.co2Rate / 1e6 : 0;          // Pg C/yr
     const { burial, oxid } = this.organic();
     // The ledger adds the arcs' recycled carbonate less the opening's (OC.ARC_IN_V), so the

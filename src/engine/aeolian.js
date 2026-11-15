@@ -82,7 +82,7 @@ export const AEOLIAN = {
   OUT_TAU: 1000,          // yr: the outwash's rates eased over this
   ICE: 10,                // m of ice past which nothing is lifted
   LOOSE: 0.05,            // m: the regolith over which a source has loose grains to give (1 − e^{−h/LOOSE})
-  GUST_DT: 40,            // K: the equator-to-60° contrast at which the gusts' rms is DUST.GUST
+  GUST_DT: 26,            // K: the equator-to-60° contrast at which the gusts' rms is DUST.GUST (the settled opening's, ~26 K)
   GUST_EXP: 1,
   DARK_A: 0.02, DARK_C: 100e-6, DARK_P: 0.7, DARK_MAX: 0.2,   // the snow's darkening by its dust (surface albedo)
   SNOW_MIN: 20,           // mm/yr: the least snowfall a concentration is taken over

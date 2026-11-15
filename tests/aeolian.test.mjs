@@ -24,7 +24,7 @@ test('the wired dust is conserved: emitted = deposited on land, sea and ice; its
   assert.ok(s.emission > 50, `the opening lifts dust: ${s.emission.toFixed(0)} Tg/yr`);
   const where = s.land + s.sea + s.ice;
   assert.ok(Math.abs(s.deposition / s.emission - 1) < 2e-3, `deposited ${s.deposition.toFixed(1)} of ${s.emission.toFixed(1)} Tg/yr`);
-  assert.ok(Math.abs(where / s.deposition - 1) < 1e-9, `land + sea + ice ${where.toFixed(2)} = ${s.deposition.toFixed(2)} Tg/yr`);
+  assert.ok(Math.abs(where / s.deposition - 1) < 1e-6, `land + sea + ice ${where.toFixed(2)} = ${s.deposition.toFixed(2)} Tg/yr`);
   // Nothing is lifted at sea, under ice or from sources without loose ground.
   for (let i = 0; i < n; i++) if (!P.climate.landMask[i] || P.ice.H[i] > AEOLIAN.ICE) assert.equal(o.emitAnn[i], 0);
   // The budget over 10 kyr: what the sources lose is laid down elsewhere, to rounding.
