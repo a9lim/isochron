@@ -93,24 +93,26 @@ export class Volcanoes {
   /** Global-mean optical depth (of the whole veil, or the tag's). */
   global(a = this.aod) { let s = 0; for (let b = 0; b < VOLC.NB; b++) s += a[b] * bandArea[b]; return s; }
 
-  /** Inject M Pinatubos at unit vector p (into `tag` too, when tagged), `left` of it remaining (decayed since). */
-  inject(p, M, t, kind = 'arc', tagged = false, left = 1) {
+  /** The optical depth per band (into `out`) of M Pinatubos injected at unit vector p: the band shares carry the global-mean M · AOD_P. */
+  shares(p, M, out) {
     const lat = Math.asin(Math.max(-1, Math.min(1, p[2]))), w = VOLC.INJECT_W * DEG;
     let s = 0;
-    const sh = this.scratch.a;
-    for (let b = 0; b < VOLC.NB; b++) { const d = (bandLat(b) - lat) / w; sh[b] = Math.exp(-0.5 * d * d) * bandArea[b]; s += sh[b]; }
-    // The band shares carry the global-mean optical depth M · AOD_P.
-    for (let b = 0; b < VOLC.NB; b++) {
-      const v = left * M * VOLC.AOD_P * sh[b] / s / bandArea[b];
-      this.aod[b] += v;
-      if (tagged) this.tag[b] += v;
-    }
+    for (let b = 0; b < VOLC.NB; b++) { const d = (bandLat(b) - lat) / w; out[b] = Math.exp(-0.5 * d * d) * bandArea[b]; s += out[b]; }
+    for (let b = 0; b < VOLC.NB; b++) out[b] = M * VOLC.AOD_P * out[b] / s / bandArea[b];
+    return out;
+  }
+
+  /** Inject M Pinatubos at unit vector p (into `tag` too, when tagged). */
+  inject(p, M, t, kind = 'arc', tagged = false) {
+    const v = this.shares(p, M, this.scratch.a);
+    for (let b = 0; b < VOLC.NB; b++) { this.aod[b] += v[b]; if (tagged) this.tag[b] += v[b]; }
     this.recent.push({ p, M, t, kind });
   }
 
-  /** The veil over dt years: decay, and spreading in latitude (implicit, conservative on the sphere). */
-  spread(a, dt) {
-    const NB = VOLC.NB, k = Math.exp(-dt / VOLC.TAU), { b: lo, c: di, d: hi } = this.scratch, x = this.scratch.a;
+  /** The veil over dt years: decay (unless `decay` is false), and spreading in latitude (implicit, conservative on the sphere). */
+  spread(a, dt, decay = true) {
+    if (!(dt > 0)) return;
+    const NB = VOLC.NB, k = decay ? Math.exp(-dt / VOLC.TAU) : 1, { b: lo, c: di, d: hi } = this.scratch, x = this.scratch.a;
     // ∂τ/∂t = (1/cos φ) ∂/∂φ (K cos φ ∂τ/∂φ), in band areas: flux across each edge ∝ K cos φₑ / Δφ.
     const dphi = 5 * DEG;
     for (let b = 0; b < NB; b++) {
@@ -156,9 +158,16 @@ export class Volcanoes {
   }
   cellPos(i) { const p = this.tec.grid.pos; return [p[3 * i], p[3 * i + 1], p[3 * i + 2]]; }
 
-  /** Stochastic eruptions over (t0, t0 + dt] years. */
+  /**
+   * Stochastic eruptions over (t0, t0 + dt] years, in time order: [{ t, M, p, kind }]. Each
+   * source's arrivals are unit exponentials of its own hazard (rate × time), and the hazard left
+   * to the next one is carried across calls, so a rate that changes between calls is taken at
+   * each call's own, and time the eruptions don't see (the closure, which doesn't call this)
+   * neither stores arrivals nor replays them: the process resumes where it stood.
+   */
   erupt(t0, dt) {
-    if (!VOLC.BACKGROUND || !(dt > 0)) return;
+    const ev = [];
+    if (!VOLC.BACKGROUND || !(dt > 0)) return ev;
     const r = this.rates(), rng = this.rng;
     const src = [
       [r.arcs, VOLC.M_MIN, VOLC.ARC_MAX, 'arc'],
@@ -167,21 +176,22 @@ export class Volcanoes {
     ];
     for (const [rate, lo, hi, kind] of src) {
       if (!(rate > 0)) continue;
-      // Poisson arrivals by exponential gaps, carried across calls.
-      const key = `next_${kind}`;
-      if (this[key] === undefined) this[key] = t0 + rng.exponential(1);
-      while (this[key] <= t0 + dt) {
-        const te = Math.max(t0, this[key]);
+      const key = `hazard_${kind}`;
+      if (this[key] === undefined) this[key] = rng.exponential(1);
+      let t = t0;
+      while (this[key] <= rate * (t0 + dt - t)) {
+        t += this[key] / rate;
         const M = plDraw(rng.uniform(), lo, hi);
         let p = null;
         if (kind === 'arc') { const i = this.arcCell(rng.uniform()); if (i >= 0) p = this.cellPos(i); }
         else if (kind === 'hotspot') { const h = this.plumes.hot[rng.int(this.plumes.hot.length)]; if (h) p = h.p; }
         else { const L = this.plumes.lips.filter(L => { const a = this.tec.t - L.t0; return a >= 0 && a < 1; }); if (L.length) p = L[rng.int(L.length)].p; }
-        // Injected as decayed over what is left of the interval (the step's decay is applied after).
-        if (p) this.inject(p, M, te, kind, false, Math.exp(-(t0 + dt - te) / VOLC.TAU) / Math.exp(-dt / VOLC.TAU));
-        this[key] += rng.exponential(1) / rate;
+        if (p) ev.push({ t, M, p, kind });
+        this[key] = rng.exponential(1);
       }
+      this[key] -= rate * (t0 + dt - t);
     }
+    return ev.sort((a, b) => a.t - b.t);
   }
   /** The forcing per band (W/m²) of the veil, or of `a`: −FORCE · τ_b. */
   forcing(out, a = this.aod) {
@@ -189,12 +199,21 @@ export class Volcanoes {
     return out;
   }
 
-  /** Over dt years: eruptions (while live), then the veil's decay and spread. */
+  /**
+   * Over dt years: the veil's decay and spread, and (while live) the eruptions in it, each
+   * injected when it happens (the veil is stepped to it first), so a step of any length is
+   * exact in the decay. Returns the eruptions (the year reads them: src/engine/year.js).
+   */
   step(t0, dt, live) {
-    if (live) this.erupt(t0, dt);
-    this.spread(this.aod, dt);
-    this.spread(this.tag, dt);
+    const ev = live ? this.erupt(t0, dt) : [];
+    let t = t0;
+    for (const e of ev) {
+      this.spread(this.aod, e.t - t); this.spread(this.tag, e.t - t); t = e.t;
+      this.inject(e.p, e.M, e.t, e.kind);
+    }
+    this.spread(this.aod, t0 + dt - t); this.spread(this.tag, t0 + dt - t);
     this.recent = this.recent.filter(e => t0 + dt - e.t < 5);
+    return ev;
   }
 }
 

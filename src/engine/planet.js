@@ -221,22 +221,23 @@ export class Planet {
     const cs = this.climate.stats, open = this.climate.soilWarm && !(cs.settled && cs.cycles > cs.settled) && this.climate.version !== this.lakesClimate;
     const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(0.25, rate / 20);
     if (!open && (live ? this.lakesBank < due : this.lakesBank < due && this.climate.version === this.lakesClimate)) return;
-    const { runoff, pe } = this.lakeForcing();
+    const { runoff, pe } = this.lakeForcing(live ? this.lakesBank : 0);
     if (live) this.lakes.step(this.lakesBank, runoff, pe); else this.lakes.equilibrium(runoff, pe, this.lakesBank);
     this.lakesBank = 0; this.lakesClimate = this.climate.version;
     this.lakesVersion++;
   }
 
   /**
-   * The lakes' forcing (m/yr per cell): runoff off dry ground, the ground's (its closure's,
-   * and the live ground's last twelve months by the live weight, which carry the year's
-   * anomaly with its own statistics); and open water's gain, the climate's rain less its
+   * The lakes' forcing (m/yr per cell) over dt years stepped (0 at their balance): runoff off
+   * dry ground, the ground's (its closure's, and by the live weight the water the live ground
+   * let go over those years, or at their balance its last twelve months', which carry the
+   * year's anomaly with its own statistics); and open water's gain, the climate's rain less its
    * potential evaporation. (The anomaly on the lakes' own surface is left out: held over the
    * year's steps, a month's anomaly would stand for a season's.)
    */
-  lakeForcing() {
+  lakeForcing(dt = 0) {
     const { runoff, pe } = this.lakeIn;
-    this.ground.runoff(runoff);
+    this.ground.lakeRunoff(runoff, this.years, dt);
     pe.set(this.climate.peAnn);
     return this.lakeIn;
   }

@@ -28,6 +28,7 @@ const STEP = HEAD + /* wgsl */`
 @group(0) @binding(4) var<storage, read_write> state: array<vec4f>;   // S, SWE, Tg, groundwater
 @group(0) @binding(5) var<storage, read_write> recA: array<vec4f>;    // quick, base (groundwater's outflow), E, S (12 per cell)
 @group(0) @binding(6) var<storage, read_write> recB: array<vec2f>;    // SWE, Tg
+@group(0) @binding(7) var<storage, read_write> bank: array<f32>;      // runoff since the last read, mm
 
 fn PhiN(x: f32) -> f32 {
   let t = 1.0 / (1.0 + 0.2316419 * abs(x));
@@ -48,8 +49,10 @@ fn root4(a: f32, c: f32, d: f32, hi: f32) -> f32 {
 }
 
 struct Mo { quick: f32, base: f32, E: f32, S: f32, W: f32, G: f32 };
-fn month(S0: f32, W0: f32, G0: f32, smax: f32, T: f32, p: f32, pet: f32) -> Mo {
+fn month(Sin: f32, W0: f32, G0: f32, smax: f32, T: f32, p: f32, pet: f32) -> Mo {
   let FC = U.a.x;
+  let over = max(0.0, Sin - smax);   // water past a cut capacity runs off this month
+  let S0 = Sin - over;
   let sig = U.a.z;
   let x = T / sig;
   let below = PhiN(-x);
@@ -79,7 +82,7 @@ fn month(S0: f32, W0: f32, G0: f32, smax: f32, T: f32, p: f32, pet: f32) -> Mo {
   if (smax * FC + c * FC * FC * FC * FC <= d1) { w = root4(smax, c, d1, 1.0); }
   else { w = root4(smax + ep / FC, c, S0 + Li, FC); }
   let w4 = w * w * w * w;
-  var quick = ice + L * fz + Li * w4;
+  var quick = over + ice + L * fz + Li * w4;
   var base = kd * w4;
   var E = ep * min(1.0, w / FC);
   var S = S0 + Li - Li * w4 - base - E;
@@ -97,6 +100,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let smax = cap[i];
   if (!(smax > 0.0)) { return; }
   var st = state[i];
+  var q = 0.0;
   let slots = u32(U.d.x);
   for (var j = 0u; j < U.k; j++) {
     let m = (U.m0 + j) % 12u;
@@ -107,10 +111,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let r = month(st.x, st.y, st.z, smax, t, f.y * an.y, pet);
     let g1 = st.w * U.d.y + r.base * U.d.z;
     recA[12u * i + m] = vec4f(r.quick, st.w + r.base - g1, r.E, r.S);
+    q += r.quick + st.w + r.base - g1;
     st = vec4f(r.S, r.W, r.G, g1);
     recB[12u * i + m] = vec2f(r.W, r.G);
   }
   state[i] = st;
+  bank[i] += q;
 }`;
 
 const YEAR = HEAD + /* wgsl */`
@@ -154,16 +160,16 @@ export class GpuSoil {
     const B = size => storage(device, size);
     this.forc = B(192 * n); this.anom = B(8 * KMAX * n); this.cap = B(4 * n); this.state = B(16 * n);
     this.recA = B(192 * n); this.recB = B(96 * n);
-    this.agg = B(16 * n); this.agg2 = B(8 * n); this.rm = B(48 * n);
+    this.agg = B(16 * n); this.agg2 = B(8 * n); this.rm = B(48 * n); this.bank = B(4 * n);
     this.ub = new ArrayBuffer(80);
     this.U = uniform(device, new Uint8Array(this.ub));
     this.params();
     const step = kernel(device, STEP, 'soil-step'), year = kernel(device, YEAR, 'soil-year');
     this.K = {
-      step: [step.pipeline, step.bind({ U: this.U, forc: this.forc, anom: this.anom, cap: this.cap, state: this.state, recA: this.recA, recB: this.recB })],
+      step: [step.pipeline, step.bind({ U: this.U, forc: this.forc, anom: this.anom, cap: this.cap, state: this.state, recA: this.recA, recB: this.recB, bank: this.bank })],
       year: [year.pipeline, year.bind({ U: this.U, cap: this.cap, recA: this.recA, recB: this.recB, agg: this.agg, agg2: this.agg2, rm: this.rm })],
     };
-    this.readBuf = device.createBuffer({ size: 88 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    this.readBuf = device.createBuffer({ size: 92 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     this.reading = false;
     this.anomArr = new Float32Array(2 * KMAX * n);
     for (let j = 0; j < KMAX * n; j++) this.anomArr[2 * j + 1] = 1;
@@ -226,6 +232,13 @@ export class GpuSoil {
     this.device.queue.writeBuffer(this.state, 0, a);
   }
 
+  /** Empty the bank (the runoff summed since the last read that took it). */
+  clearBank() {
+    const enc = this.device.createCommandEncoder();
+    enc.clearBuffer(this.bank);
+    this.device.queue.submit([enc.finish()]);
+  }
+
   /** Step k months from calendar month m0 (0 = January), in one dispatch. */
   step(m0, k = 1) {
     const u = new Uint32Array(this.ub);
@@ -242,9 +255,10 @@ export class GpuSoil {
    * (mean S/S_max), beta (mean evaporative efficiency), tg (the ground's mean, °C) and
    * permafrost (soft), n each; with `monthly`, runoffM (mm, 12 per cell); with `month`
    * (0–11), that calendar month's runoff alone (mm, n: `runoffMonth`); with `state`, S, SWE,
-   * Tg and G. One read at a time.
+   * Tg and G; with `bank`, the runoff summed over every month stepped since the last such read
+   * (mm, n), and the bank emptied. One read at a time.
    */
-  async read({ monthly = false, month = -1, state = false } = {}) {
+  async read({ monthly = false, month = -1, state = false, bank = false } = {}) {
     if (this.reading) throw new Error('GpuSoil: a read is in flight');
     this.reading = true;
     const n = this.n, dev = this.device, enc = dev.createCommandEncoder(), pass = enc.beginComputePass();
@@ -255,6 +269,7 @@ export class GpuSoil {
     if (monthly) enc.copyBufferToBuffer(this.rm, 0, this.readBuf, 24 * n, 48 * n);
     else if (month >= 0) enc.copyBufferToBuffer(this.rm, 4 * n * month, this.readBuf, 24 * n, 4 * n);
     if (state) enc.copyBufferToBuffer(this.state, 0, this.readBuf, 72 * n, 16 * n);
+    if (bank) { enc.copyBufferToBuffer(this.bank, 0, this.readBuf, 88 * n, 4 * n); enc.clearBuffer(this.bank); }
     dev.queue.submit([enc.finish()]);
     try {
       await this.readBuf.mapAsync(GPUMapMode.READ);
@@ -272,6 +287,7 @@ export class GpuSoil {
         out.S = new Float32Array(n); out.SWE = new Float32Array(n); out.Tg = new Float32Array(n); out.G = new Float32Array(n);
         for (let i = 0; i < n; i++) { const o = 18 * n + 4 * i; out.S[i] = a[o]; out.SWE[i] = a[o + 1]; out.Tg[i] = a[o + 2]; out.G[i] = a[o + 3]; }
       }
+      if (bank) out.bank = a.slice(22 * n, 23 * n);
       this.readBuf.unmap();
       return out;
     } finally { this.reading = false; }

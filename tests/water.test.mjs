@@ -32,6 +32,9 @@ test('water is kept over a year from the rain through the soil, the rivers and t
   };
   const months0 = G.stepped, out = s.out, run = new Float64Array(n), evap = new Float64Array(n);
   const books0 = { ...L.total }, V0 = L.storage();
+  // The ground's bank in the lakes' catchments (km³): discharged, not yet taken by the lakes.
+  const banked = () => { let v = 0; for (let i = 0; i < n; i++) if (L.catch[i] >= 0) v += A[i] * G.bank[i] * 1e-6; return v; };
+  const bank0 = banked();
   let k = 0;
   while (G.stepped < months0 + 12 && k++ < 2000) {
     const m0 = G.stepped;
@@ -52,6 +55,7 @@ test('water is kept over a year from the rain through the soil, the rivers and t
   for (let i = 0; i < n; i++) { const q = A[i] * run[i] * 1e-6; if (L.catch[i] >= 0) toLakes += q; else direct += q; }
   // The lakes' books over the year (km³): storage = runoff in + rain less evaporation on them − overflow.
   const dV = L.storage() - V0, inL = L.total.runoff - books0.runoff, vert = L.total.vertical - books0.vertical, out2 = L.total.toSea - books0.toSea;
+  const dBank = banked() - bank0;
   // The rivers: this year's runoff routed down their drainage reaches the sea as the direct runoff
   // and the spilling lakes' overflow (to within the two routings' catchments, the landscape's over
   // its roughness and the lakes' over the smooth surface).
@@ -60,11 +64,13 @@ test('water is kept over a year from the rain through the soil, the rivers and t
   let mouths = 0;
   for (let i = 0; i < n; i++) { const r = rt.rcv[i]; if (!P.land.base[i] && r >= 0 && P.land.base[r]) mouths += q[i] * rt.pass[i]; }
   console.log(`a year on land: rain ${(Rn * 1e-6).toFixed(0)} km³ = evaporation ${(E * 1e-6).toFixed(0)} + runoff ${(Q * 1e-6).toFixed(0)} + storage ${(dS * 1e-6).toFixed(1)} (residual ${(resid * 1e-6).toExponential(1)}); ` +
-    `runoff to lakes ${toLakes.toFixed(0)} km³, to the sea ${direct.toFixed(0)}; lakes: in ${inL.toFixed(0)}, net vertical ${vert.toFixed(0)}, over ${out2.toFixed(0)}, storage ${dV.toFixed(1)}; ` +
+    `runoff to lakes ${toLakes.toFixed(0)} km³, to the sea ${direct.toFixed(0)}; lakes: in ${inL.toFixed(0)} (bank ${dBank >= 0 ? '+' : ''}${dBank.toFixed(0)}), net vertical ${vert.toFixed(0)}, over ${out2.toFixed(0)}, storage ${dV.toFixed(1)}; ` +
     `rivers at the coast ${mouths.toFixed(0)} km³ against ${(direct + out2).toFixed(0)}`);
   assert.ok(Math.abs(resid) < 1e-5 * Rn, `soil residual ${(resid / Rn).toExponential(1)} of the rain`);
   assert.ok(Math.abs(toLakes + direct - Q * 1e-6) < 1e-6 * Q * 1e-6, 'runoff splits between the lakes and the sea');
   assert.ok(Math.abs(dV - (inL + vert - out2)) < 1e-6 * Math.max(1, inL), `lakes: storage ${dV} against the books ${inL + vert - out2}`);
+  // Across the ledgers: what the soil let go into the lakes' catchments is what the lakes took, or still in the bank.
+  assert.ok(Math.abs(toLakes - (inL + dBank)) < 1e-6 * toLakes, `soil to the lakes' catchments ${toLakes.toFixed(1)} km³ against ${inL.toFixed(1)} taken + ${dBank.toFixed(1)} banked`);
   assert.ok(Math.abs(mouths - (direct + out2)) < 0.08 * (direct + out2), `rivers at the coast ${mouths.toFixed(0)} km³ against ${(direct + out2).toFixed(0)}`);
 });
 
@@ -102,7 +108,9 @@ test('the lakes are rebuilt when the ice moves: an ice dam makes a lake, and its
   assert.ok(up >= 0 && L.regOf[up] < 0, 'the reach above runs free');
   const saved = Float32Array.from(H), builds = L.builds;
   for (const j of [dam, ...Array.from(g.nbr.subarray(g.nbrOff[dam], g.nbrOff[dam + 1]))]) if (land(j)) H[j] = 3000;
-  // The lakes alone (the ice isn't stepped, so the dam stays as laid), at 10 yr/s.
+  // The lakes alone (the ice isn't stepped, so the dam stays as laid), at 10 yr/s, on the
+  // closure's runoff (the live ground lets go only the water of the months it steps).
+  P.ground.closure({ live: 0 });
   P.tec.iceWater += 2 * PLANET.LAKES_ICE; P.years += PLANET.LAKES_ICE_YEARS;
   P.stepLakes(1, 10);
   assert.equal(L.builds, builds + 1, 'rebuilt when the ice moved');
