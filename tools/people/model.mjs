@@ -22,13 +22,16 @@
 //             over a disc of radius ℓ, saturating at the body's total N_C (synthesis). Minds are
 //             people × research intensity (rising with income) and the other lineages' at η; AI's
 //             research minds join them through the task CES below.
-//   people    a density per lineage, Lotka–Volterra competition in one niche, r N_k (1 − N_all/K_k),
-//             solved exactly (the cell's total logistic to the harmonic mean of the capacities, the
-//             shares by replicator dynamics; standard); spread down the gradient of crowding N/K
-//             rather than density (toward the ideal free distribution: Fretwell and Lucas, from
-//             memory), which on even capacity is Fisher–KPP (standard: a front at ~2√(rD), less
-//             Bramson's delay), with slope, the sea's width and the capacity's zero as barriers. Growth fades with the income industry brings (the demographic transition:
-//             Galor and Weil, from memory; synthesis here).
+//   people    a density per lineage. Births and deaths (`demography`): deaths by food per person
+//             (hunger below subsistence, disease at density), cut by medicine as industrial income
+//             rises; births fall with industrial income only; so mortality falls before fertility
+//             (the demographic transition's stages, standard; Earth's rates from memory). The cell's
+//             total is solved exactly against the harmonic mean of its lineages' capacities, the
+//             shares by their crowding (Lotka–Volterra in one niche: the higher capacity excludes
+//             the lower; standard). Spread down the gradient of crowding N/K rather than density
+//             (toward the ideal free distribution: Fretwell and Lucas, from memory), which on even
+//             capacity is Fisher–KPP (standard: a front at ~2√(rD), less Bramson's delay), with
+//             slope, the sea's width and the capacity's zero as barriers.
 //   food      K = area × cold limit(z) × [(1 − f) b P_F(z) e^{K_G g} + f a s P_A(z) Y_soil CO₂]:
 //             foraging's base density b from the accessible NPP, water and the coast, its
 //             productivity P_F capped at CAP_F (the wild food, a flow); farming's a from the crops'
@@ -89,9 +92,12 @@ export const PEOPLE = {
   H_YIELD: 0.3,                    // m: the yield's e-folding in soil depth (topsoil)
   E_TILL: 1, S_REF: 0.005, Z_CONS: 2,   // mm/yr of tillage's erosion at slope S_REF, falling e-fold per Z_CONS of culture past Z_FARM
   // People
-  R0: 0.02,                        // logistic rate (/yr)
+  // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
+  // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
+  B_PRE: 0.035, B_MIN: 0.01, Y_B: 15, K_B: 4,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B)
+  D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
+  M_MIN: 0.25, Y_D: 3.2,           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
-  Y0: 8, Y_DT: 12,                 // income (in subsistence) where the demographic transition starts, and over which growth fades (Earth's population still grew ~2%/yr at ~10× and ~1.3% at ~25×; Maddison's and the UN's series, from memory)
   // Ideas
   THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
   L_C0: 50, Z_L: 1.5, L_CMAX: 2e4,  // contact length (km) at g + z = 0, ×e per Z_L, at most
@@ -159,6 +165,30 @@ export function taskLabor(Lh, A, beta, sigma) {
   const mx = Math.max(xa, xl), lu = mx + Math.log(Math.exp(xa - mx) + Math.exp(xl - mx)), lL = lu / rho;
   const L = Math.exp(Math.min(lL, 700));
   return { L, dLdA: Math.exp(Math.min(Math.log(wa) + (1 - rho) * lL + (rho - 1) * la, 700)) };
+}
+
+/**
+ * Births and deaths (synthesis on the demographic transition's standard stages; Earth's rates from
+ * memory). Food per person y_f = K/N and industrial income per person y_g (subsistence-years):
+ *   births b = B_MIN + (B_PRE − B_MIN)/(1 + (y_g/Y_B)^K_B): fertility falls with industry's income,
+ *     not with food (a well-fed frontier keeps its births);
+ *   deaths d = m(y_g) [D_LO + (B_PRE − D_LO)/y_f] while fed (disease and density: zero growth at the
+ *     food capacity before medicine), plus famine F_FAM (1/y_f − 1) below it; medicine
+ *     m = M_MIN + (1 − M_MIN) e^{−y_g/Y_D} comes first, so mortality falls before fertility.
+ * dN/dt = N (b − d) is a logistic on either side of N = K (fed, and short), each solved exactly; a
+ * step that crosses K keeps its side's law (a small error). Returns the new total and the deaths'
+ * density coefficient, which sets competition between lineages.
+ */
+export function demography(N, K, yg, dt, P) {
+  const b = P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B));
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D);
+  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0 };
+  let r, a;
+  if (N <= K) { r = b - m * P.D_LO; a = m * (P.B_PRE - P.D_LO) / K; }
+  else { r = b - m * P.B_PRE + P.F_FAM; a = P.F_FAM / K; }
+  const e = Math.exp(Math.max(-50, Math.min(50, r * dt)));
+  const Nn = Math.abs(r) > 1e-12 ? r * N * e / (r + a * N * (e - 1)) : N / (1 + a * N * dt);
+  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, crowd: a * K, b, d: b - (r - a * N) };
 }
 
 /** A fresh industrial economy (before industry: off). */
@@ -478,26 +508,21 @@ export class People {
     Ntot.fill(0);
     for (const L of live) { this.capacity(L); for (let c = 0; c < nL; c++) Ntot[c] += L.N[c]; }
     const dt = dtWanted;
-    // People: Lotka–Volterra competition with α = 1 (one niche), dN_k/dt = r N_k (1 − N_all/K_k).
-    // Exactly: the cell's total is logistic toward the harmonic mean of its lineages' capacities,
-    // and each lineage's share moves as d ln(N_k/N_l)/dt = r N_all (1/K_l − 1/K_k), so the higher
-    // capacity excludes the lower (standard). Growth fades past the transition by income (food and
-    // goods over people) where industry lifted it (an empty frontier's high income is land, and
-    // frontiers grow fast; Galor and Weil tie the transition to industry's demand for skill).
+    // People: births and deaths (`demography`), the cell's total exact over the step; the lineages'
+    // shares by their crowding, d ln(N_k/N_l)/dt = c N_all (1/K_l − 1/K_k) with c the deaths'
+    // density coefficient, so the higher capacity excludes the lower (Lotka–Volterra in one niche,
+    // standard).
     const lw = this.lw || (this.lw = new Float64Array(64));
     for (let c = 0; c < nL; c++) {
       const Nt = Ntot[c];
       if (!(Nt > 1e-6)) { for (const L of live) L.N[c] = 0; continue; }
       let inv = 0;
       for (const L of live) if (L.N[c] > 0) inv += L.N[c] / Nt / Math.max(L.K[c], 1e-12);
-      const Kh = 1 / inv, y = (Kh + this.goods[c]) / Nt;
-      const r = P.R0 * (y > P.Y0 ? Math.exp(-this.ind[c] * (y - P.Y0) / P.Y_DT) : 1);
-      let Nn;
-      if (Kh > 1e-9) { const e = Math.exp(Math.min(50, r * dt)); Nn = Kh * Nt * e / (Kh + Nt * (e - 1)); }
-      else Nn = Nt * Math.exp(-dt / 20);
+      const Kh = 1 / inv;
+      const { N: Nn, crowd } = demography(Nt, Kh, this.goods[c] / Nt, dt, P);
       const Nbar = 0.5 * (Nt + Nn);
       let mx = -Infinity;
-      live.forEach((L, k) => { lw[k] = L.N[c] > 0 ? Math.log(L.N[c]) - r * Nbar * dt / Math.max(L.K[c], 1e-12) : -Infinity; if (lw[k] > mx) mx = lw[k]; });
+      live.forEach((L, k) => { lw[k] = L.N[c] > 0 ? Math.log(L.N[c]) - crowd * Nbar * dt / Math.max(L.K[c], 1e-12) : -Infinity; if (lw[k] > mx) mx = lw[k]; });
       let sw = 0;
       live.forEach((L, k) => { lw[k] = lw[k] === -Infinity ? 0 : Math.exp(lw[k] - mx); sw += lw[k]; });
       live.forEach((L, k) => { const v = Nn * lw[k] / sw; L.N[c] = v > 1e-6 ? v : 0; });

@@ -630,9 +630,23 @@ Fixed on the way (each found by a run):
 - The spread weighed edges and crowding by different capacities, and conjured 10³⁵ people. One capacity, the lineage's best, serves both.
 - The coupler let the regolith's last opening re-make take tillage as its balance. The regolith now settles before any tillage is added.
 
+**v1.1, births and deaths (2026-11-15).** The logistic gave way to births and deaths (`demography`), synthesis on the demographic transition's standard stages, Earth's rates from memory:
+- deaths go by food per person: hunger below subsistence, disease at density;
+- medicine cuts deaths as industrial income rises;
+- births fall with industrial income only, so a well-fed frontier keeps its births;
+- before industry, births equal deaths at the food capacity, so the pre-industrial world is unchanged, and an empty frontier still grows at B_PRE − D_LO = 2%/yr (the Fisher oracle's r);
+- mortality falls first (deaths × ~0.5 at 4–6 subsistence-years of industrial income) and fertility later (half its fall past ~15).
+
+Both sides of the food capacity are logistics, solved exactly; an oracle checks the stages' order. On three seeds and live:
+- people at 0, 50, 100, 150, 200 and 250 years after industry: 0.57–0.61, 0.68–0.72, 0.88–1.00, 1.5–2.5, 4.0–4.7 and 6.2–8.1 B (Earth's, from memory: 1.0, 1.3, 1.6, 2.5, 6.1 and 8.1 B at ~1800–2025);
+- the peak 9.4–9.8 B;
+- the people's hyperbola at exponent 0.98–1.03 (R² 0.97–0.99);
+- early takeoff now 162–187 years after industry (more people, faster culture: a little ahead of Earth's ~245), with 3.3–3.4 B people and ~2.9 TW (0.85 kW a person, against Earth's 2.4: output a person is now the short one);
+- fossil carbon burned 4,090–4,670 Pg C, peak CO₂ 2,000–2,300 ppm; the live planet ends at 26.0 °C and 1,765 ppm.
+
 Next, in order:
-1. **The population's scale:** mortality falling before fertility (Earth's growth peaked at ~2%/yr between ~10× and 25× subsistence), and the agrarian base at industry (~1 B against 0.9–1.1).
-2. **Stores** (v1.1): seed grain and granaries against the live year's droughts.
+1. **Output per person at early takeoff** (~13 subsistence-years against Earth's ~30, from memory) and the industrial era's length with it (A_I0, the energy intensity).
+2. **Stores** (v1.2): seed grain and granaries against the live year's droughts.
 3. **Soil within a cell** (the regolith's relief at sub-grid scale) and **the ore map** (arcs, flood basalts, laterites).
 4. **The ending** (a9).
 5. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds.

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, taskLabor, industrialStep, newEconomy } from '../tools/people/model.mjs';
+import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography } from '../tools/people/model.mjs';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -25,7 +25,7 @@ function runFixed(p, dt, T, each = () => {}) { while (p.t < T - 1e-9) { p.step(M
 
 test('a Fisher front spreads at 2√(rD), resolved', () => {
   // Level 5 (~240 km): D 10,000 km²/yr and r 0.02 put the front's width √(D/r) at ~700 km.
-  const p = new People(uniformPlanet(5), { ...quiet, A_INV: 0, D0: 1e4, D_Z: 0, D_MAX: 1e9, R0: 0.02, NSUB_MAX: 1000 });
+  const p = new People(uniformPlanet(5), { ...quiet, A_INV: 0, D0: 1e4, D_Z: 0, D_MAX: 1e9, NSUB_MAX: 1000 });
   const L = p.newLineage(null, 0, 0), g = p.planet.grid, i0 = p.cells[0];
   const dist = c => { const i = p.cells[c]; return R * Math.acos(Math.min(1, g.pos[3 * i] * g.pos[3 * i0] + g.pos[3 * i + 1] * g.pos[3 * i0 + 1] + g.pos[3 * i + 2] * g.pos[3 * i0 + 2])); };
   // Start from a settled disc (a front already formed: from one seeded cell the K/2 contour runs
@@ -39,7 +39,7 @@ test('a Fisher front spreads at 2√(rD), resolved', () => {
   };
   runFixed(p, 2, 100); const r1 = front(), t1 = p.t;
   runFixed(p, 2, 250); const r2 = front(), t2 = p.t;
-  const D = 1e4, r = 0.02, v0 = 2 * Math.sqrt(r * D), v = (r2 - r1) / (t2 - t1);
+  const D = 1e4, r = PEOPLE.B_PRE - PEOPLE.D_LO, v0 = 2 * Math.sqrt(r * D), v = (r2 - r1) / (t2 - t1);
   // A pulled front from a steep start sits at v₀t − (3/2)√(D/r) ln t (Bramson, standard): over
   // [t₁, t₂] that slows it by (3/2)√(D/r) ln(t₂/t₁)/(t₂ − t₁), ~6.5 km/yr here; on the sphere its
   // curvature slows it by D cot(θ)/R, averaged over the arc it crosses.
@@ -49,7 +49,7 @@ test('a Fisher front spreads at 2√(rD), resolved', () => {
 });
 
 test('the spread keeps people', () => {
-  const p = new People(uniformPlanet(4), { ...quiet, A_INV: 0, D0: 3e3, D_Z: 0, R0: 0 });
+  const p = new People(uniformPlanet(4), { ...quiet, A_INV: 0, D0: 3e3, D_Z: 0 });
   const L = p.newLineage(null, 0, 0);
   L.N[7] = 1e4; L.N[100] = 3e3;
   p.capacity(L);
@@ -59,7 +59,7 @@ test('the spread keeps people', () => {
 });
 
 test('the lineage with the higher capacity excludes the other', () => {
-  const p = new People(uniformPlanet(3), { ...quiet, A_INV: 0, LAMBDA: 1e-12, D0: 0, R0: 0.02, ACC: 0 });
+  const p = new People(uniformPlanet(3), { ...quiet, A_INV: 0, LAMBDA: 1e-12, D0: 0, ACC: 0 });
   const A = p.newLineage(null, 0, 0), B = p.newLineage(null, 0, 0);
   p.capacity(B);
   for (let c = 0; c < p.nL; c++) { A.Z[c] = 1; A.N[c] = 0.25 * B.K[c]; B.N[c] = 0.5 * B.K[c]; }
@@ -73,7 +73,7 @@ test('the lineage with the higher capacity excludes the other', () => {
 
 /** A uniform world held at its capacity, culture alone moving: the minds within reach at z = 0. */
 function heldWorld(params) {
-  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, R0: 1, L_C0: 2e4, ACC: 0, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
+  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_C0: 2e4, ACC: 0, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
   const L = p.newLineage(null, 0, 0);
   p.capacity(L);
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
@@ -170,4 +170,19 @@ test('soil under steady erosion settles at h₀ ln(P₀/E)', () => {
   for (let k = 0; k < 300; k++) p.env.soil(1000, Ef);
   const want = 0.5 * Math.log(1e-4 / 5e-5);
   assert.ok(Math.abs(p.soil[0] / want - 1) < 1e-3, `soil ${p.soil[0].toFixed(4)} m against h₀ ln(P₀/E) = ${want.toFixed(4)}`);
+});
+
+test('births and deaths: zero growth at the food capacity before industry, the frontier at B − D, the transition in its order', () => {
+  const P = PEOPLE, g = (N, K, yg) => { const h = 1e-3, r = demography(N, K, yg, h, P); return Math.log(r.N / N) / h; };
+  assert.ok(Math.abs(g(1e6, 1e6, 0)) < 1e-6, `growth at the food capacity, pre-industrial: ${g(1e6, 1e6, 0)}`);
+  assert.ok(Math.abs(g(1, 1e9, 0) - (P.B_PRE - P.D_LO)) < 1e-6, `a frontier grows at B_PRE − D_LO (${g(1, 1e9, 0)})`);
+  assert.ok(g(2e6, 1e6, 0) < -0.05, `famine past the food capacity (${g(2e6, 1e6, 0)})`);
+  // With industry's income: deaths fall first (growth rises), then births (growth falls).
+  const rate = yg => { const r = demography(5e5, 1e6, yg, 1e-3, P); return { b: r.b, d: r.d, g: r.b - r.d }; };
+  const e = rate(0), m = rate(6), l = rate(30);
+  assert.ok(m.d < 0.6 * e.d && m.b > 0.9 * e.b, `at y_g 6 mortality has fallen (d ${m.d.toFixed(4)} against ${e.d.toFixed(4)}) and fertility not yet (b ${m.b.toFixed(4)})`);
+  assert.ok(m.g > e.g + 0.005 && l.g < m.g - 0.01, `growth rises then falls: ${e.g.toFixed(4)}, ${m.g.toFixed(4)}, ${l.g.toFixed(4)}`);
+  // Exact over a long step: the fed side's logistic settles at its equilibrium (r/a).
+  const r = demography(1e5, 1e6, 0, 5000, P);
+  assert.ok(Math.abs(r.N / 1e6 - 1) < 1e-6, `settled at the food capacity: ${r.N}`);
 });
