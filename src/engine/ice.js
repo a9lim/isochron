@@ -59,7 +59,32 @@
 //                w_eq = flex(ρᵢ g H, Tₑ) (src/engine/flexure.js), so a
 //                forebulge rises round a sheet and collapses after it; with no
 //                flexure attached, toward local isostasy, −(ρᵢ/ρₘ) H
-//   the sea      ice afloat calves; grounded ice is water taken from the sea
+//   the sea      (standard) the surface over open sea is sea level and
+//                floating ice's its freeboard, s = max(b + H, (1 − ρᵢ/ρw) H)
+//                (before, an open sea cell's surface was its floor, so the
+//                coast was a cliff the ice ran down at the speed limit, and
+//                that flux was 95–98% of the ice's loss). Grounded ice is
+//                water taken from the sea by its volume above flotation.
+//   marine       (synthesis on standard forms) floating ice doesn't flow (no
+//   fronts       shelves) and persists only beside flowing grounded ice: the
+//                sub-grid front, a partly filled cell (after Albrecht and
+//                others' scheme, from memory), which grounds once it fills.
+//                Elsewhere floating ice calves. Each edge between ice and open
+//                sea ablates u_f H_f ℓ a year (m³), H_f the ice's thickness
+//                there (at least the cell's flotation thickness), taken first
+//                from the ice crossing the edge and the rest from the ice
+//                behind it, so the front advances where the flow outruns
+//                u_f and retreats where it doesn't. u_f = CALVE d (TF₊ +
+//                TF_COLD)/(TF_REF + TF_COLD): Pelto and Warren's water-depth
+//                law for tidewater glaciers (u = 70 + 8.33 d m/yr in Alaska's
+//                fjords, from memory), d the front's water depth, scaled by
+//                the sea's thermal forcing TF₊ (the year's mean of its warmth
+//                above freezing) against those fjords' (melt undercutting a
+//                front drives its calving; frontal melt grows as TF^1.18,
+//                Rignot and others, from memory), and in a freezing sea a
+//                mechanical floor (TF_COLD). A warm sea pulls a marine margin
+//                back, a cold one lets it ground across a shelf; deep water
+//                holds it.
 //
 // Thickness in metres, time in years. The ice is held in the mantle's frame:
 // over its timescales the plates hardly move, and at plate speed it's
@@ -95,6 +120,11 @@ export const ICE = {
   FLEX_CHANGE: 0.01, // re-solve when the load has moved this share
   FLEX_CYCLES: 2,    // warm V-cycles a re-solve
   TE_EVERY: 0.5,     // Myr of plate time between refreshes of Tₑ and the geothermal flux
+  // Marine fronts: u_f = CALVE d (TF₊ + TF_COLD)/(TF_REF + TF_COLD) m/yr at water depth d (m).
+  CALVE: 8.33,       // yr⁻¹: Pelto and Warren's slope (from memory), at their fjords' thermal forcing
+  TF_REF: 5,         // K: that forcing (Alaska's fjords, ~4–6 K above freezing; synthesis)
+  TF_COLD: 0.5,      // K: a freezing sea's mechanical calving, a tenth of theirs (synthesis)
+  T_FREEZE: -1.8,    // °C, sea water's freezing point
 };
 
 const MONTH_DAYS = 30.44;
@@ -145,6 +175,25 @@ export function robinDepth(h, a) {
 /** The sliding coefficient (m yr⁻¹ Pa⁻ᵖ) for a bed's softness (0 hard rock, 1 soft till). */
 export const slipOf = soft => ICE.C_HARD * Math.pow(ICE.C_SOFT / ICE.C_HARD, Math.min(1, Math.max(0, soft)));
 
+/** The calving speed per metre of water depth (yr⁻¹) at a sea of thermal forcing TF₊ (K above freezing, the year's mean). */
+export const calveOf = tf => ICE.CALVE * (Math.max(0, tf) + ICE.TF_COLD) / (ICE.TF_REF + ICE.TF_COLD);
+
+/**
+ * A front's ablation (m³/yr) at an edge between ice and open sea: u_f H_f ℓ with u_f = cf d, cf
+ * the sea cell's calving speed per metre (calveOf), d the front's water depth, H_f the ice's
+ * thickness there, at least the flotation thickness, and ℓ the edge's length from its ℓ/d and
+ * the ice cell's spacing √(2A/√3) (exact on a regular hexagon; the GPU's flux kernel has no
+ * binding to spare for the lengths). The front stands in the ice's cell, so d is that cell's
+ * depth: ice on land at the coast has none (the ice crosses into the sea's cell, which then
+ * holds the front at its own depth). bIce is the ice cell's bed (m above sea level), aIce its
+ * area (m²). Also the GPU's (src/gpu/ice.js).
+ */
+export function frontRate(cfSea, bIce, hIce, ellOverD, aIce) {
+  const d = Math.max(0, -bIce);
+  if (!(d > 0)) return 0;
+  return cfSea * d * Math.max(hIce, ICE.RHO_W * d / ICE.RHO_I) * ellOverD * Math.sqrt(2 * aIce / Math.sqrt(3));
+}
+
 export class Ice {
   constructor(tec, climate) {
     this.tec = tec;
@@ -183,13 +232,38 @@ export class Ice {
     this.plateT = -Infinity;
     this.flex = null;                      // a Flexure (attachFlexure); without one the bed is local
     this.dustDDF = null;                   // the degree-day factors' scale by the dust on snow and ice, 2 a cell (src/engine/aeolian.js)
+    // Marine fronts: each cell's calving speed per metre of water depth (yr⁻¹, from its sea's warmth; read
+    // where it's open sea), and the step's frontal loss (m of ice) and whether floating ice may stay (beside
+    // flowing grounded ice).
+    this.cf = new Float32Array(n).fill(calveOf(0));
+    this.tf = new Float32Array(n);         // the sea's thermal forcing, K above freezing (the year's mean)
+    this.front = new Float64Array(n);
+    this.keep = new Uint8Array(n);
+    this.calvedAcc = 0;                    // m³ calved since the last advance (the CPU's; the GPU's comes back with its integrals)
+    this.budget = { snow: 0, melt: 0, basal: 0 };   // m³ since the last advance, as the CPU's steps realized them
     // m³, m², m; the ice's area-mean sliding speed (m/yr), its shares thawed and streaming (sliding faster than it
-    // deforms), and the rock it erodes (m³/yr)
-    this.stats = { volume: 0, area: 0, seaLevel: 0, sliding: 0, thawed: 0, streaming: 0, erosion: 0 };
+    // deforms), and the rock it erodes (m³/yr); its budget (m³ of ice a year): snow, surface melt and basal melt
+    // over the ice, and calving (the fronts' ablation and floating ice let go, over the last advance)
+    this.stats = { volume: 0, area: 0, seaLevel: 0, sliding: 0, thawed: 0, streaming: 0, erosion: 0, snow: 0, melt: 0, basal: 0, calving: 0, marine: 0 };
   }
 
   /** Bed above sea level (m), with the load's depression. */
   bed(i) { return (this.tec.elev[i] - this.tec.seaLevel) * 1000; }
+
+  /** The surface (m above sea level): grounded ice's, the bed plus the ice; floating ice's freeboard; open sea's, sea level. */
+  surface(i) { const h = Math.max(0, this.H[i]); return Math.max(this.bed(i) + h, (1 - ICE.RHO_I / ICE.RHO_W) * h); }
+
+  /** The sea's thermal forcing at each cell (the year's mean warmth above freezing, K) and its calving speed per metre (`tf`, `cf`). */
+  frontFactor() {
+    const c = this.climate, n = this.grid.n, sst = c.ocean && c.ocean.fine ? c.ocean.fine.sst : null;
+    const mph = c.monthPhases || (c.monthPhases = Array.from({ length: 12 }, (_, m) => monthPhaseLocal(m)));
+    for (let i = 0; i < n; i++) {
+      const a = sst ? sst[i] : 0;
+      let tf = 0;
+      for (let m = 0; m < 12; m++) tf += Math.max(0, c.tAt(i, mph[m]) + a - ICE.T_FREEZE);
+      this.tf[i] = tf / 12; this.cf[i] = calveOf(tf / 12);
+    }
+  }
 
   /** The bed's softness (0–1 per cell), which sets the sliding coefficient. */
   setSoftness(soft) {
@@ -262,18 +336,32 @@ export class Ice {
       this.M[i] = (acc - snowMelt - iceMelt) * (1000 / ICE.RHO_I);
       this.melt[i] = (snowMelt + iceMelt) * (1000 / ICE.RHO_I);
     }
+    this.frontFactor();
     this.mbVersion = c.version;
   }
 
   /** Cells with ice or beside it, and where snow would gather. */
   collect() {
     const g = this.grid, n = g.n, H = this.H, M = this.M, nbrOff = g.nbrOff, nbr = g.nbr;
+    const inSet = this.inSet || (this.inSet = new Uint8Array(n));
     let k = 0;
     for (let i = 0; i < n; i++) {
       let on = H[i] > 0 || M[i] > 0;
       if (!on) for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (H[nbr[t]] > 0) { on = true; break; }
+      inSet[i] = on ? 1 : 0;
       if (on) this.active[k++] = i;
       else this.D[i] = this.ub[i] = this.thaw[i] = this.mb[i] = 0;   // a cell that has left the set lends no stale diffusivity
+    }
+    this.nActive = k;
+  }
+
+  /** Cells that gained ice this step bring their neighbours into the set (between collects, ice that flowed to a cell outside it was lost). */
+  widen(gained, m) {
+    const g = this.grid, nbrOff = g.nbrOff, nbr = g.nbr, inSet = this.inSet, act = this.active;
+    let k = this.nActive;
+    for (let q = 0; q < m; q++) {
+      const i = gained[q];
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) { const j = nbr[t]; if (!inSet[j]) { inSet[j] = 1; act[k++] = j; } }
     }
     this.nActive = k;
   }
@@ -303,25 +391,25 @@ export class Ice {
   /** One explicit step of at most dtMax years; returns the step taken. */
   step(dtMax) {
     const g = this.grid, nbrOff = g.nbrOff, nbr = g.nbr, gw = g.gw, H = this.H, s = this.s, D = this.D, A = this.areaM, coef = this.coef;
-    const act = this.active, na = this.nActive, Gm = this.Gamma, b = this.debris;
-    // Surface, its slope, and the diffusivity: deformation Γ H⁵ |∇s|², sliding as `basal`.
-    for (let k = 0; k < na; k++) { const i = act[k]; s[i] = this.bed(i) + Math.max(0, H[i]); }
+    const act = this.active, na = this.nActive, Gm = this.Gamma, b = this.debris, RI = ICE.RHO_I, RW = ICE.RHO_W;
+    // Surface, its slope, and the diffusivity: deformation Γ H⁵ |∇s|², sliding as `basal`. Floating
+    // ice doesn't flow (no shelves: the shallow-ice approximation has none to give).
+    for (let k = 0; k < na; k++) { const i = act[k]; s[i] = this.surface(i); }
     let dmax = 0;
     for (let k = 0; k < na; k++) {
-      const i = act[k];
-      if (!(H[i] > 0)) { D[i] = 0; this.ub[i] = this.thaw[i] = this.mb[i] = 0; continue; }
+      const i = act[k], h = H[i], bd = this.bed(i);
+      if (!(h > 0) || (bd < 0 && h * RI < -bd * RW)) { D[i] = 0; this.ub[i] = this.thaw[i] = this.mb[i] = 0; continue; }
       let gx = 0, gy = 0, gz = 0;
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-        const j = nbr[t];
-        const d = this.bed(j) + Math.max(0, H[j]) - s[i];
+        const d = s[nbr[t]] - s[i];
         gx += d * gw[3 * t]; gy += d * gw[3 * t + 1]; gz += d * gw[3 * t + 2];
       }
       gx /= R_M; gy /= R_M; gz /= R_M;
       const g2 = gx * gx + gy * gy + gz * gz;
-      const h = H[i], gm = Math.sqrt(g2);
+      const gm = Math.sqrt(g2);
       D[i] = Gm * h * h * h * h * h * g2 + this.basal(i, h, gm);
-      // The speed limit: where the shallow-ice flux would pass U_MAX (a cliff onto the sea, a pit
-      // full of ice between peaks), it holds there, and the sliding with it.
+      // The speed limit: where the shallow-ice flux would pass U_MAX (a cliff, a pit full of ice
+      // between peaks), it holds there, and the sliding with it.
       const cap = ICE.U_MAX * h / Math.max(gm, 1e-12);
       if (D[i] > cap) { this.ub[i] *= cap / D[i]; D[i] = cap; }
       if (D[i] > dmax) dmax = D[i];
@@ -333,43 +421,74 @@ export class Ice {
     const dt = Math.min(dtMax, ICE.MAX_STEP, dmax > 0 ? stepCoef() * amin / dmax : ICE.MAX_STEP);
     const dH = this.scratch || (this.scratch = new Float64Array(g.n));
     const dB = this.scratchB || (this.scratchB = new Float64Array(g.n));
-    // Fluxes of ice, and of debris at the upwind cell's concentration.
+    const front = this.front, keep = this.keep, cf = this.cf;
+    // Fluxes of ice, and of debris at the upwind cell's concentration. At an edge between ice and
+    // open sea the front ablates `frontRate` a year: from the ice crossing the edge first (calved
+    // where it crosses, its debris dropped there), the rest from the ice behind the edge.
     for (let k = 0; k < na; k++) {
       const i = act[k];
-      const hi = Math.max(0, H[i]), ci = hi > 0 ? b[i] / hi : 0, si = this.bed(i) + hi;
-      let q = 0, qb = 0;
+      const hi = Math.max(0, H[i]), bi = this.bed(i), ci = hi > 0 ? b[i] / hi : 0, si = s[i];
+      const sea = !(hi > 0) && bi < 0;
+      let q = 0, qb = 0, fr = 0, kp = 0;
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
         const j = nbr[t];
-        const De = 0.5 * (D[i] + D[j]);
-        if (!(De > 0)) continue;
-        const hj = Math.max(0, H[j]);
-        const F = De * coef[t] * (this.bed(j) + hj - si);
-        q += F;
-        qb += F * (F > 0 ? (hj > 0 ? b[j] / hj : 0) : ci);
+        if (D[j] > 0) kp = 1;
+        const hj = Math.max(0, H[j]), bj = this.bed(j), De = 0.5 * (D[i] + D[j]);
+        const F = De > 0 ? De * coef[t] * (s[j] - si) : 0;   // into i (m³/yr)
+        if (hi > 0 && !(hj > 0) && bj < 0) {
+          // i's front on open sea j: the outflow (F ≤ 0) leaves whole; what it doesn't supply, the ice behind gives.
+          q += F; qb += F * ci;
+          fr += Math.max(0, frontRate(cf[j], bi, hi, coef[t], A[i]) + F);
+        } else if (sea && hj > 0) {
+          // Open sea at j's front: what crosses arrives, less the front's ablation (calved as it crosses).
+          const O = Math.max(0, F);
+          q += O; qb += O * b[j] / hj;
+          fr += Math.min(O, frontRate(cf[i], bj, hj, coef[t], A[j]));
+        } else if (De > 0 && (F > 0 ? hj > 0 : hi > 0)) {
+          // Ice flows only out of a cell that has it: ice below a bare cliff would otherwise draw on the
+          // cliff (the diffusivity is the ice's), making ice from nothing (an ice-filled pit beside a bare
+          // 2 km peak at 40° made ~160 km³ a year, melted as fast).
+          q += F;
+          qb += F * (F > 0 ? b[j] / hj : ci);
+        }
       }
-      dH[i] = dt * q / A[i]; dB[i] = dt * qb / A[i];
+      dH[i] = dt * q / A[i]; dB[i] = dt * qb / A[i]; front[i] = dt * fr / A[i]; keep[i] = kp;
     }
-    // The update: mass balance and basal melt, calving, meltwater, erosion and melt-out.
-    const KG = ICE.KG, EL = ICE.EL;
+    // The update: mass balance and basal melt, the fronts, floating ice let go, meltwater, erosion and melt-out.
+    const KG = ICE.KG, EL = ICE.EL, bud = this.budget, gained = this.gained || (this.gained = new Int32Array(g.n));
+    let calved = 0, ng = 0;
     for (let k = 0; k < na; k++) {
       const i = act[k];
-      const h0 = H[i], hasIce = h0 > 0, mbas = hasIce ? this.mb[i] : 0;
+      const h0 = H[i], hasIce = h0 > 0, mbas = hasIce ? this.mb[i] : 0, fl = front[i];
       const iceIn = h0 + Math.max(0, dH[i]);
       const abl = dt * (this.melt[i] + mbas);
-      let h = h0 + dH[i] + dt * (this.M[i] - mbas);
+      let h = h0 + dH[i] + dt * (this.M[i] - mbas) - fl;
+      // The budget as realized, where there is ice (held, arriving, or snow that stays; not a bare
+      // cell's seasonal snow): where it runs out, every loss in proportion.
+      if (iceIn > 0 || this.M[i] > 0) {
+        const lost = abl + fl, r = h >= 0 || !(lost > 0) ? 1 : Math.max(0, h + lost) / lost, a = A[i];
+        bud.snow += dt * Math.max(0, this.M[i] + this.melt[i]) * a; bud.melt += r * dt * this.melt[i] * a; bud.basal += r * dt * mbas * a;
+        calved += r * fl * a;
+      }
+      // Floating ice away from flowing grounded ice calves.
       const bd = this.bed(i);
-      // Ice afloat calves.
-      if (h > 0 && bd < 0 && h * ICE.RHO_I < -bd * ICE.RHO_W) h = 0;
+      if (h > 0 && bd < 0 && h * RI < -bd * RW && !keep[i]) { calved += h * A[i]; h = 0; }
+      // Less than half a metre goes: at sea, to the front; on land, as melt.
+      if (h > 0 && h <= 0.5) { if (bd < 0) calved += h * A[i]; else bud.melt += h * A[i]; }
       h = h > 0.5 ? h : 0;
       H[i] = h;
+      if (h > 0 && !hasIce) gained[ng++] = i;
       if (iceIn > 0) this.meltAcc[i] += Math.min(abl, iceIn + dt * (this.M[i] + this.melt[i]));
       const ub = hasIce ? this.ub[i] : 0;
       const ero = ub > 0 ? dt * KG * (EL === 1 ? ub : Math.pow(ub, EL)) : 0;
       const bb = Math.max(0, b[i] + dB[i] + ero);
-      const dep = h > 0 ? bb * abl / (h + abl) : bb;
+      const ablD = abl + fl;
+      const dep = h > 0 ? bb * ablD / (h + ablD) : bb;
       b[i] = bb - dep;
       this.eroded[i] += ero; this.till[i] += dep;
     }
+    this.calvedAcc += calved;
+    if (ng) this.widen(gained, ng);
     return dt;
   }
 
@@ -429,6 +548,10 @@ export class Ice {
     }
     this.rebound(done);
     this.sync();
+    // The budget's rates over the advance as stepped (publish's are the instantaneous ones over the ice).
+    const st = this.stats, b = this.budget;
+    if (done > 0) { st.calving = this.calvedAcc / done; st.snow = b.snow / done; st.melt = b.melt / done; st.basal = b.basal / done; }
+    this.calvedAcc = 0; b.snow = b.melt = b.basal = 0;
     return done;
   }
 
@@ -460,7 +583,7 @@ export class Ice {
     // Every ice cell upstream of one with melt carries it; take the ice cells by surface, highest first.
     const ice = [];
     for (let i = 0; i < n; i++) if (H[i] > 0) ice.push(i);
-    const sOf = i => this.bed(i) + Math.max(0, H[i]);
+    const sOf = i => this.surface(i);
     const s = new Float64Array(ice.length);
     ice.forEach((i, k) => { s[k] = sOf(i); });
     const order = Int32Array.from(ice.keys()).sort((a, b) => s[b] - s[a]);
@@ -490,25 +613,30 @@ export class Ice {
 
   /** Push the ice's load and volume to the crust and the sea (also after the GPU's steps, src/gpu/ice.js). */
   publish() {
-    const tec = this.tec, n = this.grid.n, H = this.H;
-    let vol = 0, area = 0, slide = 0, thawed = 0, stream = 0, ero = 0;
+    const tec = this.tec, n = this.grid.n, H = this.H, RI = ICE.RHO_I, RW = ICE.RHO_W;
+    let vol = 0, vaf = 0, area = 0, slide = 0, thawed = 0, stream = 0, ero = 0, snow = 0, melt = 0, basal = 0, marine = 0;
     if (!tec.load) tec.load = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       tec.load[i] = this.w[i] / 1000;
       if (H[i] > 0) {
-        const a = this.areaM[i];
+        const a = this.areaM[i], d = Math.max(0, -this.bed(i));
         vol += H[i] * a; area += a;
+        // The sea's loss is the volume above flotation: below it, the ice fills basin the sea would.
+        vaf += Math.max(0, H[i] - RW * d / RI) * a;
+        if (d > 0) marine += a;
         const ub = this.ub[i];
         slide += ub * a; thawed += this.thaw[i] * a; ero += ICE.KG * ub * a;
         if (ub > this.vel[4 * i + 3] - ub) stream += a;
+        snow += Math.max(0, this.M[i] + this.melt[i]) * a; melt += this.melt[i] * a; basal += this.mb[i] * a;
       }
     }
     // Water held as ice, in the sea level's units (km of depth × steradians).
-    tec.iceWater = vol * ICE.RHO_I / ICE.RHO_W / 1000 / (R_M * R_M);
+    tec.iceWater = vaf * RI / RW / 1000 / (R_M * R_M);
     const st = this.stats;
     st.volume = vol; st.area = area;
-    st.seaLevel = vol * ICE.RHO_I / ICE.RHO_W / 3.61e14;   // m, over today's ocean area
+    st.seaLevel = vaf * RI / RW / 3.61e14;   // m, over today's ocean area
     st.sliding = area > 0 ? slide / area : 0; st.thawed = area > 0 ? thawed / area : 0; st.streaming = area > 0 ? stream / area : 0; st.erosion = ero;
+    st.snow = snow; st.melt = melt; st.basal = basal; st.marine = area > 0 ? marine / area : 0;
   }
 }
 

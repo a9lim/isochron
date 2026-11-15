@@ -5,11 +5,14 @@
 // thawed (the bed's temperature by Robin's column with the deformation's
 // heat), explicit, the step set by the
 // stability limit in the worst cell on the two diffusivities' sum; the
-// degree-day mass balance from the climate's harmonics; basal melt; calving
-// afloat; erosion under sliding ice, its debris carried with the ice and
-// melted out as till. Each step is four dispatches (diffusivity and the bed
-// with an atomic maximum, the step size by one thread, fluxes of ice and
-// debris, the update), so the step size never leaves the GPU. The bed relaxes
+// degree-day mass balance from the climate's harmonics; basal melt; the marine
+// fronts (sea level over open sea, floating ice still beside grounded ice, the
+// fronts ablating by the water's depth and the sea's warmth, each cell's
+// calving speed per metre uploaded with the climate); erosion under sliding
+// ice, its debris carried with the ice and melted out as till. Each step is
+// four dispatches (diffusivity and the bed with an atomic maximum, the step
+// size by one thread, fluxes of ice and debris with the fronts, the update),
+// so the step size never leaves the GPU. The bed relaxes
 // once an advance toward the load's response: with a GpuFlexure attached
 // (src/gpu/flexure.js, on this device) the plate's w, read where the flexure
 // keeps it (X[off + i].y) with no readback and re-solved by a warm V-cycle in
@@ -32,6 +35,8 @@ struct Iu { n: u32, gamma: f32, amin: f32, maxStep: f32,
 struct Ctl { dmax: atomic<u32>, remaining: f32, done: f32, dt: f32, lim: f32, p0: f32, p1: f32, p2: f32 };
 struct CtlR { dmax: u32, remaining: f32, done: f32, dt: f32, lim: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(0) var<uniform> U: Iu;
+// The surface: grounded ice's bed plus ice, floating ice's freeboard, open sea's sea level.
+fn surf(b: f32, h: f32) -> f32 { return max(b + h, (1.0 - U.rhoI / U.rhoW) * h); }
 `;
 // Per cell: six neighbours (a pentagon's sixth is itself), and per slot (ℓ/d, ∇ weights).
 // ba = (the bed above sea level (m), the cell's area (m²), the sliding coefficient, the geothermal flux (W/m²));
@@ -62,14 +67,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
   let h = H[i];
-  if (!(h > 0.0)) { D[i] = vec4f(0.0); vel[i] = vec4f(0.0); return; }
   let bi = ba[i];
-  let si = bi.x + h;
+  // Floating ice doesn't flow (no shelves; src/engine/ice.js).
+  if (!(h > 0.0) || (bi.x < 0.0 && h * U.rhoI < -bi.x * U.rhoW)) { D[i] = vec4f(0.0); vel[i] = vec4f(0.0); return; }
+  let si = surf(bi.x, h);
   var g = vec3f(0.0);
   for (var k = 0u; k < 6u; k++) {
     let j = nb[6u * i + k];
     let e = ew[6u * i + k];
-    g += (ba[j].x + max(H[j], 0.0) - si) * e.yzw;
+    g += (surf(ba[j].x, max(H[j], 0.0)) - si) * e.yzw;
   }
   g = g / ${R_M.toExponential(6)};
   let g2 = dot(g, g);
@@ -110,9 +116,13 @@ fn main() {
   ctl.dt = dt;
   ctl.remaining = ctl.remaining - dt;
   ctl.done = ctl.done + dt;
+  ctl.p0 = ctl.p0 + dt;          // the years stepped since the integrals were last read
   atomicStore(&ctl.dmax, 0u);
 }`;
-// Ice by the diffusivities, debris at the upwind cell's concentration.
+// Ice by the diffusivities, debris at the upwind cell's concentration, and the marine fronts
+// (src/engine/ice.js, step): rates a year (the update takes the step), and in .w the front's loss
+// (m of ice a year), negated less one where floating ice here may not stay (no flowing grounded
+// ice beside it). cf: each cell's calving speed per metre of depth, read where it's open sea.
 const FLUX = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> nb: array<u32>;
 @group(0) @binding(2) var<storage, read> ew: array<vec4f>;
@@ -120,31 +130,53 @@ const FLUX = HEAD + /* wgsl */`
 @group(0) @binding(4) var<storage, read> H: array<f32>;
 @group(0) @binding(5) var<storage, read> D: array<vec4f>;
 @group(0) @binding(6) var<storage, read> b: array<f32>;
-@group(0) @binding(7) var<storage, read> ctl: CtlR;
-@group(0) @binding(8) var<storage, read_write> dHb: array<vec4f>;   // (ice, debris, the bed for the update)
+@group(0) @binding(7) var<storage, read> cf: array<f32>;
+@group(0) @binding(8) var<storage, read_write> dHb: array<vec4f>;   // (ice, debris, the bed for the update, the front)
+fn frontRate(cfSea: f32, bIce: f32, hIce: f32, ellOverD: f32, aIce: f32) -> f32 {
+  let d = max(0.0, -bIce);
+  return cfSea * d * max(hIce, U.rhoW * d / U.rhoI) * ellOverD * sqrt(2.0 * aIce / 1.7320508);
+}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
   let hi = max(H[i], 0.0);
-  let si = ba[i].x + hi;
+  let bi = ba[i].x;
+  let ai = ba[i].y;
+  let si = surf(bi, hi);
   let ci = select(0.0, b[i] / hi, hi > 0.0);
+  let sea = !(hi > 0.0) && bi < 0.0;
   var q = 0.0;
   var qb = 0.0;
+  var fr = 0.0;
+  var keep = false;
   for (var k = 0u; k < 6u; k++) {
     let j = nb[6u * i + k];
-    let De = 0.5 * (D[i].x + D[j].x);
-    if (De > 0.0) {
-      let hj = max(H[j], 0.0);
-      let F = De * ew[6u * i + k].x * (ba[j].x + hj - si);
+    if (j == i) { continue; }
+    let Dj = D[j].x;
+    if (Dj > 0.0) { keep = true; }
+    let hj = max(H[j], 0.0);
+    let bj = ba[j].x;
+    let De = 0.5 * (D[i].x + Dj);
+    let c = ew[6u * i + k].x;
+    let F = select(0.0, De * c * (surf(bj, hj) - si), De > 0.0);
+    if (hi > 0.0 && !(hj > 0.0) && bj < 0.0) {
+      q += F; qb += F * ci;
+      fr += max(0.0, frontRate(cf[j], bi, hi, c, ai) + F);
+    } else if (sea && hj > 0.0) {
+      let O = max(0.0, F);
+      q += O; qb += O * b[j] / hj;
+      fr += min(O, frontRate(cf[i], bj, hj, c, ba[j].y));
+    } else if (De > 0.0 && select(hi > 0.0, hj > 0.0, F > 0.0)) {
+      // Ice flows only out of a cell that has it (src/engine/ice.js).
       q += F;
-      qb += F * select(ci, select(0.0, b[j] / hj, hj > 0.0), F > 0.0);
+      qb += F * select(ci, b[j] / hj, F > 0.0);
     }
   }
-  let a = ba[i].y;
-  dHb[i] = vec4f(ctl.dt * q / a, ctl.dt * qb / a, ba[i].x, 0.0);
+  dHb[i] = vec4f(q / ai, qb / ai, bi, select(-1.0 - fr / ai, fr / ai, keep));
 }`;
-// Mass balance and basal melt, calving, meltwater, erosion and melt-out; acc = (eroded, till, melt, 0).
+// Mass balance and basal melt, the fronts, floating ice let go, meltwater, erosion and melt-out;
+// acc = (eroded, till, melt, calved), m per cell.
 const APPLY = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> Mx: array<vec4f>;
 @group(0) @binding(2) var<storage, read> dHb: array<vec4f>;
@@ -165,20 +197,26 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let d = D[i];
   let mbas = select(0.0, d.w, hasIce);
   let dq = dHb[i];
-  let iceIn = h0 + max(0.0, dq.x);
+  let dh = dt * dq.x;
+  let keep = dq.w >= 0.0;
+  let fl = dt * select(-1.0 - dq.w, dq.w, keep);
+  let iceIn = h0 + max(0.0, dh);
   let abl = dt * (m.y + mbas);
-  var h = h0 + dq.x + dt * (m.x - mbas);
+  var h = h0 + dh + dt * (m.x - mbas) - fl;
+  var a = acc[i];
+  // The fronts' loss as realized: where the ice runs out, every loss in proportion.
+  if (fl > 0.0) { a.w += select(fl * max(0.0, h + abl + fl) / (abl + fl), fl, h >= 0.0); }
   let bd = dq.z;
-  // Ice afloat calves.
-  if (h > 0.0 && bd < 0.0 && h * U.rhoI < -bd * U.rhoW) { h = 0.0; }
+  // Floating ice away from flowing grounded ice calves.
+  if (h > 0.0 && bd < 0.0 && h * U.rhoI < -bd * U.rhoW && !keep) { a.w += h; h = 0.0; }
   h = select(0.0, h, h > 0.5);
   H[i] = h;
-  var a = acc[i];
   if (iceIn > 0.0) { a.z += min(abl, iceIn + dt * (m.x + m.y)); }
   let ub = select(0.0, d.y, hasIce);
   let ero = select(0.0, dt * U.kg * ${ICE.EL === 1 ? 'ub' : 'pow(ub, U.el)'}, ub > 0.0);
-  let bb = max(0.0, b[i] + dq.y + ero);
-  let dep = select(bb, bb * abl / (h + abl), h > 0.0);
+  let bb = max(0.0, b[i] + dt * dq.y + ero);
+  let ablD = abl + fl;
+  let dep = select(bb, bb * ablD / (h + ablD), h > 0.0);
   b[i] = bb - dep;
   a.x += ero;
   a.y += dep;
@@ -273,6 +311,7 @@ export class GpuIce {
     this.M = B(4 * n); this.Mx = B(16 * n); this.D = B(16 * n); this.dHb = B(16 * n); this.vel = B(16 * n);
     this.b = B(4 * n, Float32Array.from(ice.debris)); this.acc = B(16 * n);
     this.clim = B(48 * n);
+    this.cf = B(4 * n, Float32Array.from(ice.cf));
     this.ctl = B(32);
     this.noFlex = B(16);
     let amin = Infinity;
@@ -291,7 +330,7 @@ export class GpuIce {
     this.stepList = [
       [K.diff, K.diff.bind({ U, nb: this.nb, ew: this.ew, ba: this.ba, H: this.H, Mx: this.Mx, D: this.D, vel: this.vel, ctl: this.ctl }), x],
       [K.dt, K.dt.bind({ U, ctl: this.ctl }), 1],
-      [K.flux, K.flux.bind({ U, nb: this.nb, ew: this.ew, ba: this.ba, H: this.H, D: this.D, b: this.b, ctl: this.ctl, dHb: this.dHb }), x],
+      [K.flux, K.flux.bind({ U, nb: this.nb, ew: this.ew, ba: this.ba, H: this.H, D: this.D, b: this.b, cf: this.cf, dHb: this.dHb }), x],
       [K.apply, K.apply.bind({ U, Mx: this.Mx, dHb: this.dHb, ctl: this.ctl, M: this.M, D: this.D, H: this.H, b: this.b, acc: this.acc }), x],
     ];
     this.bindBed(this.noFlex);
@@ -360,12 +399,14 @@ export class GpuIce {
         a[o + 8] = P[3][i]; a[o + 9] = P[4][i]; a[o + 10] = dd ? dd[2 * i] : 1; a[o + 11] = dd ? dd[2 * i + 1] : 1;
       }
       this.device.queue.writeBuffer(this.clim, 0, a);
+      ice.frontFactor();
+      this.device.queue.writeBuffer(this.cf, 0, ice.cf);
       this.run(this.mbList);
     }
     if (years > 0) {
       // Steps past the years are empty (dt = 0); 5% spare, since the limit tightens as a sheet grows.
       const steps = Math.max(1, Math.min(maxSteps, Math.ceil(1.05 * years / Math.max(0.01, this.dt)) + 1));
-      this.device.queue.writeBuffer(this.ctl, 0, new Float32Array([0, years, 0, 0, 0, 0, 0, 0]));
+      this.device.queue.writeBuffer(this.ctl, 4, new Float32Array([years, 0, 0]));   // remaining, done, dt (p0 runs on)
       const enc = this.device.createCommandEncoder(), pass = enc.beginComputePass();
       // The plate's response to the load as it stands, warm-started, before the steps' bed reads it.
       if (this.flex) {
@@ -402,6 +443,7 @@ export class GpuIce {
       enc.clearBuffer(this.acc);
     }
     this.device.queue.submit([enc.finish()]);
+    if (slow) this.device.queue.writeBuffer(this.ctl, 20, new Float32Array([0]));   // the integrals' years restart with them
     try {
       await this.readBuf.mapAsync(GPUMapMode.READ, 0, slow ? 80 * n + 32 : 24 * n + 32);
       const ice = this.ice, buf = this.readBuf.getMappedRange(0, slow ? 80 * n + 32 : 24 * n + 32);
@@ -411,13 +453,18 @@ export class GpuIce {
       if (lim > 0) this.dt = lim;
       if (slow) {
         const m = new Float32Array(buf, 24 * n + 32, 14 * n);
+        let calved = 0;
         for (let i = 0; i < n; i++) {
           const x = n + 4 * i, d = 5 * n + 4 * i, e = 10 * n + 4 * i;
           ice.M[i] = m[i]; ice.melt[i] = m[x]; ice.Ts0[i] = m[x + 1];
           ice.ub[i] = m[d + 1]; ice.thaw[i] = m[d + 2]; ice.mb[i] = m[d + 3];
           ice.debris[i] = m[9 * n + i];
           ice.eroded[i] += m[e]; ice.till[i] += m[e + 1]; ice.meltAcc[i] += m[e + 2];
+          calved += m[e + 3] * ice.areaM[i];
         }
+        // The calving rate over the years stepped since the last such read.
+        const yrs = a[6 * n + 5];
+        if (yrs > 0) ice.stats.calving = calved / yrs;
       }
       this.readBuf.unmap();
       if (slow) ice.route();

@@ -61,10 +61,11 @@
 // forcing (`dustForcing`) the absorbed sunlight.
 
 import { buildGrid, gradient } from '../grid/icosphere.js';
-import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
+import { makeTransfer, prolong, prolongT, restrict } from '../grid/transfer.js';
 import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit.js';
 import { Soil, SOIL, potentialEvaporation } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
+import { ICE } from './ice.js';
 
 export const CLIMATE = {
   A: 205.5, B: 2.09,       // OLR = A + B·T (W/m², T in °C): North's fit to Earth (203.3, from memory); A raised 2.2 W/m² (synthesis) to hold the converged mean near 14 °C under D's transport
@@ -77,10 +78,21 @@ export const CLIMATE = {
   // at −9 to −14 °C, 60° near 0 and the sea ice at 8–11%: Earth's ~7% (from memory) with
   // Antarctica's area as sea, as this planet's ocean poles have it.
   D: 1.0, D_LAT: -0.6,
-  // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: 0.1
-  // left 55–65° continents with summers ~3 K cooler than Earth's (from memory) and D climates at
-  // 15% of land against Earth's ~25%.
-  D_SEASON: 0.085,
+  // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: with
+  // the capacity mixed over each coarse cell, 0.1 left 55–65° continents with summers ~3 K cooler
+  // than Earth's (from memory) and D climates at 15% of land, and 0.085 stood in for that mixing;
+  // with each cell's own seasons (SUBGRID), 0.085 made 60–70° N land's summers 2–4 K warm, and 0.11
+  // holds them near Earth's (~11 °C in June–August, from memory).
+  D_SEASON: 0.11,
+  // Continental seasons (`continentalSeasons`): each cell's seasonal harmonics from its own heat
+  // capacity, not its coarse cell's mixed one.
+  SUBGRID: true,
+  // W m⁻² K⁻¹: each cell's exchange with its coarse cell's mean (synthesis): onshore winds carry the
+  // sea's air over a coast's first ~100 km (ρc_p h u/L ≈ 25 for a 1 km layer at 5 m/s across 220 km,
+  // onshore about a third of the time), so a coast's land has seasons about halfway between the
+  // sea's and inland's, as west coasts do (Bergen's ~13 K against inland Scandinavia's ~20–25,
+  // Seattle's against Spokane's; from memory). 0: none below the coarse grid's scale; ∞: the mixed capacity.
+  SUB_K: 8,
   C_OCEAN: 7.9,            // W yr m⁻² K⁻¹: a 60 m mixed layer
   C_LAND: 0.3,
   C_ICE: 1.2,
@@ -340,9 +352,11 @@ export class Climate {
   geography() {
     const tec = this.tec, n = this.grid.n, s = tec.seaLevel, H = this.ice ? this.ice.H : null;
     for (let i = 0; i < n; i++) {
-      const e = tec.elev[i] - s, h = H ? H[i] / 1000 : 0;   // grounded ice counts as land, its surface as the height
-      this.landMask[i] = e > 0 || h > 0 ? 1 : 0;
-      this.elevPos[i] = Math.max(0, e + h);
+      // Grounded ice counts as land, its surface as the height; floating ice (a marine front's
+      // partly filled cell, src/engine/ice.js) is sea.
+      const e = tec.elev[i] - s, h = H ? H[i] / 1000 : 0, grounded = h > 0 && (e > 0 || h * ICE.RHO_I > -e * ICE.RHO_W);
+      this.landMask[i] = e > 0 || grounded ? 1 : 0;
+      this.elevPos[i] = e > 0 || grounded ? Math.max(0, e + h) : 0;
     }
     // The soil's capacity: land, but not under grounded ice (the ice owns its water).
     const cap = this.soilCap || (this.soilCap = new Float32Array(n));
@@ -381,6 +395,90 @@ export class Climate {
     return base + (C.ALB_SEAICE + dk - base) * ramp(-T, 1.5, 6);
   }
 
+  /**
+   * Continental seasons (synthesis on the standard linear seasonal balance). A cell's seasonal
+   * harmonic k answers its own absorbed sunlight F̂ and the heat the coarse grid's transport
+   * brings it, L (W/m²), through its own heat capacity: T̂ = (F̂ + L)/(B + ikωC). Mixing C over
+   * each 220 km coarse cell, as the energy balance did, stands for lateral exchange infinitely
+   * fast below the coarse grid's scale, and held a coast's land to the sea's seasons. Here a cell
+   * exchanges with its coarse cell's mean T̂ₘ at SUB_K, (B + K + ikωC) T̂ = F̂ + L + K T̂ₘ (between
+   * coarse cells the transport is D_SEASON's), so the cells' responses add as admittances in
+   * parallel: the coarse cell's mean answers through Z = 1/⟨1/(B + K + ikωC)⟩ − K and the forcing
+   * ⟨F̂/(B + K + ikωC)⟩/⟨1/(B + K + ikωC)⟩, solved as before; the transport per unit area that
+   * solve carries is shared by the coarse cell's cells (prolonged), and each answers with its own
+   * capacity (`fineTemperature`). A coarse cell of one kind solves as before; K → ∞ is the mixed
+   * capacity. The annual mean isn't touched (its transport reaches thousands of km), and the
+   * transport and the exchange move heat without making any (`fineTemperature`). Off (SUBGRID
+   * false), the mixed capacity.
+   */
+  continentalSeasons(F, Cf) {
+    const C = CLIMATE, n = this.grid.n, nc = this.coarse.n, B = C.B, K = C.SUB_K;
+    const f32 = () => [0, 1].map(() => new Float32Array(n)), f64 = () => [0, 1].map(() => new Float64Array(nc));
+    const sub = this.sub || (this.sub = {
+      Yr: f32(), Yi: f32(), Fr: f32(), Fi: f32(),       // each cell's admittance 1/(B + K + ikωC) and forcing, per harmonic
+      Zr: f64(), Zi: f64(), FYr: f64(), FYi: f64(),     // the coarse cells' impedance Z and ⟨F̂/(B + K + ikωC)⟩
+      W: null, a: new Float64Array(n), b: new Float64Array(n), mr: new Float64Array(n), mi: new Float64Array(n), Lr: new Float64Array(nc), Li: new Float64Array(nc),
+    });
+    for (let k = 1; k <= 2; k++) {
+      const om = 2 * Math.PI * k, Yr = sub.Yr[k - 1], Yi = sub.Yi[k - 1], Fr = sub.Fr[k - 1], Fi = sub.Fi[k - 1];
+      const a = sub.a, b = sub.b, Fk = F[2 * k - 1], Fk2 = F[2 * k];
+      for (let i = 0; i < n; i++) {
+        const z = om * Cf[i], m = 1 / ((B + K) * (B + K) + z * z), yr = (B + K) * m, yi = -z * m;
+        Yr[i] = yr; Yi[i] = yi; Fr[i] = Fk[i]; Fi[i] = Fk2[i];
+        a[i] = Fk[i] * yr - Fk2[i] * yi; b[i] = Fk[i] * yi + Fk2[i] * yr;
+      }
+      restrict(this.T, a, sub.FYr[k - 1]); restrict(this.T, b, sub.FYi[k - 1]);
+      const Zr = sub.Zr[k - 1], Zi = sub.Zi[k - 1];
+      restrict(this.T, Yr, Zr); restrict(this.T, Yi, Zi);
+      for (let I = 0; I < nc; I++) { const yr = Zr[I], yi = Zi[I], m = 1 / (yr * yr + yi * yi); Zr[I] = yr * m - K; Zi[I] = -yi * m; }
+    }
+  }
+
+  /** The fine harmonics from the coarse: the annual mean prolonged; the seasons each cell's own (`continentalSeasons`), or prolonged. */
+  fineTemperature() {
+    const n = this.grid.n, nc = this.coarse.n, f6 = this.scratch.f6, Tc = this.Tc, sub = CLIMATE.SUBGRID ? this.sub : null, K = CLIMATE.SUB_K;
+    for (let k = 0; k < (sub ? 1 : 5); k++) {
+      prolong(this.T, Tc[k], f6);
+      for (let i = 0; i < n; i++) this.Tf[k][i] = f6[i];
+    }
+    if (!sub) return;
+    // Each coarse cell's weight under prolongation (Pᵀ of the cells' areas), so Σ a L = Σ A L_coarse = 0.
+    const W = sub.W || (sub.W = prolongT(this.T, this.grid.area, new Float64Array(nc))), A = this.coarse.area;
+    const Lr = sub.Lr, Li = sub.Li;
+    for (let k = 1; k <= 2; k++) {
+      const Zr = sub.Zr[k - 1], Zi = sub.Zi[k - 1], Gr = sub.FYr[k - 1], Gi = sub.FYi[k - 1], xr = Tc[2 * k - 1], xi = Tc[2 * k];
+      // The transport per unit area, L = (Z + K) T̂ − ⟨F̂ Y⟩/⟨Y⟩ (Gr, Gi hold ⟨F̂ Y⟩, and Z + K = 1/⟨Y⟩).
+      for (let I = 0; I < nc; I++) {
+        const zr = Zr[I] + K, zi = Zi[I], w = A[I] / W[I];
+        const gr = zr * Gr[I] - zi * Gi[I], gi = zr * Gi[I] + zi * Gr[I];
+        Lr[I] = (Zr[I] * xr[I] - Zi[I] * xi[I] - gr) * w; Li[I] = (Zr[I] * xi[I] + Zi[I] * xr[I] - gi) * w;
+      }
+      prolong(this.T, Lr, sub.a); prolong(this.T, Li, sub.b);
+      const Yr = sub.Yr[k - 1], Yi = sub.Yi[k - 1], Fr = sub.Fr[k - 1], Fi = sub.Fi[k - 1], Tr = this.Tf[2 * k - 1], Ti = this.Tf[2 * k];
+      // The exchange with the coarse cell's mean: K (T̂ₘ − T̂) at each cell, T̂ₘ the coarse solution
+      // prolonged. The transfer's averages aren't each other's adjoints, so its net over the globe
+      // (a part in ~10³ of the forcing) is returned evenly, δ, which closes the budget exactly.
+      let dr = 0, di = 0;
+      if (K > 0) {
+        prolong(this.T, xr, sub.mr); prolong(this.T, xi, sub.mi);
+        const a = this.grid.area;
+        let sa = 0, syr = 0, syi = 0, er = 0, ei = 0;
+        for (let i = 0; i < n; i++) {
+          const fr = Fr[i] + sub.a[i] + K * sub.mr[i], fi = Fi[i] + sub.b[i] + K * sub.mi[i];
+          er += a[i] * (fr * Yr[i] - fi * Yi[i] - sub.mr[i]); ei += a[i] * (fr * Yi[i] + fi * Yr[i] - sub.mi[i]);
+          sa += a[i]; syr += a[i] * Yr[i]; syi += a[i] * Yi[i];
+        }
+        // δ (Σa − K Σ a Y) = K Σ a (Y (F̂ + L + K T̂ₘ) − T̂ₘ)
+        const pr = sa - K * syr, pi = -K * syi, q = 1 / (pr * pr + pi * pi);
+        dr = K * (er * pr + ei * pi) * q; di = K * (ei * pr - er * pi) * q;
+      }
+      for (let i = 0; i < n; i++) {
+        const fr = Fr[i] + sub.a[i] + dr + (K > 0 ? K * sub.mr[i] : 0), fi = Fi[i] + sub.b[i] + di + (K > 0 ? K * sub.mi[i] : 0);
+        Tr[i] = fr * Yr[i] - fi * Yi[i]; Ti[i] = fr * Yi[i] + fi * Yr[i];
+      }
+    }
+  }
+
   /** The energy balance: absorbed sunlight from the last state, then the five harmonic solves. */
   *ebm() {
     const C = CLIMATE, g = this.grid, n = g.n, cg = this.coarse, nc = cg.n;
@@ -409,15 +507,10 @@ export class Climate {
     }
     yield;
     for (let k = 0; k < 5; k++) restrict(this.T, F[k], this.Fc[k]);
-    // Heat capacity (coarse): land, open sea, and sea under ice.
-    const f6 = this.scratch.f6, iceC = this.scratch.c5b;
-    for (let i = 0; i < n; i++) f6[i] = this.landMask[i] ? 0 : this.snowAnn[i];
-    restrict(this.T, f6, iceC);
-    const cap = this.scratch.c5;
-    for (let I = 0; I < nc; I++) {
-      const lf = this.landFracC[I], ice = Math.min(1, iceC[I] / Math.max(1e-6, 1 - lf));
-      cap[I] = lf * C.C_LAND + (1 - lf) * (C.C_OCEAN + (C.C_ICE - C.C_OCEAN) * ice);
-    }
+    // Heat capacity: land, open sea, and sea under ice, per cell; the coarse cells' is its mean.
+    const f6 = this.scratch.f6, cap = this.scratch.c5, Cf = this.capF || (this.capF = new Float64Array(n));
+    for (let i = 0; i < n; i++) Cf[i] = this.landMask[i] ? C.C_LAND : C.C_OCEAN + (C.C_ICE - C.C_OCEAN) * this.snowAnn[i];
+    restrict(this.T, Cf, cap);
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);
     const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC;
@@ -427,19 +520,26 @@ export class Climate {
     const zero = this.scratch.c5b.fill(0);
     cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, maxIt, tol);
     yield;
+    // The seasons: each harmonic's impedance B + ikωC, the coarse cells' from their cells'
+    // (`continentalSeasons`), or with the heat capacity mixed over each coarse cell (SUBGRID off).
+    if (C.SUBGRID) this.continentalSeasons(F, Cf);
     for (let k = 1; k <= 2; k++) {
-      const om = 2 * Math.PI * k;
+      const om = 2 * Math.PI * k, sub = C.SUBGRID ? this.sub : null;
       for (let I = 0; I < nc; I++) {
-        dr[I] = A[I] * C.B; di[I] = A[I] * om * cap[I];
-        br[I] = A[I] * this.Fc[2 * k - 1][I]; bi[I] = A[I] * this.Fc[2 * k][I];
+        if (sub) {
+          // Z T̂ − ∇·D∇T̂ = ⟨F̂ Y⟩/⟨Y⟩, with Z = 1/⟨Y⟩ − K.
+          const zr = sub.Zr[k - 1][I], zi = sub.Zi[k - 1][I], yr = sub.FYr[k - 1][I], yi = sub.FYi[k - 1][I], ur = zr + C.SUB_K;
+          dr[I] = A[I] * zr; di[I] = A[I] * zi;
+          br[I] = A[I] * (ur * yr - zi * yi); bi[I] = A[I] * (ur * yi + zi * yr);
+        } else {
+          dr[I] = A[I] * C.B; di[I] = A[I] * om * cap[I];
+          br[I] = A[I] * this.Fc[2 * k - 1][I]; bi[I] = A[I] * this.Fc[2 * k][I];
+        }
       }
       cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, maxIt, tol);
       yield;
     }
-    for (let k = 0; k < 5; k++) {
-      prolong(this.T, this.Tc[k], f6);
-      for (let i = 0; i < n; i++) this.Tf[k][i] = f6[i];
-    }
+    this.fineTemperature();
     // Mean surface temperature, and the ice line: the latitude whose polar cap
     // has the area colder than −10 °C in the annual mean (Budyko's criterion), per hemisphere.
     let sum = 0, capN = 0, capS = 0;
@@ -514,11 +614,8 @@ export class Climate {
       for (let j = 0; j < q; j++) { const b = ws.dG[j], c = gam[j]; for (let i = 0; i < N; i++) x[i] -= c * b[i]; }
     };
     const start = () => {
-      for (let k = 0; k < 5; k++) {
-        Tc[k].set(x.subarray(k * nc, (k + 1) * nc));
-        prolong(this.T, Tc[k], f6);
-        for (let i = 0; i < this.grid.n; i++) this.Tf[k][i] = f6[i];
-      }
+      for (let k = 0; k < 5; k++) Tc[k].set(x.subarray(k * nc, (k + 1) * nc));
+      this.fineTemperature();
     };
     // The memory's last pair stands for the state now when Tc is still its G (nothing has set the
     // state since): then start from its mix.

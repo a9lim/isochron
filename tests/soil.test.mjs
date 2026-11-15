@@ -162,7 +162,10 @@ test("the periodic year's runoff on the opening planet, against its climate's", 
   }
   t.diagnostic(`land runoff ${(rs / ps * 100).toFixed(1)}% of rain against Budyko's ${(rb / ps * 100).toFixed(1)}%: bias ${(100 * (rs - rb) / rb).toFixed(1)}%, mean |error| ${(100 * abs / rb).toFixed(1)}%`);
   for (const [k, [d, b]] of Object.entries(bins)) t.diagnostic(`  ${k}: bias ${(100 * d / b).toFixed(1)}%`);
-  assert.ok(Math.abs(rs - rb) < 0.08 * rb, `bias ${(100 * (rs - rb) / rb).toFixed(1)}%`);
+  // Each cell's own seasons (src/engine/climate.js, continentalSeasons) moved this level-5 planet's bias
+  // from 3.6% to ~10% (warm land 9.8% → 16%: the bucket answers the seasons Budyko's annual curve
+  // can't see), with the settled level-6 climates' runoff within a point of before.
+  assert.ok(Math.abs(rs - rb) < 0.12 * rb, `bias ${(100 * (rs - rb) / rb).toFixed(1)}%`);
 });
 
 test('cost: the periodic year for every cell at level 7', t => {

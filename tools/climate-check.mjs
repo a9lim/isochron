@@ -98,3 +98,21 @@ if (veg) {
   }
   console.log('land, by 10°: ' + Array.from(A, (a, b) => a > 0 ? `${b * 10 - 85}° ${(coldm[b] / a).toFixed(0)}..${(hot[b] / a).toFixed(0)} (${(100 * a / (2 * Math.PI * (Math.sin((b + 1) * Math.PI / 18 - Math.PI / 2) - Math.sin(b * Math.PI / 18 - Math.PI / 2)))).toFixed(0)}% land)` : '').filter(Boolean).join(' · '));
 }
+// The seasons: the seasonal range (warmest − coldest month) at 45°, zonal and on land, and land's summer at 60–70° N.
+{
+  const { monthPhase } = await import('../src/engine/orbit.js');
+  const mph = Array.from({ length: 12 }, (_, m) => monthPhase(m));
+  const band = (a, b, land) => {
+    const zon = new Float64Array(12); let A = 0, rng = 0, jja = 0;
+    for (let i = 0; i < g.n; i++) {
+      const la = clim.lat[i] * 180 / Math.PI;
+      if (la < a || la > b || (land && !clim.landMask[i])) continue;
+      const w = g.area[i]; let lo = 99, hi = -99;
+      mph.forEach((t, m) => { const v = clim.surfaceT(i, t); zon[m] += w * v; lo = Math.min(lo, v); hi = Math.max(hi, v); if (m >= 5 && m <= 7) jja += w * v / 3; });
+      rng += w * (hi - lo); A += w;
+    }
+    return { zonal: (Math.max(...zon) - Math.min(...zon)) / A, cell: rng / A, jja: jja / A };
+  };
+  const n45 = band(43, 47, false), s45 = band(-47, -43, false), l45 = band(40, 50, true), ls45 = band(-50, -40, true), l65 = band(60, 70, true);
+  console.log(`seasons: 45° zonal range ${n45.zonal.toFixed(1)} K N, ${s45.zonal.toFixed(1)} S · land 40–50° range ${l45.cell.toFixed(1)} N, ${ls45.cell.toFixed(1)} S · land 60–70° N range ${l65.cell.toFixed(1)}, JJA ${l65.jja.toFixed(1)} °C`);
+}

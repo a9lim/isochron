@@ -58,3 +58,15 @@ export function restrict(T, f, c) {
   for (let i = 0; i < nc; i++) c[i] /= wsum[i];
   return c;
 }
+
+/** The transpose of `prolong` (coarse ← fine, summed, not averaged): Pᵀf. Pᵀ of the fine areas is each coarse cell's weight under prolongation. */
+export function prolongT(T, f, c) {
+  if (T.chain) return prolongT(T.chain[1], prolongT(T.chain[0], f, new Float64Array(T.chain[0].nc)), c);
+  const { nc, par, fine } = T;
+  for (let i = 0; i < nc; i++) c[i] = f[i];
+  for (let i = nc; i < fine.n; i++) {
+    const v = 0.5 * f[i];
+    c[par[2 * (i - nc)]] += v; c[par[2 * (i - nc) + 1]] += v;
+  }
+  return c;
+}

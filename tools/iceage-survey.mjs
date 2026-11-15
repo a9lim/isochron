@@ -52,13 +52,10 @@ const summerN = () => {
   for (const i of north) if (c.landMask[i]) { let t = 0; for (const m of [5, 6, 7]) t += c.surfaceT(i, mph[m]); s += g.area[i] * t / 3; a += g.area[i]; }
   return a > 0 ? s / a : NaN;
 };
-const rec = { t: [], vol: [], co2: [], dust: [], T: [], q65: [], tN: [], iron: [], bare: [], out: [], area: [], acc: [], abl: [] };
-// The ice's surface balance, km³ of ice a year: snow kept (M > 0) and melt, over the ice.
-const balance = () => {
-  const I = P.ice; let acc = 0, abl = 0;
-  for (let i = 0; i < n; i++) if (I.H[i] > 0) { const a = I.areaM[i] / 1e9; acc += Math.max(0, I.M[i] + I.melt[i]) * a; abl += I.melt[i] * a; }
-  return [acc, abl];
-};
+const rec = { t: [], vol: [], co2: [], dust: [], T: [], q65: [], tN: [], iron: [], bare: [], out: [], area: [], acc: [], abl: [], basal: [], calv: [], marine: [] };
+// The ice's budget, km³ of ice a year: snow and surface melt over the ice, basal melt, and calving
+// (the marine fronts' ablation and floating ice let go, over the last advance).
+const balance = () => { const s = P.ice.stats; return [s.snow / 1e9, s.melt / 1e9, s.basal / 1e9, s.calving / 1e9]; };
 let plateBank = 0, since = 0;
 for (let k = 0; k < +kyr; k++) {
   P.years += 1000; plateBank += 1000;
@@ -70,7 +67,7 @@ for (let k = 0; k < +kyr; k++) {
   rec.t.push(k); rec.vol.push(P.ice.stats.volume / 1e15); rec.co2.push(P.carbon.pco2); rec.dust.push(a.emission);
   rec.T.push(c.stats.meanT); rec.q65.push(P.orbit.summer65(P.years / 1000)); rec.tN.push(summerN()); rec.iron.push(a.iron || 1);
   rec.bare.push(P.life.stats.bare); rec.out.push(P.aeolian ? P.aeolian.stats.source : 0);
-  const [acc, abl] = balance(); rec.area.push(P.ice.stats.area / 1e12); rec.acc.push(acc); rec.abl.push(abl);
+  const [acc, abl, bas, calv] = balance(); rec.area.push(P.ice.stats.area / 1e12); rec.acc.push(acc); rec.abl.push(abl); rec.basal.push(bas); rec.calv.push(calv); rec.marine.push(P.ice.stats.marine);
   if (k % 100 === 99) console.error(`${k + 1} kyr: ice ${rec.vol[k].toFixed(2)} M km³, ${rec.co2[k].toFixed(0)} ppm, dust ${rec.dust[k].toFixed(0)} Tg/yr, ${rec.T[k].toFixed(2)} °C · ${((performance.now() - spun) / 1000).toFixed(0)} s`);
 }
 
@@ -105,8 +102,10 @@ const W = 200, rows = [];
 for (let a = 200; a + W <= rec.vol.length; a += W) {
   const sl = k => rec[k].slice(a, a + W), v = detrend(sl('vol')), d = dominant(v.y);
   const co2 = swing(sl('co2'), v.y), dust = swing(sl('dust'), v.y), tN = detrend(sl('tN')), q = detrend(sl('q65'));
+  const mean = k => sl(k).reduce((x, y) => x + y, 0) / W, snow = Math.max(1e-9, mean('acc'));
+  const budget = `snow ${snow.toFixed(0)} km³/yr: melt ${(100 * mean('abl') / snow).toFixed(0)}%, basal ${(100 * mean('basal') / snow).toFixed(0)}%, calving ${(100 * mean('calv') / snow).toFixed(0)}% (${mean('area').toFixed(2)} M km², ${(100 * mean('marine')).toFixed(0)}% marine; the budget's residual ${(snow - mean('abl') - mean('basal') - mean('calv')).toFixed(0)} against dV/dt ${((rec.vol[a + W - 1] - rec.vol[a]) * 1e3 / (W - 1)).toFixed(0)} km³/yr)`;
   const cmin = Math.min(...sl('co2')), cmax = Math.max(...sl('co2')), dmin = Math.min(...sl('dust')), dmax = Math.max(...sl('dust'));
-  rows.push(`${a}–${a + W} kyr: ice ${v.mean.toFixed(2)} ± ${sd(v.y).toFixed(3)} M km³ (${(100 * sd(v.y) / v.mean).toFixed(2)}%), period ${d.period} kyr (${(100 * d.share).toFixed(0)}%); `
+  rows.push(`${a}–${a + W} kyr: ice ${v.mean.toFixed(2)} ± ${sd(v.y).toFixed(3)} M km³ (${(100 * sd(v.y) / v.mean).toFixed(2)}%), period ${d.period} kyr (${(100 * d.share).toFixed(0)}%); ${budget}; `
     + `CO₂ ${cmin.toFixed(0)}–${cmax.toFixed(0)} ppm, glacial ${co2.glacial.toFixed(1)} against ${co2.interglacial.toFixed(1)}; dust ${dmin.toFixed(0)}–${dmax.toFixed(0)} Tg/yr (×${(dmax / Math.max(1, dmin)).toFixed(2)}), glacial ${dust.glacial.toFixed(0)} against ${dust.interglacial.toFixed(0)}; `
     + `summer 60–70° N ±${sd(tN.y).toFixed(2)} K, r(T, Q65) ${corr(tN.y, q.y).toFixed(2)}, dT/dQ ${(sd(tN.y) / Math.max(1e-9, sd(q.y))).toFixed(3)} K per W/m², r(ice, Q65) ${corr(v.y, q.y).toFixed(2)}`);
 }

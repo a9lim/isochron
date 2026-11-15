@@ -607,12 +607,15 @@ function icePeriod() {
   const { t, v } = P.record.window(4e5);
   const n = t.length;
   if (n < 60 || t[n - 1] - t[0] < 1.5e5) return null;
+  // The ice's record less its linear trend (a sheet still growing would read as the longest period).
   const x = v[3];
-  let mean = 0; for (let k = 0; k < n; k++) mean += x[k]; mean /= n;
+  let mt = 0, mx = 0; for (let k = 0; k < n; k++) { mt += t[k]; mx += x[k]; } mt /= n; mx /= n;
+  let sxy = 0, sxx = 0; for (let k = 0; k < n; k++) { sxy += (t[k] - mt) * (x[k] - mx); sxx += (t[k] - mt) ** 2; }
+  const slope = sxx > 0 ? sxy / sxx : 0, y = Array.from(x, (v, k) => v - mx - slope * (t[k] - mt));
   let best = 0, bp = null;
   for (let p = 15; p <= 150; p += 1) {
     let a = 0, b = 0;
-    for (let k = 0; k < n; k++) { const th = 2 * Math.PI * t[k] / (p * 1000); a += (x[k] - mean) * Math.cos(th); b += (x[k] - mean) * Math.sin(th); }
+    for (let k = 0; k < n; k++) { const th = 2 * Math.PI * t[k] / (p * 1000); a += y[k] * Math.cos(th); b += y[k] * Math.sin(th); }
     const pw = a * a + b * b;
     if (pw > best) { best = pw; bp = p; }
   }
@@ -670,7 +673,7 @@ function caption(force) {
   // The experiment's measured number.
   const cs = climate.stats;
   if (experiment.id === 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
-  if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${Math.round(ice.stats.seaLevel)} m of sea`, p ? `period ${p} kyr` : 'period —'); }
+  if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${(ice.stats.volume / 1e15).toFixed(1)} M km³`, p ? `period ${p} kyr` : 'period —'); }
   if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.balance)} ppm`);
   if (experiment.id === 'eruption') {
     // The eruption's own cooling (its response alone: the model is linear) against the
