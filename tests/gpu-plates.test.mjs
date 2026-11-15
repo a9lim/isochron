@@ -11,6 +11,7 @@ import { buildGrid } from '../src/grid/icosphere.js';
 import { Tectonics, CM_PER_YR } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
 import { genesis } from '../src/engine/genesis.js';
+import { mostPieces, deepCell, strand } from './pieces.mjs';
 
 const skip = hasGPU ? false : 'no WebGPU in node (npm install in tests/)';
 const grid6 = buildGrid(6);
@@ -146,6 +147,20 @@ test('rare events on the GPU path: a rift and a merge, run on the CPU and carrie
   assert.equal(tec.counters.merges, m0 + 1, 'merged');
   await tec.stepAsync(0.5);
   assert.equal(await mirrorErrors(tec), 0, 'after the merge');
+});
+
+test('a plate in pieces on the GPU path: passed on by the CPU and carried back up', { skip }, async () => {
+  const { t: tec } = planet();
+  await gpu(tec);
+  await tec.stepAsync(0.5);
+  const alive = tec.alivePlates().sort((p, q) => q.area - p.area);
+  strand(tec, deepCell(tec, alive[0].index, 2), 2, alive[1].index);
+  const j0 = tec.counters.joined || 0;
+  await tec.stepAsync(0.5);
+  assert.equal(mostPieces(tec), 1, 'every plate one piece');
+  assert.ok((tec.counters.joined || 0) > j0, 'the piece passed on');
+  await tec.stepAsync(0.5);
+  assert.equal(await mirrorErrors(tec), 0, 'the CPU\'s frames mirror the GPU\'s');
 });
 
 test('the frames\' extras on the GPU path (the regolith, the flexure\'s correction): carried with the crust, fresh on new crust', { skip }, async () => {

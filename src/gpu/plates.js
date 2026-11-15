@@ -7,7 +7,8 @@
 //
 // Residency. The CPU's plate frames stay authoritative: the landscape and the
 // plumes write them through (owner, ref), and the rare events (merges, rifts,
-// initiation) rewrite whole plates. The GPU keeps a mirror of every frame
+// initiation, a plate's stray pieces passed on: Tectonics.resolveFragments)
+// rewrite whole plates. The GPU keeps a mirror of every frame
 // (crust: h, φ, formation and suture time per frame cell; mask: one bit per
 // plate per frame cell) and the world's memories (slab, arc, collision front).
 //   up, each step      the top cells' h and φ as the CPU's frames hold them (so
@@ -22,7 +23,8 @@
 //                      only, travel with it)
 //   on demand          the memories, before a merge or an initiation (the CPU
 //                      runs those); after one, the plates it touched, owner and
-//                      ref, and the memories go back up
+//                      ref, and the memories go back up (after pieces passed on,
+//                      the plates and owner and ref: the memories stay)
 // The step is read-only on the frames until it has decided every cell; the
 // writes that follow resolve conflicts deterministically (a frame cell that two
 // world cells both reach, which nearest-cell rounding makes, is written once,
