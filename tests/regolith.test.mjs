@@ -93,10 +93,21 @@ test('rock, regolith and sediment kept through glacial erosion, till and outwash
     }
     const r1 = rock(), b1 = bank(), d1 = debris(), R1 = regV();
     const off = (r1 + b1 + d1) - (r0 + b0 + d0);
-    // The landscape routes the outwash: what it banked joins the crust downstream. (A step on a real
-    // planet doesn't keep the world's view exactly, where diffusion writes a frame cell two world
-    // cells show, so the outwash is read against a twin's same step without it.)
-    const A1 = capPlanet(), B1 = capPlanet(), vol = P => { let v = 0; for (let i = 0; i < n; i++) v += P.tec.h[i] * 1000 * A[i]; return v; };
+    // The landscape routes the outwash: what it banked joins the crust downstream, read against a
+    // twin's same step without it (diffusion and erosion move crust too). The crust is the plates':
+    // world cells that show one frame cell (nearest-cell rounding) all see what was laid in it, so
+    // the world's view counts a deposit there twice; each frame cell the world shows counts once.
+    const A1 = capPlanet(), B1 = capPlanet();
+    const vol = P => {
+      const seen = new Set(), t = P.tec;
+      let v = 0;
+      for (let i = 0; i < n; i++) {
+        const f = t.owner[i] * n + t.ref[i];
+        if (seen.has(f)) continue;
+        seen.add(f); v += t.plates[t.owner[i]].h[t.ref[i]] * 1000 * A[i];
+      }
+      return v;
+    };
     let banked = 0;
     for (let i = 0, k = 0; i < n && k < 40; i++) if (A1.tec.elev[i] > A1.tec.seaLevel + 0.3) { A1.land.sedIn[i] = 50; banked += 50e9; k++; }
     const va = vol(A1), vb = vol(B1);
@@ -110,6 +121,6 @@ test('rock, regolith and sediment kept through glacial erosion, till and outwash
     assert.ok(ero > 1e10 && till > 1e9, 'the ice erodes and lays till');
     assert.ok(Math.abs(off) < 1e-3 * ero, 'rock, debris and outwash kept');
     assert.ok(Math.abs(R1 - R0 - laid + lost) < 1e-3 * Math.max(lost, laid), 'the regolith: stripped first, laid as till');
-    assert.ok(A1.land.sedIn.every(v => v === 0) && Math.abs(routed / banked - 1) < 1e-2, 'the outwash routed and kept');
+    assert.ok(A1.land.sedIn.every(v => v === 0) && Math.abs(routed / banked - 1) < 1e-3, 'the outwash routed and kept');
   } finally { ICE.KG = kg; }
 });
