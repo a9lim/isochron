@@ -8,7 +8,7 @@ Claims carry one of three marks: **standard** (textbook geoscience), **synthesis
 
 ## Status
 
-2026-11-14: phases 1–4 are built, phase 5 in part, and the tides and the Moon (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). The site registration and social card are done. Next is the Roadmap (phases 6–10, ratified 2026-11-14). Still open from phases 1–5: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm) and the Storm track, Spin, Tilt and Supercontinent experiments. No Japanese (a9, 2026-11-15). Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
+2026-11-14: phases 1–4 are built, phase 5 in part, and the tides and the Moon (`AGENTS.md` describes what's built; `docs/LOG.md` records the overnight run's decisions). The site registration and social card are done. The Roadmap (phases 6–10, ratified 2026-11-14) was built on 2026-11-14/15; where it stands is at its head. Still open from phases 1–5: tuning across seeds (`PARAMS`, the climate's arid share, the ice-age rhythm) and the Storm track, Spin, Tilt and Supercontinent experiments. No Japanese (a9, 2026-11-15). Figures are numbered by their order on the page (the globe is Fig. 1; the record, orbit, zonal means, hypsometry, polarity and model are Figs. 2–7), not by the list below.
 
 ## Decisions
 
@@ -249,7 +249,7 @@ Each preset is one knob, a measured number in the caption and, where theory give
 | Storm track | equator-to-pole contrast | eddy energy, cyclones per month | Phillips' two-layer criterion |
 | Thermostat | outgassing | equilibrium CO₂ and T | Walker–Hays–Kasting |
 | Eruption (phase 6) | sulfate, 0.1–30 Pinatubos | peak cooling, its e-folding | the anomaly model's response to a decaying forcing |
-| Regolith (phase 7) | starting regolith depth | the ice's dominant period over time | 41 kyr on soft beds, ~100 kyr once stripped (Clark and Pollard's hypothesis) |
+| Regolith (phase 7; not shipped: no rhythm emerged) | starting regolith depth | the ice's dominant period over time | 41 kyr on soft beds, ~100 kyr once stripped (Clark and Pollard's hypothesis) |
 | Pulse (phase 8) | carbon pulse, 500–10,000 Pg C | share left in the air after 1, 10, 100 kyr | ocean uptake, carbonate compensation, weathering (Archer's long tail) |
 
 ## Architecture
@@ -285,6 +285,25 @@ Each phase ships on its own.
 ## Roadmap
 
 Ratified by a9 on 2026-11-14 (Decisions). Four sectors, **ice, freshwater, dust and minimal life**, then the rest of the engine on the GPU. The order follows the dependencies: every sector needs a year with a state (phase 6), and dust is the thread between the other three, so it comes last.
+
+Where it stands (2026-11-15, after the roadmap run; `docs/LOG.md` → "The roadmap run" has every decision):
+
+- **Built:**
+  - phase 6 (the year, the anomaly, volcanoes, soil and groundwater, lakes);
+  - phase 7 (sliding, carving, the regolith, flexure, ice streams), with its ice side extended by "ice that grows" (continental seasons, marine fronts);
+  - phase 8 (vegetation, the sea's carbon, Pulse);
+  - phase 9 (dust);
+  - phase 10a (plates and surface on the GPU) and 10b (the landscape made cheap on the CPU; nothing on the GPU won there).
+- **Out:** phase 7b (moving sea ice: its drift didn't change the ice edge at 220 km).
+- **Not shipped:** the Regolith and Green margin experiments; no rhythm and no bistability emerged.
+- **Fixed on the way:**
+  - the climate had been tuned on a transient: the energy balance's harmonics never converged, and the settled climate was ~12 °C. It's now converged and retuned to 13.4–13.9 °C, with D climates at 20–29%;
+  - the tide's Coriolis made energy over cliffs, so the Moon ran away;
+  - eight bugs found by an independent read (Codex);
+  - coasts that were cliffs to the ice.
+- **Open, for a9:**
+  - **The ice sheets stay small** (~2 M km³ at 180 ppm), and the ice keeps no orbital time. The 60–70° lowlands get ~5 cm of snow a year against ~9 m of melt potential: the climate starves the high latitudes of moisture. That's the next lever (the template's storm-track moisture, or the weather's feedback, D2 in the brainstorm).
+  - **Level 7's plate speed depends on the order cells are visited** (a slab inherited within a pass; 10a found it and kept it for parity).
 
 How each phase is built:
 
@@ -439,12 +458,12 @@ The 2026-11-14 brainstorm also covered the geology readouts (isotope proxies, a 
 ## Open decisions
 
 - Globe only, or globe plus an Equal Earth map toggle.
-- The roadmap's new marks, settled in the browser:
-  - Where the volcanic veil shows.
-  - The Climate view's sea would carry both dust (ochre dots) and productivity (viridian strokes): two stipples, or productivity elsewhere.
-  - Whether ice streams are drawn or left to the relief.
-  - The salt flats' pattern, and whether old shorelines are drawn.
-  - Whether permafrost is drawn.
+- The roadmap's new marks, as built and waiting for a9's eye:
+  - the volcanic veil is a graphite stipple in the Relief view at slow dials;
+  - the Climate view's sea carries both dust (ochre dots, under) and export production (viridian strokes);
+  - ice streams are prussian dashes along the flow;
+  - salt flats are a pale crust pattern, with no old shorelines;
+  - permafrost isn't drawn.
 
 ## Risks
 
