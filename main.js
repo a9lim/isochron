@@ -11,7 +11,7 @@
 // initAboutPanel, initShortcuts, _loadTextFonts.
 import { buildGrid } from './src/grid/icosphere.js';
 import { Record } from './src/engine/record.js';
-import { ClimateView } from './src/engine/mirror.js';
+import { ClimateView, YearView } from './src/engine/mirror.js';
 import { OrbitCycles } from './src/engine/orbit.js';
 import { PARAMS } from './src/engine/plates.js';
 import { CLIMATE, NZ } from './src/engine/climate.js';
@@ -31,6 +31,7 @@ import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
 import { drawKey } from './src/render/key.js';
+import { Year } from './src/engine/year.js';
 import { linkCharts, chartFrame } from './src/render/chart.js';
 
 const POL_DT = 0.02;          // Myr per polarity-table entry
@@ -75,6 +76,8 @@ const ice = { H: new Float32Array(grid.n), vel: null, stats: { seaLevel: 0, volu
 const carbon = { pco2: 280, flux: { out: 0, weather: 0, lip: 0, burial: 0, oxid: 0 }, wF: 0, wF0: 0, balance: 280 };
 const land = { flux: { eroded: 0, toSea: 0 } };
 const plumes = { hot: [], lips: [] };
+const year = new YearView();
+const eruptionSeen = new Map();     // each eruption's key → when (ms) the page's clock passed it
 const P = { years: 0, seaLevel0: 0, landBank: 0, record: new Record(), orbit: new OrbitCycles(seed), agg: null, get ocean() { return climate.ocean; } };
 let wx = null;                     // the weather, on the GPU (src/gpu/weather.js), once there is a device
 const polarity = new Polarity(seed);
@@ -141,7 +144,7 @@ function onSurface(m) {
   } else if (queue.length) {
     // The sea moved without a step: the newest waiting surface takes the new fields.
     const q = queue[queue.length - 1];
-    queue[queue.length - 1] = { ...m, fromStep: true, t: q.t, stepYears: q.stepYears, rivers: m.rivers || q.rivers };
+    queue[queue.length - 1] = { ...m, fromStep: true, t: q.t, stepYears: q.stepYears, rivers: m.rivers || q.rivers, riversId: m.rivers ? m.riversId : q.riversId };
   } else if (shown) {
     // Or the one shown: its fields change in place, the blend from its predecessor carries on.
     m.t = shown.t;
@@ -203,7 +206,7 @@ function show(m, mode) {
   }
   if (m.rivers) {
     const oldR = rivers, oldRT = riversT;
-    rivers = m.rivers; riversT = m.t;
+    rivers = m.rivers; riversT = m.t; rivers.id = m.riversId;
     riversGone = matchLines(oldR, rivers, r => r.plate, true);
     for (const r of rivers) r.prevT = oldRT;
     for (const r of riversGone) r.goneT = oldRT;
@@ -238,8 +241,46 @@ function onFast(m) {
   if (m.agg) P.agg = m.agg;
   if (m.moon) Object.assign(moon, m.moon);
   if (m.prof) engineProf = m.prof;
+  if (m.year) year.stats(m.year);
+  if (m.rivAnom && rivers && rivers.id === m.riversId) {
+    let k = 0;
+    for (const r of rivers) { const L = r.cells ? r.cells.length : 0; r.anom = m.rivAnom.subarray(k, k + L); k += L; }
+  }
   if (globe) { globe.setIce(ice.vel); season.setIce(ice.H); climateDirty = true; }
   if (!playing) drawDirty = true;
+}
+function onYear(m) {
+  year.step(m);
+  if (m.anom && season) season.setAnomaly(m.anom, m.anomPrev || null);
+  climateDirty = true;
+}
+const yearPhase = () => year.phase(P.years);
+/**
+ * The year's marks for this frame: the veil's bands between the step's ends (drawn only at a
+ * slow dial, below ~10 yr/s), and each eruption once the clock has passed it, for 1.5 s.
+ */
+function yearFrame() {
+  const lr = Math.log10(rate()), live = Year.liveWeight(rate()), f = yearPhase(), now = performance.now();
+  const vis = live * (1 - smooth(0.5, 1.5, lr));
+  const veil = new Float32Array(36);
+  for (let b = 0; b < 36; b++) veil[b] = vis * (year.bandsPrev[b] + f * (year.bands[b] - year.bandsPrev[b]));
+  const marks = [];
+  for (const e of year.eruptions) {
+    const key = `${e.t}:${e.M}`;
+    if (P.years < e.t) continue;
+    if (!eruptionSeen.has(key)) eruptionSeen.set(key, now);
+    const a = live * (1 - (now - eruptionSeen.get(key)) / 1500);
+    if (a > 0) marks.push({ p: e.p, M: e.M, a });
+  }
+  if (eruptionSeen.size > 200) for (const [k, t] of eruptionSeen) if (now - t > 5000) eruptionSeen.delete(k);
+  return { veil, marks };
+}
+// The lakes as drawn (their depth from their water, and the salt flats), eased in by the globe.
+let lakesDrawn = null;
+function onLakes(m) {
+  lakesDrawn = m;
+  if (globe) globe.setLakes(m.draw, m.salt);
+  drawDirty = true;
 }
 function onTides(m) {
   // The largest amplitude (per unit equilibrium tide), for the caption.
@@ -259,7 +300,7 @@ const lunarTide = a => 0.75 * (7.342e22 / 5.972e24) * (6.371e6 / a) ** 3 * 6.371
 /** Rivers by the month where the globe shows the season (as the snow: below ~12 yr/s), else by the year. */
 function riverMonth() {
   if (1 - smooth(0.6, 1.6, Math.log10(rate())) < 0.5) return null;
-  return monthAt(((P.years % 1) + 1) % 1);
+  return { ...monthAt(((P.years % 1) + 1) % 1), aw: year.live > 0 ? Year.liveWeight(rate()) : 0 };
 }
 function skyFrame() {
   const y = P.years, YR = 3.15576e7, lr = Math.log10(rate());
@@ -290,7 +331,7 @@ function uploadSurface(m, mode) {
     globe.setPolarity(polarity.table(origin, POL_DT, Math.ceil(POL_SPAN / POL_DT)), origin, POL_DT);
     polarityReady = true;
   }
-  globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.lakeDraw, m.normals, mode);
+  globe.setFields(m.elevRel, m.tfDraw, m.felsic, null, m.normals, mode);
   season.setSurface(m.elevRel);
 }
 let polarityReady = false;
@@ -300,12 +341,14 @@ let polarityReady = false;
 // clock; above a few tens it shows the year's average (the share of it under
 // snow or ice). Between, it blends.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, coldEaseStart = -1e9, season = null;
+let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, coldEaseStart = -1e9, season = null, anomDrawn = -1;
 function refreshClimate(force) {
   if (!season) return;
   const tau = ((P.years % 1) + 1) % 1, nowMs = performance.now();
   const sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
-  const moved = Math.abs(tau - seasonDrawn) > 1 / 240 || Math.abs(sw - seasonWeightDrawn) > 0.02;
+  // The year's anomaly, between its two step ends by the clock, as live as the year is.
+  const af = yearPhase(), aw = year.live > 0 ? Year.liveWeight(rate()) : 0, ak = aw * (1 + af);
+  const moved = Math.abs(tau - seasonDrawn) > 1 / 240 || Math.abs(sw - seasonWeightDrawn) > 0.02 || Math.abs(ak - anomDrawn) > 0.01;
   const easing = nowMs - coldEaseStart < 900;
   if (!force && !moved && !easing && climate.version === climateVersionDrawn) return;
   if (climate.version !== climateVersionDrawn) {
@@ -315,9 +358,9 @@ function refreshClimate(force) {
     figuresDirty = true;
     climateVersionDrawn = climate.version;
   }
-  season.draw(tau, sw, CLIMATE.LAPSE, smooth(0, 1, (nowMs - coldEaseStart) / 800));
+  season.draw(tau, sw, CLIMATE.LAPSE, smooth(0, 1, (nowMs - coldEaseStart) / 800), af, aw);
   globe.refineClimate();
-  seasonDrawn = tau; seasonWeightDrawn = sw;
+  seasonDrawn = tau; seasonWeightDrawn = sw; anomDrawn = ak;
   drawDirty = true;
 }
 
@@ -472,7 +515,15 @@ const EXPERIMENTS = [
     knob: { label: 'Mantle heat', min: 0.5, max: 2, step: 0.05, value: 1.6, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { PARAMS.K_SLAB = BASE.K_SLAB * v; PARAMS.K_RIDGE = BASE.K_RIDGE * v; PARAMS.V_MAX = BASE.V_MAX * Math.sqrt(v); } } },
   { id: 'thermostat', name: 'Thermostat', dial: 5, view: 'climate',
     knob: { label: 'Outgassing', min: 0.25, max: 4, step: 0.05, value: 2, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { CARBON.OUTGAS = +v; } } },
+  // One eruption at the start, at the most active tropical arc; each new size erupts again.
+  { id: 'eruption', name: 'Eruption', dial: 0, view: 'relief',
+    setup: () => { erupt.id = 1; },
+    knob: { label: 'Sulfate', min: -1, max: Math.log10(30), step: 0.01, value: 1, fmt: v => `${pinatubos(10 ** v)} Pinatubos`, apply: v => { erupt.M = 10 ** v; } } },
 ];
+// The Eruption experiment's eruption: its size (Pinatubos) and a count, so the engine erupts once per size set.
+const erupt = { M: 10, id: 0 };
+let eruptTimer = 0;
+const pinatubos = M => M < 1 ? M.toFixed(1) : M < 10 ? M.toFixed(1).replace(/\.0$/, '') : Math.round(M).toString();
 let experiment = EXPERIMENTS[0];
 // Each experiment starts from the planet's opening (a snowball can't be undone
 // by turning the sun back up: that's the point of it), so choosing one reloads
@@ -485,7 +536,8 @@ function chooseExperiment(id) {
 }
 /** The experiments' parameters, as the engine's thread holds them. */
 function params() {
-  return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX } };
+  return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX },
+    ERUPT: experiment.id === 'eruption' && erupt.id > 0 ? { M: erupt.M, id: erupt.id } : null };
 }
 function sendParams() { if (engineStarted) engine.postMessage({ type: 'params', params: params() }); }
 function defaults() {
@@ -517,7 +569,9 @@ els.knobInput.addEventListener('input', () => {
   if (!k) return;
   els.knobOut.textContent = k.fmt(els.knobInput.value);
   k.apply(+els.knobInput.value);
-  sendParams();
+  // A new size erupts again once the knob rests.
+  if (experiment.id === 'eruption') { clearTimeout(eruptTimer); eruptTimer = setTimeout(() => { erupt.id++; sendParams(); caption(true); }, 350); }
+  else sendParams();
   caption(true);
 });
 for (const e of EXPERIMENTS) {
@@ -600,6 +654,16 @@ function caption(force) {
   if (experiment.id === 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
   if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${Math.round(ice.stats.seaLevel)} m of sea`, p ? `period ${p} kyr` : 'period —'); }
   if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.balance)} ppm`);
+  if (experiment.id === 'eruption') {
+    // The eruption's own cooling (its response alone: the model is linear) against the
+    // anomaly model's analytic response, independent boxes under the veil's decaying forcing.
+    const g = year.tag, K = v => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(2)} K`;
+    if (g) {
+      const yr = v => v != null ? `${v.toFixed(1)} yr` : '—';
+      parts.push(`${pinatubos(g.M)} Pinatubos`, `peak ${K(g.peak)} at ${yr(g.tPeak)}`, `e-folding ${yr(g.efold)}`, `theory ${K(g.theory.peak)} at ${yr(g.theory.tPeak)}, ${yr(g.theory.efold)}`);
+    } else parts.push(`${pinatubos(erupt.M)} Pinatubos`, 'waiting for the climate');
+    if (view === 'relief') { setCaption(parts.join(' · '), true); return; }
+  }
   if (view === 'climate') {
     const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
@@ -620,13 +684,16 @@ function caption(force) {
 // ── Fig. 7: the model, with its live fluxes ──
 function modelSnapshot() {
   const cs = climate.stats, z = climate.zonal, cf = carbon.flux, st = tec.stats();
-  const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
+  const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare, rain = 0, ground = { wet: 0, beta: 0, live: 0 }, lakes = { n: 0, area: 0, inflow: 0 } } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
   const dT = z ? z.T[45] - 0.5 * (z.T[15] + z.T[75]) : 40;
   const forcing = 5.35 * Math.log(carbon.pco2 / CARBON.PCO2_0);
   const s65 = P.orbit.summer65(P.years / 1000);
   const wRel = carbon.wF0 > 0 ? carbon.wF / carbon.wF0 : 1;
   const fmt = (v, d = 2) => v.toFixed(d);
   const sea = Math.round((tec.seaLevel - P.seaLevel0) * 1000);
+  // The year: its anomaly's global mean now, the veil's forcing (its departure from the eruption rate's mean, live), and the mean's.
+  const yearMean = year.meanAt(P.years);
+  const r = year.rates || { arcs: 0.1, hot: 0, flood: 0 }, Wm = v => { const a = Math.abs(v), t = a.toFixed(a < 0.1 ? 2 : 1); return `${+t === 0 ? '' : v > 0 ? '+' : '−'}${t} W/m²`; };
   return {
     values: {
       climate: `${cs.meanT.toFixed(1)} °C`, carbon: `${Math.round(carbon.pco2)} ppm`, ice: `${(ice.stats.volume / 1e15).toFixed(1)} M km³`,
@@ -635,6 +702,9 @@ function modelSnapshot() {
       orbit: `tilt ${(P.orbit.at(P.years / 1000).obliquity * 180 / Math.PI).toFixed(1)}°`,
       landscape: `${land.flux.eroded.toFixed(1)} km³/yr`, zones: `B ${Math.round(100 * bShare / (la || 1))}%`,
       tides: tide ? `${(moon.P / 1e12).toFixed(1)} TW` : '—',
+      year: year.live > 0 ? `${yearMean >= 0 ? '+' : '−'}${Math.abs(yearMean).toFixed(2)} K` : `±${year.sigma.toFixed(1)} K`,
+      volcanoes: `τ ${year.aod.toFixed(3)}`,
+      ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -651,7 +721,15 @@ function modelSnapshot() {
       { from: 'climate', to: 'ice', w: snow / 1e9 / 4000, label: `${Math.round(snow / 1e9)} km³/yr` },
       { from: 'ice', to: 'climate', w: iceArea / 1e12 / 20, label: 'albedo' },
       { from: 'ice', to: 'sea', w: ice.stats.seaLevel / 100, label: `−${Math.round(ice.stats.seaLevel)} m` },
-      { from: 'climate', to: 'landscape', w: run / (la || 1) / 0.5, label: `${Math.round(1000 * run / (la || 1))} mm/yr` },
+      // The ground: rain in, evaporation (its efficiency) and runoff out; the lakes from its runoff, in the landscape's basins behind the ice's dams.
+      { from: 'climate', to: 'ground', w: rain / (la || 1) / 1.5, label: `${Math.round(1000 * rain / (la || 1))} mm/yr`, bend: 0.35 },
+      { from: 'ground', to: 'climate', w: ground.beta, label: `β ${ground.beta.toFixed(2)}`, bend: 0.35 },
+      { from: 'year', to: 'ground', w: 0.4 * ground.live, bend: 0.1 },
+      { from: 'ground', to: 'landscape', w: run / (la || 1) / 0.5, label: `${Math.round(1000 * run / (la || 1))} mm/yr`, bend: -0.05 },
+      { from: 'ground', to: 'lakes', w: lakes.inflow / 1500, label: `${Math.round(lakes.inflow)} km³/yr`, bend: 0.05 },
+      { from: 'landscape', to: 'lakes', w: 0.25, label: 'basins', bend: 0.1 },
+      { from: 'ice', to: 'lakes', w: iceArea > 0 ? 0.25 : 0.05, label: 'dams', bend: -0.1 },
+      { from: 'lakes', to: 'climate', w: lakes.area / 1e6, label: 'open water', bend: -0.25 },
       { from: 'landscape', to: 'sea', w: land.flux.toSea / 6, label: `${land.flux.toSea.toFixed(1)} km³/yr`, bend: 0.08 },
       { from: 'climate', to: 'carbon', w: cf.weather / 0.2, label: `${fmt(cf.weather, 3)} Pg/yr` },
       { from: 'carbon', to: 'climate', w: Math.abs(forcing) / 6, label: `${forcing >= 0 ? '+' : '−'}${Math.abs(forcing).toFixed(1)} W/m²` },
@@ -662,6 +740,13 @@ function modelSnapshot() {
       { from: 'plumes', to: 'plates', w: 0.3, bend: 0 },
       { from: 'zones', to: 'carbon', w: wRel / 2, label: `${wRel.toFixed(2)}×`, bend: 0 },
       { from: 'landscape', to: 'carbon', w: (cf.burial || 0) / 0.04, label: `buried ${(cf.burial || 0).toFixed(3)}` },
+      // The year: arcs and plumes erupt; the veil forces the anomaly (live) and its mean the climate; the anomaly's spread is the zones' widths.
+      { from: 'plates', to: 'volcanoes', w: r.arcs / 0.2, red: true, bend: -0.1 },
+      { from: 'plumes', to: 'volcanoes', w: (r.hot + 10 * r.flood) / 0.05, red: true, bend: 0 },
+      { from: 'volcanoes', to: 'year', w: year.live * Math.abs(year.F) / 2, label: year.live > 0 ? Wm(year.F) : '', red: true, bend: 0 },
+      { from: 'volcanoes', to: 'climate', w: Math.abs(year.Frate) / 1, label: Wm(year.Fmean), red: true, bend: -0.1 },
+      { from: 'climate', to: 'year', w: 0.25, bend: -0.15 },
+      { from: 'year', to: 'zones', w: year.sigma / 2, label: `±${year.sigma.toFixed(1)} K`, bend: 0.1 },
     ],
   };
 }
@@ -759,7 +844,7 @@ function stepOnce() {
   setPlaying(false);
   P.years += PLATE_STEP;
   stepOnceAt = performance.now();           // a single step shows at once
-  engine.postMessage({ type: 'tick', adv: PLATE_STEP, steps: [PLATE_STEP], window: rate() * 2 });
+  engine.postMessage({ type: 'tick', adv: PLATE_STEP, steps: [PLATE_STEP], window: rate() * 2, rate: rate() });
   stepsSent++;
 }
 function nudgeDial(d) {
@@ -843,7 +928,7 @@ function tick(now) {
     const p = plan[0];
     // The engine's tick: the years, the plate steps, and the orbit the climate sees
     // (averaged over what the dial passes in ~2 s).
-    if (engineStarted && adv > 0) { engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2 }); stepsSent += Math.max(0, p.steps); }
+    if (engineStarted && adv > 0) { engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2, rate: rate() }); stepsSent += Math.max(0, p.steps); }
     if (view === 'weather') stepWeather(adv);
     figuresDirty = true;
     drawDirty = true;
@@ -853,6 +938,7 @@ function tick(now) {
   lap('season');
   if (view === 'weather' && wx && (playing || !wx.started || wx.t < SPINUP)) { if (!playing) stepWeather(0); refreshWeather(); }
   if (playing && rate() < 20) drawDirty = true;   // the sky, the Sun, the Moon, the tide and the rivers' months move at a slow dial
+  if (playing && year.live > 0 && year.eruptions.length) drawDirty = true;   // eruptions come and fade
   if (playing) caption(false);
   lap('chart');
   if (figuresDirty) figures(false);
@@ -891,11 +977,12 @@ function tick(now) {
       }
     }
     lap('lines');
-    const sf = lastSky = skyFrame();
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi, tides: sf.tides });
+    const sf = lastSky = skyFrame(), yf = yearFrame();
+    if (yf.marks.length) drawDirty = true;
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi, tides: sf.tides, veil: yf.veil });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth() }, pal);
-    if (phi >= 1) drawDirty = false;
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks }, pal);
+    if (phi >= 1 && !globe.lakesEasing) drawDirty = false;
     lap('overlay');
   }
 }
@@ -905,11 +992,14 @@ let engineStarted = false;
 engine.onmessage = e => {
   const m = e.data;
   if (m.type === 'ready') {
-    P.seaLevel0 = m.seaLevel0; P.years = m.years; carbon.pco2 = m.pco2;
+    // The ticks sent before the engine was ready still reach it, after its opening: the clock is the opening plus them.
+    P.seaLevel0 = m.seaLevel0; P.years += m.years; carbon.pco2 = m.pco2;
   } else if (m.type === 'surface') onSurface(m);
   else if (m.type === 'climate') { climate.update(m); climateDirty = true; figuresDirty = true; caption(false); }
   else if (m.type === 'fast') onFast(m);
   else if (m.type === 'tides') onTides(m);
+  else if (m.type === 'year') onYear(m);
+  else if (m.type === 'lakes') onLakes(m);
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
@@ -923,6 +1013,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   season = new GpuSeason(g.device, grid, g.climBuffer);
   wx = new GpuWeather(g.device, mesh, seed, g.refiner, moon.Omega);
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
+  if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;
@@ -935,4 +1026,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; } };

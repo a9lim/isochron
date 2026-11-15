@@ -26,3 +26,25 @@ export class ClimateView {
   }
 }
 for (const k of ['tAt', 'pAt', 'presAt', 'surfaceT']) ClimateView.prototype[k] = Climate.prototype[k];
+
+/**
+ * The year (src/engine/year.js) as of its last step: the step's two ends (the anomaly is
+ * drawn between them by the page's clock), the veil's bands at both, the eruptions of the
+ * last few years, and the stats the figures and the caption read.
+ */
+export class YearView {
+  constructor() {
+    Object.assign(this, { live: 0, t0: 0, t1: 0, meanT: 0, meanPrev: 0, sigma: 0, F: 0, Fmean: 0, Frate: 0, aod: 0, rates: null, tag: null,
+      bands: new Float32Array(36), bandsPrev: new Float32Array(36), eruptions: [] });
+  }
+  /** A 'year' message: a new step. */
+  step(m) {
+    for (const k of ['live', 't0', 't1', 'meanT', 'meanPrev', 'bands', 'bandsPrev', 'eruptions']) this[k] = m[k];
+  }
+  /** The 'fast' message's year: rates, forcing, spread, the tagged eruption (its mean is the step's). */
+  stats(s) { const { meanT, ...rest } = s; Object.assign(this, rest); }
+  /** How far `years` is between the step's two ends. */
+  phase(years) { return this.t1 > this.t0 ? Math.min(1, Math.max(0, (years - this.t0) / (this.t1 - this.t0))) : 1; }
+  /** The anomaly's global mean at `years`, as live as the year is. */
+  meanAt(years) { return this.live * (this.meanPrev + this.phase(years) * (this.meanT - this.meanPrev)); }
+}

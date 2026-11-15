@@ -125,6 +125,16 @@ export function route(grid, z, base, out) {
   return { zf, rcv, rlen, order, seen, lake, heap, count: no };
 }
 
+/** Accumulate w down a drainage { order, count, rcv, pass }: out_i = w_i + Σ donors' out × their pass. */
+export function accumulatePass({ order, count, rcv, pass }, w, out) {
+  out.set(w);
+  for (let k = count - 1; k >= 0; k--) {
+    const i = order[k], r = rcv[i];
+    if (r >= 0) out[r] += out[i] * pass[i];
+  }
+  return out;
+}
+
 /** Accumulate w (per cell) downstream: out_i = w_i + Σ donors. */
 export function accumulate(order, count, rcv, w, out) {
   out.set(w);
@@ -211,15 +221,17 @@ export class Landscape {
   /**
    * Discharge by month (m³/s, 12 per cell, January first) from the climate's monthly
    * runoff (m), routed down the same drainage as the year's (no travel time: a month is
-   * longer than most rivers take to reach the sea).
+   * longer than most rivers take to reach the sea), or down `rt` (src/render/rivers.js,
+   * `drainage`: the rivers' own, which end at closed lakes and pass on spilling lakes'
+   * overflow).
    */
-  monthly(runoffM) {
+  monthly(runoffM, rt = null) {
     const n = this.grid.n, out = new Float32Array(12 * n), w = new Float64Array(n), q = new Float64Array(n);
     if (!this.r) return out;
     const toM3s = 1e6 * 12 / 3.156e7;     // km² · m a month → m³/s
     for (let m = 0; m < 12; m++) {
       for (let i = 0; i < n; i++) w[i] = this.base[i] ? 0 : this.areaKm[i] * runoffM[12 * i + m];
-      accumulate(this.r.order, this.r.count, this.r.rcv, w, q);
+      if (rt) accumulatePass(rt, w, q); else accumulate(this.r.order, this.r.count, this.r.rcv, w, q);
       for (let i = 0; i < n; i++) out[12 * i + m] = this.base[i] ? 0 : q[i] * toM3s;
     }
     return out;

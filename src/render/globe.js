@@ -15,7 +15,10 @@
 //                    savanna, steppe, desert, boreal forest, tundra), rock
 //                    toward the summits
 //   snow, sea ice    a light fill with a hard edge, as a map draws them
-//   lakes            filled depressions, in the sea's tint by depth
+//   lakes            from their water (src/engine/lakes.js), in the sea's tint
+//                    by depth, with a hard shore; eased when they change
+//   salt flats       where a closed lake has dried: a pale crust cracked into
+//                    polygons (Relief)
 //   ice sheets       a light fill with a hard outline and contours of the
 //                    ice's surface every 500 m
 // In the Climate view the sea carries isotherms of its surface temperature
@@ -49,7 +52,8 @@ struct U {
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
   tide: vec4f,       // the tide's clock: Re, Im of e^{iφ₂} + ρ e^{iφs} (spring and neap), cos, sin φ₂
-  tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now
+  tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now; w the lakes' ease (0 last, 1 new)
+  veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -68,6 +72,7 @@ struct VOut {
   @location(9) iv: vec4f,
   @location(10) wx: vec4f,
   @location(11) td: vec4f,
+  @location(12) lw: vec4f,
 };
 
 fn toView(p: vec3f) -> vec3f {
@@ -77,7 +82,7 @@ fn toView(p: vec3f) -> vec3f {
 @vertex fn vs(@location(0) p: vec3f, @location(1) fc: vec4f, @location(2) nc: vec3f, @location(3) c: vec4f,
               @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
               @location(8) iv: vec4f, @location(9) wx: vec4f, @location(10) fp: vec4f, @location(11) np: vec3f,
-              @location(12) td: vec4f) -> VOut {
+              @location(12) td: vec4f, @location(13) lw: vec4f) -> VOut {
   // Between plate steps the surface blends from the last step's state to this
   // one's (each step moves the crust less than half a cell), so it moves
   // continuously rather than in ticks.
@@ -95,6 +100,7 @@ fn toView(p: vec3f) -> vec3f {
   o.iv = vec4f(toView(iv.xyz), iv.w);
   o.wx = wx;
   o.td = td;
+  o.lw = lw;
   return o;
 }
 
@@ -160,6 +166,39 @@ fn stipple1(uv: vec2f, fw: f32, o: vec2f, rpx: f32) -> f32 {
 fn stipple(T: Tri, periodPx: f32, rpx: f32) -> f32 {
   let o = octave(periodPx);
   return T.w.x * stipple1(T.x, T.f.x, o, rpx) + T.w.y * stipple1(T.y, T.f.y, o, rpx) + T.w.z * stipple1(T.z, T.f.z, o, rpx);
+}
+
+// Salt crust: a jittered lattice's cells (Worley's), their borders cracks of constant width
+// on screen; the next octave's cracks fade in between the last's.
+fn crack1(uv: vec2f, fw: f32, F: f32, wpx: f32) -> f32 {
+  let q = uv * F;
+  let c = floor(q);
+  var d1 = 1e9;
+  var d2 = 1e9;
+  for (var dy = -1; dy <= 1; dy++) {
+    for (var dx = -1; dx <= 1; dx++) {
+      let cell = c + vec2f(f32(dx), f32(dy));
+      let d = q - (cell + 0.1 + 0.8 * hash3(vec3f(cell, 5.3)).xy);
+      let dd = dot(d, d);
+      if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) { d2 = dd; }
+    }
+  }
+  let edge = 0.5 * (sqrt(d2) - sqrt(d1)) / max(fw * F, 1e-7);
+  return 1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, edge);
+}
+fn cracks(T: Tri, periodPx: f32, wpx: f32) -> f32 {
+  let o = octave(periodPx);
+  let a = T.w.x * crack1(T.x, T.f.x, o.x, wpx) + T.w.y * crack1(T.y, T.f.y, o.x, wpx) + T.w.z * crack1(T.z, T.f.z, o.x, wpx);
+  let b = T.w.x * crack1(T.x, T.f.x, 2.0 * o.x, wpx) + T.w.y * crack1(T.y, T.f.y, 2.0 * o.x, wpx) + T.w.z * crack1(T.z, T.f.z, 2.0 * o.x, wpx);
+  return max(a, o.y * b);
+}
+
+// The veil's optical depth at sin(latitude) z, linear between its bands' centres.
+fn veilAt(z: f32) -> f32 {
+  let x = clamp((asin(clamp(z, -1.0, 1.0)) * 57.2957795 + 87.5) / 5.0, 0.0, 35.0);
+  let k = u32(floor(x));
+  let k1 = min(k + 1u, 35u);
+  return mix(u.veil[k / 4u][k % 4u], u.veil[k1 / 4u][k1 % 4u], x - f32(k));
 }
 
 fn zoneInk(g: i32) -> vec3f {
@@ -235,7 +274,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let e = i.f.x;           // km above sea level
   let tf = i.f.y;          // formation time, Myr after the polarity origin
   let phi = i.f.z;         // felsic fraction
-  let lake = i.f.w;        // lake depth, km
+  let lake = mix(i.lw.x, i.lw.z, u.tide2.w);   // lake depth, km (signed: dry land below zero)
+  let salt = mix(i.lw.y, i.lw.w, u.tide2.w);   // the share of salt flat
   let cold = i.c.x;        // snow on land, ice on the sea (0..1)
   let sst = i.c.y;         // sea-surface temperature, °C
   let psi = i.c.z;         // the gyres' streamfunction, Sv
@@ -270,6 +310,7 @@ fn hair(d: f32, w: f32) -> f32 {
   let fcold = max(fwidth(cold), 1e-3);
   let fice = max(fwidth(iceH), 1.0);
   let flake = max(fwidth(lake), 1e-4);
+  let fsalt = max(fwidth(salt), 1e-3);
   let iceSurf = max(e, 0.0) + iceH / 1000.0;
   let fsurf = fwidth(iceSurf);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
@@ -328,6 +369,13 @@ fn hair(d: f32, w: f32) -> f32 {
   land = mix(land, u.text.rgb, 0.07 * hair(abs(e - round(e)), fe) * step(0.5, e));
   land = mix(land, snowInk, ice);
   land = mix(land, u.text.rgb, 0.22 * iceEdge);
+  // Salt flats (Relief): a pale crust cracked into polygons, with a hard edge, under snow hidden.
+  let sk = clamp(0.5 + (salt - 0.25) / fsalt, 0.0, 1.0) * (1.0 - ice) * select(1.0, 0.0, climate);
+  if (sk > 0.0) {
+    let crust = select(mix(land, u.canvas.rgb, 0.72), mix(land, u.text.rgb, 0.24), dark);
+    let crackInk = select(mix(crust, u.text.rgb, 0.32), mix(crust, u.canvas.rgb, 0.5), dark);
+    land = mix(land, mix(crust, crackInk, cracks(T, 11.0 * u.mode.z, 0.7 * u.mode.z)), sk);
+  }
   // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
   // depth is smoothed and signed (dry land below zero), so the shore is a curve.
   let lk = clamp(0.5 + lake / flake, 0.0, 1.0) * (1.0 - ice);   // a lake under snow is frozen over
@@ -420,6 +468,10 @@ fn hair(d: f32, w: f32) -> f32 {
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
+  // The sulfate veil (Relief only): a graphite stipple, denser where its optical depth is.
+  let aod = veilAt(wpn.z);
+  let vDots = stipple(T, mix(12.0, 6.0, smoothstep(0.02, 1.0, aod)) * u.mode.z, 0.6 * u.mode.z) * smoothstep(0.01, 0.04, aod);
+  c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.35), 0.6 * vDots * select(0.0, 1.0, u.mode.x < 0.5));
   return vec4f(c, 1.0);
 }
 `;
@@ -451,15 +503,17 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const zoneBuf = device.createBuffer({ size: nm * 64, usage: VS });
   const iceBuf = device.createBuffer({ size: nm * 16, usage: VS });
   const wxBuf = device.createBuffer({ size: nm * 16, usage: VS });      // written by the weather's kernels, on the mesh
-  const tideBuf = device.createBuffer({ size: nm * 16, usage: VS });    // the tide's harmonic and dissipation
+  // The tide's harmonic and dissipation, then the lakes' drawn depth and salt (the last and the
+  // new): one buffer, as a pipeline has eight vertex buffers at most.
+  const tideBuf = device.createBuffer({ size: nm * 32, usage: VS });
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
-  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 16, tideBuf);
+  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 32, tideBuf);
   const refiner = refining ? new Refiner(device, mesh, coarse) : null;
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, mesh.tris);
-  const uniBuf = device.createBuffer({ size: 20 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 29 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -475,7 +529,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
         { arrayStride: 64, attributes: [0, 1, 2, 3].map(k => ({ shaderLocation: 4 + k, offset: 16 * k, format: 'float32x4' })) },
         { arrayStride: 16, attributes: [{ shaderLocation: 8, offset: 0, format: 'float32x4' }] },
         { arrayStride: 16, attributes: [{ shaderLocation: 9, offset: 0, format: 'float32x4' }] },
-        { arrayStride: 16, attributes: [{ shaderLocation: 12, offset: 0, format: 'float32x4' }] },
+        { arrayStride: 32, attributes: [{ shaderLocation: 12, offset: 0, format: 'float32x4' }, { shaderLocation: 13, offset: 16, format: 'float32x4' }] },
       ],
     },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
@@ -483,11 +537,15 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(80);
+  const uni = new Float32Array(116);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
   let polN = 0, polDT = 1, polT0 = 0;
+  // The lakes ease from the last drawn to the new over LAKE_EASE ms.
+  const LAKE_EASE = 400, tideLake = new Float32Array(8 * n);
+  let lakeAt = -Infinity;
+  const lakeMix = () => { const t = Math.min(1, Math.max(0, (performance.now() - lakeAt) / LAKE_EASE)); return t * t * (3 - 2 * t); };
 
   function rebind() {
     bind = device.createBindGroup({
@@ -548,10 +606,26 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     setZones(z) { device.queue.writeBuffer(zoneS, 0, z); refine(zoneS, zoneBuf, 4); },
     /** Per cell: the tide's harmonic per unit equilibrium tide (C, S) and dissipation per unit² (W/m²). */
     setTides(C, S, diss) {
-      const a = new Float32Array(4 * n);
-      for (let i = 0; i < n; i++) { a[4 * i] = C[i]; a[4 * i + 1] = S[i]; a[4 * i + 2] = diss[i]; }
-      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 1);
+      const a = tideLake;
+      for (let i = 0; i < n; i++) { a[8 * i] = C[i]; a[8 * i + 1] = S[i]; a[8 * i + 2] = diss[i]; }
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
     },
+    /**
+     * Per cell: the lakes' drawn depth (km, signed: dry land below zero) and salt flats' share
+     * (src/render/surface.js, lakeFields), eased from what is drawn now.
+     */
+    setLakes(draw, salt) {
+      const f = lakeMix(), first = lakeAt === -Infinity, a = tideLake;
+      for (let i = 0; i < n; i++) {
+        const o = 8 * i + 4;
+        a[o] = first ? draw[i] : a[o] + (a[o + 2] - a[o]) * f;
+        a[o + 1] = first ? salt[i] : a[o + 1] + (a[o + 3] - a[o + 1]) * f;
+        a[o + 2] = draw[i]; a[o + 3] = salt[i];
+      }
+      lakeAt = performance.now();
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
+    },
+    get lakesEasing() { return performance.now() - lakeAt < LAKE_EASE; },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
     refiner,
@@ -586,7 +660,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       put(68, palette.inks.sienna);
       uni[55] = mode.blend ?? 1;
       const td = mode.tides || { m: [1, 0], hw: [1, 0], amp: 0, now: 0 };
-      uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, 0], 72);
+      uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, lakeMix()], 72);
+      if (mode.veil) uni.set(mode.veil, 80); else uni.fill(0, 80, 116);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();

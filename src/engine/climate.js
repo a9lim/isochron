@@ -26,7 +26,9 @@
 // Moisture (synthesis). Column water W is carried by those winds and eddy
 // diffusion, ∇·(uW) − ∇·(κ∇W) = E − P, steady, at six points of the year.
 // The sea evaporates toward saturation (Clausius–Clapeyron, ~6.5%/K); land
-// recycles part of its rain. It rains where the column passes 75% of
+// recycles part of its rain, by its soil's wetness (the ground's evaporative
+// efficiency at that point of the year), and a lake's share of a cell
+// evaporates as the sea does (a fifth as much when frozen). It rains where the column passes 75% of
 // saturation (convergence and cooling: the ITCZ, air rising over mountains),
 // where air is lifted up a slope, and lightly elsewhere except where the air
 // is sinking (the subtropical highs). Lee slopes get rain shadows because the
@@ -38,10 +40,19 @@
 // precipitation. Each threshold here is a logistic whose width stands for the
 // spread from year to year, so each cell holds a probability over the
 // fourteen classes.
+//
+// The ground (src/engine/soil.js). Each cycle's months (surface temperature,
+// rain, the potential evaporation of Budyko's scale month by month) drive the
+// soil's bucket, snowpack and ground heat to their periodic year: the closure
+// the year steps live from (src/engine/ground.js). Its runoff, by month and in
+// the year, goes to the landscape and the rivers; its evaporative efficiency
+// to the next cycle's moisture. Lakes (src/engine/lakes.js) add open water to
+// the moisture balance and the albedo.
 
 import { buildGrid, gradient } from '../grid/icosphere.js';
 import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
 import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit.js';
+import { Soil, SOIL, potentialEvaporation } from './soil.js';
 
 export const CLIMATE = {
   A: 203.3, B: 2.09,       // OLR = A + B·T (W/m², T in °C), North's fit to Earth (from memory)
@@ -67,9 +78,16 @@ export const CLIMATE = {
   RAIN_ORO: 2.5,           // 1/day per m/s of lift up a slope
   EVAP: 0.35,              // 1/day toward saturation at 7 m/s
   RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
-  LAND_EVAP: 0.6,          // land's evaporation relative to the sea's, when wet
+  LAND_EVAP: 0.56,         // land's evaporation relative to the sea's, at the soil's full efficiency (β = 1): retuned
+                           // from 0.6 when the soil's β replaced P/(P + 2.5 mm/day), so land's rain stayed within 0.6%
+  LAKE_ICE: 0.15,          // a frozen lake's evaporation relative to open water's
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
+  F_VOLC: 0,               // W/m²: the volcanoes' mean forcing against the opening's (src/engine/volcanoes.js)
+  // The zones' widths: the year's own spread (src/engine/year.js) where there is one, with these
+  // floors in quadrature (the classification's own uncertainty: a cell is 55–220 km of climates);
+  // without one, the fixed widths (K, and in log rain).
+  ZONE_FLOOR_T: 0.5, ZONE_FLOOR_P: 0.1, ZONE_T: 1.5, ZONE_P: 0.25,
 };
 
 export const ZONES = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
@@ -157,7 +175,6 @@ export class Climate {
     this.T = makeTransfer(fine, this.coarse);
     const nc = this.coarse.n;
     this.orbit = { ...EARTH_ORBIT, ...(opts.orbit || {}) };
-    this.year = 0;   // the planet's clock in years, for the season
 
     // Geometry, fine.
     this.lat = new Float64Array(n); this.lon = new Float64Array(n);
@@ -191,8 +208,21 @@ export class Climate {
     this.Pph = Array.from({ length: NP }, () => new Float32Array(n).fill(2.5));
     this.zones = new Float32Array(NZ * n);
     this.snowAnn = new Float32Array(n);    // fraction of the year under snow (land) or sea ice
-    this.runoff = new Float32Array(n);
+    this.runoff = new Float32Array(n);         // m/yr, the ground's (its periodic year)
     this.runoffM = new Float32Array(12 * n);   // runoff by month (m), January first: rivers' seasons
+    // The ground: its periodic year under this climate's months (the closure; the year steps
+    // it live, src/engine/ground.js). Sea and grounded ice hold no soil water.
+    this.soil = new Soil(n, 0);
+    this.T12 = new Float32Array(12 * n);       // surface °C by month (12 i + m)
+    this.P12 = new Float32Array(12 * n);       // rain, mm in the month
+    this.PET12 = new Float32Array(12 * n);     // potential evaporation, mm in the month
+    this.peAnn = new Float32Array(n);          // m/yr: rain less potential evaporation (what open water gains)
+    this.pAnn = new Float32Array(n);           // m/yr: rain (land)
+    this.betaPh = Array.from({ length: NP }, () => new Float32Array(n).fill(0.5));   // the ground's evaporative efficiency at each point of the year
+    this.soilWarm = false;
+    this.lakes = null;   // src/engine/lakes.js, when there is one
+    this.lakeWet = new Float32Array(n);        // the lakes' share of each cell, as this cycle saw it
+    this.ground = null;  // the live ground (src/engine/ground.js): its slow mean, weighed by the year's live weight
     this.upz = new Float64Array(3 * n);
     this.elevPos = new Float64Array(n);
     this.landMask = new Uint8Array(n);
@@ -217,6 +247,7 @@ export class Climate {
     this.ice = null;     // src/engine/ice.js, when there is one
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ocean = null;   // src/engine/ocean.js, when there is one
+    this.year = null;    // src/engine/year.js, when there is one: the zones' widths
     this.warm = false;
     this.it = null;
     this.version = 0;
@@ -235,36 +266,6 @@ export class Climate {
     }
     this.qtab = tab; this.qkey = key;
     return tab;
-  }
-
-  /**
-   * The year's runoff by month for land cell i (synthesis): snow held below freezing and
-   * melted by degree days (3 mm/°C/day), evaporation through the year by temperature
-   * (the year's total Budyko's), baseflow spread evenly (soil and groundwater: a third of
-   * the runoff where much of the rain runs off, little in deserts, whose wadis run only
-   * after rain) and the rest as the month's surplus of rain and melt. Sums to the year's
-   * runoff `R` (mm), the landscape's.
-   */
-  monthlyRunoff(i, tm, pm, et, R) {
-    const out = this.runoffM, o = 12 * i, DDF = 3 * 30.44;
-    let pet = 0, map = 0;
-    for (let m = 0; m < 12; m++) map += pm[m];
-    const BASE = 0.35 * Math.min(1, R / Math.max(1, map) / 0.3);
-    for (let m = 0; m < 12; m++) pet += Math.max(0, tm[m] + 4);
-    // Snow: two passes over the year, so the pack carried into January is the year's own.
-    let swe = 0;
-    const liquid = new Float64Array(12);
-    for (let pass = 0; pass < 2; pass++) for (let m = 0; m < 12; m++) {
-      if (tm[m] <= 0) { swe += pm[m]; liquid[m] = 0; }
-      else { const melt = Math.min(swe, DDF * tm[m]); swe -= melt; liquid[m] = pm[m] + melt; }
-    }
-    let quick = 0;
-    for (let m = 0; m < 12; m++) {
-      const e = pet > 0 ? et * Math.max(0, tm[m] + 4) / pet : et / 12;
-      liquid[m] = Math.max(0, liquid[m] - e);
-      quick += liquid[m];
-    }
-    for (let m = 0; m < 12; m++) out[o + m] = (BASE * R / 12 + (quick > 0 ? (1 - BASE) * R * liquid[m] / quick : (1 - BASE) * R / 12)) / 1000;
   }
 
   /** Sea-level temperature at year phase τ, fine cell i. */
@@ -296,6 +297,11 @@ export class Climate {
       this.landMask[i] = e > 0 || h > 0 ? 1 : 0;
       this.elevPos[i] = Math.max(0, e + h);
     }
+    // The soil's capacity: land, but not under grounded ice (the ice owns its water).
+    const cap = this.soilCap || (this.soilCap = new Float32Array(n));
+    for (let i = 0; i < n; i++) cap[i] = this.landMask[i] && !(H && H[i] > 1) ? SOIL.SMAX : 0;
+    this.soil.setCapacity(cap);
+    if (this.lakes) this.lakeWet.set(this.lakes.wet); else this.lakeWet.fill(0);
     gradient(this.grid, this.elevPos, this.upz);
     for (let i = 0; i < 3 * n; i++) this.upz[i] /= R_KM;   // km per km
     const f6 = this.scratch.f6;
@@ -310,8 +316,11 @@ export class Climate {
     if (this.landMask[i]) {
       const z = this.zones, o = NZ * i;
       const base = C.ALB_LAND + polar + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
-      const snow = ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5);
-      return base + (C.ALB_SNOW - base) * snow;
+      const Ts = T - C.LAPSE * this.elevPos[i], a = base + (C.ALB_SNOW - base) * ramp(-Ts, -1, 5), lw = this.lakeWet[i];
+      if (!(lw > 0)) return a;
+      // A lake's share of the cell: open water, or its ice (fresh water freezes at 0 °C).
+      const wa = C.ALB_OCEAN + polar;
+      return a + lw * (wa + (C.ALB_SEAICE - wa) * ramp(-Ts, 0, 4.5) - a);
     }
     const base = C.ALB_OCEAN + polar;
     return base + (C.ALB_SEAICE - base) * ramp(-T, 1.5, 6);
@@ -356,7 +365,7 @@ export class Climate {
     }
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);
-    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF);
+    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC;
     const tol = this.warm ? 1e-5 : 1e-7, maxIt = this.warm ? 60 : 300;
     // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
     for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }
@@ -497,6 +506,8 @@ export class Climate {
     }
     const P = this.Pph[p], W = this.W[p];
     const areaKm = R_KM * R_KM;
+    // The live ground's slow mean of β against the closure's (src/engine/ground.js), by the year's live weight.
+    const beta = this.betaPh[p], G = this.ground, gw = G && G.betaSlow ? G.weight : 0, gratio = gw > 0 ? G.betaRatio : null;
     for (let i = 0; i < n; i++) {
       const land = this.landMask[i];
       const Ts = land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, T[i] + (this.ocean ? this.ocean.fine.sst[i] : 0));
@@ -507,8 +518,9 @@ export class Climate {
       lam[i] = C.RAIN_BG * (0.25 + 0.75 * Math.exp(-sink)) + C.RAIN_ORO * Math.max(0, lift);
       let e = C.EVAP * (speed + 3) / 10;
       if (land) {
-        const wet = P[i] / (P[i] + 2.5);
-        e *= C.LAND_EVAP * wet * ramp(Ts, -5, 5);
+        // The soil's evaporative efficiency at this point of the year, and a lake's open water.
+        const el = e * C.LAND_EVAP * beta[i] * (gw > 0 ? 1 - gw + gw * gratio[i] : 1) * ramp(Ts, -5, 5), lw = this.lakeWet[i];
+        e = lw > 0 ? el + lw * (e * (1 - (1 - C.LAKE_ICE) * ramp(-Ts, 0, 4.5)) - el) : el;
       } else if (T[i] < -1.8) e *= 0.15;   // sea ice
       ec[i] = e;
       A[i] = g.area[i] * areaKm;
@@ -584,7 +596,11 @@ export class Climate {
     }
     // Monthly values, the zones, and runoff.
     const tm = new Float64Array(12), pm = new Float64Array(12), mph = Array.from({ length: 12 }, (_, m) => monthPhase(m));
-    const z = this.zones, wT = 1.5, wP = 0.25;
+    // The thresholds' widths stand for the spread from year to year: the year's anomaly's
+    // (its closure: a month's temperature, a year's log rain), as a logistic's scale
+    // (σ / 1.7 matches a normal's spread), where the planet has a year.
+    const z = this.zones, sp = this.year ? this.year.spreadFine() : null;
+    let wT = C.ZONE_T, wP = C.ZONE_P;
     for (let i = 0; i < n; i++) {
       const o = NZ * i;
       for (let k = 0; k < NZ; k++) z[o + k] = 0;
@@ -592,17 +608,14 @@ export class Climate {
       for (let m = 0; m < 12; m++) {
         tm[m] = this.surfaceT(i, mph[m]);
         pm[m] = this.pAt(i, mph[m]) * 30.44;
+        this.T12[12 * i + m] = tm[m]; this.P12[12 * i + m] = pm[m];
         mat += tm[m] / 12; map += pm[m];
         if (tm[m] > th) th = tm[m];
         if (tm[m] < tc) tc = tm[m];
         if (pm[m] < pdry) pdry = pm[m];
       }
-      // Runoff (m/yr): rain less evaporation, Budyko's curve in Fu's form (ω = 2).
-      const pet = Math.max(30, 55 * (mat + 4));
-      const et = map * pet / Math.sqrt(map * map + pet * pet + 1e-9);
-      this.runoff[i] = this.landMask[i] ? Math.max(0, map - et) / 1000 : 0;
       if (!this.landMask[i]) continue;
-      this.monthlyRunoff(i, tm, pm, et, this.runoff[i] * 1000);
+      if (sp) { wT = Math.hypot(sp.T[i] / 1.7, C.ZONE_FLOOR_T); wP = Math.hypot(this.year.annualRainSpread(i, map) / 1.7, C.ZONE_FLOOR_P); }
       // Summer is April–September in the north, October–March in the south.
       const north = this.lat[i] >= 0;
       let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;
@@ -633,8 +646,50 @@ export class Climate {
       const ef = sigmoid(-th / wT);
       z[o + 12] = pE * (1 - ef); z[o + 13] = pE * ef;
     }
-    if (this.land) this.land.runoff.set(this.runoff);
     this.zonalStats();
+  }
+
+  /**
+   * The ground's periodic year under this cycle's months (sliced over the cells, warm from
+   * the last), then its runoff for the landscape and the rivers, open water's balance for
+   * the lakes, and its evaporative efficiency at each point of the year for the next cycle.
+   */
+  *groundYear() {
+    const n = this.grid.n, s = this.soil, o = s.out, FC = SOIL.FC, CV = SOIL.COVER;
+    potentialEvaporation(this.T12, this.PET12);
+    const cold = !this.soilWarm, slice = Math.ceil(n / 8);
+    let years = 0, cells = 0;
+    for (let a = 0; a < n; a += slice) {
+      const r = s.equilibrium(this.T12, this.P12, this.PET12, { cold, from: a, to: Math.min(n, a + slice) });
+      years += r.meanYears * r.cells; cells += r.cells;
+      yield;
+    }
+    this.soilWarm = true;
+    this.stats.soilYears = cells ? years / cells : 0;
+    const ph = this.monthPh || (this.monthPh = Array.from({ length: 12 }, (_, m) => Math.floor(((monthPhase(m) % 1) + 1) % 1 * NP) % NP));
+    const cnt = new Float64Array(NP);
+    for (let m = 0; m < 12; m++) cnt[ph[m]]++;
+    for (let i = 0; i < n; i++) {
+      const smax = s.Smax[i], b = 12 * i;
+      let pa = 0, ea = 0;
+      for (let m = 0; m < 12; m++) { pa += this.P12[b + m]; ea += this.PET12[b + m]; }
+      const land = this.landMask[i];
+      this.pAnn[i] = land ? pa / 1000 : 0; this.peAnn[i] = land ? (pa - ea) / 1000 : 0;
+      if (!(smax > 0)) {
+        this.runoff[i] = 0;
+        for (let m = 0; m < 12; m++) this.runoffM[b + m] = 0;
+        for (let p = 0; p < NP; p++) this.betaPh[p][i] = 0;
+        continue;
+      }
+      this.runoff[i] = s.runoff[i] / 1000;
+      for (let p = 0; p < NP; p++) this.betaPh[p][i] = 0;
+      for (let m = 0; m < 12; m++) {
+        const k = b + m, sw = o.SWE[k];
+        this.runoffM[k] = (o.quick[k] + o.base[k]) / 1000;
+        this.betaPh[ph[m]][i] += Math.min(1, o.S[k] / smax / FC) * (1 - sw / (sw + CV)) / cnt[ph[m]];
+      }
+    }
+    if (this.land) this.land.runoff.set(this.runoff);
   }
 
   /** Zonal means for Fig. 3: by 2° band, annual T and its monthly range, rain; the ITCZ's range; Hadley edges. */
@@ -675,9 +730,12 @@ export class Climate {
     yield;
     yield* this.ebm();
     if (!this.warm) { yield* this.ebm(); yield* this.ebm(); }
-    if (this.ocean) yield* this.ocean.solve();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
+    // The gyres after the winds they're driven by (before them, the first cycle's saw none).
+    if (this.ocean) yield* this.ocean.solve();
     this.finish();
+    yield;
+    yield* this.groundYear();
     this.warm = true;
     this.stats.cycles++;
     this.version++;
