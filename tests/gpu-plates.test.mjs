@@ -112,9 +112,11 @@ test('the plate step on the GPU: 30 Myr with the landscape, statistically the CP
   // The landscape's last writes reach the GPU at the next step's start.
   await B.t.stepAsync(0.5);
   const mean = (a, f) => a.reduce((s, x) => s + x[f], 0) / a.length;
-  // Tolerances twice the GPU's spread over five 40–60 Myr runs (three seeds, levels 6 and 7),
-  // where it matched a CPU whose ω was nudged by 3e-3: chaos's own spread.
-  const tol = { cont: 0.002, land: 0.012, age: 0.03, bl: 0.04, rms: 0.08, sea: 25 };
+  // Tolerances twice chaos's own spread: a CPU whose ω was nudged by 3e-3 (eight nudges, since the
+  // 2026-11-15 retune with each plate one body) moves rms by 2.5–5.9% from this run's (all above it:
+  // this trajectory is a slow one), age by 0.3–0.6%; the GPU's step, not bitwise repeatable (its sums
+  // are atomics), lands within 2.8–8.6% on rms over repeated runs, so 8% had failed about one run in four.
+  const tol = { cont: 0.002, land: 0.012, age: 0.03, bl: 0.04, rms: 0.12, sea: 25 };
   const rel = { age: 1, bl: 1, rms: 1 };
   for (const [f, tl] of Object.entries(tol)) {
     const ma = mean(sa, f), mb = mean(sb, f), d = rel[f] ? Math.abs(mb / ma - 1) : Math.abs(mb - ma);
