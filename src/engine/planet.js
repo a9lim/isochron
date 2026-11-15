@@ -2,9 +2,12 @@
 // planet, one state, one dial"). The page and the headless tools both drive
 // this, so they run the same coupled model.
 //
-//   per plate step (0.5 Myr)   plates, plumes, landscape
+//   per plate step (0.5 Myr)   plates, plumes, landscape, the crust's flexure
+//                              (src/engine/crustflex.js)
 //   per frame                  the orbit the climate sees (averaged over the
-//                              time the dial passes in ~2 s), carbon, ice,
+//                              time the dial passes in ~2 s), carbon, ice, the
+//                              regolith (src/engine/regolith.js: the ice's
+//                              erosion and till applied to it and the crust),
 //                              the year (src/engine/year.js): its months
 //                              while the dial is below ~100 yr/s (the
 //                              anomaly, the veil, the ground's soil water and
@@ -37,6 +40,9 @@ import { Volcanoes } from './volcanoes.js';
 import { Year } from './year.js';
 import { Ground } from './ground.js';
 import { Lakes } from './lakes.js';
+import { Flexure } from './flexure.js';
+import { Regolith } from './regolith.js';
+import { CrustFlex } from './crustflex.js';
 import { Life } from './life.js';
 
 export const PLANET = {
@@ -69,6 +75,15 @@ export class Planet {
     this.climate = new Climate(this.tec, this.land);
     this.ice = new Ice(this.tec, this.climate);
     this.climate.ice = this.ice;
+    // The bed bends under the ice by flexure (ELRA), and the crust under its own loads' changes;
+    // the two solvers share the coarser grids. In the page both run on the engine's GPU.
+    const iceFlex = new Flexure(this.grid);
+    this.ice.attachFlexure(iceFlex);
+    this.crustFlex = opts.crustFlex === false ? null : new CrustFlex(this.tec, new Flexure(this.grid, { have: iceFlex.levels.map(l => l.g) }));
+    // The regolith on the crust, from the rates the rivers would cut at (the opening has no step yet).
+    this.land.preview();
+    this.regolith = new Regolith(this.tec, this.land, this.climate, this.ice);
+    this.regolith.init();
     this.ocean = new Ocean(this.climate, this.climate.coarse);
     this.climate.ocean = this.ocean;
     this.carbon = new Carbon(this.tec, this.land, this.climate, this.plumes);
@@ -123,6 +138,7 @@ export class Planet {
     tec.updateElevation();
     this.landBank = (this.landBank || 0) + dt;
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
+    if (this.crustFlex) { this.crustFlex.step(dt / 1e6); tec.updateElevation(); }
   }
 
   /**
@@ -139,6 +155,8 @@ export class Planet {
     CLIMATE.OMEGA = this.moon.Omega;
     this.landBank = (this.landBank || 0) + dt;
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
+    if (this.crustFlex?.gpu) await this.crustFlex.stepAsync(dt / 1e6);
+    else if (this.crustFlex) { this.crustFlex.step(dt / 1e6); tec.updateElevation(); }
   }
 
   /**
@@ -153,6 +171,8 @@ export class Planet {
     if (dt > 0) {
       // On the GPU where there is one (src/gpu/ice.js), else here (headless).
       if (this.iceGpu) this.iceGpu.advance(dt); else this.ice.advance(dt, iceMs);
+      // The regolith: the ice's erosion and till into it and the crust, production against the rivers.
+      this.regolith.advance(dt);
       // Re-solve the sea only when the ice has moved ~10 cm of it (the solve is ~5 ms).
       if (Math.abs(this.tec.iceWater - (this.iceWaterSolved ?? 0)) > 3.5e-6 || this.loadSince++ > 30) {
         this.tec.updateElevation();

@@ -237,6 +237,7 @@ function onFast(m) {
   ice.H = m.iceH; ice.vel = m.iceVel; ice.stats = m.iceStats;
   Object.assign(carbon, m.carbon);
   land.flux = m.landFlux;
+  P.regolith = m.regolith; P.flex = m.flex;
   plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
   if (m.agg) P.agg = m.agg;
   if (m.life) life = m.life;
@@ -723,6 +724,7 @@ function modelSnapshot() {
   const yearMean = year.meanAt(P.years);
   // The plants and the sea's carbon (src/engine/life.js, src/engine/oceancarbon.js).
   const L = life || { trees: 0, npp: 0, air: 0, bio: 1, shelf: 0 }, seaC = carbon.sea || { ccd: 0 }, gas = cf.gas || 0, Pg = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(Math.abs(v) < 0.1 ? 3 : 2)} Pg/yr`;
+  const reg = P.regolith;
   const r = year.rates || { arcs: 0.1, hot: 0, flood: 0 }, Wm = v => { const a = Math.abs(v), t = a.toFixed(a < 0.1 ? 2 : 1); return `${+t === 0 ? '' : v > 0 ? '+' : '−'}${t} W/m²`; };
   return {
     values: {
@@ -736,6 +738,7 @@ function modelSnapshot() {
       volcanoes: `τ ${year.aod.toFixed(3)}`,
       ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
       veg: `${Math.round(100 * L.trees)}% trees`, seaC: `CCD ${(seaC.ccd / 1000).toFixed(1)} km`,
+      regolith: reg ? `${reg.mean.toFixed(1)} m` : '—',
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -778,12 +781,11 @@ function modelSnapshot() {
       { from: 'volcanoes', to: 'climate', w: Math.abs(year.Frate) / 1, label: Wm(year.Fmean), red: true, bend: -0.1 },
       { from: 'climate', to: 'year', w: 0.25, bend: -0.15 },
       { from: 'year', to: 'zones', w: year.sigma / 2, label: `±${year.sigma.toFixed(1)} K`, bend: 0.1 },
-      // The plants: grown by the climate's warmth and rain and the ground's water, fed by the CO₂; their
+      // The plants: grown by the climate's warmth and rain, fed by the CO₂; their
       // albedo (masking snow) and transpiration back to the climate; their carbon to the air, and their
       // cover into weathering's map.
       { from: 'climate', to: 'veg', w: L.npp / 60, label: `NPP ${Math.round(L.npp)} Pg/yr`, bend: 0.15 },
       { from: 'veg', to: 'climate', w: L.trees / 0.5, label: 'albedo', bend: 0.15 },
-      { from: 'ground', to: 'veg', w: 0.25, bend: -0.2 },
       { from: 'veg', to: 'carbon', w: Math.abs(L.air) / 0.5, label: Math.abs(L.air) > 5e-4 ? Pg(L.air) : '', bend: 0.05 },
       { from: 'carbon', to: 'veg', w: 0.15, bend: 0.05 },
       // The sea's carbon: the air–sea exchange (either way), the gyres' temperatures and upwelling,
@@ -794,6 +796,18 @@ function modelSnapshot() {
       { from: 'sea', to: 'seaC', w: (L.shelf || 0) / 30, label: 'shelves', bend: -0.2 },
       { from: 'landscape', to: 'seaC', w: L.bio / 2, label: `${L.bio.toFixed(2)}×`, bend: -0.1 },
       { from: 'plates', to: 'seaC', w: (cf.arc || 0) / 0.1, bend: 0.1 },
+      // The regolith: the ice strips it and lays till, the rivers strip it; it softens the ice's bed, holds the
+      // soil's water and feeds weathering fresh rock. The ice's outwash is the rivers' sediment; loads bend the crust.
+      ...(reg ? [
+        { from: 'ice', to: 'regolith', w: reg.glacial / 0.1, label: `${reg.glacial.toFixed(2)} mm/yr`, bend: 0.15 },
+        { from: 'regolith', to: 'ice', w: reg.iceBed, label: `bed ${reg.iceBed.toFixed(2)}`, bend: 0.15 },
+        { from: 'landscape', to: 'regolith', w: 0.2, bend: -0.1 },
+        { from: 'regolith', to: 'ground', w: (P.agg?.cap || 0) / 300, label: `${Math.round(P.agg?.cap || 0)} mm`, bend: -0.2 },
+        { from: 'regolith', to: 'carbon', w: (P.agg?.supply || 0) / 1.5, label: `supply ${(P.agg?.supply || 0).toFixed(2)}`, bend: 0.1 },
+        { from: 'ice', to: 'landscape', w: (land.flux.outwash || 0) / 0.5, label: land.flux.outwash > 0.005 ? `${land.flux.outwash.toFixed(2)} km³/yr` : '', bend: -0.15 },
+      ] : []),
+      ...(P.flex ? [{ from: 'landscape', to: 'plates', w: P.flex.rms / 300, label: `±${Math.round(P.flex.rms)} m`, bend: -0.25 }] : []),
+      { from: 'ice', to: 'plates', w: ice.stats.area > 0 ? 0.3 : 0.05, label: 'bed', bend: 0.25 },
     ],
   };
 }

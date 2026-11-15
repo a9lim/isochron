@@ -95,20 +95,25 @@ export class Carbon {
   measure() {
     const c = this.climate, g = c.grid, n = g.n, L = c.landMask, erosion = this.land ? this.land.erosion : null;
     const ice = c.ice ? c.ice.H : null, cover = c.cover;
+    // Fresh rock's supply: the regolith's production where there is one (src/engine/regolith.js: at
+    // steady state it is the erosion, E_HALF's rate), else the erosion itself.
+    const prod = this.land && this.land.regolith ? this.land.regolith.prod : null;
     let f = 0;
     for (let i = 0; i < n; i++) {
       if (!L[i] || (ice && ice[i] > 10)) continue;
       const run = c.runoff[i] * 1000;                                  // mm/yr
       const T = c.Tf[0][i] - 6.5 * c.elevPos[i];
-      const e = erosion ? erosion[i] : CARBON.E_HALF;
+      const e = prod ? prod[i] : erosion ? erosion[i] : CARBON.E_HALF;
       const supply = 0.25 + 0.75 * e / (e + CARBON.E_HALF);
       f += g.area[i] * Math.pow(Math.max(0, run), CARBON.RUNOFF_EXP) * Math.exp((T - 15) / CARBON.TE) * supply
         * (cover ? coverWeathering(cover.ft[i], cover.fg[i]) : 1);
     }
     this.wF = f;
     // The reference is taken once the climate has warmed (its first cycle starts cold) and the
-    // landscape has stepped (before, its erosion is zero, the supply a quarter, and the
-    // reference 2.7× low: headless and at slow dials, CO₂ then crashed at the first step).
+    // landscape has stepped. (Before phase 7 the opening's erosion was zero until the first step,
+    // the supply a quarter, and the reference 2.7× low: headless and at slow dials, CO₂ crashed
+    // at the first step. The regolith's production and the landscape's preview fill it from the
+    // opening now; the wait keeps the reference on a stepped landscape's map.)
     // Until then the map is the opening's, and so is the CO₂ it saw.
     const ready = c.stats.cycles >= 3 && !(this.land && !this.land.steps);
     if (this.wF0 > 0 || ready) this.wCO2 = c.co2Seen || CARBON.PCO2_0;

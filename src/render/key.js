@@ -59,6 +59,12 @@ const GLYPHS = {
     c.strokeStyle = rgba(P.ocean, 0.4); c.lineWidth = 0.8; c.beginPath(); c.ellipse(x + 13, y + 6, 7, 3.2, 0, 0, 7); c.stroke();
     c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
+  // Dashes along the flow on the ice's fill, as the globe draws a stream.
+  icestream: (c, x, y, P) => {
+    c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.2) : P.canvas; c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(P.ocean, 0.6); c.lineWidth = 0.9;
+    for (const [r, o] of [[3, 0], [6, 3], [9, 0]]) for (let t = o + 1; t < 25; t += 6) line(c, x + t, y + r, x + t + 4.2, y + r);
+  },
   isotherm: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
   current: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 1; c.beginPath(); c.ellipse(x + 13, y + 6, 11, 4.5, 0, 0, 7); c.stroke(); },
   // Export production: short viridian strokes on a staggered lattice, as the shader's `dashes`.
@@ -118,7 +124,7 @@ function vegetation(c, x, y, P, kind) {
 
 const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['volcano', 'Eruption'], ['veil', 'Sulfate veil'], ['river', 'River'],
-    ['lake', 'Lake'], ['salt', 'Salt flat'], ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
+    ['lake', 'Lake'], ['salt', 'Salt flat'], ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['icestream', 'Ice stream'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
   climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['lake', 'Lake'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['volcano', 'Eruption']],
   'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
   'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],

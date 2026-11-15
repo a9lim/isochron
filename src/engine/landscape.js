@@ -19,6 +19,12 @@
 //   diffusion   thickness spreads between continental cells: hillslopes and
 //               small rivers below the grid's scale, and the lateral flow of
 //               thick, hot crust under an orogen (gravitational collapse).
+//   outwash     the till the ice's meltwater carries off (src/engine/regolith.js)
+//               waits in `sedIn` and joins the rivers' sediment at the next step,
+//               where it melted out.
+//   regolith    the rivers strip the weathered layer before rock: the layer
+//               thins at `erosion`'s rate (src/engine/regolith.js), and the
+//               thickness taken here is the same either way.
 //
 // Lengths in km, time in years, areas in km².
 import { RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL } from './crust.js';
@@ -188,7 +194,8 @@ export class Landscape {
     this.dh = new Float64Array(n);
     this.areaKm = Float64Array.from(this.grid.area, a => a * R_KM * R_KM);
     this.r = null;
-    this.flux = { eroded: 0, toSea: 0, toLakes: 0 };   // km³/yr, last step
+    this.sedIn = new Float64Array(n);       // km³ of outwash waiting for the next step (src/engine/regolith.js)
+    this.flux = { eroded: 0, toSea: 0, toLakes: 0, outwash: 0 };   // km³/yr, last step
     this.steps = 0;
   }
 
@@ -237,17 +244,23 @@ export class Landscape {
     return out;
   }
 
-  /** Erode, carry and deposit over dt years, then diffuse. Updates the crust in place. */
-  step(dt) {
-    const tec = this.tec, g = this.grid, n = g.n, s = tec.seaLevel;
-    const plates = tec.plates, owner = tec.owner, ref = tec.ref;
+  /**
+   * The erosion rates (km/Myr, `erosion`) a step of dt years would make on the crust as it
+   * stands, without changing it: for the regolith at the opening, before the first step.
+   */
+  preview(dt = 2.5e5) {
     this.reroute();
-    const z = this.z, z0 = this.z0, f = this.f, dh = this.dh, A = this.areaKm;
+    this.cut(dt);
+    const n = this.grid.n, z = this.z, z0 = this.z0, f = this.f;
+    for (let i = 0; i < n; i++) this.erosion[i] = (z[i] < z0[i] ? (z0[i] - z[i]) / f[i] : 0) / dt * 1e6;
+    this.z.set(z0);
+  }
+
+  /** The implicit stream-power cut over dt years on z (after reroute); z0 keeps the start. */
+  cut(dt) {
+    const tec = this.tec, n = this.grid.n, s = tec.seaLevel, z = this.z, z0 = this.z0, f = this.f;
     z0.set(z);
     for (let i = 0; i < n; i++) f[i] = factor(tec.phi[i]);
-    // Rivers erode down to sea level at the coast.
-    const zb = this.zb || (this.zb = new Float64Array(n));
-    for (let i = 0; i < n; i++) zb[i] = s;
     const r = this.r;
     {
       const { zf, rcv, rlen, order, lake, count } = r;
@@ -261,6 +274,17 @@ export class Landscape {
         z[i] = Math.max(zr, (z[i] + F * zr) / (1 + F));
       }
     }
+  }
+
+  /** Erode, carry and deposit over dt years, then diffuse. Updates the crust in place. */
+  step(dt) {
+    const tec = this.tec, g = this.grid, n = g.n, s = tec.seaLevel;
+    const plates = tec.plates, owner = tec.owner, ref = tec.ref;
+    this.reroute();
+    const z = this.z, z0 = this.z0, f = this.f, dh = this.dh, A = this.areaKm;
+    // Rivers erode down to sea level at the coast.
+    this.cut(dt);
+    const r = this.r;
     // Rock removed (thickness), and the sediment it makes (km³).
     const qs = this.qs;
     let eroded = 0;
@@ -271,6 +295,9 @@ export class Landscape {
       eroded += qs[i];
       this.erosion[i] = d / dt * 1e6;
     }
+    // The ice's outwash joins it where it melted out.
+    let outwash = 0;
+    for (let i = 0; i < n; i++) if (this.sedIn[i] > 0) { qs[i] += this.sedIn[i]; outwash += this.sedIn[i]; this.sedIn[i] = 0; }
     // Carry it downstream; lakes keep what fits.
     let toLakes = 0;
     {
@@ -329,7 +356,7 @@ export class Landscape {
       tec.h[i] = p.h[j]; tec.phi[i] = p.phi[j];
     }
     this.diffuse(dt);
-    this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt;
+    this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt; this.flux.outwash = outwash / dt;
     this.steps++;
     tec.updateElevation();
   }

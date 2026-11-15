@@ -333,9 +333,9 @@ const NODES = {
   ocean: [0.14, 0.31, 'Ocean'], climate: [0.5, 0.24, 'Climate'], zones: [0.86, 0.31, 'Zones'],
   ice: [0.16, 0.55, 'Ice'], carbon: [0.84, 0.56, 'Carbon'], landscape: [0.5, 0.6, 'Landscape'],
   sea: [0.16, 0.83, 'Sea level'], plates: [0.5, 0.9, 'Plates'], plumes: [0.86, 0.85, 'Plumes'],
-  year: [0.66, 0.47, 'Year'], volcanoes: [0.68, 0.76, 'Volcanoes'],
+  year: [0.66, 0.47, 'Year'], volcanoes: [0.64, 0.78, 'Volcanoes'],
   ground: [0.34, 0.42, 'Ground'], lakes: [0.31, 0.66, 'Lakes'],
-  veg: [0.68, 0.335, 'Vegetation'], seaC: [0.88, 0.7, 'Sea carbon'],
+  regolith: [0.34, 0.77, 'Regolith'], veg: [0.66, 0.35, 'Vegetation'], seaC: [0.87, 0.7, 'Sea carbon'],
 };
 
 export function drawModel(canvas, s, pal) {

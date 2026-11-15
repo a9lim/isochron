@@ -19,6 +19,13 @@
 //                    suture, and, along a long enough front, merges the plates.
 // Then ω comes from a torque balance on each plate: slab pull and ridge push
 // against basal drag, continents dragging harder (their keels).
+//
+// Other layers keep state of their own with the crust, in the same frames
+// (FRAME_EXTRA): the regolith (src/engine/regolith.js) and the flexure's
+// correction to the elevation and the column's mass it last saw
+// (src/engine/crustflex.js). They travel as the crust does: copied where crust
+// moves between frames (relaxation, merges, rifts, initiation), set to their
+// defaults where crust is new.
 import { nearest, gradient } from '../grid/icosphere.js';
 import { elevation, subsidence, solveSeaLevel, H_OCEANIC } from './crust.js';
 
@@ -57,6 +64,18 @@ export const PARAMS = {
   RIFT_SPEED: 0.004,  // rad/Myr per steradian of plate
   WATER_TAU: 150,  // Myr: the ocean's volume drifts toward the land fraction set at genesis (the deep water cycle's stand-in)
 };
+
+/** Per frame cell, with the crust: name and the value new crust starts with (−1: not yet seen). */
+export const FRAME_EXTRA = { reg: 0, cf: 0, mq: -1 };
+const EXTRA = Object.entries(FRAME_EXTRA);
+
+/** Crust and its extras from frame cell jf of plate P to jt of Q (which then holds it). */
+export function copyCell(P, jf, Q, jt) {
+  Q.mask[jt] = 1; Q.h[jt] = P.h[jf]; Q.phi[jt] = P.phi[jf]; Q.tf[jt] = P.tf[jf]; Q.sut[jt] = P.sut[jf];
+  for (const [k] of EXTRA) Q[k][jt] = P[k][jf];
+}
+/** A frame cell's extras as new crust has them. */
+export function freshExtras(P, j) { for (const [k, v] of EXTRA) P[k][j] = v; }
 
 // ── Small vector and rotation helpers ──
 
@@ -104,6 +123,7 @@ function newPlate(n) {
     phi: new Float32Array(n),
     tf: new Float32Array(n),
     sut: new Float32Array(n).fill(-1e9),
+    ...Object.fromEntries(EXTRA.map(([k, v]) => [k, new Float32Array(n).fill(v)])),
     area: 0,
     land: 0,
   };
@@ -146,6 +166,7 @@ export class Tectonics {
     this.seaLevel = 0;
     this.landTarget = 0;                     // set by genesis; 0 holds the water fixed
     this.load = null;                        // km: the bed's depression under ice (src/engine/ice.js)
+    this.flexc = null;                       // km: the flexure's correction to the elevation, the frames' cf sampled (src/engine/crustflex.js)
     this.swell = null;                       // km: hotspot swells (src/engine/plumes.js)
     this.iceWater = 0;                       // water held as ice (km·sr)
     this.grad = new Float64Array(3 * n);
@@ -160,7 +181,7 @@ export class Tectonics {
   alivePlates() { return this.plates.filter(p => p.alive); }
 
   allocPlate() {
-    for (const p of this.plates) if (!p.alive) { p.mask.fill(0); p.sut.fill(-1e9); p.torqueExt.fill(0); p.alive = true; return p; }
+    for (const p of this.plates) if (!p.alive) { p.mask.fill(0); p.sut.fill(-1e9); for (const [k, v] of EXTRA) p[k].fill(v); p.torqueExt.fill(0); p.alive = true; return p; }
     if (this.plates.length >= MAX_PLATES) return null;
     const p = newPlate(this.grid.n);
     p.index = this.plates.length;
@@ -273,6 +294,7 @@ export class Tectonics {
         top = own; jt = locJ[0];
         const p = plates[top];
         p.mask[jt] = 1; p.h[jt] = H_OCEANIC; p.phi[jt] = 0; p.tf[jt] = t1 - 0.5 * dt; p.sut[jt] = -1e9;
+        freshExtras(p, jt);
         this.fresh[i] = 1;
         this.counters.made++;
       } else if (ncov === 1) {
@@ -352,6 +374,7 @@ export class Tectonics {
       const p = plates[this.owner[i]], j = this.ref[i];
       this.h[i] = p.h[j]; this.phi[i] = p.phi[j]; this.tf[i] = p.tf[j]; this.sut[i] = p.sut[j];
     }
+    if (this.flexc) this.sampleFlex();
 
     const ka = Math.exp(-dt / PARAMS.ARC_TAU), ks = Math.exp(-dt / PARAMS.SLAB_TAU), kc = Math.exp(-dt / PARAMS.COLLIDE_TAU);
     for (let i = 0; i < n; i++) { this.arc[i] *= ka; this.slab[i] *= ks; this.col[i] *= kc; }
@@ -386,6 +409,7 @@ export class Tectonics {
     const t1 = this.t + dt;
     this.rotate(dt);
     const r = await this.gpu.step(dt, t1);
+    if (this.flexc) this.sampleFlex(true);
     const c = this.counters, k = r.counts, np = this.plates.length;
     c.made += k.made; c.consumed += k.consumed; c.collided += k.collided;
     c.relaxed = (c.relaxed || 0) + k.relaxed; c.foundered = (c.foundered || 0) + k.foundered;
@@ -450,7 +474,7 @@ export class Tectonics {
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
       const jf = this.ref[i];
       const jt = nearest(g, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z, gs[m]);
-      Q.mask[jt] = 1; Q.h[jt] = P.h[jf]; Q.phi[jt] = P.phi[jf]; Q.tf[jt] = P.tf[jf]; Q.sut[jt] = P.sut[jf];
+      copyCell(P, jf, Q, jt);
       P.mask[jf] = 0;
       owner[i] = to; this.ref[i] = jt;
       this.counters.relaxed = (this.counters.relaxed || 0) + 1;
@@ -474,12 +498,25 @@ export class Tectonics {
     this.water += (1 - land) * 4 * Math.PI * 3 * (land - this.landTarget) * dt / PARAMS.WATER_TAU;
   }
 
+  /**
+   * The flexure's correction (km) sampled from the frames' cf (m) where the crust now is; with
+   * `patch`, the elevation moves by the change (the GPU's step drew it with the step's start's).
+   */
+  sampleFlex(patch = false) {
+    const n = this.grid.n, fc = this.flexc, plates = this.plates, owner = this.owner, ref = this.ref, elev = this.elev;
+    for (let i = 0; i < n; i++) {
+      const v = plates[owner[i]].cf[ref[i]] / 1000;
+      if (patch) elev[i] += v - fc[i];
+      fc[i] = v;
+    }
+  }
+
   updateElevation() {
-    const n = this.grid.n, load = this.load, swell = this.swell;
+    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc;
     for (let i = 0; i < n; i++) {
       const age = this.t - this.tf[i];
       this.subs[i] = this.phi[i] < CONTINENTAL ? subsidence(age) : 0;
-      this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0);
+      this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
     }
     if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater), this.seaLevel);
   }
@@ -647,9 +684,7 @@ export class Tectonics {
       const ax = RA[0] * wx + RA[3] * wy + RA[6] * wz, ay = RA[1] * wx + RA[4] * wy + RA[7] * wz, az = RA[2] * wx + RA[5] * wy + RA[8] * wz;
       const ja = nearest(g, ax, ay, az, guess);
       guess = ja;
-      if (!A.mask[ja] || B.phi[j] > A.phi[ja]) {
-        A.mask[ja] = 1; A.h[ja] = B.h[j]; A.phi[ja] = B.phi[j]; A.tf[ja] = B.tf[j]; A.sut[ja] = B.sut[j];
-      }
+      if (!A.mask[ja] || B.phi[j] > A.phi[ja]) copyCell(B, j, A, ja);
     }
     const wa = A.area, wb = B.area;
     for (let c = 0; c < 3; c++) { A.w[c] = (A.w[c] * wa + B.w[c] * wb) / (wa + wb); A.torqueExt[c] += B.torqueExt[c]; }
@@ -727,7 +762,7 @@ export class Tectonics {
     for (let i = 0; i < n; i++) {
       if (!take[i]) continue;
       const j = this.ref[i];
-      B.mask[j] = 1; B.h[j] = A.h[j]; B.phi[j] = A.phi[j]; B.tf[j] = A.tf[j]; B.sut[j] = A.sut[j];
+      copyCell(A, j, B, j);
       A.mask[j] = 0;
       owner[i] = B.index;
     }
@@ -807,7 +842,7 @@ export class Tectonics {
       const wx = R[0] * x + R[1] * y + R[2] * z, wy = R[3] * x + R[4] * y + R[5] * z, wz = R[6] * x + R[7] * y + R[8] * z;
       const s = wx * mx + wy * my + wz * mz + (this.noise ? 0.12 * this.noise.fbm(wx, wy, wz, 2.2, 4) : 0);
       if (s > 0) {
-        B.mask[j] = 1; B.h[j] = A.h[j]; B.phi[j] = A.phi[j]; B.tf[j] = A.tf[j]; B.sut[j] = A.sut[j];
+        copyCell(A, j, B, j);
         A.mask[j] = 0;
       }
     }

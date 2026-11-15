@@ -17,7 +17,9 @@
 //                      elevation, the sea level and land, the kinematics' sums,
 //                      the per-plate sums of the balance, counters and collision
 //                      tallies, and every frame cell the step changed (edits, so
-//                      the CPU's frames stay the GPU's)
+//                      the CPU's frames stay the GPU's; a relaxed cell's edit
+//                      names its source, so the frames' extras, kept on the CPU
+//                      only, travel with it)
 //   on demand          the memories, before a merge or an initiation (the CPU
 //                      runs those); after one, the plates it touched, owner and
 //                      ref, and the memories go back up
@@ -36,7 +38,9 @@
 // and then, so the two agree at ~99.99% of cells a step and statistically over
 // many (tests/gpu-plates.test.mjs).
 import { kernel, storage } from './device.js';
-import { PARAMS } from '../engine/plates.js';
+import { PARAMS, FRAME_EXTRA, freshExtras } from '../engine/plates.js';
+
+const EXTRA = Object.keys(FRAME_EXTRA);
 
 const MAXP = 32, NONE = 0xffffffff, SEG = 4096;
 const C_PAIRS = 0, C_MADE = 1024, C_CONSUMED = 1025, C_COLLIDED = 1026, C_RELAXED = 1027, C_FOUNDERED = 1028, C_EDITS = 1029, NCNT = 1040;
@@ -645,23 +649,35 @@ fn main(@builtin(local_invocation_index) tid: u32, @builtin(workgroup_id) wg: ve
     part[o] = r0[0]; part[o + 1u] = r1[0]; part[o + 2u] = r2[0];
   }
 }`),
-  // Every frame cell the step changed, with its final state, for the CPU's frames.
-  emit: mk(['U', 'rec', 'rlx', 'crust', 'mask', 'edits', 'cnt'], `
-fn put(f: u32) {
+  // Every frame cell the step changed, with its final state, for the CPU's frames; a relaxed
+  // cell's new frame cell names the one its crust came from (+1), so the CPU carries the
+  // frames' extras (FRAME_EXTRA) with it, from the world cell whose copy relaxApply kept.
+  emit: mk(['U', 'geo', 'rec', 'rlx', 'crust', 'mask', 'edits', 'cnt'], `
+fn put(f: u32, src: u32) {
   let at = atomicAdd(&cnt[${C_EDITS}u], 1u);
   if (at >= U.cap) { return; }
   let j = f % U.n;
-  edits[2u * at] = vec4u(f, (mask[j] >> (f / U.n)) & 1u, 0u, 0u);
+  edits[2u * at] = vec4u(f, (mask[j] >> (f / U.n)) & 1u, src, 0u);
   edits[2u * at + 1u] = bitcast<vec4u>(crust[f]);
 }
 ` + MAIN + `
   let r0 = rec[2u * i];
   let r1 = rec[2u * i + 1u];
-  if ((r0.z & 0xff03u) != 0u) { put(r0.x * U.n + r0.y); }
+  if ((r0.z & 0xff03u) != 0u) { put(r0.x * U.n + r0.y, 0u); }
   let nc = (r0.z >> 2u) & 7u;
-  for (var c = 0u; c < nc; c++) { put(r1[c]); }
+  for (var c = 0u; c < nc; c++) { put(r1[c], 0u); }
   let r = rlx[i];
-  if (r.x != NONE) { put(r.x * U.n + r.y); put(r0.x * U.n + r0.y); }
+  if (r.x != NONE) {
+    var win = true;
+    for (var e = 0u; e < 6u; e++) {
+      let j = nb(i, e);
+      if (j == NONE) { break; }
+      if (j < i && rlx[j].x == r.x && rlx[j].y == r.y) { win = false; }
+    }
+    let o = r0.x * U.n + r0.y;
+    put(r.x * U.n + r.y, select(0u, o + 1u, win));
+    put(o, 0u);
+  }
 }`),
 };
 
@@ -866,7 +882,7 @@ export class GpuPlates {
     q.submit([enc0.finish()]);
     q.writeBuffer(b.wh, 0, tec.h); q.writeBuffer(b.wphi, 0, tec.phi); q.writeBuffer(b.wtf, 0, tec.tf);
     const ls = new Float32Array(2 * n);
-    for (let i = 0; i < n; i++) { ls[2 * i] = tec.load ? tec.load[i] : 0; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
+    for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (tec.flexc ? tec.flexc[i] : 0); ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
     q.writeBuffer(b.ls, 0, ls);
     q.writeBuffer(b.cnt, 0, new Uint32Array(NCNT));
     this.uniforms(0, tec.t, false);
@@ -879,18 +895,21 @@ export class GpuPlates {
    * matrices and torques, the collision tallies; the world fields, counters and frames are written.
    */
   async step(dt, t1) {
-    const tec = this.tec, n = this.n, q = this.device.queue, b = this.b;
+    const tec = this.tec, n = this.n, q = this.device.queue, b = this.b, f = Math.fround;
     this.t0 = performance.now();
+    this.freshTf = f(f(t1) - f(0.5 * f(dt)));          // new crust's formation time, as the GPU's f32 makes it
     this.pushChanges();
     // The top cells as the CPU's frames hold them.
     const top = this.topBuf || (this.topBuf = new Float32Array(2 * n)), owner = tec.owner, ref = tec.ref, plates = tec.plates;
     for (let i = 0; i < n; i++) { const p = plates[owner[i]], j = ref[i]; top[2 * i] = p.h[j]; top[2 * i + 1] = p.phi[j]; }
     q.writeBuffer(b.top, 0, top);
-    if (tec.load || tec.swell || this.lsDirty) {
-      const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n));
-      for (let i = 0; i < n; i++) { ls[2 * i] = tec.load ? tec.load[i] : 0; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
+    // The ice's load and the flexure's correction (src/engine/crustflex.js, at the step's start: the
+    // CPU swaps in the moved crust's after, Tectonics.stepAsync), and the swells.
+    if (tec.load || tec.swell || tec.flexc || this.lsDirty) {
+      const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n)), fc = tec.flexc;
+      for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (fc ? fc[i] : 0); ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
       q.writeBuffer(b.ls, 0, ls);
-      this.lsDirty = !!(tec.load || tec.swell);
+      this.lsDirty = !!(tec.load || tec.swell || fc);
     }
     q.writeBuffer(b.cnt, 0, this.zeros || (this.zeros = new Uint32Array(NCNT)));
     this.uniforms(dt, t1);
@@ -942,11 +961,28 @@ export class GpuPlates {
       tec.h.set(new Float32Array(map, L.wh, n)); tec.phi.set(new Float32Array(map, L.wphi, n));
       tec.tf.set(new Float32Array(map, L.wtf, n)); tec.sut.set(new Float32Array(map, L.wsut, n));
       tec.elev.set(new Float32Array(map, L.elev, n));
-      // The frames' edits, into the CPU's plates.
+      // The frames' edits, into the CPU's plates, and their extras: a frame cell newly held, or
+      // holding crust made this step (its formation time says so: a frame cell consumed and made
+      // again within the step was held throughout), is new crust (the extras' defaults) unless
+      // relaxation copied older crust into it, whose extras it takes (read before any edit lands);
+      // a frame cell let go keeps nothing.
       const eu = new Uint32Array(map, L.edits, 8 * Math.min(ne, this.cap)), ef = new Float32Array(eu.buffer, eu.byteOffset, eu.length);
-      for (let e = 0; e < eu.length; e += 8) {
+      const m = eu.length >> 3, was = this.wasBuf && this.wasBuf.length >= m ? this.wasBuf : (this.wasBuf = new Uint8Array(Math.max(m, 1024)));
+      const carried = [], made = this.freshTf;
+      for (let e = 0, c = 0; e < eu.length; e += 8, c++) {
+        const fc = eu[e], k = Math.floor(fc / n), j = fc - k * n;
+        was[c] = plates[k].mask[j];
+        const src = eu[e + 2];
+        if (src > 0 && ef[e + 6] !== made) { const ks = Math.floor((src - 1) / n), P = plates[ks], js = src - 1 - ks * n; carried.push(c, ...EXTRA.map(x => P[x][js])); }
+      }
+      for (let e = 0, c = 0; e < eu.length; e += 8, c++) {
         const fc = eu[e], k = Math.floor(fc / n), j = fc - k * n, p = plates[k];
         p.mask[j] = eu[e + 1]; p.h[j] = ef[e + 4]; p.phi[j] = ef[e + 5]; p.tf[j] = ef[e + 6]; p.sut[j] = ef[e + 7];
+        if (!p.mask[j] || !was[c] || p.tf[j] === made) freshExtras(p, j);
+      }
+      for (let a = 0, w = 1 + EXTRA.length; a < carried.length; a += w) {
+        const e = 8 * carried[a], fc = eu[e], k = Math.floor(fc / n), j = fc - k * n, p = plates[k];
+        if (p.mask[j]) EXTRA.forEach((x, d) => { p[x][j] = carried[a + 1 + d]; });
       }
     }
     st.unmap();
@@ -954,7 +990,12 @@ export class GpuPlates {
     const p = this.prof || (this.prof = { up: 0, wait: 0, down: 0, steps: 0 });
     if (world) { p.up += t1 - this.t0; p.wait += t2 - t1; p.down += performance.now() - t2; p.steps++; }
     if (overflow) {
-      for (const g of await this.pullFrames()) { const p = plates[g.index]; p.mask.set(g.mask); p.h.set(g.h); p.phi.set(g.phi); p.tf.set(g.tf); p.sut.set(g.sut); }
+      // The frames whole (the extras of cells newly held start fresh: where they came from is lost).
+      for (const g of await this.pullFrames()) {
+        const p = plates[g.index];
+        for (let j = 0; j < n; j++) if (g.mask[j] && !p.mask[j]) freshExtras(p, j);
+        p.mask.set(g.mask); p.h.set(g.h); p.phi.set(g.phi); p.tf.set(g.tf); p.sut.set(g.sut);
+      }
     }
     return { sea: sea[0], land: sea[1] / (4 * Math.PI), open: sea[2], close: sea[3], M, T, area, plateLand: land, pairs: cnt.subarray(C_PAIRS, C_PAIRS + MAXP * MAXP),
       counts: { made: cnt[C_MADE], consumed: cnt[C_CONSUMED], collided: cnt[C_COLLIDED], relaxed: cnt[C_RELAXED], foundered: cnt[C_FOUNDERED], edits: ne } };

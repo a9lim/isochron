@@ -3,15 +3,21 @@
 //   flow         the shallow-ice approximation with Glen's law (n = 3): flux
 //                q = −Γ H⁵ |∇s|² ∇s, Γ = 2A(ρg)³/5 (standard), explicit in
 //                time with a step the stability limit sets
-//   the bed's    (standard form; synthesis as built) conduction only: the bed
-//   temperature  is T_b = T_s + G H/k, T_s the annual mean at the ice's surface
-//                (no warmer than 0 °C), G the geothermal flux, k ice's
-//                conductivity; the melting point falls 0.87 K per km of ice
-//                (from memory). The thawed share is a logistic of T_b − T_pm
-//                over 1 K (synthesis: the spread of bed temperature within a
-//                cell), not a switch. Cold accumulation carried down into the
-//                ice (Robin's solution) would cool thick interiors; it isn't
-//                modelled, so conduction thaws most beds under ~1.5 km of ice.
+//   the bed's    (standard: Robin's steady column, from memory) heat conducted
+//   temperature  up from the bed against cold snow carried down into the ice,
+//                the vertical speed falling linearly from the accumulation rate
+//                a at the surface to nothing at the bed (no horizontal
+//                advection): T_b = T_s + G R/k with R = l √(π/2) erf(H/(√2 l)),
+//                l = √(κH/a) the thermal boundary layer. R → H as a → 0
+//                (conduction alone), and where the ice ablates (a ≤ 0) it is H.
+//                T_s is the annual mean at the ice's surface (no warmer than
+//                0 °C), k ice's conductivity, and G the geothermal flux plus
+//                the heat of the ice's own deformation, τ_b ū_d (the shallow-ice
+//                column's dissipation, most of it in the lowest layers, so
+//                taken at the bed: synthesis); the melting point falls 0.87 K
+//                per km of ice (from memory). The
+//                thawed share is a logistic of T_b − T_pm over 1 K (synthesis:
+//                the spread of bed temperature within a cell), not a switch.
 //   sliding      (standard: a Weertman-type law) u_b = C τ_b^p × thawed, with
 //                τ_b = ρᵢ g H |∇s| the shallow-ice basal stress, p = 3. The
 //                sliding flux u_b H is a diffusion like the deformation's,
@@ -22,12 +28,18 @@
 //                C_HARD and C_SOFT (synthesis: hard beds slide ~1–10 m/yr at
 //                100 kPa, deforming till hundreds; from memory). The effective
 //                pressure's role (faster near flotation) is left out.
+//   speed limit  (synthesis) where the depth-mean speed would pass U_MAX the
+//                flux holds there: the shallow-ice approximation fails at a
+//                cliff onto the sea or a pit of ice between peaks, and a single
+//                such cell sliding at hundreds of km/yr set the explicit step
+//                for the whole ice (0.01 yr)
 //   basal melt   (standard) where thawed, the heat the bed can't conduct away
-//                melts ice: (G + τ_b u_b − k (T_pm − T_s)/H)/(ρᵢ L). Friction
+//                melts ice: (G + τ_b u_b − k (T_pm − T_s)/R)/(ρᵢ L). Friction
 //                heats the melt but not the thawed share, so the share doesn't
 //                feed on itself.
-//   erosion      (standard rule, Humphrey and Raymond's: ė = K_g u_b^l, l = 1,
-//                K_g = 1e-4, from memory) rock or regolith per year under
+//   erosion      (standard rule, Humphrey and Raymond's: ė = K_g u_b^l, l = 1;
+//                K_g calibrated, 2e-6, to Hallet's ice-sheet rates against
+//                this model's sliding) rock or regolith per year under
 //                sliding ice. It's entrained as debris (m of rock per cell)
 //                carried with the ice's fluxes (upwind) and melted out where
 //                the ice ablates, in proportion to the ablated share; all of
@@ -65,16 +77,19 @@ export const ICE = {
   STEP_C: 0.12,      // the explicit step's coefficient, dt ≤ STEP_C · A_min / D_max (tested for flux ∝ |∇s|³)
   // The bed's temperature.
   K: 2.1,            // W/m/K, ice's conductivity (from memory)
+  KAPPA: 36,         // m²/yr, ice's thermal diffusivity (k/ρc, 1.14e-6 m²/s; from memory)
   GEO: 0.06,         // W/m², the geothermal flux where the plates don't say
   BETA: 8.7e-4,      // K/m, the melting point's fall with depth (from memory)
   THAW_W: 1,         // K, the thawed share's logistic scale (synthesis)
   LATENT: 3.34e5,    // J/kg
   // Sliding (Weertman-type).
   P: 3,
+  U_MAX: 3000,       // m/yr: the depth-mean speed past which the shallow-ice flux is held (synthesis: a cell's mean;
+                     //   the approximation fails at cliffs, and one such cell would set every cell's step)
   C_HARD: 1e-14,     // m yr⁻¹ Pa⁻³, bare rock (synthesis)
   C_SOFT: 1e-12,     //   soft till
   // Glacial erosion.
-  KG: 1e-4, EL: 1,   // ė = K_g u_b^l (m/yr; from memory)
+  KG: 2e-6, EL: 1,   // ė = K_g u_b^l (m/yr): Hallet's ice-sheet rates (0.01–0.1 mm/yr, from memory) at this model's sliding (Humphrey and Raymond's 1e-4 eroded the opening's ice at ~15 mm/yr)
   // The bed's flexure.
   FLEX_CHANGE: 0.01, // re-solve when the load has moved this share
   FLEX_CYCLES: 2,    // warm V-cycles a re-solve
@@ -111,6 +126,19 @@ export function geothermal(tec, out = new Float32Array(tec.grid.n)) {
     out[i] = (1 - f) * go + f * gc;
   }
   return out;
+}
+
+/** erf by Abramowitz and Stegun 7.1.26 (|error| < 1.5e-7; the GPU's too). */
+export function erf(x) {
+  const s = x < 0 ? -1 : 1, a = Math.abs(x), t = 1 / (1 + 0.3275911 * a);
+  return s * (1 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-a * a));
+}
+
+/** Robin's effective depth R (m) for ice h thick under accumulation a (m of ice a year): T_b = T_s + G R/k. */
+export function robinDepth(h, a) {
+  if (!(a > 1e-6) || !(h > 0)) return h;
+  const l = Math.sqrt(ICE.KAPPA * h / a);
+  return l * 1.2533141373155 * erf(h / (1.4142135623731 * l));
 }
 
 /** The sliding coefficient (m yr⁻¹ Pa⁻ᵖ) for a bed's softness (0 hard rock, 1 soft till). */
@@ -252,14 +280,17 @@ export class Ice {
    * sliding's diffusivity.
    */
   basal(i, h, gm) {
-    const rg = ICE.RHO_I * ICE.G;
+    const rg = ICE.RHO_I * ICE.G, tau = rg * h * gm;
     const Ts = Math.min(0, this.Ts0[i] - ICE.LAPSE * Math.max(0, this.bed(i) + h) / 1000);
-    const Tb = Ts + this.geo[i] * h / ICE.K, Tpm = -ICE.BETA * h;
+    const R = robinDepth(h, this.M[i]);
+    // The deformation's heat: τ_b times the depth-mean deformation speed Γ H⁴ |∇s|³.
+    const strain = tau * this.Gamma * h * h * h * h * gm * gm * gm / SEC;
+    const Tb = Ts + (this.geo[i] + strain) * R / ICE.K, Tpm = -ICE.BETA * h;
     const thaw = 1 / (1 + Math.exp(Math.min(60, Math.max(-60, (Tpm - Tb) / ICE.THAW_W))));
-    const tau = rg * h * gm, C = this.Cb[i] * thaw;
+    const C = this.Cb[i] * thaw;
     const tp = ICE.P === 3 ? tau * tau : Math.pow(tau, ICE.P - 1);
     const ub = C * tp * tau;
-    const heat = this.geo[i] + tau * ub / SEC - ICE.K * Math.max(0, Tpm - Ts) / h;
+    const heat = this.geo[i] + strain + tau * ub / SEC - ICE.K * Math.max(0, Tpm - Ts) / R;
     this.Tb[i] = Tb; this.thaw[i] = thaw; this.ub[i] = ub;
     this.mb[i] = thaw * Math.max(0, heat) * SEC / (ICE.RHO_I * ICE.LATENT);
     return C * rg * h * h * tp;
@@ -283,8 +314,12 @@ export class Ice {
       }
       gx /= R_M; gy /= R_M; gz /= R_M;
       const g2 = gx * gx + gy * gy + gz * gz;
-      const h = H[i];
-      D[i] = Gm * h * h * h * h * h * g2 + this.basal(i, h, Math.sqrt(g2));
+      const h = H[i], gm = Math.sqrt(g2);
+      D[i] = Gm * h * h * h * h * h * g2 + this.basal(i, h, gm);
+      // The speed limit: where the shallow-ice flux would pass U_MAX (a cliff onto the sea, a pit
+      // full of ice between peaks), it holds there, and the sliding with it.
+      const cap = ICE.U_MAX * h / Math.max(gm, 1e-12);
+      if (D[i] > cap) { this.ub[i] *= cap / D[i]; D[i] = cap; }
       if (D[i] > dmax) dmax = D[i];
       this.gradS[3 * i] = gx; this.gradS[3 * i + 1] = gy; this.gradS[3 * i + 2] = gz;
     }

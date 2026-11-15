@@ -17,11 +17,12 @@
 //   memory         slabs, arcs and collision fronts average; whose they are
 //                  comes from the first parent
 //   counts         of cells scale by the cells' ratio
-import { Tectonics } from './plates.js';
+import { Tectonics, FRAME_EXTRA, copyCell } from './plates.js';
 import { makeTransfer } from '../grid/transfer.js';
 import { nearest } from '../grid/icosphere.js';
 
-const FRAME = ['mask', 'h', 'phi', 'tf', 'sut'];
+const EXTRA = Object.keys(FRAME_EXTRA);
+const FRAME = ['mask', 'h', 'phi', 'tf', 'sut', ...EXTRA];
 
 export function refineTectonics(c, fine) {
   const T = makeTransfer(fine, c.grid), nc = T.nc, par = T.par, n = fine.n, ratio = n / nc;
@@ -48,6 +49,7 @@ export function refineTectonics(c, fine) {
     const q = { ...p, q: Float64Array.from(p.q), R: Float64Array.from(p.R), w: Float64Array.from(p.w), torqueExt: Float64Array.from(p.torqueExt) };
     for (const k of FRAME) q[k] = new p[k].constructor(n);
     q.sut.fill(-1e9);
+    for (const k of EXTRA) q[k].fill(FRAME_EXTRA[k]);
     for (let i = 0; i < n; i++) {
       if (i < nc) { for (const k of FRAME) q[k][i] = p[k][i]; continue; }
       const a = pa(i), b = pb(i);
@@ -55,8 +57,8 @@ export function refineTectonics(c, fine) {
       q.mask[i] = 1;
       // Crust of one kind averages; of two (a coast) a midpoint is one parent's whole: the mean
       // of a continent's formation time and the sea floor's would make very old ocean.
-      if ((p.phi[a] >= 0.5) === (p.phi[b] >= 0.5)) { for (const k of ['h', 'phi', 'tf']) q[k][i] = 0.5 * (p[k][a] + p[k][b]); q.sut[i] = Math.max(p.sut[a], p.sut[b]); }
-      else { const s = (a + b) & 1 ? a : b; for (const k of ['h', 'phi', 'tf', 'sut']) q[k][i] = p[k][s]; }
+      if ((p.phi[a] >= 0.5) === (p.phi[b] >= 0.5)) { for (const k of ['h', 'phi', 'tf', ...EXTRA]) q[k][i] = 0.5 * (p[k][a] + p[k][b]); q.sut[i] = Math.max(p.sut[a], p.sut[b]); }
+      else { const s = (a + b) & 1 ? a : b; for (const k of ['h', 'phi', 'tf', 'sut', ...EXTRA]) q[k][i] = p[k][s]; }
     }
     return q;
   });
@@ -78,8 +80,7 @@ export function refineTectonics(c, fine) {
     const p = f.plates[k];
     if (!p.mask[j]) {
       // Between two plates: the frame cell joins the plate, with its own parent's crust.
-      const cp = c.plates[k], cj = c.ref[from];
-      p.mask[j] = 1; p.h[j] = cp.h[cj]; p.phi[j] = cp.phi[cj]; p.tf[j] = cp.tf[cj]; p.sut[j] = cp.sut[cj];
+      copyCell(c.plates[k], c.ref[from], p, j);
     }
     f.owner[i] = k; f.ref[i] = j;
     f.h[i] = p.h[j]; f.phi[i] = p.phi[j]; f.tf[i] = p.tf[j]; f.sut[i] = p.sut[j];
