@@ -27,7 +27,16 @@
 //                starts again from the periodic year.
 //   read back    (GPU, the engine's worker asks ~10 times a second) the last
 //                twelve months' runoff and evaporative efficiency, and the
-//                rivers' month's runoff.
+//                rivers' month's runoff. Each handover and each drop of the
+//                live state is a new epoch, and a read from an earlier one is
+//                discarded when it lands.
+//   the bank     the water the live ground has discharged (mm per cell, every
+//                month it steps: on the GPU summed there and taken with each
+//                read), with the span of the clock it covers. The lakes take
+//                the share of it up to the clock each time they step, so they
+//                receive the volumes the soil let go, when it let them go (the
+//                last twelve months' total read as a rate, integrated over the
+//                lakes' own steps, lost ~16% of it).
 //   slow mean    (synthesis) β over ~5 years of the clock, against the
 //                closure's: the climate's next cycle evaporates by that ratio,
 //                weighed by the live weight (the soil's memory of a drought
@@ -60,6 +69,10 @@ export class Ground {
     this.betaRatio = new Float32Array(this.n).fill(1);
     this.slowYears = null;
     this.handovers = 0;
+    this.epoch = 0;            // a new one at each handover and each drop of the live state
+    this.bank = new Float64Array(this.n);   // mm discharged and not yet taken by the lakes
+    this.bankFrom = 0;         // the clock span the bank covers (years)
+    this.bankTo = 0;
   }
 
   /** The year's hook: one step of `months` months from the step's start (see Year.stepInputs). */
@@ -67,27 +80,33 @@ export class Ground {
     this.weight = live;
     const c = this.climate;
     if (!c.soilWarm || (!this.gpu && !this.cpuLive)) return;
-    if (!this.live) this.handover(m0);
+    if (!this.live) this.handover(m0, years);
     this.refresh();
     if (this.gpu) {
       this.gpu.setAnomaly(dT, rf, 1, { hold: true });
       this.gpu.step(this.month, months);
     } else {
-      for (let k = 0; k < months; k++) this.cpu.stepMonth((this.month + k) % 12, c.T12, c.P12, c.PET12, dT, rf);
+      const s = this.cpu, o = s.out, B = this.bank, n = this.n;
+      for (let k = 0; k < months; k++) {
+        const m = (this.month + k) % 12;
+        s.stepMonth(m, c.T12, c.P12, c.PET12, dT, rf);
+        for (let i = 0; i < n; i++) if (s.Smax[i] > 0) B[i] += o.quick[12 * i + m] + o.base[12 * i + m];
+      }
     }
     this.month = (this.month + months) % 12;
     this.t = years + months / 12;
+    if (!this.gpu) this.bankTo = this.t;
     this.stepped += months;
   }
 
   /** The year's hook while it isn't wholly live: outrun, the live state is dropped. */
   closure({ live }) {
     this.weight = live;
-    if (live <= 0 && this.live) { this.live = false; this.agg = null; this.monthRunoff = null; this.betaSlow = null; this.betaRatio.fill(1); }
+    if (live <= 0 && this.live) { this.live = false; this.agg = null; this.monthRunoff = null; this.betaSlow = null; this.betaRatio.fill(1); this.bank.fill(0); this.epoch++; }
   }
 
-  /** From the closure's periodic year, at the start of calendar month m0. */
-  handover(m0) {
+  /** From the closure's periodic year, at the start of calendar month m0 (the clock at `years`). */
+  handover(m0, years = 0) {
     const c = this.climate, s = c.soil, o = s.out, n = this.n, p = (m0 + 11) % 12;
     const S = new Float64Array(n), W = new Float64Array(n), G = new Float64Array(n), Gw = new Float64Array(n);
     for (let i = 0; i < n; i++) { if (!(s.Smax[i] > 0)) continue; const k = 12 * i + p; S[i] = o.S[k]; W[i] = o.SWE[k]; G[i] = o.Tg[k]; Gw[i] = o.G[k]; }
@@ -96,6 +115,7 @@ export class Ground {
       g.setCapacity(s.Smax); g.setForcing(c.T12, c.P12, c.PET12); g.setState(S, W, G, Gw);
       g.setAnomaly(null);
       g.step(m0, 12);
+      g.clearBank();               // that year was the closure's (the rivers' record), not water let go now
     } else {
       const cpu = this.cpu || (this.cpu = new Soil(n, 0));
       cpu.setCapacity(s.Smax); cpu.S.set(S); cpu.SWE.set(W); cpu.Tg.set(G); cpu.G.set(Gw);
@@ -105,6 +125,8 @@ export class Ground {
     this.month = m0;
     this.live = true;
     this.handovers++;
+    this.epoch++;
+    this.bank.fill(0); this.bankFrom = this.bankTo = years;
   }
 
   /** A new climate cycle: its months (and the soil's capacity) become the live state's forcing. */
@@ -116,11 +138,16 @@ export class Ground {
     else this.cpu.setCapacity(c.soil.Smax);
   }
 
-  /** GPU: read the live aggregates and calendar month m's runoff back (one read at a time); the clock at `years`. */
+  /**
+   * GPU: read the live aggregates, calendar month m's runoff and the bank back (one read at a
+   * time); the clock at `years`. A read that lands in a later epoch is discarded.
+   */
   async readBack(m, years) {
     if (!this.gpu || !this.live || this.gpu.reading) return false;
-    const r = await this.gpu.read({ month: m });
-    if (!this.live) return false;
+    const epoch = this.epoch, to = this.t;
+    const r = await this.gpu.read({ month: m, bank: true });
+    if (!this.live || this.epoch !== epoch) return false;
+    if (r.bank) { const B = this.bank; for (let i = 0; i < this.n; i++) B[i] += r.bank[i]; this.bankTo = Math.max(this.bankTo, to); }
     this.take(r, r.runoffMonth, m, years);
     return true;
   }
@@ -147,6 +174,25 @@ export class Ground {
     }
     const b = this.betaSlow, q = this.betaRatio;
     for (let i = 0; i < n; i++) q[i] = cb[i] > 0.02 ? Math.min(GROUND.RATIO_MAX, b[i] / cb[i]) : 1;
+  }
+
+  /**
+   * The lakes' runoff (m/yr per cell) over the dt years to the clock at `years`: the closure's,
+   * and by the live weight the bank's share up to the clock (its span is the soil's months, so
+   * the share is the water discharged by then), taken from it.
+   */
+  lakeRunoff(out, years, dt) {
+    const c = this.climate, n = this.n, w = this.live ? this.weight : 0, B = this.bank;
+    if (!(w > 0) || !(dt > 0)) { this.drain(years); return this.runoff(out); }
+    const span = this.bankTo - this.bankFrom, f = span > 0 ? Math.min(1, Math.max(0, (years - this.bankFrom) / span)) : 0;
+    for (let i = 0; i < n; i++) { const v = f * B[i]; B[i] -= v; out[i] = (1 - w) * c.runoff[i] + w * v / (1000 * dt); }
+    this.bankFrom += f * span;
+    return out;
+  }
+  /** The bank up to the clock let go unseen (the lakes at their balance read the runoff as a rate). */
+  drain(years) {
+    const span = this.bankTo - this.bankFrom, f = span > 0 ? Math.min(1, Math.max(0, (years - this.bankFrom) / span)) : 0;
+    if (f > 0) { for (let i = 0; i < this.n; i++) this.bank[i] *= 1 - f; this.bankFrom += f * span; }
   }
 
   /** Runoff (m/yr) per cell: the closure's, and the live last twelve months' by the live weight. */

@@ -6,8 +6,8 @@
 // to its end, so the page can draw the state between the step's two ends by
 // its own clock without lagging it. Steps are a month while a month takes at
 // least ~1/30 s of the dial, then longer (up to ~3 yr at 100 yr/s): the
-// anomaly's step is exact for any length, and the hooks below still see each
-// month. Its parts:
+// anomaly's step is exact for any length (the veil's forcing too, `forced`),
+// and the hooks below still see each month. Its parts:
 //   the anomaly    T′ and the rain's anomaly (below);
 //   the veil       the volcanoes' sulfate (src/engine/volcanoes.js);
 //   the ground     an optional member (src/engine/ground.js: the soil, the
@@ -17,7 +17,10 @@
 //                  are stepped by the planet each frame (src/engine/planet.js).
 // Above the live range each part is replaced by its closure, and the change is
 // soft over half a decade of the dial (`live`, 1 below ~56 yr/s, 0 above
-// ~180): consumers weigh the live state by it. The anomaly's closure is its
+// ~180): consumers weigh the live state by it. A jump of the clock past
+// `JUMP` (a plate step at a slow dial, a stall) is the closure's too, whatever
+// the dial; back from it, each cell takes the OU's exact transition over the
+// gap (`resume`). The anomaly's closure is its
 // variance alone, which is what the zones' widths read at every dial; the
 // veil's is the eruption rate's mean forcing, which is in the climate's
 // forcing at every dial (volcanoes.js), so neither switches anything.
@@ -66,6 +69,8 @@ export const YEAR = {
   LIVE_LO: 1.75, LIVE_HI: 2.25,   // log₁₀ yr/s: live below, its closure above
   STEP_S: 1 / 30,        // a step is at least this much of the dial's second (and a month)
   MAX_STEPS: 6,          // per advance; past it the next step jumps to the clock
+  JUMP: 20,              // years: a gap past this is the closure's at any dial (a plate step at a slow dial, a
+                         // stall), since the live state has forgotten it (the sea's memory is C/B ≈ 3.8 yr)
   // The closure's variance: the local OU's, with the heat capacity smoothed over the
   // diffusion's reach and the diffusion's damping of the noise's scale (fitted to the
   // live model's own variance, tests/year.test.mjs).
@@ -158,9 +163,10 @@ export class Year {
     this.capKey = -1;
     const ws = k => ({ r: new Float64Array(k), z: new Float64Array(k), p: new Float64Array(k), q: new Float64Array(k), m: new Float64Array(k) });
     this.ws = ws(n);
-    this.scratch = { a: new Float64Array(n), b: new Float64Array(n), c: new Float64Array(n), xi: new Float64Array(n), eta: new Float64Array(n), F: new Float64Array(VOLC.NB), Ft: new Float64Array(VOLC.NB), ftag: new Float64Array(n), f6: new Float64Array(fine.n), f6b: new Float64Array(fine.n) };
+    this.scratch = { a: new Float64Array(n), b: new Float64Array(n), c: new Float64Array(n), xi: new Float64Array(n), eta: new Float64Array(n), F: new Float64Array(VOLC.NB), Ft: new Float64Array(VOLC.NB), sh: new Float64Array(VOLC.NB), sb: new Float64Array(VOLC.NB), fc: new Float64Array(n), ftag: new Float64Array(n), f6: new Float64Array(fine.n), f6b: new Float64Array(fine.n) };
     this.t0 = null;        // the current step's start (years), and its end
     this.t1 = null;
+    this.gap = 0;          // years of the closure since the live state was last stepped
     this.live = 1;
     this.steps = 0; this.months = 0;
     this.soil = null;      // the ground, optional (see stepInputs)
@@ -293,14 +299,19 @@ export class Year {
     this.capacity();
     if (this.t1 === null) { this.t0 = this.t1 = years; this.prev.t = years; }
     if (V) CLIMATE.F_VOLC = V.meanForcing() - V.F_ref;
-    if (w <= 0) {
-      // Outrun: the veil decays with the clock, the anomaly waits (its next step will be the OU's
-      // transition over the gap: the stationary state, whatever it was), the parts take their closures.
-      if (V && years > this.t1) { V.step(this.t1, years - this.t1, false); }
-      if (years > this.t1) { this.t0 = this.t1 = years; this.prev.T.set(this.Ta); this.prev.t = years; }
+    if (w <= 0 || years - this.t1 > YEAR.JUMP) {
+      // Outrun, or the clock jumped past what the live state remembers: the closure over the gap.
+      // The veil decays with the clock, the anomaly waits for its gap's transition (`resume`), the
+      // parts take their closures.
+      if (years > this.t1) {
+        if (V) V.step(this.t1, years - this.t1, false);
+        this.gap += years - this.t1;
+        this.t0 = this.t1 = years; this.prev.T.set(this.Ta); this.prev.t = years;
+      }
       if (this.soil && this.soil.closure) this.soil.closure({ years, live: 0 });
-      return;
+      if (w <= 0) return;
     }
+    if (this.gap > 0) this.resume();
     let k = 0;
     while (years >= this.t1 && k++ < YEAR.MAX_STEPS) {
       // The next step: whole months, at least STEP_S of the dial; past the cap, to the clock.
@@ -311,6 +322,53 @@ export class Year {
     if (w < 1 && this.soil && this.soil.closure) this.soil.closure({ years, live: w });
   }
 
+  /**
+   * Back from the closure after `gap` years: each cell's exact OU transition over it (standard).
+   * The anomaly decays by a = e^{−BΔ/C} and the noise fills the rest of the closure's spread,
+   * σ √(1 − a²), the spread the live model keeps (the local OU's own would overstate it, as
+   * the diffusion damps the noise's scale); the tag's response decays alike. The closure's veil
+   * is the eruption rate's mean, so neither is forced over the gap.
+   */
+  resume() {
+    const n = this.n, B = CLIMATE.B, xi = this.noise(this.scratch.xi), T = this.Ta, g = this.grid;
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      const a = Math.exp(-B * this.gap / this.C[i]);
+      T[i] = a * T[i] + this.sigma[i] * Math.sqrt(1 - a * a) * xi[i];
+      this.tagT[i] *= a;
+      s += T[i] * g.area[i];
+    }
+    const eta = this.noise(this.scratch.eta), Z = this.Za;
+    for (let i = 0; i < n; i++) {
+      const rho = YEAR.RHO_LAND * this.land[i] + YEAR.RHO_SEA * (1 - this.land[i]);
+      Z[i] = rho * T[i] / Math.max(1e-6, this.sigma[i]) + Math.sqrt(1 - rho * rho) * eta[i];
+    }
+    this.prev.T.set(T);
+    this.stats.meanPrev = this.stats.meanT = s / (4 * Math.PI);
+    this.gap = 0;
+  }
+
+  /**
+   * The veil's forcing as a step of dt years to its end feels it, added to `out` per cell (W/m²):
+   * a source (optical depth per band, `a`) that has been decaying for `age` years by the step's
+   * end, as the forcing that, held over the step, gives the same local response at its end. The
+   * response to a forcing F e^{−t/τ} is F W(Δ), W = (e^{−Δ/τ} − e^{−Δ/tc}) / (C (1/tc − 1/τ)), tc =
+   * C/B (the convolution of two exponentials, exact), and a held F̃ gives (1 − e^{−B dt/C}) F̃/B.
+   * The source's shape is the mean of its own at the start and spread over its age.
+   */
+  forced(a, age, dt, out) {
+    const V = this.volcanoes, sh = this.scratch.sh, sb = this.scratch.sb, fc = this.scratch.fc, B = CLIMATE.B, r1 = 1 / VOLC.TAU;
+    sb.set(a); V.spread(sb, age, false);
+    for (let b = 0; b < VOLC.NB; b++) sh[b] = 0.5 * (a[b] + sb[b]);
+    this.bandsToCells(V.forcing(sb, sh), fc);
+    for (let i = 0; i < this.n; i++) {
+      const C = this.C[i], r2 = B / C, lo = Math.min(r1, r2), d = Math.abs(r2 - r1);
+      const W = d * age < 1e-9 ? age * Math.exp(-age * lo) / C : Math.exp(-age * lo) * -Math.expm1(-age * d) / (C * d);
+      out[i] += fc[i] * B * W / -Math.expm1(-B * dt / C);
+    }
+    return out;
+  }
+
   /** One step of `months` months from t1: eruptions within it, the veil, the anomaly, the parts. */
   step(months) {
     const dt = months / 12, V = this.volcanoes, t0 = this.t1, t1 = t0 + dt, c = this.climate;
@@ -319,15 +377,14 @@ export class Year {
     let Ftag = null;
     if (V) {
       this.prev.aod.set(V.aod); this.prev.tag.set(V.tag);
-      V.step(t0, dt, true);
-      // Averaged over the step: the veil at its two ends (it decays over the step).
-      const Fb = V.forcing(this.scratch.F), half = V.forcing(this.scratch.Ft, this.prev.aod);
-      for (let b = 0; b < VOLC.NB; b++) Fb[b] = 0.5 * (Fb[b] + half[b]);
-      this.bandsToCells(Fb, F, V.meanForcing());
+      const ev = V.step(t0, dt, true);
+      // The veil less the rate's mean, as the step feels it: the veil at the step's start, and
+      // each eruption in it from its moment (`forced`: exact in time for any step).
+      F.fill(-V.meanForcing());
+      this.forced(this.prev.aod, dt, dt, F);
+      for (const e of ev) this.forced(V.shares(e.p, e.M, this.scratch.F), t1 - e.t, dt, F);
       if (V.global(V.tag) > 1e-7 || this.tagActive) {
-        const Ft = V.forcing(this.scratch.F, V.tag), h = V.forcing(this.scratch.Ft, this.prev.tag);
-        for (let b = 0; b < VOLC.NB; b++) Ft[b] = 0.5 * (Ft[b] + h[b]);
-        Ftag = this.bandsToCells(Ft, this.scratch.ftag);
+        Ftag = this.forced(this.prev.tag, dt, dt, this.scratch.ftag.fill(0));
         this.tagActive = true;
       }
     } else F.fill(0);

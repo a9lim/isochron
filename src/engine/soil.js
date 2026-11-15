@@ -13,7 +13,9 @@
 //                 Hornberger's conductivity, from memory): drainage ∝ S ran
 //                 deserts' soils out to their rivers (+350% runoff in arid
 //                 climates against Budyko's). The exponents and the rate are
-//                 fitted (synthesis): see potential evaporation below.
+//                 fitted (synthesis): see potential evaporation below. When
+//                 the capacity is cut (the regolith thins), the water past it
+//                 runs off as the next month's quick flow, here and on the GPU.
 //   groundwater   the soil's drainage recharges a linear store G (mm) that
 //                empties over TAU_G months (the lower zone of HBV and its kin,
 //                standard; τ synthesis), and its outflow is the baseflow the
@@ -128,6 +130,9 @@ function root4(a, c, d, hi, iters) {
 const R = new Float64Array(8);
 function month(S0, W0, G0, smax, T, p, pet) {
   const C = SOIL;
+  // Water past the capacity (it was cut since: the regolith thinned) runs off this month.
+  const over = Math.max(0, S0 - smax);
+  S0 -= over;
   // The snowpack: snow on the month's freezing days, melt by its positive degree-days.
   const x = T / C.SIGMA, below = PhiN(-x);
   const snow = p * below, rain = p - snow;
@@ -154,7 +159,7 @@ function month(S0, W0, G0, smax, T, p, pet) {
   if (smax * C.FC + c * C.FC ** 4 <= d1) w = root4(smax, c, d1, 1, C.NEWTON);
   else w = root4(smax + ep / C.FC, c, S0 + Li, C.FC, C.NEWTON);
   const w4 = w * w * w * w;
-  let quick = ice + L * fz + Li * w4, base = kd * w4, E = ep * Math.min(1, w / C.FC);
+  let quick = over + ice + L * fz + Li * w4, base = kd * w4, E = ep * Math.min(1, w / C.FC);
   // The store from the fluxes, so water is kept exactly; any residual of the solve goes to its bounds.
   let S = S0 + Li - Li * w4 - base - E;
   if (S < 0) { E += S; S = 0; if (E < 0) { base += E; E = 0; } }
@@ -185,9 +190,9 @@ export class Soil {
     for (let i = 0; i < n; i++) this.S[i] = 0.5 * this.Smax[i];
   }
 
+  /** The capacity (mm). Water past a cut one stays until the next month, which runs it off (as on the GPU). */
   setCapacity(Smax) {
     if (typeof Smax === 'number') this.Smax.fill(Smax); else this.Smax.set(Smax);
-    for (let i = 0; i < this.n; i++) if (this.S[i] > this.Smax[i]) this.S[i] = Math.max(0, this.Smax[i]);
   }
 
   /**

@@ -499,14 +499,14 @@ export class OceanCarbon {
     return r < 1e-9 ? u : null;
   }
 
-  /** Advance by dt years (any length: substeps of at most OC.SUB, each implicit). */
+  /** Advance by dt years (any length: substeps of at most OC.SUB, each implicit; at least one, however short). */
   step(dtYears, inputs) {
     if (inputs) this.set(inputs);
     if (CARBON.FIXED > 0) { this.hold = CARBON.FIXED; this.heldByCarbon = true; }
     else if (this.heldByCarbon) { this.hold = 0; this.heldByCarbon = false; }
     const x = this.context();
     if (dtYears > 0) {
-      const n = Math.ceil(dtYears / OC.SUB - 1e-9), h = dtYears / n;
+      const n = Math.max(1, Math.ceil(dtYears / OC.SUB - 1e-9)), h = dtYears / n;
       for (let i = 0; i < n; i++) this.substep(h, x);
     }
     this.diagnose(x);
