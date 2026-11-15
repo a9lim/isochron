@@ -293,7 +293,8 @@ Where it stands (2026-11-15, after the roadmap run; `docs/LOG.md` → "The roadm
   - phase 7 (sliding, carving, the regolith, flexure, ice streams), with its ice side extended by "ice that grows" (continental seasons, marine fronts);
   - phase 8 (vegetation, the sea's carbon, Pulse);
   - phase 9 (dust);
-  - phase 10a (plates and surface on the GPU) and 10b (the landscape made cheap on the CPU; nothing on the GPU won there).
+  - phase 10a (plates and surface on the GPU) and 10b (the landscape made cheap on the CPU; nothing on the GPU won there);
+  - phase 10c (the climate cycle: the energy balance and the moisture's packing on the GPU, every stage sliced). Level 7 sustains 1 Myr/s, and a warm cycle is ~350 ms of the worker's CPU, against a target of ≲150. The rest of the cycle (the ground's periodic year, the dust's packing, the template), the plate step's readbacks in the page (whose top is 2.2–2.5 Myr/s, against node's 6.2) and the boundaries' morph on the page's thread are 10's remainder (AGENTS.md, Speed).
 - **Out:** phase 7b (moving sea ice: its drift didn't change the ice edge at 220 km).
 - **Not shipped:** the Regolith and Green margin experiments; no rhythm and no bistability emerged.
 - **Fixed on the way:**
