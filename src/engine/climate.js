@@ -126,6 +126,8 @@ export const CLIMATE = {
   // until a step moves T by less than EBM_TOL (K rms over the year and the globe), at most
   // EBM_MAX steps warm and EBM_MAX_COLD cold.
   EBM_TOL: 0.02, EBM_MAX: 2, EBM_MAX_COLD: 6, EBM_DEPTH: 3,
+  // The CPU's harmonic solves (COCG): relative residual and iterations, warm then cold.
+  EBM_CG: [1e-5, 60, 1e-7, 300],
   // The CPU's moisture: past SWEEPS, sweeps carry on in fours until the last four moved no
   // cell's column by more than MOIST_TOL of its saturation, at most MOIST_MAX (warm; ×4 cold).
   MOIST_TOL: 1e-3, MOIST_MAX: 48,
@@ -305,6 +307,7 @@ export class Climate {
     this.dustDark = null;      // its darkening of snow and ice (planetary albedo, ≤ 0), and its forcing (W/m²): the last cycle's
     this.dustForcing = null;
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
+    this.ebmGpu = null;  // src/gpu/ebm.js, where there's a device: the energy balance's steps
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
     this.warm = false;
@@ -393,6 +396,37 @@ export class Climate {
     }
     const base = C.ALB_OCEAN + polar;
     return base + (C.ALB_SEAICE + dk - base) * ramp(-T, 1.5, 6);
+  }
+
+  /**
+   * Each cell's albedo (`albedo`) as c0 + c1 r₁(v) + c2 ramp(−v, 0, 4.5) at v = T + o, r₁ land's
+   * snow ramp(−v, −1, 5) or the sea's ice ramp(−v, 1.5, 6) (also the cell's cold share), for the
+   * energy balance on the GPU (src/gpu/ebm.js): pa (o, c0, c1, c2), pb (latitude row, its weight,
+   * land, dust's forcing). o is the lapse rate's drop over land, the gyres' anomaly at sea.
+   */
+  packAlbedo(pa, pb) {
+    const C = CLIMATE, n = this.grid.n, z = this.zones, cv = this.cover, H = this.ice ? this.ice.H : null;
+    const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing;
+    for (let i = 0; i < n; i++) {
+      const s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s, dk = this.dustDark ? this.dustDark[i] : 0, snowA = C.ALB_SNOW + dk;
+      const land = this.landMask[i], o = land ? -C.LAPSE * this.elevPos[i] : sstA ? sstA[i] : 0;
+      let c0, c1, c2 = 0;
+      if (H && H[i] > 10) { c0 = snowA; c1 = 0; }
+      else if (land) {
+        if (cv) {
+          const base = C.ALB_LAND + C.ALB_COVER + polar;
+          c0 = landAlbedo(cv.ft[i], cv.fg[i], 0, base, snowA); c1 = landAlbedo(cv.ft[i], cv.fg[i], 1, base, snowA) - c0;
+        } else {
+          const q = NZ * i;
+          c0 = C.ALB_LAND + polar + C.ALB_DESERT * (z[q + 4] + 0.5 * z[q + 5]) + C.ALB_FOREST * (z[q] + z[q + 1] + 0.5 * (z[q + 6] + z[q + 9]));
+          c1 = snowA - c0;
+        }
+        const lw = this.lakeWet[i];
+        if (lw > 0) { const wa = C.ALB_OCEAN + polar; c0 = (1 - lw) * c0 + lw * wa; c1 *= 1 - lw; c2 = lw * (C.ALB_SEAICE - wa); }
+      } else { c0 = C.ALB_OCEAN + polar; c1 = C.ALB_SEAICE + dk - c0; }
+      pa[4 * i] = o; pa[4 * i + 1] = c0; pa[4 * i + 2] = c1; pa[4 * i + 3] = c2;
+      pb[4 * i] = this.row[i]; pb[4 * i + 1] = this.roww[i]; pb[4 * i + 2] = land; pb[4 * i + 3] = dF ? dF[i] : 0;
+    }
   }
 
   /**
@@ -514,7 +548,7 @@ export class Climate {
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);
     const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC;
-    const tol = this.warm ? 1e-5 : 1e-7, maxIt = this.warm ? 60 : 300;
+    const sv = C.EBM_CG, tol = this.warm ? sv[0] : sv[2], maxIt = this.warm ? sv[1] : sv[3];
     // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
     for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }
     const zero = this.scratch.c5b.fill(0);
@@ -540,8 +574,15 @@ export class Climate {
       yield;
     }
     this.fineTemperature();
-    // Mean surface temperature, and the ice line: the latitude whose polar cap
-    // has the area colder than −10 °C in the annual mean (Budyko's criterion), per hemisphere.
+    this.temperatureStats();
+  }
+
+  /**
+   * Mean surface temperature, and the ice line: the latitude whose polar cap has the area
+   * colder than −10 °C in the annual mean (Budyko's criterion), per hemisphere.
+   */
+  temperatureStats() {
+    const C = CLIMATE, g = this.grid, n = g.n;
     let sum = 0, capN = 0, capS = 0;
     for (let i = 0; i < n; i++) {
       const Ts = this.Tf[0][i] - C.LAPSE * this.elevPos[i];
@@ -613,9 +654,12 @@ export class Climate {
       }
       for (let j = 0; j < q; j++) { const b = ws.dG[j], c = gam[j]; for (let i = 0; i < N; i++) x[i] -= c * b[i]; }
     };
+    // On the GPU (src/gpu/ebm.js, the engine's): each step whole there, the coarse harmonics read back.
+    const gpu = this.ebmGpu && C.SUBGRID ? this.ebmGpu : null;
+    if (gpu) gpu.begin(this);
     const start = () => {
       for (let k = 0; k < 5; k++) Tc[k].set(x.subarray(k * nc, (k + 1) * nc));
-      this.fineTemperature();
+      if (gpu) gpu.start(Tc); else this.fineTemperature();
     };
     // The memory's last pair stands for the state now when Tc is still its G (nothing has set the
     // state since): then start from its mix.
@@ -626,7 +670,7 @@ export class Climate {
     }
     if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
     for (let it = 0; it < maxIt; it++) {
-      yield* this.ebm();
+      if (gpu) yield gpu.step(Tc, this.warm); else yield* this.ebm();
       for (let k = 0; k < 5; k++) g.set(Tc[k], k * nc);
       // Remember (x, G(x)) as the residual f = G(x) − x and G(x), oldest first.
       if (ws.hist === m + 1) { hg.push(hg.shift()); hf.push(hf.shift()); ws.hist--; }
@@ -643,14 +687,19 @@ export class Climate {
       mix(); start();
       yield;
     }
+    if (gpu) { yield gpu.readFine(this.Tf, this.snowAnn); this.temperatureStats(); }
   }
 
   /** Winds and rain at one point of the year. */
   *phase(p) {
     const C = CLIMATE, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, tan = g.tan, pos = g.pos;
     const tau = (p + 0.5) / NP;
-    const T = this.scratch.f6;
-    for (let i = 0; i < n; i++) T[i] = this.tAt(i, tau);
+    const T = this.scratch.f6, Tf = this.Tf;
+    {
+      // tAt, its phase's cosines taken once.
+      const c = Math.cos(2 * Math.PI * tau), sv = Math.sin(2 * Math.PI * tau), c2 = c * c - sv * sv, s2 = 2 * sv * c;
+      for (let i = 0; i < n; i++) T[i] = Tf[0][i] + Tf[1][i] * c - Tf[2][i] * sv + Tf[3][i] * c2 - Tf[4][i] * s2;
+    }
     // Zonal means and the ITCZ by sector.
     const zm = new Float64Array(90), za = new Float64Array(90);
     const sec = new Float64Array(36 * 30), secA = new Float64Array(36 * 30);   // ±30° in 2° bands
@@ -704,12 +753,14 @@ export class Climate {
     prolong(this.T, c5, anom);
     // Pressure (hPa about the mean).
     const pres = this.pres, G = (x, w) => Math.exp(-0.5 * (x / w) * (x / w));
+    // The polar highs don't move: their Gaussians once.
+    const polarHi = this.polarHi || (this.polarHi = Float64Array.from(this.lat, la => G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28)));
     for (let i = 0; i < n; i++) {
       const la = this.lat[i], pi = itcz[this.sector[i]];
       const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
       const NL = Math.min(1.2, 2.05 * phiH) + 0.3 * pi, SL = -Math.min(1.2, 2.05 * phiH) + 0.3 * pi;
       pres[i] = -7 * G(la - pi, 0.2) + 11 * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
-        + 8 * (G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28)) - 0.75 * anom[i];
+        + 8 * polarHi[i] - 0.75 * anom[i];
     }
     this.presPhase[p].set(pres);
     // Winds: r u + f k×u = −∇p/ρ.
@@ -730,13 +781,25 @@ export class Climate {
     }
     yield;
     yield* this.moisture(p, T, carry);
-    if (this.dust) this.dust.phase(p, T);   // dust's sources on these winds and this rain (src/engine/aeolian.js)
+    // Dust's sources on these winds and this rain (src/engine/aeolian.js).
+    if (this.dust) { yield; yield* this.dust.phaseSteps(p, T); }
   }
 
   /** The steady moisture balance at phase p, by fast sweeping. */
   *moisture(p, T, wind) {
     const C = CLIMATE, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, tan = g.tan, ell = g.ell, dist = g.dist;
     const m = nbrOff[n], pmax = C.RAIN_MAX;
+    if (this.gpu && this.gpu.solveFrom) {
+      // On the GPU (src/gpu/moisture.js), packed there from the wind and the temperature, with
+      // the geography as it stands and β's factor (the live ground's slow mean against the
+      // closure's, by the year's live weight).
+      this.gpu.setGeography(this, C, VEG);
+      const beta = this.betaPh[p], G = this.ground, gw = G && G.betaSlow ? G.weight : 0, gratio = gw > 0 ? G.betaRatio : null;
+      const bf = this.betaF || (this.betaF = new Float32Array(n));
+      if (gw > 0) for (let i = 0; i < n; i++) bf[i] = beta[i] * (1 - gw + gw * gratio[i]); else bf.set(beta);
+      yield this.gpu.solveFrom(wind, T, bf, this.W[p], this.Pph[p], this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, C.CONV_A, C.CONV_R0, pmax);
+      return;
+    }
     if (!this.edgeU) { this.edgeU = new Float32Array(m); this.coefA = new Float64Array(n); this.ws_ = new Float64Array(n); this.lam = new Float64Array(n); this.ecoef = new Float64Array(n); }
     const un = this.edgeU, A = this.coefA, Ws = this.ws_, lam = this.lam, ec = this.ecoef;
     const toKmDay = 86.4;
@@ -844,71 +907,89 @@ export class Climate {
     }
   }
 
-  /** Harmonics of rain, runoff, and the zones. */
-  finish() {
+  /** Harmonics of rain, the months, and the zones, whole (`finishSteps`). */
+  finish() { const it = this.finishSteps(); while (!it.next().done); }
+
+  /**
+   * Harmonics of rain, the months, and the zones, a slice of the cells at a time. The months'
+   * and the six points' phases are the same for every cell, so their cosines are taken once.
+   */
+  *finishSteps(slice = Math.ceil(this.grid.n / 8)) {
     const C = CLIMATE, g = this.grid, n = g.n;
-    const P = this.Pf;
-    for (let i = 0; i < n; i++) {
-      let p0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
-      for (let p = 0; p < NP; p++) {
-        const th = 2 * Math.PI * (p + 0.5) / NP, v = this.Pph[p][i];
-        p0 += v; a1 += v * Math.cos(th); b1 -= v * Math.sin(th); a2 += v * Math.cos(2 * th); b2 -= v * Math.sin(2 * th);
+    const P = this.Pf, Tf = this.Tf, Pph = this.Pph, elev = this.elevPos, lapse = C.LAPSE;
+    const ph = this.finishTrig || (this.finishTrig = (() => {
+      const t = { c1: new Float64Array(NP), s1: new Float64Array(NP), c2: new Float64Array(NP), s2: new Float64Array(NP), mc: new Float64Array(12), ms: new Float64Array(12), mc2: new Float64Array(12), ms2: new Float64Array(12) };
+      for (let p = 0; p < NP; p++) { const th = 2 * Math.PI * (p + 0.5) / NP; t.c1[p] = Math.cos(th); t.s1[p] = Math.sin(th); t.c2[p] = Math.cos(2 * th); t.s2[p] = Math.sin(2 * th); }
+      for (let m = 0; m < 12; m++) {
+        const tau = monthPhase(m), c = Math.cos(2 * Math.PI * tau), sv = Math.sin(2 * Math.PI * tau);
+        t.mc[m] = c; t.ms[m] = sv; t.mc2[m] = c * c - sv * sv; t.ms2[m] = 2 * sv * c;
       }
-      P[0][i] = p0 / NP; P[1][i] = 2 * a1 / NP; P[2][i] = 2 * b1 / NP; P[3][i] = 2 * a2 / NP; P[4][i] = 2 * b2 / NP;
-    }
+      return t;
+    })());
+    const { c1, s1, c2, s2, mc, ms, mc2, ms2 } = ph;
     // Monthly values, the zones, and runoff.
-    const tm = new Float64Array(12), pm = new Float64Array(12), mph = Array.from({ length: 12 }, (_, m) => monthPhase(m));
+    const tm = new Float64Array(12), pm = new Float64Array(12);
     // The thresholds' widths stand for the spread from year to year: the year's anomaly's
     // (its closure: a month's temperature, a year's log rain), as a logistic's scale
     // (σ / 1.7 matches a normal's spread), where the planet has a year.
     const z = this.zones, sp = this.year ? this.year.spreadFine() : null;
     let wT = C.ZONE_T, wP = C.ZONE_P;
-    for (let i = 0; i < n; i++) {
-      const o = NZ * i;
-      for (let k = 0; k < NZ; k++) z[o + k] = 0;
-      let mat = 0, map = 0, th = -99, tc = 99, pdry = 1e9;
-      for (let m = 0; m < 12; m++) {
-        tm[m] = this.surfaceT(i, mph[m]);
-        pm[m] = this.pAt(i, mph[m]) * 30.44;
-        this.T12[12 * i + m] = tm[m]; this.P12[12 * i + m] = pm[m];
-        mat += tm[m] / 12; map += pm[m];
-        if (tm[m] > th) th = tm[m];
-        if (tm[m] < tc) tc = tm[m];
-        if (pm[m] < pdry) pdry = pm[m];
+    for (let a = 0; a < n; a += slice) {
+      for (let i = a, e = Math.min(n, a + slice); i < e; i++) {
+        let p0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+        for (let p = 0; p < NP; p++) {
+          const v = Pph[p][i];
+          p0 += v; a1 += v * c1[p]; b1 -= v * s1[p]; a2 += v * c2[p]; b2 -= v * s2[p];
+        }
+        P[0][i] = p0 / NP; P[1][i] = 2 * a1 / NP; P[2][i] = 2 * b1 / NP; P[3][i] = 2 * a2 / NP; P[4][i] = 2 * b2 / NP;
+        const o = NZ * i;
+        for (let k = 0; k < NZ; k++) z[o + k] = 0;
+        let mat = 0, map = 0, th = -99, tc = 99, pdry = 1e9;
+        const t0 = Tf[0][i], t1 = Tf[1][i], t2 = Tf[2][i], t3 = Tf[3][i], t4 = Tf[4][i], q0 = P[0][i], q1 = P[1][i], q2 = P[2][i], q3 = P[3][i], q4 = P[4][i], dz = lapse * elev[i];
+        for (let m = 0; m < 12; m++) {
+          tm[m] = t0 + t1 * mc[m] - t2 * ms[m] + t3 * mc2[m] - t4 * ms2[m] - dz;
+          pm[m] = Math.max(0, q0 + q1 * mc[m] - q2 * ms[m] + q3 * mc2[m] - q4 * ms2[m]) * 30.44;
+          this.T12[12 * i + m] = tm[m]; this.P12[12 * i + m] = pm[m];
+          mat += tm[m] / 12; map += pm[m];
+          if (tm[m] > th) th = tm[m];
+          if (tm[m] < tc) tc = tm[m];
+          if (pm[m] < pdry) pdry = pm[m];
+        }
+        if (!this.landMask[i]) continue;
+        if (sp) { wT = Math.hypot(sp.T[i] / 1.7, C.ZONE_FLOOR_T); wP = Math.hypot(this.year.annualRainSpread(i, map) / 1.7, C.ZONE_FLOOR_P); }
+        // Summer is April–September in the north, October–March in the south.
+        const north = this.lat[i] >= 0;
+        let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;
+        for (let m = 0; m < 12; m++) {
+          const summer = (m >= 3 && m <= 8) === north;
+          if (summer) { ps += pm[m]; psd = Math.min(psd, pm[m]); psw = Math.max(psw, pm[m]); }
+          else { pw += pm[m]; pwd = Math.min(pwd, pm[m]); pww = Math.max(pww, pm[m]); }
+        }
+        const pth = 2 * mat + (ps >= 0.7 * map ? 28 : pw >= 0.7 * map ? 0 : 14);
+        const pE = sigmoid((10 - th) / wT);
+        const lmap = Math.log(Math.max(1, map));
+        const pB = 10 * pth > 1 ? (1 - pE) * sigmoid((Math.log(10 * pth) - lmap) / wP) : 0;
+        const rest = 1 - pE - pB;
+        const sA = sigmoid((tc - 18) / wT), sC = sigmoid(tc / wT);
+        const pA = rest * sA, pC = rest * (1 - sA) * sC, pD = rest * (1 - sA) * (1 - sC);
+        // Second letters.
+        const sS = sigmoid((40 - psd) / 8) * sigmoid((pww / 3 - psd) / 8);
+        const sW = sigmoid((psw / 10 - pwd) / 6);
+        const fS = sS, fW = (1 - sS) * sW, fF = (1 - sS) * (1 - sW);
+        const af = sigmoid((pdry - 60) / 10), am = (1 - af) * sigmoid((pdry - (100 - map / 25)) / 10);
+        const dryS = psd < pwd ? 1 : 0;
+        z[o] = pA * af; z[o + 1] = pA * am;
+        z[o + 2] = pA * (1 - af - am) * (1 - dryS); z[o + 3] = pA * (1 - af - am) * dryS;
+        const bw = sigmoid((Math.log(5 * Math.max(0.2, pth)) - lmap) / wP);
+        z[o + 4] = pB * bw; z[o + 5] = pB * (1 - bw);
+        z[o + 6] = pC * fF; z[o + 7] = pC * fS; z[o + 8] = pC * fW;
+        z[o + 9] = pD * fF; z[o + 10] = pD * fS; z[o + 11] = pD * fW;
+        const ef = sigmoid(-th / wT);
+        z[o + 12] = pE * (1 - ef); z[o + 13] = pE * ef;
       }
-      if (!this.landMask[i]) continue;
-      if (sp) { wT = Math.hypot(sp.T[i] / 1.7, C.ZONE_FLOOR_T); wP = Math.hypot(this.year.annualRainSpread(i, map) / 1.7, C.ZONE_FLOOR_P); }
-      // Summer is April–September in the north, October–March in the south.
-      const north = this.lat[i] >= 0;
-      let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;
-      for (let m = 0; m < 12; m++) {
-        const summer = (m >= 3 && m <= 8) === north;
-        if (summer) { ps += pm[m]; psd = Math.min(psd, pm[m]); psw = Math.max(psw, pm[m]); }
-        else { pw += pm[m]; pwd = Math.min(pwd, pm[m]); pww = Math.max(pww, pm[m]); }
-      }
-      const pth = 2 * mat + (ps >= 0.7 * map ? 28 : pw >= 0.7 * map ? 0 : 14);
-      const pE = sigmoid((10 - th) / wT);
-      const lmap = Math.log(Math.max(1, map));
-      const pB = 10 * pth > 1 ? (1 - pE) * sigmoid((Math.log(10 * pth) - lmap) / wP) : 0;
-      const rest = 1 - pE - pB;
-      const sA = sigmoid((tc - 18) / wT), sC = sigmoid(tc / wT);
-      const pA = rest * sA, pC = rest * (1 - sA) * sC, pD = rest * (1 - sA) * (1 - sC);
-      // Second letters.
-      const sS = sigmoid((40 - psd) / 8) * sigmoid((pww / 3 - psd) / 8);
-      const sW = sigmoid((psw / 10 - pwd) / 6);
-      const fS = sS, fW = (1 - sS) * sW, fF = (1 - sS) * (1 - sW);
-      const af = sigmoid((pdry - 60) / 10), am = (1 - af) * sigmoid((pdry - (100 - map / 25)) / 10);
-      const dryS = psd < pwd ? 1 : 0;
-      z[o] = pA * af; z[o + 1] = pA * am;
-      z[o + 2] = pA * (1 - af - am) * (1 - dryS); z[o + 3] = pA * (1 - af - am) * dryS;
-      const bw = sigmoid((Math.log(5 * Math.max(0.2, pth)) - lmap) / wP);
-      z[o + 4] = pB * bw; z[o + 5] = pB * (1 - bw);
-      z[o + 6] = pC * fF; z[o + 7] = pC * fS; z[o + 8] = pC * fW;
-      z[o + 9] = pD * fF; z[o + 10] = pD * fS; z[o + 11] = pD * fW;
-      const ef = sigmoid(-th / wT);
-      z[o + 12] = pE * (1 - ef); z[o + 13] = pE * ef;
+      yield;
     }
-    this.zonalStats();
+    yield* this.zonalSteps();
   }
 
   /**
@@ -919,7 +1000,7 @@ export class Climate {
   *groundYear() {
     const n = this.grid.n, s = this.soil, o = s.out, FC = SOIL.FC, CV = SOIL.COVER;
     potentialEvaporation(this.T12, this.PET12);
-    const cold = !this.soilWarm, slice = Math.ceil(n / 8);
+    const cold = !this.soilWarm, slice = Math.ceil(n / 16);
     let years = 0, cells = 0;
     for (let a = 0; a < n; a += slice) {
       const r = s.equilibrium(this.T12, this.P12, this.PET12, { cold, from: a, to: Math.min(n, a + slice) });
@@ -955,13 +1036,18 @@ export class Climate {
   }
 
   /** Zonal means for Fig. 3: by 2° band, annual T and its monthly range, rain; the ITCZ's range; Hadley edges. */
-  zonalStats() {
+  zonalStats() { const it = this.zonalSteps(); while (!it.next().done); }
+  /** `zonalStats` a slice of the cells at a time. */
+  *zonalSteps(slice = Math.ceil(this.grid.n / 4)) {
     const g = this.grid, n = g.n, mph = Array.from({ length: 12 }, (_, m) => monthPhase(m));
     const T = new Float64Array(90), Tlo = new Float64Array(90), Thi = new Float64Array(90), P = new Float64Array(90), Pl = new Float64Array(90), La = new Float64Array(90);
-    const Tm = new Float64Array(90 * 12);
+    const Tm = new Float64Array(90 * 12), Tf = this.Tf, lapse = CLIMATE.LAPSE;
+    const mc = mph.map(t => Math.cos(2 * Math.PI * t)), ms = mph.map(t => Math.sin(2 * Math.PI * t));
+    const mc2 = mc.map((c, m) => c * c - ms[m] * ms[m]), ms2 = mc.map((c, m) => 2 * ms[m] * c);
     for (let i = 0; i < n; i++) {
-      const b = this.band[i], a = g.area[i];
-      for (let m = 0; m < 12; m++) Tm[b * 12 + m] += a * this.surfaceT(i, mph[m]);
+      if (i > 0 && i % slice === 0) yield;
+      const b = this.band[i], a = g.area[i], t0 = Tf[0][i], t1 = Tf[1][i], t2 = Tf[2][i], t3 = Tf[3][i], t4 = Tf[4][i], dz = lapse * this.elevPos[i];
+      for (let m = 0; m < 12; m++) Tm[b * 12 + m] += a * (t0 + t1 * mc[m] - t2 * ms[m] + t3 * mc2[m] - t4 * ms2[m] - dz);
       P[b] += a * this.Pf[0][i] * 365.25;
       if (this.landMask[i]) { Pl[b] += a * this.Pf[0][i] * 365.25; La[b] += a; }
     }
@@ -994,9 +1080,8 @@ export class Climate {
     for (let p = 0; p < NP; p++) yield* this.phase(p);
     // The gyres after the winds they're driven by (before them, the first cycle's saw none).
     if (this.ocean) yield* this.ocean.solve();
-    this.finish();
-    yield;
-    if (this.dust) yield* this.dust.solve();
+    yield* this.finishSteps();
+    if (this.dust) { yield* this.dust.solve(); yield; }
     yield* this.groundYear();
     this.warm = true;
     // Settling: two cycles running that moved the mean temperature and rain (global and on

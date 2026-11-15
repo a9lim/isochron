@@ -89,7 +89,7 @@
 // Thickness in metres, time in years. The ice is held in the mantle's frame:
 // over its timescales the plates hardly move, and at plate speed it's
 // re-made by the climate faster than the plates carry it.
-import { elasticThickness } from './flexure.js';
+import { elasticThickness, sharedElasticThickness } from './flexure.js';
 
 export const ICE = {
   A: 1e-16,          // Pa⁻³ yr⁻¹, Glen's flow factor (cold ice)
@@ -302,7 +302,7 @@ export class Ice {
     if (!tec.tf || !tec.phi || !(Math.abs(tec.t - this.plateT) >= ICE.TE_EVERY)) return false;
     this.plateT = tec.t;
     geothermal(tec, this.geo);
-    if (this.teWanted && this.teAuto) { elasticThickness(tec, this.Te); return true; }
+    if (this.teWanted && this.teAuto) { this.Te.set(sharedElasticThickness(tec)); return true; }
     return false;
   }
 

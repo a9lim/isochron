@@ -301,7 +301,9 @@ export class Dust {
    *   gust   σ (m/s), a number or Float32Array(n) (default GUST)
    *   emission  Float32Array(n), kg m⁻² day⁻¹: a prescribed flux, added to wind × source (oracles, other sources)
    */
-  phase(p, { wind, carry = null, rain, source = null, ut = this.P.U_T, gust = this.P.GUST, emission = null }) {
+  phase(p, inputs) { const it = this.phaseSteps(p, inputs); while (!it.next().done); }
+  /** `phase` in pieces (a generator: the climate's cycle yields between them). */
+  *phaseSteps(p, { wind, carry = null, rain, source = null, ut = this.P.U_T, gust = this.P.GUST, emission = null }) {
     const g = this.grid, nf = this.nf, Af = this.areaF;
     const cw = carry || carryingWind(g, wind);
     const C = this.P.C * DAY, E = this.emit[p], Rn = this.rain[p], aw = this.aw, ar = this.ar, ae = this.ae;
@@ -317,8 +319,10 @@ export class Dust {
       ae[i] = Af[i] * e; ar[i] = Af[i] * P;
       aw[3 * i] = Af[i] * cw[3 * i]; aw[3 * i + 1] = Af[i] * cw[3 * i + 1]; aw[3 * i + 2] = Af[i] * cw[3 * i + 2];
     }
+    yield;
     // Down to the solve's grid: sums of area × value, and the area-weighted mean wind.
     const AE = down(this.steps, ae, 1), AR = down(this.steps, ar, 1), AW = down(this.steps, aw, 3);
+    yield;
     const sg = this.solveGrid, n = this.n, { nbrOff, nbr } = sg, ch = this.chord, el = this.elen, kd = this.kdiff, co = this.co, A = this.areaKm;
     for (let i = 0; i < n; i++) { const r = 1 / A[i]; AW[3 * i] *= r; AW[3 * i + 1] *= r; AW[3 * i + 2] *= r; }
     for (let i = 0; i < n; i++) {
@@ -393,8 +397,16 @@ export class Dust {
    * (days; `lifetimeBins`), mean τ and forcing.
    */
   finish(albedo = null) {
+    const it = this.finishSteps(albedo);
+    for (let r = it.next(); !r.done; r = it.next());
+    return this.out;
+  }
+
+  /** `finish` a slice of the cells at a time (a generator: the climate's cycle yields between slices). */
+  *finishSteps(albedo = null, slice = Math.ceil(this.nf / 4)) {
     const n = this.nf, nb = this.nb, A = this.grid.area, Pp = this.P;
     const L = up(this.steps, this.L, NP * nb);
+    yield;
     const o = this.out || (this.out = {
       load: Array.from({ length: NP }, () => new Float32Array(n)), dep: Array.from({ length: NP }, () => new Float32Array(n)),
       loadAnn: new Float32Array(n), emitAnn: new Float32Array(n), depAnn: new Float32Array(n), dryAnn: new Float32Array(n), wetAnn: new Float32Array(n),
@@ -404,6 +416,7 @@ export class Dust {
     let emit = 0, dry = 0, wet = 0, burden = 0, tauM = 0, forM = 0;
     const bins = new Float64Array(nb), loads = new Float64Array(nb);
     for (let i = 0; i < n; i++) {
+      if (i > 0 && i % slice === 0) yield;
       let la = 0, ea = 0, da = 0, wa = 0, ta = 0;
       const a = A[i] * m2;
       for (let b = 0; b < nb; b++) o.depBin[b][i] = 0;

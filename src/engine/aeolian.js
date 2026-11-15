@@ -141,7 +141,9 @@ export class Aeolian {
    * T is the sea-level temperature at that point (the climate's), and the climate's carrying
    * wind (`carry`) is valid only now.
    */
-  phase(p, T) {
+  phase(p, T) { const it = this.phaseSteps(p, T); while (!it.next().done); }
+  /** `phase` in pieces (the climate's cycle yields between them). */
+  *phaseSteps(p, T) {
     const c = this.climate, A = this.A, n = this.n, g = this.grid, S = this.source, ut = this.ut, gust = this.gust;
     const L = c.landMask, elev = c.elevPos, H = this.ice ? this.ice.H : null, cv = c.cover, z = c.zones, NZ = 16;
     const soil = c.soil, Sm = soil.out.S, Smax = soil.Smax, wetL = c.lakeWet, salt = this.lakes ? this.lakes.salt : null;
@@ -184,7 +186,8 @@ export class Aeolian {
     }
     this.stats.gust = gw > 0 ? gs / gw : DUST.GUST;
     for (let i = 0; i < n; i++) this.sourceAnn[i] = p === 0 ? S[i] / NP : this.sourceAnn[i] + S[i] / NP;
-    this.dust.phase(p, { wind: c.windPhase[p], carry: c.carry, rain: c.Pph[p], source: S, ut, gust });
+    yield;
+    yield* this.dust.phaseSteps(p, { wind: c.windPhase[p], carry: c.carry, rain: c.Pph[p], source: S, ut, gust });
   }
 
   /** The balance after the six points of the year (a generator in the climate's cycle), then the routing. */
@@ -199,15 +202,17 @@ export class Aeolian {
       d.warm = true;
     }
     yield;
-    this.route();
+    yield* this.routeSteps();
     this.solved++;
   }
 
   /** The balance's outputs (at the albedo the forcing's sign reads: the climate's at each cell's annual mean), routed. */
-  route() {
+  route() { const it = this.routeSteps(); while (!it.next().done); }
+  *routeSteps() {
     const c = this.climate, n = this.n, alb = this.alb || (this.alb = new Float32Array(n));
     for (let i = 0; i < n; i++) alb[i] = c.albedo(i, c.Tf[0][i]);
-    this.dust.finish(alb);
+    yield* this.dust.finishSteps(alb);
+    yield;
     this.effects();
   }
 

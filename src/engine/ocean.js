@@ -92,7 +92,7 @@ export class Ocean {
     for (let i = 0; i < fn; i++) {
       let tx = 0, ty = 0, tz = 0;
       for (let p = 0; p < np; p++) {
-        const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = Math.hypot(u, v, w);
+        const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = Math.sqrt(u * u + v * v + w * w);
         tx += RHO_A * CD * s * u; ty += RHO_A * CD * s * v; tz += RHO_A * CD * s * w;
       }
       tf[3 * i] = tx / np; tf[3 * i + 1] = ty / np; tf[3 * i + 2] = tz / np;
@@ -181,7 +181,7 @@ export class Ocean {
       for (let i = 0; i < n; i++) { x[i] += alpha * ph[i] + omega * sh[i]; r[i] = s[i] - omega * t[i]; res += r[i] * r[i]; }
       this.iters = it + 1;
       if (!(Math.sqrt(res) / bn > 1e-5) || !(omega !== 0)) break;
-      if (it % 40 === 39) yield;
+      if (it % 20 === 19) yield;
     }
     let mx = 0;
     for (let i = 0; i < n; i++) { if (!Number.isFinite(x[i])) x[i] = 0; if (Math.abs(x[i]) > mx) mx = Math.abs(x[i]); }

@@ -257,8 +257,10 @@ export class Planet {
     while (!c.stats.settled) { c.solve(1); this.afterClimate(); }
     return c.stats.settled;
   }
-  afterClimate() {
-    this.life.afterClimate();
+  afterClimate() { const it = this.afterClimateSteps(); while (!it.next().done); }
+  /** What follows a climate cycle (the cover, the sea's inputs, weathering's map), in pieces the engine's worker yields between (Life.afterClimateSteps). */
+  *afterClimateSteps() {
+    yield* this.life.afterClimateSteps();
     this.carbon.measure();
     this.life.afterMeasure();
     this.climateVersionSeen = this.climate.version;

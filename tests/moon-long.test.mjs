@@ -57,6 +57,10 @@ test('the tide over 50 Myr: a few TW, and the spin slowing steadily', { skip, ti
     assert.ok(cmYr > 2 && cmYr < 10, `the Moon recedes as a few TW recede it (${msg})`);
     assert.ok(msCentury > 1 && msCentury < 6, `the day lengthens slowly (${msg})`);
   } finally {
+    // Stopped, the worker's climate loop runs on through its pending cycles, each slice on a new
+    // channel; wait until it has made none for a second, so every one it made is closed below
+    // (an unclosed port keeps node alive).
+    for (let n = -1; n !== ports.length;) { n = ports.length; await new Promise(r => setTimeout(r, 1000)); }
     Moon.prototype.step = step0; GpuTides.prototype.solve = solve0;
     for (const p of ports) p.close();
     globalThis.MessageChannel = MC;

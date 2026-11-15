@@ -118,10 +118,18 @@ export class Life {
   }
 
   /** After each climate cycle, before weathering's map: the cover's climate, and the sea's inputs. */
-  afterClimate() {
+  afterClimate() { const it = this.afterClimateSteps(); while (!it.next().done); }
+  /**
+   * `afterClimate` in two pieces (the engine's worker yields between them): the cover's climate,
+   * then the rest. The sea's inputs and what follows them (Planet.afterClimateSteps: weathering's
+   * map, and at the opening's end the sea settled on them) stay in one piece, so the sea never
+   * steps on inputs it hasn't settled to.
+   */
+  *afterClimateSteps() {
     const c = this.climate, co2 = c.co2Seen || 280;
     this.cycles++;
     this.landMask = coverClimate(this.veg, c, co2, this.scratch);
+    yield;
     // The opening's closure, through the cycle the climate settles in (the sea settles after it,
     // so nothing it moves is lost).
     if (!this.closed) { this.veg.equilibrate(); this.closed = !!c.stats.settled; }

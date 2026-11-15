@@ -34,8 +34,10 @@
 // made. The ice's own load bends the bed by ELRA in ice.js.
 //
 // Solved after each plate step and landscape step (Planet.plateStep): on the
-// engine's GPU where there is one (src/gpu/flexure.js, twelve V-cycles from
-// cold), on the CPU headless (to a tolerance, warm).
+// engine's GPU where there is one (src/gpu/flexure.js, eight V-cycles from
+// cold, Tₑ's refresh overlapping the solve), on the CPU headless (to a
+// tolerance, warm). Tₑ is computed once per plate time for this and the ice's
+// bed (flexure.js, sharedElasticThickness).
 //
 // The plate's strength (synthesis): where the correction would hold a column
 // more than C_MAX off Airy's, the plate has failed there and the rest is
@@ -43,14 +45,14 @@
 // km of rock (from memory); and the grid gathers a collision's stacking into
 // one cell (55–110 km) where an orogen spreads it over its thrust belt, which
 // an elastic plate alone would hold up as a needle 15–20 km high.
-import { elasticThickness } from './flexure.js';
+import { sharedElasticThickness } from './flexure.js';
 import { RHO_OCEANIC, RHO_CONTINENTAL, RHO_MANTLE } from './crust.js';
 
 export const CRUSTFLEX = {
   TAU_CONT: 50,      // Myr: continental loads relax toward Airy over this (speculation)
   TAU_OCEAN: Infinity,
   TE_EVERY: 0.5,     // Myr between refreshes of Tₑ
-  CYCLES: 12,        // V-cycles a solve on the GPU, cold (each step's load is new, so a warm start gains nothing): 2e-5 of the deflection at level 7, ~5 ms
+  CYCLES: 8,         // V-cycles a solve on the GPU, cold (each step's load is new, so a warm start gains nothing): 8e-5 of the deflection at level 7, ~2.3 ms (12: 6e-6, 3.3 ms)
   TOL: 1e-4,         // the CPU solve's tolerance on the residual
   C_MAX: 2000,       // m: the most the plate holds a column above or below Airy's (its strength; synthesis)
 };
@@ -86,7 +88,7 @@ export class CrustFlex {
     const t = this.tec;
     if (this.teFixed ? this.teAt > -Infinity : !(Math.abs(t.t - this.teAt) >= CRUSTFLEX.TE_EVERY)) return false;
     this.teAt = t.t;
-    if (!this.teFixed) elasticThickness(t, this.Te);
+    if (!this.teFixed) this.Te.set(sharedElasticThickness(t));
     this.flex.setRigidity(this.Te);
     return true;
   }
@@ -144,9 +146,13 @@ export class CrustFlex {
   async stepAsync(dt) {
     const t0 = performance.now(), old = this.oldC || (this.oldC = new Float32Array(this.n)), fc = this.tec.flexc;
     old.set(fc);
-    this.rigidity();
+    // Tₑ's refresh is computed while the solve runs (the queue's writes land after it), so a solve
+    // bends on the rigidity of the refresh before it: Tₑ moves over Myr, refreshed every TE_EVERY.
+    if (!this.flex.ready) this.rigidity();
     this.stats.load = this.gather();
-    const w = this.stats.load > 0 ? await this.flex.solve(this.q, null, { cycles: CRUSTFLEX.CYCLES, warm: false }) : new Float32Array(this.n);
+    const solving = this.stats.load > 0 ? this.flex.solve(this.q, null, { cycles: CRUSTFLEX.CYCLES, warm: false }) : null;
+    this.rigidity();
+    const w = solving ? await solving : new Float32Array(this.n);
     this.apply(w, dt);
     const e = this.tec.elev;
     for (let i = 0; i < this.n; i++) e[i] += fc[i] - old[i];

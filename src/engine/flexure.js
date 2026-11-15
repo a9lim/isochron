@@ -178,15 +178,29 @@ export function breakAtBoundaries(grid, owner, Te, te = FLEXURE.TE_BREAK) {
  * broken at the boundaries.
  */
 export function elasticThickness(tec, out = new Float32Array(tec.grid.n), { broken = true } = {}) {
-  const n = tec.grid.n, t = tec.t;
+  const n = tec.grid.n, t = tec.t, oc = oceanCoefficient(), omax = FLEXURE.TE_OCEAN_MAX;
   for (let i = 0; i < n; i++) {
     const age = t - tec.tf[i], f = smoothstep(0.35, 0.65, tec.phi[i]);
-    const to = f < 1 ? teOceanic(age) : 0;
+    const to = f < 1 ? (age > 0 ? Math.min(omax, oc * Math.sqrt(age)) : 0) : 0;   // teOceanic, its coefficient taken once
     const tc = f > 0 ? teContinental(age, tec.h[i], tec.sut ? t - tec.sut[i] : Infinity) : 0;
     out[i] = (1 - f) * to + f * tc;
   }
   if (broken) breakAtBoundaries(tec.grid, tec.owner, out);
   return out;
+}
+
+/**
+ * The plates' Tₑ (km per cell, broken), computed once per plate time and shared: the crust's
+ * flexure (src/engine/crustflex.js) and the ice's bed (src/engine/ice.js) refresh it on the same
+ * schedule, and at the dial's top each would otherwise compute it every step (~5 ms at level 7).
+ * The landscape writes the world's crust within the plate step, before either asks.
+ */
+export function sharedElasticThickness(tec) {
+  const c = tec.teShared;
+  if (c && c.t === tec.t && c.Te.length === tec.grid.n) return c.Te;
+  const Te = elasticThickness(tec, c && c.Te.length === tec.grid.n ? c.Te : new Float32Array(tec.grid.n));
+  tec.teShared = { t: tec.t, Te };
+  return Te;
 }
 
 // ── Loads ──

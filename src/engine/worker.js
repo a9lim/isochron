@@ -46,6 +46,7 @@ import { GpuIce } from '../gpu/ice.js';
 import { GpuFlexure } from '../gpu/flexure.js';
 import { GpuSoil } from '../gpu/soil.js';
 import { GpuMoisture } from '../gpu/moisture.js';
+import { GpuEnergyBalance } from '../gpu/ebm.js';
 import { GpuDust } from '../gpu/dust.js';
 import { GpuTides } from '../gpu/tides.js';
 import { GpuPlates } from '../gpu/plates.js';
@@ -53,7 +54,9 @@ import { GpuSurface } from '../gpu/surface.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 
-const CLIMATE_MS = 10, ICE_MS = 4;
+// The climate's slice (ms), and while it hasn't settled (the opening's ~10 cycles) the gap between its
+// slices while the plates pump, in slices: 10 after (a tenth of a busy thread), 3 before (a quarter).
+const CLIMATE_MS = 10, CLIMATE_OPENING = 3, ICE_MS = 4;
 let P = null, playing = false, pending = 3, scheduled = false, tides = null;
 const ticks = [];
 let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
@@ -79,6 +82,7 @@ self.onmessage = e => {
     // The engine's own GPU device, for the ice (and the climate's heavy solves).
     gpuDevice().then(device => {
       P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
+      P.climate.ebmGpu = new GpuEnergyBalance(device, P.climate, { have: P.ice.flex.levels.map(l => l.g) });
       if (P.aeolian) P.aeolian.gpu = new GpuDust(device, P.aeolian.dust);
       // The bed's ELRA and the crust's flexure on this device (src/gpu/flexure.js), sharing the coarser grids.
       const have = P.ice.flex.levels.map(l => l.g);
@@ -122,8 +126,8 @@ function eruptWhenWarm() {
 }
 
 // The plates step on the GPU, so a pump awaits them; one pump at a time. While pumps run back
-// to back the climate takes a slice every 100 ms (a tenth of the thread; it may fill a pump’s
-// wait on the GPU), and runs freely between them.
+// to back the climate takes a slice every 100 ms (a tenth of the thread; every 30 ms until it has
+// settled; it may fill a pump’s wait on the GPU), and runs freely between them.
 let surfaceGpu = null, pumping = false, lastSlice = 0;
 async function pump() {
   scheduled = false;
@@ -177,13 +181,15 @@ async function pumpTicks() {
 let climateRunning = false, cycleStart = 0, cycleMs = 0;
 const prof = {};                   // ms spent per section since the last fast message, for tuning
 const nextTask = () => new Promise(res => { const c = new MessageChannel(); c.port1.onmessage = () => res(); c.port2.postMessage(0); });
+// A cycle, then what follows one (src/engine/planet.js), each sliced alike.
+function* cycleThenAfter() { yield* P.climate.cycle(); yield* P.afterClimateSteps(); }
 async function climateLoop() {
   climateRunning = true;
   const c = P.climate;
   try {
     while (playing || pending > 0) {
-      if (pumping && performance.now() - lastSlice < 10 * CLIMATE_MS) { await nextTask(); continue; }
-      if (!c.it) { c.it = c.cycle(); cycleStart = performance.now(); }
+      if (pumping && performance.now() - lastSlice < (c.stats.settled ? 10 : CLIMATE_OPENING) * CLIMATE_MS) { await nextTask(); continue; }
+      if (!c.it) { c.it = cycleThenAfter(); cycleStart = performance.now(); }
       const t0 = performance.now();
       let r;
       const tc = performance.now();
@@ -197,7 +203,12 @@ async function climateLoop() {
       prof.climate = (prof.climate || 0) + performance.now() - tc - waited;
       prof.climateGpu = (prof.climateGpu || 0) + waited;
       lastSlice = performance.now();
-      if (r.done) { c.it = null; cycleMs = performance.now() - cycleStart; P.afterClimate(); pending = Math.max(0, pending - 1); sendClimate(); }
+      if (r.done) {
+        c.it = null; cycleMs = performance.now() - cycleStart; pending = Math.max(0, pending - 1);
+        const ts = performance.now();
+        sendClimate();
+        prof.sendClimate = (prof.sendClimate || 0) + performance.now() - ts;
+      }
       await nextTask();
     }
   } finally { climateRunning = false; }
