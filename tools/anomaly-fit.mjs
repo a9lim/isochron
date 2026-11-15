@@ -4,8 +4,14 @@
 // its lower layer's θ is sampled daily, and each latitude band's monthly-mean variance
 // is the daily variance times the 30-day mean of its pooled autocorrelation. The
 // anomaly model is then run with the current Q, and Q is scaled band by band so the
-// model's land spread matches the weather's (both hemispheres pooled by |latitude|).
-// usage: node tools/anomaly-fit.mjs [seed] [days per season]
+// model's land spread matches the weather's (both hemispheres pooled by |latitude|), to a
+// fixed point (a node's Q sets the bands either side of it). The QG weather has no tropical
+// convection and damps the tropics (WEATHER.TAU_TROP, e-folding in latitude over 0.18 rad: a
+// 2.6-day damping at 10°, 8 days at 15°, 43 at 20°), so only bands from 20° are fitted and the
+// nodes within 20° are held at 20°'s: the tropics' spread follows from their heat capacity. The
+// pole's node is held at 80°'s, so the seven bands fitted set seven nodes (with one more free, a
+// zigzag from node to node went unset).
+// usage: node tools/anomaly-fit.mjs [seed] [days per season] [weathers per season]
 import { hasGPU } from '../tests/webgpu-node.mjs';
 import { Planet } from '../src/engine/planet.js';
 import { Year, YEAR } from '../src/engine/year.js';
@@ -14,7 +20,7 @@ import { GpuWeather, weatherForcing } from '../src/gpu/weather.js';
 import { monthPhase } from '../src/engine/orbit.js';
 
 if (!hasGPU) { console.error('no WebGPU in node (npm install in tests/)'); process.exit(1); }
-const seed = process.argv[2] || 'earthlike', DAYS = +(process.argv[3] || 120), SPIN = 15, LAG = 30;
+const seed = process.argv[2] || 'earthlike', DAYS = +(process.argv[3] || 120), RUNS = +(process.argv[4] || 1), SPIN = 15, LAG = 30;
 const P = new Planet(seed, { level: 6 });
 P.settleClimate();   // the converged climate (its first cycles are a transient)
 const c = P.climate, g = P.grid, n = g.n, device = await gpuDevice();
@@ -22,8 +28,8 @@ const lat = Float64Array.from({ length: n }, (_, i) => Math.asin(g.pos[3 * i + 2
 const NB = 9, bandOf = i => Math.min(NB - 1, Math.floor(Math.abs(lat[i]) / 10));
 // Pooled per |latitude| band over land: daily variance, and autocovariance by lag.
 const acf = new Float64Array(NB * LAG), cnt = new Float64Array(NB);
-for (const month of [0, 6]) {
-  const tau = monthPhase(month), wx = new GpuWeather(device, g, `fit-${month}`, null, P.moon.Omega);
+for (const month of [0, 6]) for (let run = 0; run < RUNS; run++) {
+  const tau = monthPhase(month), wx = new GpuWeather(device, g, run ? `fit-${month}-${run}` : `fit-${month}`, null, P.moon.Omega);
   const f4 = new Float32Array(4 * n);
   wx.setForcing(f4, weatherForcing(c, tau, f4));
   wx.start();
@@ -38,7 +44,7 @@ for (const month of [0, 6]) {
     if (!r.theta.every(Number.isFinite)) throw new Error('weather blew up');
     series.push(r.theta);
   }
-  console.log(`month ${month}: ${DAYS} days in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`month ${month}${RUNS > 1 ? `, weather ${run + 1}` : ''}: ${DAYS} days in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   for (let i = 0; i < n; i++) {
     if (!c.landMask[i]) continue;
     let m = 0;
@@ -62,24 +68,35 @@ for (let b = 0; b < NB; b++) {
   for (let k = 1; k < LAG; k++) s += 2 * (1 - k / LAG) * Math.max(0, C(k));
   sw[b] = Math.sqrt(s / LAG); daily[b] = Math.sqrt(C(0));
 }
-// The anomaly model's land spread per band with the current Q (its closure, which tracks the live model: tests/year.test.mjs).
-const y = new Year(c, null, 'fit');
-y.capacity(true);
-const sm = new Float64Array(NB), am = new Float64Array(NB);
-for (let i = 0; i < y.n; i++) {
-  const b = Math.min(NB - 1, Math.floor(Math.abs(y.lat[i]) * 180 / Math.PI / 10)), a = y.land[i] * y.grid.area[i];
-  sm[b] += a * y.sigma[i]; am[b] += a;
+// The anomaly model's land spread per band under Q (its closure, which tracks the live model: tests/year.test.mjs).
+const Q0 = YEAR.Q.slice(), FIT_FROM = 2;
+function modelSpread() {
+  const y = new Year(c, null, 'fit');
+  y.capacity(true);
+  const sm = new Float64Array(NB), am = new Float64Array(NB);
+  for (let i = 0; i < y.n; i++) {
+    const b = Math.min(NB - 1, Math.floor(Math.abs(y.lat[i]) * 180 / Math.PI / 10)), a = y.land[i] * y.grid.area[i];
+    sm[b] += a * y.sigma[i]; am[b] += a;
+  }
+  return Array.from(sm, (s, b) => am[b] > 0 ? s / am[b] : NaN);
 }
-console.log('|lat|  weather daily  monthly   model   ratio');
-const ratio = new Float64Array(NB);
-for (let b = 0; b < NB; b++) {
-  const m = am[b] > 0 ? sm[b] / am[b] : NaN;
-  ratio[b] = sw[b] / m;
-  console.log(`${String(b * 10).padStart(3)}°   ${daily[b].toFixed(2).padStart(6)} K   ${sw[b].toFixed(2).padStart(6)} K  ${m.toFixed(2).padStart(6)} K  ${ratio[b].toFixed(2)}`);
+function ratios(m) {
+  const ratio = Float64Array.from(m, (v, b) => sw[b] / v);
+  // Bands without the weather's land take their neighbours'; the damped tropics take 20–30°'s.
+  for (let b = 0; b < NB; b++) if (!Number.isFinite(ratio[b])) { let k = 1; while (!Number.isFinite(ratio[b - k] ?? NaN) && !Number.isFinite(ratio[b + k] ?? NaN) && k < NB) k++; ratio[b] = Number.isFinite(ratio[b - k]) ? ratio[b - k] : ratio[b + k]; }
+  for (let b = 0; b < FIT_FROM; b++) ratio[b] = ratio[FIT_FROM];
+  return ratio;
 }
-// Bands without the weather's land take their neighbours'; then the new Q at 10° nodes, pole to pole.
-for (let b = 0; b < NB; b++) if (!Number.isFinite(ratio[b])) { let k = 1; while (!Number.isFinite(ratio[b - k] ?? NaN) && !Number.isFinite(ratio[b + k] ?? NaN) && k < NB) k++; ratio[b] = Number.isFinite(ratio[b - k]) ? ratio[b - k] : ratio[b + k]; }
-// A node at |φ| sits between the bands either side of it.
-const Q = YEAR.Q.map((q, k) => { const j = Math.abs(-9 + k), hi = Math.min(NB - 1, j), lo = Math.max(0, j - 1); return +(q * 0.5 * (ratio[lo] + ratio[hi])).toFixed(2); });
-console.log(`Q: [${Q.join(', ')}]`);
+const m0 = modelSpread();
+// A node at |φ| sits between the bands either side of it; scaled until the bands match.
+for (let it = 0; it < 60; it++) {
+  const ratio = ratios(modelSpread());
+  YEAR.Q = YEAR.Q.map((q, k) => { const j = Math.abs(-9 + k), hi = Math.min(NB - 1, j), lo = Math.max(0, j - 1); return q * Math.sqrt(0.5 * (ratio[lo] + ratio[hi])); });
+  YEAR.Q = YEAR.Q.map((q, k) => Math.abs(-9 + k) < FIT_FROM ? YEAR.Q[k < 9 ? 9 - FIT_FROM : 9 + FIT_FROM] : k === 0 ? YEAR.Q[1] : k === 18 ? YEAR.Q[17] : q);
+}
+const m1 = modelSpread();
+console.log('|lat|  weather daily  monthly   model (was)   model (fitted)');
+for (let b = 0; b < NB; b++) console.log(`${String(b * 10).padStart(3)}°   ${daily[b].toFixed(2).padStart(6)} K   ${sw[b].toFixed(2).padStart(6)} K  ${m0[b].toFixed(2).padStart(6)} K (${(sw[b] / m0[b]).toFixed(2)})  ${m1[b].toFixed(2).padStart(6)} K (${(sw[b] / m1[b]).toFixed(2)})`);
+console.log(`Q was: [${Q0.join(', ')}]`);
+console.log(`Q:     [${YEAR.Q.map(q => +q.toFixed(2)).join(', ')}]`);
 process.exit(0);

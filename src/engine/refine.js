@@ -34,10 +34,9 @@ export function refineTectonics(c, fine) {
     if (ArrayBuffer.isView(v) && (v.length === nc || v.length === 3 * nc)) {
       const w = v.length / nc, out = f[k] && f[k].length === w * n ? f[k] : new v.constructor(w * n);
       const cat = !(v instanceof Float32Array || v instanceof Float64Array);
-      for (let i = 0; i < n; i++) for (let d = 0; d < w; d++) {
-        if (i < nc) out[w * i + d] = v[w * i + d];
-        else out[w * i + d] = cat ? v[w * pa(i) + d] : 0.5 * (v[w * pa(i) + d] + v[w * pb(i) + d]);
-      }
+      out.set(v);
+      if (cat) for (let i = nc; i < n; i++) { const a = w * par[2 * (i - nc)]; for (let d = 0; d < w; d++) out[w * i + d] = v[a + d]; }
+      else for (let i = nc; i < n; i++) { const a = w * par[2 * (i - nc)], b = w * par[2 * (i - nc) + 1]; for (let d = 0; d < w; d++) out[w * i + d] = 0.5 * (v[a + d] + v[b + d]); }
       f[k] = out;
     } else if (!ArrayBuffer.isView(v)) f[k] = v;
   }
@@ -47,22 +46,24 @@ export function refineTectonics(c, fine) {
   // Plate frames.
   f.plates = c.plates.map(p => {
     const q = { ...p, q: Float64Array.from(p.q), R: Float64Array.from(p.R), w: Float64Array.from(p.w), torqueExt: Float64Array.from(p.torqueExt) };
-    for (const k of FRAME) q[k] = new p[k].constructor(n);
-    q.sut.fill(-1e9);
-    for (const k of EXTRA) q[k].fill(FRAME_EXTRA[k]);
-    for (let i = 0; i < n; i++) {
-      if (i < nc) { for (const k of FRAME) q[k][i] = p[k][i]; continue; }
-      const a = pa(i), b = pb(i);
-      if (!p.mask[a] || !p.mask[b]) continue;
-      q.mask[i] = 1;
+    for (const k of FRAME) { q[k] = new p[k].constructor(n); q[k].set(p[k]); }
+    q.sut.fill(-1e9, nc);
+    for (const k of EXTRA) q[k].fill(FRAME_EXTRA[k], nc);
+    const pm = p.mask, pphi = p.phi, psut = p.sut, qm = q.mask, qsut = q.sut;
+    const mean = ['h', 'phi', 'tf', ...EXTRA].map(k => [q[k], p[k]]), whole = mean.concat([[qsut, psut]]);
+    for (let i = nc; i < n; i++) {
+      const a = par[2 * (i - nc)], b = par[2 * (i - nc) + 1];
+      if (!pm[a] || !pm[b]) continue;
+      qm[i] = 1;
       // Crust of one kind averages; of two (a coast) a midpoint is one parent's whole: the mean
       // of a continent's formation time and the sea floor's would make very old ocean.
-      if ((p.phi[a] >= 0.5) === (p.phi[b] >= 0.5)) { for (const k of ['h', 'phi', 'tf', ...EXTRA]) q[k][i] = 0.5 * (p[k][a] + p[k][b]); q.sut[i] = Math.max(p.sut[a], p.sut[b]); }
-      else { const s = (a + b) & 1 ? a : b; for (const k of ['h', 'phi', 'tf', 'sut', ...EXTRA]) q[k][i] = p[k][s]; }
+      if ((pphi[a] >= 0.5) === (pphi[b] >= 0.5)) { for (const [qa, pa] of mean) qa[i] = 0.5 * (pa[a] + pa[b]); qsut[i] = Math.max(psut[a], psut[b]); }
+      else { const s = (a + b) & 1 ? a : b; for (const [qa, pa] of whole) qa[i] = pa[s]; }
     }
     return q;
   });
-  // Each world cell's plate and frame cell.
+  // Each world cell's plate and frame cell, the walk starting from the coarse cell's own frame
+  // cell (the grids nest, so it is the same fine cell, a cell or so away).
   const pos = fine.pos;
   const frameCell = (k, i, guess) => {
     const R = f.plates[k].R, x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
@@ -72,9 +73,9 @@ export function refineTectonics(c, fine) {
     // Candidates, the more buoyant first: the coarse cell's plate, or the two parents'.
     let src = i < nc ? [i] : [pa(i), pb(i)];
     if (src.length === 2 && c.buoyancyAt(src[1]) > c.buoyancyAt(src[0])) src = [src[1], src[0]];
-    let k = c.owner[src[0]], j = frameCell(k, i, -1), from = src[0];
+    let k = c.owner[src[0]], j = frameCell(k, i, c.ref[src[0]]), from = src[0];
     for (const s of src) {
-      const kk = c.owner[s], jj = frameCell(kk, i, -1);
+      const kk = c.owner[s], jj = frameCell(kk, i, c.ref[s]);
       if (f.plates[kk].mask[jj]) { k = kk; j = jj; from = s; break; }
     }
     const p = f.plates[k];

@@ -36,7 +36,7 @@ export function cellCount(level) { return 10 * 4 ** level + 2; }
 /** Great-circle angle between two unit vectors, robust near 0 and π. */
 function angle(ax, ay, az, bx, by, bz) {
   const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
-  return Math.atan2(Math.hypot(cx, cy, cz), ax * bx + ay * by + az * bz);
+  return Math.atan2(Math.sqrt(cx * cx + cy * cy + cz * cz), ax * bx + ay * by + az * bz);
 }
 
 /** Area of the spherical triangle abc (unit vectors), Eriksson's formula. */
@@ -46,7 +46,17 @@ function triArea(ax, ay, az, bx, by, bz, cx, cy, cz) {
   return 2 * Math.atan2(Math.abs(triple), denom);
 }
 
+// One grid per level for the thread: grids are never written after they are built, and the
+// engine wants several levels more than once (the spin-up's, the climate's transfer, the
+// flexure's and the dust's multigrid, the tide's), ~0.2 s of a level-7 boot built again.
+const grids = new Map();
 export function buildGrid(level) {
+  let g = grids.get(level);
+  if (!g) grids.set(level, g = makeGrid(level));
+  return g;
+}
+
+function makeGrid(level) {
   const n = cellCount(level);
   const pos = new Float64Array(3 * n);
   let nv = 0;
@@ -57,46 +67,50 @@ export function buildGrid(level) {
   };
   for (const v of ICO_V) push(v[0], v[1], v[2]);
 
-  let faces = ICO_F.map(f => f.slice());
+  let tris = Uint32Array.from(ICO_F.flat());
   // Make every face counter-clockwise from outside.
-  for (const f of faces) {
-    const [a, b, c] = f;
+  for (let f = 0; f < 20; f++) {
+    const a = tris[3 * f], b = tris[3 * f + 1], c = tris[3 * f + 2];
     const ux = pos[3 * b] - pos[3 * a], uy = pos[3 * b + 1] - pos[3 * a + 1], uz = pos[3 * b + 2] - pos[3 * a + 2];
     const vx = pos[3 * c] - pos[3 * a], vy = pos[3 * c + 1] - pos[3 * a + 1], vz = pos[3 * c + 2] - pos[3 * a + 2];
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     if (nx * (pos[3 * a] + pos[3 * b] + pos[3 * c]) + ny * (pos[3 * a + 1] + pos[3 * b + 1] + pos[3 * c + 1]) + nz * (pos[3 * a + 2] + pos[3 * b + 2] + pos[3 * c + 2]) < 0) {
-      f[1] = c; f[2] = b;
+      tris[3 * f + 1] = c; tris[3 * f + 2] = b;
     }
   }
 
-  // Bisect: each triangle becomes four, midpoints shared through an edge map.
+  // Bisect: each triangle becomes four, midpoints shared through each edge's lower vertex (a
+  // vertex has at most six edges, so six slots of (other end, midpoint) each).
   for (let l = 0; l < level; l++) {
-    const mid = new Map();
+    const slotV = new Int32Array(6 * nv).fill(-1), slotM = new Int32Array(6 * nv);
     const midpoint = (a, b) => {
-      const key = a < b ? a * n + b : b * n + a;
-      let m = mid.get(key);
-      if (m === undefined) {
-        m = push(pos[3 * a] + pos[3 * b], pos[3 * a + 1] + pos[3 * b + 1], pos[3 * a + 2] + pos[3 * b + 2]);
-        mid.set(key, m);
+      if (a > b) { const t = a; a = b; b = t; }
+      for (let o = 6 * a, e = o + 6; o < e; o++) {
+        const v = slotV[o];
+        if (v === b) return slotM[o];
+        if (v < 0) {
+          slotV[o] = b;
+          return slotM[o] = push(pos[3 * a] + pos[3 * b], pos[3 * a + 1] + pos[3 * b + 1], pos[3 * a + 2] + pos[3 * b + 2]);
+        }
       }
-      return m;
+      throw new Error('icosphere: a vertex with more than six edges');
     };
-    const next = new Array(faces.length * 4);
+    const nf0 = tris.length / 3, next = new Uint32Array(12 * nf0);
     let k = 0;
-    for (const [a, b, c] of faces) {
+    for (let f = 0; f < nf0; f++) {
+      const a = tris[3 * f], b = tris[3 * f + 1], c = tris[3 * f + 2];
       const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
-      next[k++] = [a, ab, ca]; next[k++] = [b, bc, ab]; next[k++] = [c, ca, bc]; next[k++] = [ab, bc, ca];
+      next[k++] = a; next[k++] = ab; next[k++] = ca; next[k++] = b; next[k++] = bc; next[k++] = ab;
+      next[k++] = c; next[k++] = ca; next[k++] = bc; next[k++] = ab; next[k++] = bc; next[k++] = ca;
     }
-    faces = next;
+    tris = next;
   }
   if (nv !== n) throw new Error(`icosphere: built ${nv} vertices, expected ${n}`);
 
-  const nf = faces.length;
-  const tris = new Uint32Array(3 * nf);
+  const nf = tris.length / 3;
   const centre = new Float64Array(3 * nf);
   for (let f = 0; f < nf; f++) {
-    const [a, b, c] = faces[f];
-    tris[3 * f] = a; tris[3 * f + 1] = b; tris[3 * f + 2] = c;
+    const a = tris[3 * f], b = tris[3 * f + 1], c = tris[3 * f + 2];
     const ux = pos[3 * b] - pos[3 * a], uy = pos[3 * b + 1] - pos[3 * a + 1], uz = pos[3 * b + 2] - pos[3 * a + 2];
     const vx = pos[3 * c] - pos[3 * a], vy = pos[3 * c + 1] - pos[3 * a + 1], vz = pos[3 * c + 2] - pos[3 * a + 2];
     let cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
@@ -160,14 +174,13 @@ export function buildGrid(level) {
 
   // Least-squares gradient weights: ∇f_i = Σ_k gw_k (f_k − f_i), exact for any
   // function linear in the ambient coordinates, whatever the cell's shape.
-  const gw = new Float32Array(3 * m);
+  const gw = new Float32Array(3 * m), as = new Float64Array(6), bs = new Float64Array(6);
   for (let i = 0; i < n; i++) {
     const o = nbrOff[i], d = nbrOff[i + 1] - o;
     const px = pos[3 * i], py = pos[3 * i + 1], pz = pos[3 * i + 2];
     const e1x = tan[3 * o], e1y = tan[3 * o + 1], e1z = tan[3 * o + 2];
     const e2x = py * e1z - pz * e1y, e2y = pz * e1x - px * e1z, e2z = px * e1y - py * e1x;
     let m11 = 0, m12 = 0, m22 = 0;
-    const as = new Float64Array(d), bs = new Float64Array(d);
     for (let k = 0; k < d; k++) {
       const s = Math.sin(dist[o + k]), t = 3 * (o + k);
       as[k] = s * (tan[t] * e1x + tan[t + 1] * e1y + tan[t + 2] * e1z);

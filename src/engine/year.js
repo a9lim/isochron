@@ -59,10 +59,12 @@ export const YEAR = {
   CORR: 1500,            // km: the noise's correlation falls to 1/e over this
   // The weather's heat flux as noise, W m⁻² yr^½, at 10° steps of latitude from the south
   // pole, fitted to the QG weather's monthly variance over land on the default planet
-  // (tools/anomaly-fit.mjs: 2 K at 40°, 1.3 K at 60°, 0.9 K at 80°, 0.7 K at 10°). The QG
-  // weather has no tropical convection and damps the equator (WEATHER.TAU_TROP), so its
-  // 0.14 K there is the model's, not the planet's: the equator's node is held at 10°'s.
-  Q: [2.41, 2.49, 2.78, 4.02, 5.83, 6.73, 5.59, 3.13, 0.91, 0.91, 0.91, 3.13, 5.59, 6.73, 5.83, 4.02, 2.78, 2.49, 2.41],
+  // (tools/anomaly-fit.mjs, 2026-11-15: 1.0 K at 20–30°, 1.4 K at 30–40°, 2.0 K at 40–60°,
+  // 1.6 K at 60–70°, 0.9 K poleward). The QG weather has no tropical convection and damps the
+  // tropics (WEATHER.TAU_TROP: its 0.09 K at 0–10° and 0.34 K at 10–20° are the model's, not the
+  // planet's), so the nodes within 20° are held at 20°'s and the tropics' spread follows from
+  // their heat capacity (0.9–1.0 K on land; Earth's tropical land ~0.5–1 K, from memory).
+  Q: [2.89, 2.89, 3.7, 6.6, 6.38, 6.23, 3.24, 2.99, 2.99, 2.99, 2.99, 2.99, 3.24, 6.23, 6.38, 6.6, 3.7, 2.89, 2.89],
   RHO_LAND: -0.3, RHO_SEA: 0.3,   // T′–rain correlation (from memory)
   RAIN_SIG: 0.45,        // monthly log-rain spread at 1,000 mm/yr (synthesis)
   ELASTIC: 2,            // runoff's elasticity to rain (from memory)
