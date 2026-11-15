@@ -36,7 +36,11 @@ export function traceBoundaries(tec) {
   // Corner → incident boundary edges (at most 3).
   const inc = new Int32Array(3 * g.nf).fill(-1), deg = new Uint8Array(g.nf);
   for (let e = 0; e < m; e++) {
-    for (const c of [eC0[e], eC1[e]]) { if (deg[c] < 3) inc[3 * c + deg[c]] = e; deg[c]++; }
+    const c0 = eC0[e], c1 = eC1[e];
+    if (deg[c0] < 3) inc[3 * c0 + deg[c0]] = e;
+    deg[c0]++;
+    if (deg[c1] < 3) inc[3 * c1 + deg[c1]] = e;
+    deg[c1]++;
   }
   const used = new Uint8Array(m);
   const lines = [];
@@ -100,8 +104,9 @@ function build(tec, corners, cells, closed) {
   const N = corners.length;
   // Six at level 6 (a boundary re-traced each step then barely shifts), more on finer grids.
   const passes = Math.round(6 * Math.sqrt(g.n / 40962));
+  let Q = new Float64Array(P.length);
   for (let pass = 0; pass < passes; pass++) {
-    const Q = P.slice();
+    Q.set(P);
     for (let k = 0; k < N; k++) {
       let a = k - 1, b = k + 1;
       if (closed) { a = (k - 1 + N - 1) % (N - 1); b = (k + 1) % (N - 1); }
@@ -110,7 +115,7 @@ function build(tec, corners, cells, closed) {
       normalize(Q, k);
     }
     if (closed) for (let c = 0; c < 3; c++) Q[3 * (N - 1) + c] = Q[c];
-    P = Q;
+    const t = P; P = Q; Q = t;
   }
   // Chaikin, twice.
   for (let it = 0; it < 2; it++) ({ P, over, arc } = chaikin(P, over, arc, closed));
@@ -127,7 +132,7 @@ function build(tec, corners, cells, closed) {
     const px = P[3 * k], py = P[3 * k + 1], pz = P[3 * k + 2];
     const dot = tx * px + ty * py + tz * pz;
     tx -= dot * px; ty -= dot * py; tz -= dot * pz;
-    const tr = Math.hypot(tx, ty, tz) || 1;
+    const tr = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
     tx /= tr; ty /= tr; tz /= tr;
     // Left of the direction of travel: p × t.
     const lx = py * tz - pz * ty, ly = pz * tx - px * tz, lz = px * ty - py * tx;
@@ -135,7 +140,7 @@ function build(tec, corners, cells, closed) {
     L[3 * k] = lx; L[3 * k + 1] = ly; L[3 * k + 2] = lz;
     // Right plate relative to left: (ω_R − ω_L) × p.
     const vx = dw[1] * pz - dw[2] * py, vy = dw[2] * px - dw[0] * pz, vz = dw[0] * py - dw[1] * px;
-    const v = Math.hypot(vx, vy, vz);
+    const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
     const across = -(vx * lx + vy * ly + vz * lz);      // toward the right: opening
     speed[k] = v;
     ratio[k] = v > 0 ? across / v : 0;
@@ -150,7 +155,7 @@ function build(tec, corners, cells, closed) {
 }
 
 function normalize(P, k) {
-  const r = Math.hypot(P[3 * k], P[3 * k + 1], P[3 * k + 2]);
+  const x = P[3 * k], y = P[3 * k + 1], z = P[3 * k + 2], r = Math.sqrt(x * x + y * y + z * z);
   P[3 * k] /= r; P[3 * k + 1] /= r; P[3 * k + 2] /= r;
 }
 
@@ -176,21 +181,24 @@ function runs(x, W, closed, cls) {
   return out;
 }
 
+/** Corner-cutting: each segment gives points at ¼ and ¾, plus the two ends (open) or the closing point. */
 function chaikin(P, over, arc, closed) {
-  const N = P.length / 3;
-  const out = [], ov = [], ar = [];
+  const N = P.length / 3, M = closed ? 2 * N - 1 : 2 * N;
+  const out = new Float64Array(3 * M), ov = new Float64Array(M), ar = new Float64Array(M);
+  let o = 0;
   const push = (k, j, f) => {
-    const x = (1 - f) * P[3 * k] + f * P[3 * j], y = (1 - f) * P[3 * k + 1] + f * P[3 * j + 1], z = (1 - f) * P[3 * k + 2] + f * P[3 * j + 2];
-    const r = Math.hypot(x, y, z);
-    out.push(x / r, y / r, z / r);
-    ov.push((1 - f) * over[k] + f * over[j]);
-    ar.push((1 - f) * arc[k] + f * arc[j]);
+    const g = 1 - f, x = g * P[3 * k] + f * P[3 * j], y = g * P[3 * k + 1] + f * P[3 * j + 1], z = g * P[3 * k + 2] + f * P[3 * j + 2];
+    const r = Math.sqrt(x * x + y * y + z * z);
+    out[3 * o] = x / r; out[3 * o + 1] = y / r; out[3 * o + 2] = z / r;
+    ov[o] = g * over[k] + f * over[j];
+    ar[o] = g * arc[k] + f * arc[j];
+    o++;
   };
   if (!closed) push(0, 0, 0);
   for (let k = 0; k < N - 1; k++) { push(k, k + 1, 0.25); push(k, k + 1, 0.75); }
   if (!closed) push(N - 1, N - 1, 0);
-  else { out.push(out[0], out[1], out[2]); ov.push(ov[0]); ar.push(ar[0]); }
-  return { P: Float64Array.from(out), over: Float64Array.from(ov), arc: Float64Array.from(ar) };
+  else { out[3 * o] = out[0]; out[3 * o + 1] = out[1]; out[3 * o + 2] = out[2]; ov[o] = ov[0]; ar[o] = ar[0]; o++; }
+  return { P: out, over: ov, arc: ar };
 }
 
 function running(x, h) {
