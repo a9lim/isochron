@@ -8,6 +8,11 @@
 //   climate   after each completed climate cycle: its harmonics and zones
 //   fast      ~10 times a second: ice, carbon, plumes, the record's samples
 //
+//   year      after each of the year's steps (src/engine/year.js, live below
+//             ~100 yr/s): the anomaly at the step's end on the engine's grid,
+//             the step's two ends, the veil's bands, the eruptions; the page
+//             draws between the ends by its own clock
+//
 //   tides     after each solve of the tide (every ~2 Myr, or when the day has
 //             drifted): the semidiurnal harmonic and the dissipation, per unit
 //             equilibrium tide, on the engine's grid
@@ -17,6 +22,10 @@
 import { Planet, CLIMATE, CARBON } from './planet.js';
 import { PARAMS } from './plates.js';
 import { PLUMES } from './plumes.js';
+import { VOLC } from './volcanoes.js';
+import { Year, YEAR } from './year.js';
+import { monthAt } from './orbit.js';
+import { accumulate } from './landscape.js';
 import { NZ } from './climate.js';
 import { surfaceFields } from '../render/surface.js';
 import { traceBoundaries } from '../render/lines.js';
@@ -32,6 +41,7 @@ const CLIMATE_MS = 10, ICE_MS = 4;
 let P = null, playing = false, pending = 3, scheduled = false, tides = null;
 const ticks = [];
 let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
+let yearSent = -1, yearLiveSent = -1, eruptId = null, eruptWaiting = null, riversId = 0, riversCells = null, riversQ12 = null, lastRate = 1;
 
 const post = (m, transfer = []) => self.postMessage(m, transfer);
 const ch = new MessageChannel();
@@ -63,9 +73,15 @@ self.onmessage = e => {
 
 function apply(p) {
   if (!p) return;
-  Object.assign(CLIMATE, p.CLIMATE || {}); Object.assign(CARBON, p.CARBON || {}); Object.assign(PARAMS, p.PARAMS || {});
+  Object.assign(CLIMATE, p.CLIMATE || {}); Object.assign(CARBON, p.CARBON || {}); Object.assign(PARAMS, p.PARAMS || {}); Object.assign(VOLC, p.VOLC || {});
   // An experiment that holds CO₂ where it stands.
   if (CARBON.FIXED === 'now') CARBON.FIXED = Math.round(P.carbon.pco2);
+  // The Eruption experiment: one tagged eruption each time its size is set, once the climate
+  // is warm (the anomaly's heat capacity reads its land and sea ice).
+  if (p.ERUPT && p.ERUPT.id !== eruptId) { eruptId = p.ERUPT.id; eruptWaiting = p.ERUPT.M; }
+}
+function eruptWhenWarm() {
+  if (eruptWaiting !== null && P.climate.stats.cycles >= 2) { P.year.eruptTagged(eruptWaiting, P.years); eruptWaiting = null; }
 }
 
 function pump() {
@@ -76,13 +92,15 @@ function pump() {
   const t0 = performance.now();
   let ta = performance.now();
   const lap = k => { const tb = performance.now(); prof[k] = (prof[k] || 0) + tb - ta; ta = tb; };
+  eruptWhenWarm();
   while (ticks.length) {
     const m = ticks.shift();
+    lastRate = m.rate ?? m.window / 2;
     P.years += m.adv;
     for (const dt of m.steps) { P.plateStep(dt); stepYears += dt; stepped++; pending = Math.max(pending, 1); }
     lap('plates');
     P.setOrbit(m.window);
-    P.fast(m.adv, ICE_MS);
+    P.fast(m.adv, ICE_MS, m.rate ?? m.window / 2);
     lap('fast');
     if (m.adv > 0) samples.push(P.years, ...P.sample());
     lap('sample');
@@ -98,6 +116,7 @@ function pump() {
     if (Math.abs(P.tec.seaLevel - seaSent) > 0.004) sendSurface(false);
     lap('sea');
   }
+  if (P.year.steps !== yearSent || (P.year.live > 0) !== yearLiveSent) { sendYear(); lap('year'); }
   if (now - lastFast > 100) { sendFast(false); lap('fastMsg'); }
   if ((playing || pending > 0) && !climateRunning) climateLoop();
   solveTides();
@@ -161,8 +180,54 @@ function sendSurface(fromStep, steps = 0, ms = 0) {
   stepYears = 0;
   // Rivers retrace after the landscape steps or the climate's months change.
   const rk = land.steps * 1e6 + P.climate.version;
-  if (rk !== riversSteps) { m.rivers = traceRivers(grid, land, f.elevRel, land.monthly(P.climate.runoffM)); riversSteps = rk; }
+  if (rk !== riversSteps) {
+    riversQ12 = land.monthly(P.climate.runoffM);
+    m.rivers = traceRivers(grid, land, f.elevRel, riversQ12); riversSteps = rk;
+    m.riversId = ++riversId; riversCells = m.rivers.map(r => r.cells);
+  }
   post(m, [f.elevRel.buffer, f.normals.buffer, f.tfDraw.buffer, f.lakeDraw.buffer, f.felsic.buffer, m.elev.buffer]);
+}
+
+// The year's step: the anomaly at its end (the page holds the last as this one's start), the veil, the eruptions.
+let yearAnomSent = -1;
+function sendYear() {
+  const Y = P.year, V = P.volcanoes, live = Y.live > 0;
+  const cont = Y.steps === yearSent + 1 && yearAnomSent === yearSent;
+  yearSent = Y.steps; yearLiveSent = live;
+  const m = { type: 'year', live: Y.live, t0: Y.prev.t, t1: Y.t1, meanT: Y.stats.meanT, meanPrev: Y.stats.meanPrev,
+    bands: Float32Array.from(V.aod), bandsPrev: Float32Array.from(Y.prev.aod),
+    eruptions: V.recent.map(e => ({ p: e.p, M: e.M, t: e.t, kind: e.kind })) };
+  const tr = [m.bands.buffer, m.bandsPrev.buffer];
+  if (live) {
+    m.anom = Y.toFine(Y.Ta, new Float32Array(P.grid.n)); tr.push(m.anom.buffer);
+    if (!cont) { m.anomPrev = Y.toFine(Y.prev.T, new Float32Array(P.grid.n)); tr.push(m.anomPrev.buffer); }
+    yearAnomSent = Y.steps;
+  }
+  post(m, tr);
+}
+
+// The rivers' discharge against the climate's this month, under the year's rain anomaly
+// (through runoff's elasticity), routed: a factor per cell of each traced river. Only where
+// the page draws rivers by the month (below ~12 yr/s) and the year is live.
+function riverAnomaly() {
+  const Y = P.year, land = P.land, c = P.climate, g = P.grid, n = g.n, r = land.r;
+  if (!(Y.live > 0) || lastRate > 15 || !riversCells || !riversQ12 || !r) return null;
+  const month = monthAt(((P.years % 1) + 1) % 1).i, e = YEAR.ELASTIC, toM3s = 1e6 * 12 / 3.156e7;
+  const Z = Y.rainUnitFine(riverAnomaly.z || (riverAnomaly.z = new Float32Array(n)));
+  const w = riverAnomaly.w || (riverAnomaly.w = new Float64Array(n)), q = riverAnomaly.q || (riverAnomaly.q = new Float64Array(n));
+  for (let i = 0; i < n; i++) {
+    const ro = c.runoffM[12 * i + month];
+    if (land.base[i] || !(ro > 0)) { w[i] = 0; continue; }
+    const s = Y.rsig[i] * Y.live;
+    w[i] = land.areaKm[i] * ro * Math.exp(e * s * Z[i] - 0.5 * e * e * s * s);
+  }
+  accumulate(r.order, r.count, r.rcv, w, q);
+  let len = 0;
+  for (const cs of riversCells) len += cs.length;
+  const out = new Float32Array(len);
+  let k = 0;
+  for (const cs of riversCells) for (const i of cs) { const q0 = riversQ12[12 * i + month]; out[k++] = q0 > 0 ? q[i] * toM3s / q0 : 1; }
+  return out;
 }
 
 function sendClimate() {
@@ -187,7 +252,11 @@ function sendFast(first) {
     landFlux: { ...land.flux },
     moon: { a: P.moon.a, Omega: P.moon.Omega, omega: P.moon.omega, P: P.moon.P, day: P.moon.day },
     plumes: { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) },
+    year: { live: P.year.live, meanT: P.year.stats.meanT, sigma: P.year.stats.sigma, F: P.year.stats.F, Fmean: CLIMATE.F_VOLC, Frate: P.volcanoes.meanForcing(),
+      aod: P.year.stats.aod, rates: P.volcanoes.rates(), tag: P.year.tagInfo ? { ...P.year.tagInfo, theory: { ...P.year.tagInfo.theory } } : null },
   };
+  const ra = riverAnomaly();
+  if (ra) { m.rivAnom = ra; m.riversId = riversId; }
   samples = [];
   for (const k in prof) prof[k] = 0;
   sendFast.prev = lastFast;
@@ -205,5 +274,5 @@ function sendFast(first) {
     }
     m.agg = { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare };
   }
-  post(m, [m.samples.buffer, m.iceH.buffer, m.iceVel.buffer]);
+  post(m, [m.samples.buffer, m.iceH.buffer, m.iceVel.buffer, ...(m.rivAnom ? [m.rivAnom.buffer] : [])]);
 }

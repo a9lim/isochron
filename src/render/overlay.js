@@ -59,7 +59,12 @@ const isDry = (river, k, w) => w < 0.1 * river.W[k] && w < 0.3 * RIVER_MIN;
 function riverW(river, k, month) {
   if (!month || !river.M) return river.W[k];
   const M = river.M, a = month.i, b = (a + 1) % 12;
-  return M[12 * k + a] * (1 - month.f) + M[12 * k + b] * month.f;
+  const q = M[12 * k + a] * (1 - month.f) + M[12 * k + b] * month.f;
+  // The year's anomaly this month (the worker's factor per cell of the river's chain, source to mouth).
+  const A = river.anom;
+  if (!A || !A.length) return q;
+  const n = river.W.length, j = n > 1 ? Math.round(k / (n - 1) * (A.length - 1)) : 0;
+  return q * (1 + month.aw * (A[j] - 1));
 }
 
 function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) {
@@ -145,6 +150,21 @@ function drawPlumes(ctx, cx, cy, r, camera, plumes, palette) {
   }
 }
 
+// An eruption: a red triangle, the map's volcano, its size by the sulfate (a decade of
+// Pinatubos a step), fading over its second and a half on screen.
+function drawEruptions(ctx, cx, cy, r, camera, eruptions, palette) {
+  const v = [0, 0, 0], sc = symbolScale(r);
+  ctx.fillStyle = palette.accent;
+  for (const e of eruptions) {
+    camera.view(e.p[0], e.p[1], e.p[2], v);
+    if (v[2] < 0.05 || !(e.a > 0)) continue;
+    const x = cx + v[0] * r, y = cy - v[1] * r, s = (3 + 1.8 * Math.max(0, Math.log10(e.M / 0.1))) * sc;
+    ctx.globalAlpha = e.a;
+    ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + 0.95 * s, y + 0.65 * s); ctx.lineTo(x - 0.95 * s, y + 0.65 * s); ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
 export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
@@ -161,6 +181,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather || tides ? 0.35 : 0.9, layers.riverMonth);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   if (!climate && !tides && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
+  if (!tides && layers.eruptions && layers.eruptions.length) drawEruptions(ctx, cx, cy, r, camera, layers.eruptions, palette);
   const lines = climate || tides ? null : layers.boundaries;
   if (!lines) return;
   const sc = symbolScale(r), lw = Math.sqrt(sc);

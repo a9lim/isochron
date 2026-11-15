@@ -88,6 +88,7 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
       }
     }
     line.plate = land.tec.owner[c.cells[0]];
+    line.cells = Int32Array.from(c.cells);   // the chain's cells, source to mouth (the year's anomaly reads them)
     out[k] = line;
   }
   // Short streams on wet coasts are dropped: a river is three cells long at level 6, or a large one.

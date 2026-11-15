@@ -4,10 +4,13 @@
 // one-cell patches melt away, and eased over ~0.8 s when a new climate
 // cycle lands. Written straight into the globe's climate buffer with the sea
 // surface temperature, the gyres' streamfunction and the ice sheets' thickness.
+// The year's anomaly (src/engine/year.js) shifts the date's temperature: the
+// page keeps the anomaly at the year's last two step ends and blends them by
+// its clock, weighted by how live the year is.
 import { kernel, storage, uniform } from './device.js';
 
 const HEAD = /* wgsl */`
-struct Su { c1: f32, s1: f32, c2: f32, s2: f32, sw: f32, lapse: f32, ease: f32, n: u32 };
+struct Su { c1: f32, s1: f32, c2: f32, s2: f32, sw: f32, lapse: f32, ease: f32, n: u32, af: f32, aw: f32, p0: f32, p1: f32 };
 @group(0) @binding(0) var<uniform> U: Su;
 fn ramp(a: f32, b: f32, x: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
 `;
@@ -17,6 +20,8 @@ const COLD = HEAD + /* wgsl */`
 @group(0) @binding(2) var<storage, read> iceH: array<f32>;
 @group(0) @binding(3) var<storage, read> elevRel: array<f32>;
 @group(0) @binding(4) var<storage, read_write> ci: array<vec2f>;
+@group(0) @binding(5) var<storage, read> anA: array<f32>;
+@group(0) @binding(6) var<storage, read> anB: array<f32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -25,9 +30,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let b = clim[3u * i + 1u];
   var cold = b.y;
   if (U.sw > 0.001) {
-    // At sea, the surface's temperature: the air's plus the gyres' anomaly (clim's sea-surface slot less T̄).
+    // At sea, the surface's temperature: the air's plus the gyres' anomaly (clim's sea-surface slot less T̄);
+    // everywhere, the year's anomaly between its last two steps.
     let tp = select(clim[3u * i + 2u].x - a.x, 0.0, b.w > 0.5);
-    let T = a.x + a.y * U.c1 - a.z * U.s1 + a.w * U.c2 - b.x * U.s2 + tp;
+    let an = U.aw * mix(anA[i], anB[i], U.af);
+    let T = a.x + a.y * U.c1 - a.z * U.s1 + a.w * U.c2 - b.x * U.s2 + tp + an;
     let now = select(ramp(1.5, 6.0, -T), ramp(-1.0, 5.0, -(T - U.lapse * b.z)), b.w > 0.5);
     cold = U.sw * now + (1.0 - U.sw) * cold;
   }
@@ -84,12 +91,13 @@ export class GpuSeason {
     this.elevRel = storage(device, 4 * n);
     this.A = storage(device, 8 * n); this.B = storage(device, 8 * n);
     this.from = storage(device, 4 * n); this.shown = storage(device, 4 * n);
-    this.u = new ArrayBuffer(32);
+    this.anA = storage(device, 4 * n); this.anB = storage(device, 4 * n);
+    this.u = new ArrayBuffer(48);
     this.U = uniform(device, new Uint32Array(this.u));
     const K = { cold: kernel(device, COLD, 'cold'), smooth: kernel(device, SMOOTH, 'smooth'), compose: kernel(device, COMPOSE, 'compose') };
     const x = Math.ceil(n / 64), U = this.U;
     this.list = [
-      [K.cold, K.cold.bind({ U, clim: this.clim, iceH: this.iceH, elevRel: this.elevRel, ci: this.A }), x],
+      [K.cold, K.cold.bind({ U, clim: this.clim, iceH: this.iceH, elevRel: this.elevRel, ci: this.A, anA: this.anA, anB: this.anB }), x],
       [K.smooth, K.smooth.bind({ U, nbr: this.nbr, src: this.A, dst: this.B }), x],
       [K.smooth, K.smooth.bind({ U, nbr: this.nbr, src: this.B, dst: this.A }), x],
       [K.compose, K.compose.bind({ U, clim: this.clim, ci: this.A, prior: this.from, shown: this.shown, out }), x],
@@ -112,13 +120,22 @@ export class GpuSeason {
     this.device.queue.submit([enc.finish()]);
   }
   setIce(H) { this.device.queue.writeBuffer(this.iceH, 0, H); }
+  /** The year's anomaly at its newest step's end (K per cell); the last becomes its start, unless `prev` is given. */
+  setAnomaly(next, prev = null) {
+    if (prev) this.device.queue.writeBuffer(this.anA, 0, prev);
+    else { const enc = this.device.createCommandEncoder(); enc.copyBufferToBuffer(this.anB, 0, this.anA, 0, 4 * this.n); this.device.queue.submit([enc.finish()]); }
+    this.device.queue.writeBuffer(this.anB, 0, next);
+  }
   setSurface(elevRel) { this.device.queue.writeBuffer(this.elevRel, 0, elevRel); }
 
-  /** Draw the season at year phase τ with weight sw (1: the date, 0: the year's share), eased by `ease`. */
-  draw(tau, sw, lapse, ease) {
+  /**
+   * Draw the season at year phase τ with weight sw (1: the date, 0: the year's share), eased by
+   * `ease`, with the year's anomaly `af` of the way between its two steps, weighted by `aw`.
+   */
+  draw(tau, sw, lapse, ease, af = 1, aw = 0) {
     const c = Math.cos(2 * Math.PI * tau), s = Math.sin(2 * Math.PI * tau);
     const f = new Float32Array(this.u), u = new Uint32Array(this.u);
-    f.set([c, s, c * c - s * s, 2 * s * c, sw, lapse, ease]); u[7] = this.n;
+    f.set([c, s, c * c - s * s, 2 * s * c, sw, lapse, ease]); u[7] = this.n; f[8] = af; f[9] = aw;
     this.device.queue.writeBuffer(this.U, 0, this.u);
     const enc = this.device.createCommandEncoder(), pass = enc.beginComputePass();
     for (const [K, bg, x] of this.list) { pass.setPipeline(K.pipeline); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x); }

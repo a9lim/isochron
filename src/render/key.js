@@ -33,6 +33,11 @@ const GLYPHS = {
   },
   inactive: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.45); c.lineWidth = 1; c.setLineDash([1, 3]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   hotspot: (c, x, y, P) => { c.fillStyle = P.accent; c.strokeStyle = P.accent; c.lineWidth = 1; c.beginPath(); c.arc(x + 13, y + 6, 1.9, 0, 7); c.fill(); c.beginPath(); c.arc(x + 13, y + 6, 4.6, 0, 7); c.stroke(); },
+  volcano: (c, x, y, P) => { c.fillStyle = P.accent; c.beginPath(); c.moveTo(x + 13, y + 1.5); c.lineTo(x + 18, y + 10); c.lineTo(x + 8, y + 10); c.closePath(); c.fill(); },
+  veil: (c, x, y, P) => {
+    c.fillStyle = rgba(P.text, 0.55);
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 6; k++) { c.beginPath(); c.arc(x + 2.5 + 4.2 * k + (r % 2 ? 2.1 : 0), y + 2.5 + 3.6 * r, 0.65, 0, 7); c.fill(); }
+  },
   river: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.9); c.lineWidth = 1.6; c.beginPath(); c.moveTo(x, y + 9); c.quadraticCurveTo(x + 10, y + 1, x + 26, y + 5); c.stroke(); },
   seaice: (c, x, y, P) => { c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.16) : mixHex(P.canvas, P.ocean, 0.05); c.fillRect(x, y, 26, 12); c.strokeStyle = rgba(P.ocean, 0.7); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11); },
   icesheet: (c, x, y, P) => {
@@ -96,9 +101,9 @@ function vegetation(c, x, y, P, kind) {
 }
 
 const ITEMS = {
-  relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['river', 'River'],
+  relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['volcano', 'Eruption'], ['veil', 'Sulfate veil'], ['river', 'River'],
     ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
-  climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv']],
+  climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv'], ['volcano', 'Eruption']],
   'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
   'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
   'weather-humidity': [['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['rain', 'Rain'], ['hl', 'High, low']],

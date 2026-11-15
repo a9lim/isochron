@@ -326,13 +326,14 @@ export function drawOrbit(canvas, orbit, nowKyr, pal) {
 
 // ── Fig. 7: the model ──
 // Every layer a node with its live value; every coupling the code has an arrow,
-// as heavy as its flux against a typical size. The mantle's CO₂ is the red.
+// as heavy as its flux against a typical size. The mantle's CO₂ and sulfate are the red.
 // The tide's arrows carry the spin it slows.
 const NODES = {
   orbit: [0.84, 0.07, 'Orbit'], weather: [0.16, 0.07, 'Weather'], tides: [0.5, 0.07, 'Tides'],
   ocean: [0.14, 0.31, 'Ocean'], climate: [0.5, 0.24, 'Climate'], zones: [0.86, 0.31, 'Zones'],
   ice: [0.16, 0.55, 'Ice'], carbon: [0.84, 0.56, 'Carbon'], landscape: [0.5, 0.6, 'Landscape'],
   sea: [0.16, 0.83, 'Sea level'], plates: [0.5, 0.9, 'Plates'], plumes: [0.86, 0.85, 'Plumes'],
+  year: [0.66, 0.47, 'Year'], volcanoes: [0.68, 0.76, 'Volcanoes'],
 };
 
 export function drawModel(canvas, s, pal) {

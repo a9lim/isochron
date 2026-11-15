@@ -204,6 +204,29 @@ a9: "let's do tides and the moon and then seasonal rivers"; stars that turn with
 - **The sky**: kept on the paper (the sims' shared ground) as a star chart, the dark theme its night. Stars turn only where a day takes seconds; the Sun and the Moon show only where the dial resolves them (a year and a month), else they'd jump about. The tide's clock is the sky's, so the bulge sits under the Moon.
 - **Rivers by the month** below ~12 yr/s: snowpack and melt, evaporation by temperature, baseflow by aridity. A first rule called a river dry below the drawing threshold (37% of river points half the year); now dry is under a tenth of its own mean.
 
+## The roadmap run (2026-11-14, evening)
+
+a9: "let's work through each of the phases in order (or in parallel when possible)… manage the whole session by dispatching subagents and workflows… will look over it at the end"; pause for a compaction when wanted. The phases are `docs/PLAN.md`'s Roadmap (6 the year, 7 ice that carves, 7b sea ice if scope allows, 8 minimal life, 9 dust, 10 the engine on the GPU).
+
+Rules for the run:
+- **Lanes.** The main checkout is the integration lane: one phase at a time, each verified in the browser before the next. Modules for later phases are built ahead, in parallel, as new files with their own tests (no edits to existing files) and integrated by their phase. Phase 10a runs in its own worktree and merges after phase 6.
+- **Only Claude commits** (the orchestrator), after checking; subagents don't commit in the main checkout, and run only their own test files while others are editing. Commit each phase in the submodule, push, and bump the parent's pointer, staging `projects/isochron` explicitly.
+- **Only one agent drives the browser pane at a time** (the integration lane's, or Claude).
+- **No deploy**: a9 reviews first.
+- New per-cell state runs on the engine's GPU device with a CPU reference and a parity test; every layer lands with an analytic oracle; record decisions here.
+
+Progress:
+- Wave 1: phase 6's core landed (the year's stepper, the anomaly fitted to the QG weather, volcanoes and the veil, the Eruption experiment: one Pinatubo cools 0.41 K, e-folding 3.4 yr); modules built and tested ahead of their phases, not yet wired: `soil.js` (Manabe's bucket, snow, ground heat; Budyko within 0.3%), `lakes.js` (fill and spill on a depression hierarchy; A = Q/(E − P) exactly), `flexure.js` (multigrid thin plate, 0.28 ms a V-cycle at level 7; flex load *changes* only, since flexing the isostatic columns whole wrecks the margins), `oceancarbon.js` (three boxes and carbonate compensation; constants checked against PyCO2SYS), `vegetation.js` (VECODE-like cover, exact at any step; Miami NPP), `dust.js` (GOCART emission, two bins, ~4 ms of GPU a cycle), `seaice.js` (7b: Stefan growth, free drift, cavitating fluid; the edge stays near-circular, so 7b's payoff is in doubt).
+- Phase 10a running in a worktree. Phase 7 waits for its merge (it adds plate-frame fields that 10a ports).
+- Phase 6's core built (`src/engine/year.js`, `src/engine/volcanoes.js`; soil and lakes plug into the stepper's hooks). Decisions:
+  - **The anomaly on a 440 km grid (level 4), not the climate's 220 km.** The diffusion's implicit solve at 220 km cost ~3 ms a step; at 440 km 0.6 ms (16 CG iterations), and the noise's scale is 1,500 km. Each step is the OU process's exact transition per cell, then the diffusion implicitly, so any step length has the right statistics and the dial can take long steps (≤ 30 a second).
+  - **D = 0.03, a third of the seasonal harmonics'.** With 0.1 land was tied to the sea within ~1,000 km in a month and continents' monthly spread came out 1.5× the sea's (Earth's 3–5×, from memory); with 0.03 it's ~2.6×.
+  - **The amplitude fitted to the QG weather** (`tools/anomaly-fit.mjs`: 120 days each of January and July at level 6 on Dawn, θ's monthly-mean variance over land by |latitude|): 2.0 K at 40°, 1.3 K at 60°, 0.9 K at 80°, 0.7 K at 10°. The QG model damps the tropics by design (0.14 K at the equator), so the equator's node is held at 10°'s.
+  - **The zones' widths are the closure's spread** (σ/1.7 as a logistic's scale, a floor of 0.5 K and 0.1 in quadrature). The closure (the local OU's variance with the heat capacity smoothed over the diffusion's reach) tracks the live model's land spread to ~7% rms on three seeds. Shares moved by at most a point on `earthlike`, `b` and `c`, so nothing else was retuned.
+  - **The veil's forcing is uniform per unit optical depth.** Weighting it by sunlight made its mean depend on where the veil sat (~10%), and then the anomaly, forced by the veil less the eruption rate's mean, drifted. The mean is in `CLIMATE.F_VOLC` against the opening's at every dial, so nothing switches.
+  - **The experiment's number is the eruption's own response**, a tagged veil and response carried beside the rest (the model is linear). It erupts once the climate has run two cycles, since the heat capacity reads the climate's land and sea ice (at boot the theory came out all-sea).
+  - A pre-existing slip fixed on the way: ticks sent before the engine's `ready` were dropped from the page's clock, which then lagged the engine's by the boot (~2 yr at 1 yr/s). And the figure bar wraps now, since at ~1,000 px a knob squeezed the caption to a column and the globe to nothing (Ice ages too).
+
 ## Registering on the site
 
 When the social card is made (a9's session):

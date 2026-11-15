@@ -70,6 +70,11 @@ export const CLIMATE = {
   LAND_EVAP: 0.6,          // land's evaporation relative to the sea's, when wet
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
+  F_VOLC: 0,               // W/m²: the volcanoes' mean forcing against the opening's (src/engine/volcanoes.js)
+  // The zones' widths: the year's own spread (src/engine/year.js) where there is one, with these
+  // floors in quadrature (the classification's own uncertainty: a cell is 55–220 km of climates);
+  // without one, the fixed widths (K, and in log rain).
+  ZONE_FLOOR_T: 0.5, ZONE_FLOOR_P: 0.1, ZONE_T: 1.5, ZONE_P: 0.25,
 };
 
 export const ZONES = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
@@ -157,7 +162,6 @@ export class Climate {
     this.T = makeTransfer(fine, this.coarse);
     const nc = this.coarse.n;
     this.orbit = { ...EARTH_ORBIT, ...(opts.orbit || {}) };
-    this.year = 0;   // the planet's clock in years, for the season
 
     // Geometry, fine.
     this.lat = new Float64Array(n); this.lon = new Float64Array(n);
@@ -217,6 +221,7 @@ export class Climate {
     this.ice = null;     // src/engine/ice.js, when there is one
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ocean = null;   // src/engine/ocean.js, when there is one
+    this.year = null;    // src/engine/year.js, when there is one: the zones' widths
     this.warm = false;
     this.it = null;
     this.version = 0;
@@ -356,7 +361,7 @@ export class Climate {
     }
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);
-    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF);
+    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC;
     const tol = this.warm ? 1e-5 : 1e-7, maxIt = this.warm ? 60 : 300;
     // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
     for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }
@@ -584,7 +589,11 @@ export class Climate {
     }
     // Monthly values, the zones, and runoff.
     const tm = new Float64Array(12), pm = new Float64Array(12), mph = Array.from({ length: 12 }, (_, m) => monthPhase(m));
-    const z = this.zones, wT = 1.5, wP = 0.25;
+    // The thresholds' widths stand for the spread from year to year: the year's anomaly's
+    // (its closure: a month's temperature, a year's log rain), as a logistic's scale
+    // (σ / 1.7 matches a normal's spread), where the planet has a year.
+    const z = this.zones, sp = this.year ? this.year.spreadFine() : null;
+    let wT = C.ZONE_T, wP = C.ZONE_P;
     for (let i = 0; i < n; i++) {
       const o = NZ * i;
       for (let k = 0; k < NZ; k++) z[o + k] = 0;
@@ -603,6 +612,7 @@ export class Climate {
       this.runoff[i] = this.landMask[i] ? Math.max(0, map - et) / 1000 : 0;
       if (!this.landMask[i]) continue;
       this.monthlyRunoff(i, tm, pm, et, this.runoff[i] * 1000);
+      if (sp) { wT = Math.hypot(sp.T[i] / 1.7, C.ZONE_FLOOR_T); wP = Math.hypot(this.year.annualRainSpread(i, map) / 1.7, C.ZONE_FLOOR_P); }
       // Summer is April–September in the north, October–March in the south.
       const north = this.lat[i] >= 0;
       let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;

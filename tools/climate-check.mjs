@@ -5,10 +5,13 @@ import { Tectonics } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
 import { genesis } from '../src/engine/genesis.js';
 import { Climate, CLIMATE, ZONES, NZ } from '../src/engine/climate.js';
+import { Year } from '../src/engine/year.js';
 Object.assign(CLIMATE, JSON.parse(process.argv[3] || '{}'));
 const g = buildGrid(6), tec = new Tectonics(g), land = new Landscape(tec);
 genesis(tec, process.argv[2] || 'earthlike', { spinup: 40, landscape: land });
 const clim = new Climate(tec, land);
+// The year's spread sets the zones' widths (FIXED=1 in the env: the fixed widths, as before phase 6).
+if (!process.env.FIXED) clim.year = new Year(clim);
 let t0 = performance.now();
 clim.solve(1);
 const cold = performance.now() - t0; t0 = performance.now();

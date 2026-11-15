@@ -50,6 +50,7 @@ struct U {
   inkF: vec4f,       // sienna (the temperature chart's warmth)
   tide: vec4f,       // the tide's clock: Re, Im of e^{iφ₂} + ρ e^{iφs} (spring and neap), cos, sin φ₂
   tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now
+  veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -160,6 +161,14 @@ fn stipple1(uv: vec2f, fw: f32, o: vec2f, rpx: f32) -> f32 {
 fn stipple(T: Tri, periodPx: f32, rpx: f32) -> f32 {
   let o = octave(periodPx);
   return T.w.x * stipple1(T.x, T.f.x, o, rpx) + T.w.y * stipple1(T.y, T.f.y, o, rpx) + T.w.z * stipple1(T.z, T.f.z, o, rpx);
+}
+
+// The veil's optical depth at sin(latitude) z, linear between its bands' centres.
+fn veilAt(z: f32) -> f32 {
+  let x = clamp((asin(clamp(z, -1.0, 1.0)) * 57.2957795 + 87.5) / 5.0, 0.0, 35.0);
+  let k = u32(floor(x));
+  let k1 = min(k + 1u, 35u);
+  return mix(u.veil[k / 4u][k % 4u], u.veil[k1 / 4u][k1 % 4u], x - f32(k));
 }
 
 fn zoneInk(g: i32) -> vec3f {
@@ -420,6 +429,10 @@ fn hair(d: f32, w: f32) -> f32 {
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
+  // The sulfate veil (Relief only): a graphite stipple, denser where its optical depth is.
+  let aod = veilAt(wpn.z);
+  let vDots = stipple(T, mix(12.0, 6.0, smoothstep(0.02, 1.0, aod)) * u.mode.z, 0.6 * u.mode.z) * smoothstep(0.01, 0.04, aod);
+  c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.35), 0.6 * vDots * select(0.0, 1.0, u.mode.x < 0.5));
   return vec4f(c, 1.0);
 }
 `;
@@ -459,7 +472,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, mesh.tris);
-  const uniBuf = device.createBuffer({ size: 20 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 29 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -483,7 +496,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(80);
+  const uni = new Float32Array(116);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -587,6 +600,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       uni[55] = mode.blend ?? 1;
       const td = mode.tides || { m: [1, 0], hw: [1, 0], amp: 0, now: 0 };
       uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, 0], 72);
+      if (mode.veil) uni.set(mode.veil, 80); else uni.fill(0, 80, 116);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();

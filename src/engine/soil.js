@@ -1,0 +1,292 @@
+// The ground (docs/PLAN.md, phase 6): soil water, the snowpack and the
+// ground's heat on each land cell, stepped by the month.
+//
+//   the bucket    soil water S up to a capacity S_max (mm); evaporation is
+//                 the potential times β = min(1, S/0.75 S_max) (Manabe's
+//                 bucket, standard). Its overflow is generalized to a cell
+//                 whose points hold different capacities: a share w⁴ of the
+//                 month's rain and melt runs off the part already full,
+//                 w = S/S_max (the saturated share of HBV and the Arno
+//                 scheme, standard, from memory; w^b → overflow as b → ∞).
+//                 It drains as baseflow at 0.4 S_max w⁴ a month, the drainage
+//                 falling steeply as the soil dries (the shape of Clapp and
+//                 Hornberger's conductivity, from memory): drainage ∝ S ran
+//                 deserts' soils out to their rivers (+350% runoff in arid
+//                 climates against Budyko's). The exponents and the rate are
+//                 fitted (synthesis): see potential evaporation below.
+//   the month     backward Euler with the fluxes at the month's end, so any
+//                 month is stable: S_max w + Lᵢ(w⁴ − 1) + E_p β(w) + D w⁴ = S₀.
+//                 Split at w = 0.75 it is a w + c w⁴ = d on each side, convex,
+//                 solved by Newton from the right (monotone). The new S is
+//                 the old plus the fluxes, so water is kept exactly.
+//   the snowpack  the days of a month spread normally about its mean (5 K,
+//                 Reeh's scheme as in ice.js, standard): the share of days
+//                 below freezing falls as snow, and the pack melts by
+//                 positive degree days at 3 mm/°C/day. Snow cover (half at
+//                 20 mm) shuts off the soil's evaporation; the pack doesn't
+//                 sublimate. Past 1,000 mm the pack is the ice's: the excess
+//                 runs off (perennial snow has no periodic state otherwise,
+//                 and that loss was the whole of a −50% bias in cold climates).
+//   potential evaporation  PET = 55/12 · max(0, T + 4) mm a month: the
+//                 climate's Budyko PET (55 (T̄ + 4) mm a year, src/engine/
+//                 climate.js) taken month by month. Over 810 synthetic
+//                 climates (tests/soil.test.mjs) the periodic year's runoff is
+//                 0.3% below the climate's Budyko runoff in all (6% mean
+//                 error); on the opening planet's land too, but 24% below in
+//                 its permafrost, where Budyko's PET has its floor (30 mm a
+//                 year below a mean of −3.5 °C) and the summer months here
+//                 evaporate more.
+//   ground heat   (synthesis) one store near the permafrost table, relaxing
+//                 toward the air over τ = τ₀ (1 + d/d*). τ₀ = 2 months damps
+//                 the ground's annual swing to ~0.7 of the air's, as at about a
+//                 metre, and stands in for the latent heat of its water too
+//                 (there's no zero curtain as such). Snow of depth d (SWE at
+//                 300 kg/m³) is a resistance in series with the ground's own:
+//                 d* = 0.1 m of snow insulates as much as a metre of soil
+//                 (λ ≈ 0.13 for such snow by Sturm's fit, against ~1.5 W/m/K;
+//                 from memory). Snow lies in winter, so it keeps the winter's
+//                 cold out, and the ground's mean runs warmer than the air's
+//                 (the nival offset: ~+1.4 K under a 0.3 m pack, +3.6 K under
+//                 1.3 m, at a mean of −2 °C and a 15 K season). Without snow the
+//                 ground's mean is the air's. Permafrost is where the ground's
+//                 annual mean stays below 0 °C (soft, over 0.5 K). The soil's
+//                 surface lies between the air and the store, nearer the store
+//                 under deep snow (the same resistances); frozen there (ramped
+//                 over 1 K) it sheds half the month's rain and melt as quick
+//                 flow, and frozen ground below doesn't drain at all.
+//
+// Water in mm, temperature in °C, time in months (12 equal months a year).
+// Forcing and monthly outputs are laid out 12 per cell, January first
+// (index 12 i + m), as the climate's runoffM. A cell with S_max ≤ 0 is sea.
+
+export const SOIL = {
+  SMAX: 150,          // mm, the default capacity (the regolith will set it)
+  FC: 0.75,           // evaporation at the potential above this share of capacity (Manabe's)
+  KD: 0.4,            // per month: drainage at saturation, as a share of capacity
+  SIGMA: 5,           // K, the spread of days about a month's mean (as ice.js)
+  DDF: 3,             // mm of melt per positive degree-day
+  WMAX: 1000,         // mm SWE: past it the pack is the ice's, and runs off
+  COVER: 20,          // mm SWE at which half the ground is under snow
+  TAU: 2,             // months, the ground's time constant under bare ground
+  DSTAR: 0.1,         // m of snow insulating as much as the ground's own metre
+  RHO_SNOW: 300,      // kg/m³
+  FROZEN: 0.5,        // share of rain and melt that runs off a frozen surface
+  PET_K: 55 / 12,     // PET = PET_K · max(0, T + PET_T0), mm a month (the climate's Budyko PET by the month)
+  PET_T0: 4,
+  PERMA_W: 0.5,       // K, the width of permafrost's logistic in the ground's mean
+  NEWTON: 5,          // iterations a month (monotone from the right: four reach 1e-8 of capacity)
+};
+
+const DAYS = 30.44;
+const phiN = x => Math.exp(-0.5 * x * x) * 0.3989422804014327;
+// Φ by Abramowitz and Stegun 26.2.17 (as ice.js).
+function PhiN(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = phiN(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - d : d;
+}
+
+/** Potential evaporation (mm a month) from monthly temperatures (°C), element by element. */
+export function potentialEvaporation(T, out = new Float32Array(T.length)) {
+  for (let k = 0; k < T.length; k++) out[k] = SOIL.PET_K * Math.max(0, T[k] + SOIL.PET_T0);
+  return out;
+}
+
+/**
+ * The root of a w + c w⁴ = d in [0, hi] (a > 0, c ≥ 0), by Newton from the right: from
+ * the least of hi, d/a and (d/c)^¼, each of which bounds it from above.
+ */
+function root4(a, c, d, hi, iters) {
+  if (d <= 0) return 0;
+  let w = Math.min(hi, d / a);
+  if (c > 0) w = Math.min(w, Math.sqrt(Math.sqrt(d / c)));
+  for (let k = 0; k < iters; k++) {
+    const w3 = w * w * w;
+    w -= (a * w + c * w3 * w - d) / (a + 4 * c * w3);
+  }
+  return Math.max(0, w);
+}
+
+// One month of one cell. The results land in R: quick, base, E, S, SWE, Tg, the ground's
+// decay factor over the month (Tg's sensitivity to its start), and the pack's excess.
+const R = new Float64Array(8);
+function month(S0, W0, G0, smax, T, p, pet) {
+  const C = SOIL;
+  // The snowpack: snow on the month's freezing days, melt by its positive degree-days.
+  const x = T / C.SIGMA, below = PhiN(-x);
+  const snow = p * below, rain = p - snow;
+  const pdd = DAYS * (C.SIGMA * phiN(x) + T * (1 - below));
+  let W = W0 + snow;
+  const melt = Math.min(W, C.DDF * pdd);
+  W -= melt;
+  const ice = Math.max(0, W - C.WMAX);
+  W -= ice;
+  const L = rain + melt;
+  // The ground's heat: toward the air, slower under snow; the soil's surface lies between
+  // the two, nearer the ground the deeper the snow (the same resistances in series).
+  const Wm = 0.5 * (W0 + W), ins = 1 + Wm / C.RHO_SNOW / C.DSTAR;
+  const decay = Math.exp(-1 / (C.TAU * ins));
+  const G = T + (G0 - T) * decay, Gm = 0.5 * (G0 + G), Ts = Gm + (T - Gm) / ins;
+  // The bucket. A frozen surface sheds part of the input, frozen ground below doesn't
+  // drain (a perched table, so permafrost's soils stay wet), and snow cover stops evaporation.
+  const fz = C.FROZEN * Math.min(1, Math.max(0, -Ts)), thaw = 1 - Math.min(1, Math.max(0, -Gm));
+  const Li = L * (1 - fz), ep = pet * (1 - Wm / (Wm + C.COVER));
+  const kd = C.KD * smax * thaw, c = Li + kd;
+  // β = 1 above FC (a = S_max, d = S₀ + Lᵢ − E_p); below it β = w/FC (a = S_max + E_p/FC, d = S₀ + Lᵢ).
+  const d1 = S0 + Li - ep;
+  let w;
+  if (smax * C.FC + c * C.FC ** 4 <= d1) w = root4(smax, c, d1, 1, C.NEWTON);
+  else w = root4(smax + ep / C.FC, c, S0 + Li, C.FC, C.NEWTON);
+  const w4 = w * w * w * w;
+  let quick = ice + L * fz + Li * w4, base = kd * w4, E = ep * Math.min(1, w / C.FC);
+  // The store from the fluxes, so water is kept exactly; any residual of the solve goes to its bounds.
+  let S = S0 + Li - Li * w4 - base - E;
+  if (S < 0) { E += S; S = 0; if (E < 0) { base += E; E = 0; } }
+  else if (S > smax) { quick += S - smax; S = smax; }
+  R[0] = quick; R[1] = base; R[2] = E; R[3] = S; R[4] = W; R[5] = G; R[6] = decay; R[7] = ice;
+}
+
+export class Soil {
+  /** `n` cells; `Smax` (mm) a number or an array, ≤ 0 where there's no land. */
+  constructor(n, Smax = SOIL.SMAX) {
+    this.n = n;
+    this.Smax = new Float32Array(n);
+    this.S = new Float64Array(n);          // soil water, mm
+    this.SWE = new Float64Array(n);        // snowpack, mm of water
+    this.Tg = new Float64Array(n);         // the ground's temperature, °C
+    const m12 = () => new Float32Array(12 * n);
+    // By month (12 i + m), the month's totals (mm) and its end state.
+    this.out = { quick: m12(), base: m12(), evap: m12(), S: m12(), SWE: m12(), Tg: m12() };
+    // The last twelve months' aggregates.
+    this.runoff = new Float32Array(n);     // mm a year, quick and base
+    this.evap = new Float32Array(n);       // mm a year
+    this.wet = new Float32Array(n);        // mean S/S_max: the climate's land wetness
+    this.beta = new Float32Array(n);       // mean evaporative efficiency, β × the snow-free share
+    this.tgMean = new Float32Array(n);     // the ground's annual mean, °C
+    this.permafrost = new Float32Array(n); // soft: 1 where the ground's mean is well below 0 °C
+    this.setCapacity(Smax);
+    for (let i = 0; i < n; i++) this.S[i] = 0.5 * this.Smax[i];
+  }
+
+  setCapacity(Smax) {
+    if (typeof Smax === 'number') this.Smax.fill(Smax); else this.Smax.set(Smax);
+    for (let i = 0; i < this.n; i++) if (this.S[i] > this.Smax[i]) this.S[i] = Math.max(0, this.Smax[i]);
+  }
+
+  /**
+   * Step every land cell through calendar month m (0 = January). T (°C), P and PET (mm a
+   * month) are 12 per cell. The anomaly (optional, per cell): dT (K) adds to T and moves PET
+   * by its slope; rf scales the rain.
+   */
+  stepMonth(m, T, P, PET, dT = null, rf = null) {
+    const n = this.n, o = this.out, k0 = SOIL.PET_K;
+    for (let i = 0; i < n; i++) {
+      const smax = this.Smax[i];
+      if (!(smax > 0)) continue;
+      const k = 12 * i + m;
+      let t = T[k], p = P[k], pet = PET[k];
+      if (dT) { const tt = t + dT[i]; pet = Math.max(0, pet + k0 * (Math.max(0, tt + SOIL.PET_T0) - Math.max(0, t + SOIL.PET_T0))); t = tt; }
+      if (rf) p *= rf[i];
+      month(this.S[i], this.SWE[i], this.Tg[i], smax, t, p, pet);
+      o.quick[k] = R[0]; o.base[k] = R[1]; o.evap[k] = R[2]; o.S[k] = R[3]; o.SWE[k] = R[4]; o.Tg[k] = R[5];
+      this.S[i] = R[3]; this.SWE[i] = R[4]; this.Tg[i] = R[5];
+    }
+  }
+
+  /**
+   * The periodic year under a 12-month forcing (the closure at fast dials), from the
+   * current state (warm) or a fresh one (`cold`). Each cell runs its own years until
+   * January's state repeats within `tol` (mm; 0.01 K for the ground): the ground's
+   * periodic state is solved exactly each year (it is linear in its start, given the
+   * snow), perennial snow jumps to the cap, and the soil's by safeguarded secant steps.
+   * Leaves the state at January 1 and the last year's months in `out`. Cells `from` to
+   * `to` only, if given (a climate cycle can slice the work). Returns the years taken (a
+   * warm start that has nothing to do takes one).
+   */
+  equilibrium(T, P, PET, { tol = 0.05, maxYears = 30, cold = false, from = 0, to = this.n } = {}) {
+    const o = this.out, C = SOIL;
+    let years = 0, worst = 0, cells = 0, unconverged = 0;
+    for (let i = from; i < to; i++) {
+      const smax = this.Smax[i];
+      if (!(smax > 0)) continue;
+      const b = 12 * i;
+      let S = this.S[i], W = this.SWE[i], G = this.Tg[i];
+      if (cold) {
+        let t = 0;
+        for (let m = 0; m < 12; m++) t += T[b + m] / 12;
+        S = 0.5 * smax; W = 0; G = t;
+      }
+      // The snow doesn't read the ground or the soil, nor the ground the soil: once the snow
+      // and the ground repeat, S's year is a monotone map of [0, S_max] into itself, whose
+      // fixed point is found by secant steps inside a bracket that each year tightens.
+      let lo = 0, hi = smax, xPrev = NaN, gPrev = 0, y = 0, done = false;
+      while (y < maxYears) {
+        const S0 = S, W0 = W, G0 = G;
+        let a = 1, wmin = Infinity, capped = false;
+        for (let m = 0; m < 12; m++) {
+          const k = b + m;
+          month(S, W, G, smax, T[k], P[k], PET[k]);
+          o.quick[k] = R[0]; o.base[k] = R[1]; o.evap[k] = R[2]; o.S[k] = R[3]; o.SWE[k] = R[4]; o.Tg[k] = R[5];
+          S = R[3]; W = R[4]; G = R[5]; a *= R[6];
+          if (W < wmin) wmin = W;
+          if (R[7] > 0) capped = true;
+        }
+        y++;
+        // The ground's periodic state given the year's snow, exactly (it is linear in its start).
+        const Gp = a < 1 ? (G - a * G0) / (1 - a) : G, snowSet = Math.abs(W - W0) < tol;
+        const g = S - S0, settled = snowSet && Math.abs(Gp - G0) < 0.01;
+        if (settled && Math.abs(g) < tol) { done = true; break; }
+        G = Gp;
+        if (!snowSet && wmin > 0 && !capped) {
+          // A pack that neither melts out nor reaches the cap changes alike every year (its
+          // melt is the degree-days' whatever its depth): growing, its periodic state is at the
+          // cap; shrinking, it is the year shifted down until its least month melts out.
+          if (W > W0) W = Math.max(W, C.WMAX); else W -= wmin;
+        }
+        // The map is monotone, so its image bounds the fixed point on the same side. While the
+        // snow or the ground still move, the map moves too: S carries on from where the year
+        // left it, and the bracket starts afresh.
+        if (settled) { if (g > 0) lo = Math.max(lo, S); else hi = Math.min(hi, S); }
+        if (!settled || lo >= hi) { lo = 0; hi = smax; xPrev = NaN; continue; }
+        let next = S;
+        if (xPrev === xPrev && g !== gPrev) {
+          next = S0 - g * (S0 - xPrev) / (g - gPrev);
+          if (!(next > lo && next < hi)) next = 0.5 * (lo + hi);
+        }
+        xPrev = S0; gPrev = g; S = next;
+      }
+      this.S[i] = S; this.SWE[i] = W; this.Tg[i] = G;
+      years += y; worst = Math.max(worst, y); cells++;
+      if (!done) unconverged++;
+    }
+    this.aggregate(from, to);
+    return { cells, meanYears: cells ? years / cells : 0, maxYears: worst, unconverged };
+  }
+
+  /** Copy the state at the start of calendar month m from the periodic year in `out`. */
+  stateAt(m) {
+    const o = this.out, p = (m + 11) % 12;
+    for (let i = 0; i < this.n; i++) {
+      if (!(this.Smax[i] > 0)) continue;
+      const k = 12 * i + p;
+      this.S[i] = o.S[k]; this.SWE[i] = o.SWE[k]; this.Tg[i] = o.Tg[k];
+    }
+  }
+
+  /** The aggregates over the twelve months in `out` (cells `from` to `to`). */
+  aggregate(from = 0, to = this.n) {
+    const o = this.out, C = SOIL;
+    for (let i = from; i < to; i++) {
+      const smax = this.Smax[i];
+      if (!(smax > 0)) { this.runoff[i] = this.evap[i] = this.wet[i] = this.beta[i] = this.tgMean[i] = this.permafrost[i] = 0; continue; }
+      let r = 0, e = 0, w = 0, be = 0, g = 0;
+      for (let m = 0; m < 12; m++) {
+        const k = 12 * i + m, wm = o.S[k] / smax, sw = o.SWE[k];
+        r += o.quick[k] + o.base[k]; e += o.evap[k]; w += wm; g += o.Tg[k];
+        be += Math.min(1, wm / C.FC) * (1 - sw / (sw + C.COVER));
+      }
+      this.runoff[i] = r; this.evap[i] = e; this.wet[i] = w / 12; this.beta[i] = be / 12; this.tgMean[i] = g / 12;
+      this.permafrost[i] = 1 / (1 + Math.exp(g / 12 / C.PERMA_W));
+    }
+  }
+}

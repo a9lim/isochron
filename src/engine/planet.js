@@ -4,7 +4,10 @@
 //
 //   per plate step (0.5 Myr)   plates, plumes, landscape
 //   per frame                  the orbit the climate sees (averaged over the
-//                              time the dial passes in ~2 s), carbon, ice
+//                              time the dial passes in ~2 s), carbon, ice,
+//                              and the year (src/engine/year.js): its months
+//                              while the dial is below ~100 yr/s, the
+//                              volcanoes' mean forcing at every dial
 //   in the background          the climate's cycles; each completed cycle
 //                              refreshes weathering's map and the ice's
 //                              mass balance
@@ -20,6 +23,8 @@ import { Ocean } from './ocean.js';
 import { genesis } from './genesis.js';
 import { refineTectonics } from './refine.js';
 import { Moon } from './tides.js';
+import { Volcanoes } from './volcanoes.js';
+import { Year } from './year.js';
 
 export { Record, SERIES } from './record.js';
 import { Record } from './record.js';
@@ -48,6 +53,10 @@ export class Planet {
     this.climate.ocean = this.ocean;
     this.carbon = new Carbon(this.tec, this.land, this.climate, this.plumes);
     this.orbit = new OrbitCycles(seed);
+    // The year: the anomaly, the volcanoes' veil, and (when plugged in) the soil and the lakes.
+    this.volcanoes = new Volcanoes(this.tec, this.plumes, this.carbon, seed);
+    this.year = new Year(this.climate, this.volcanoes, seed);
+    this.climate.year = this.year;
     // The Moon and the spin it slows: its tides are solved on the GPU where there is one
     // (src/gpu/tides.js, from the engine's worker); headless, the Moon stays put.
     this.moon = new Moon();
@@ -85,8 +94,12 @@ export class Planet {
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
   }
 
-  /** The fast layers over dt years: carbon, and ice within a time budget. */
-  fast(dt, iceMs = 4) {
+  /**
+   * The fast layers over dt years at `rate` years a second of the dial: carbon, ice within a
+   * time budget, and the year (live below ~100 yr/s). Headless, a fast step stands for a
+   * tenth of a second of the dial.
+   */
+  fast(dt, iceMs = 4, rate = 10 * dt) {
     this.carbon.step(dt);
     CLIMATE.CO2 = this.carbon.pco2;
     if (dt > 0) {
@@ -99,6 +112,7 @@ export class Planet {
         this.loadSince = 0;
       }
     }
+    this.year.advance(this.years, rate);
   }
 
   /** Background work on the climate; true when a cycle completed. */
@@ -117,7 +131,7 @@ export class Planet {
     const tec = this.tec, g = this.grid;
     let land = 0;
     for (let i = 0; i < g.n; i++) if (tec.elev[i] > tec.seaLevel) land += g.area[i];
-    return [this.climate.stats.meanT, this.carbon.pco2, (tec.seaLevel - this.seaLevel0) * 1000,
+    return [this.climate.stats.meanT + this.year.meanAt(this.years), this.carbon.pco2, (tec.seaLevel - this.seaLevel0) * 1000,
       this.ice.stats.seaLevel, 100 * land / (4 * Math.PI), this.carbon.ridge / this.carbon.ridge0, this.moon.solarDay];
   }
 
