@@ -31,7 +31,7 @@
 // written by a kernel straight into its vertex buffer each frame.
 //
 // Units: SI inside; ψ in m²/s, q in 1/s, time in seconds.
-import { kernel as kernelOf, storage, uniform } from './device.js';
+import { kernel, storage, uniform } from './device.js';
 import { hierarchy, coarseInverse, A_M } from './hierarchy.js';
 import { makeTransfer } from '../grid/transfer.js';
 
@@ -52,9 +52,11 @@ export const WEATHER = {
   TAU_EVAP: 2 * 86400,
   TAU_RAIN: 0.3 * 86400,
   K0: 1 / 3.16e7,       // 1/m: the barotropic solve's screening
-  CYCLES: 2,            // V-cycles per step (warm-started)
-  START: 0.5,           // the share of the climate's shear the upper layer starts with (all of it overshoots: storms grow
-                        // explosively and the transient's jets pass the step's advective limit)
+  CYCLES: 1,            // V-cycles per step (warm-started: the step's change in ψ is the error, and one cycle leaves
+                        // a tenth of it; two cost 0.6 ms a step at level 7 against 0.36, with the same statistics)
+  START: 0.7,           // the share of the climate's shear the upper layer starts with: at 0.5 storms took ~15 days to
+                        // reach their equilibrium; at 0.7, ~4; all of it overshoots (storms grow explosively and the
+                        // transient's jets pass the step's advective limit)
   JACOBI: 0.8,          // the smoother's weight
   NB: 60,               // latitude bands for the eddy pressure
 };
@@ -63,9 +65,14 @@ const wsat = T => 25 * Math.exp(0.065 * (Math.max(-45, Math.min(45, T)) - 15));
 
 const HEAD = /* wgsl */`
 const A2: f32 = ${(A_M * A_M).toExponential(8)};
-const OMEGA: f32 = OMEGA_HERE;
+const SQRT2: f32 = 1.41421356;
 struct Lv { n: u32, off: u32, nc: u32, offc: u32, k2: vec2f, omega: f32, nf: u32 };
 fn wsat(T: f32) -> f32 { return 25.0 * exp(0.065 * (clamp(T, -45.0, 45.0) - 15.0)); }
+`;
+
+const WX = /* wgsl */`
+struct Wx { dt: f32, F: f32, f0: f32, hbF: f32, nu4: f32, tmean: f32, shear: f32, upwind: f32,
+            tauRad: f32, tauEk: f32, tauTrop: f32, tauTheta: f32, tauEvap: f32, tauRain: f32, abA: f32, abB: f32 };
 `;
 
 const SMOOTH = HEAD + /* wgsl */`
@@ -158,18 +165,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   x[U.off + i] = s;
 }`;
 
-const RHS = HEAD + /* wgsl */`
+const RHS = HEAD + WX + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
 @group(0) @binding(1) var<storage, read> geo: array<f32>;
 @group(0) @binding(2) var<storage, read> s: array<vec4f>;
 @group(0) @binding(3) var<storage, read_write> b: array<vec2f>;
+@group(0) @binding(4) var<uniform> P: Wx;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
   let c = U.off + i;
   let q = s[2u * i];
-  let f = 2.0 * OMEGA * geo[8u * c + 7u];
+  let f = SQRT2 * P.f0 * geo[8u * c + 7u];
   b[c] = -geo[8u * c + 6u] * A2 * vec2f(0.5 * (q.x + q.y) - f, 0.5 * (q.x - q.y));
 }`;
 
@@ -203,9 +211,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   lap[i] = acc / (geo[8u * c + 6u] * A2);
 }`;
 
-const TEND = HEAD + /* wgsl */`
-struct Wx { dt: f32, F: f32, f0: f32, hbF: f32, nu4: f32, tmean: f32, shear: f32, upwind: f32,
-            tauRad: f32, tauEk: f32, tauTrop: f32, tauTheta: f32, tauEvap: f32, tauRain: f32, abA: f32, abB: f32 };
+const TEND = HEAD + WX + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
 @group(0) @binding(1) var<uniform> P: Wx;
 @group(0) @binding(2) var<storage, read> topo: array<u32>;
@@ -224,7 +230,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let c = U.off + i;
   let A = geo[8u * c + 6u] * A2;
   let z = geo[8u * c + 7u];
-  let f = 2.0 * OMEGA * z;
   let ti = trop(z);
   let S = sIn[2u * i];
   let Pt = sIn[2u * i + 1u];
@@ -262,7 +267,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   t -= P.nu4 * vec4f(1.0, 1.0, 0.5, 0.5) * hv / A;
   t = vec4f(t.xy - tz / (A * P.tauTrop), t.zw);
   // Relax the shear toward the climate's; Ekman below.
-  let bcEq = P.shear * (f / P.f0) * (Fi.x - P.tmean);
+  let bcEq = P.shear * SQRT2 * z * (Fi.x - P.tmean);     // f/f₀
   let relax = 2.0 * P.F * (X.y - bcEq) / P.tauRad;
   t.x += relax;
   t.y += -relax - zeta.y / P.tauEk;
@@ -282,8 +287,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 // climate's template, rain, temperature and humidity, each blended with the
 // climate's mean by how live the weather is.
 const DRAWHEAD = HEAD + /* wgsl */`
-struct Dw { live: f32, lapse: f32, nb: u32, tauRain: f32, phi: f32, p0: f32, p1: f32, p2: f32 };
-fn pEddy(X: vec2f, z: f32) -> f32 { return 1.2 * 2.0 * OMEGA * z * (X.x - X.y) / 100.0; }
+struct Dw { live: f32, lapse: f32, nb: u32, tauRain: f32, phi: f32, f0: f32, p1: f32, p2: f32 };
+fn pEddy(X: vec2f, z: f32, f0: f32) -> f32 { return 1.2 * SQRT2 * f0 * z * (X.x - X.y) / 100.0; }
 `;
 // The state the globe shows: the last two steps blended by how far the clock is into the
 // next (so a slow dial's steps don't land a frame at a time), θ, moisture and ρfψ₂.
@@ -303,7 +308,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let c = U.off + i;
   let z = geo[8u * c + 7u];
   let S = mix(sp[2u * i], s[2u * i], D.phi);
-  b4[i] = vec4f(S.z, S.w, mix(pEddy(xp[i], z), pEddy(x[c], z), D.phi), 0.0);
+  b4[i] = vec4f(S.z, S.w, mix(pEddy(xp[i], z, D.f0), pEddy(x[c], z, D.f0), D.phi), 0.0);
 }`;
 const ZONAL = DRAWHEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> bandOff: array<u32>;
@@ -380,15 +385,9 @@ export class GpuWeather {
   /** On `grid`; with a `refiner` (src/gpu/refine.js), forcing and means arrive on its coarser grid and are refined. */
   constructor(device, grid, seed = 'weather', refiner = null, Omega = OMEGA) {
     const W = WEATHER;
-    // The planet's spin, fixed for this weather (the day lengthens over millions of years; the
-    // page builds a new weather if it has moved by the time the view opens again).
-    this.Omega = Omega;
-    const kernel = (dev, code, label) => kernelOf(dev, code.replace('OMEGA_HERE', Omega.toExponential(8)), label);
     this.device = device; this.grid = grid; this.n = grid.n; this.level = grid.level;
     const s = 2 ** (grid.level - 5);
     this.dt = W.DT5 / s;
-    this.f0 = 2 * Omega * Math.sin(Math.PI / 4);
-    this.F = (Omega / OMEGA) ** 2 / (W.LD * W.LD);   // L_d = NH/f, so it shrinks as the spin quickens
     this.refiner = refiner;
     const H = this.H = hierarchy(grid, 2, refiner ? [refiner.coarse] : []), n = grid.n, N = H.N;
     const top = H.levels[H.levels.length - 1];
@@ -410,8 +409,7 @@ export class GpuWeather {
       this.Fc = B(16 * nc); this.Mc = B(16 * nc);
       this.par = makeTransfer(grid, refiner.coarse).par;
     }
-    this.k2 = [W.K0 ** 2, 2 * this.F];
-    this.inv = B(4 * 2 * H.levels[0].n ** 2, coarseInverse(H, this.k2));
+    this.inv = B(4 * 2 * H.levels[0].n ** 2);
     // Latitude bands, as lists of cells.
     const nb = W.NB, band = Int32Array.from(this.lat, l => Math.min(nb - 1, Math.floor((l / Math.PI + 0.5) * nb)));
     const bandOff = new Uint32Array(nb + 1);
@@ -422,19 +420,21 @@ export class GpuWeather {
     this.bandOff = B(bandOff.byteLength, bandOff); this.bandCells = B(bandCells.byteLength, bandCells);
     this.zm = B(4 * nb);
     // A uniform per level: its cells and offset, the next coarser's, the pair of k², the smoother's weight.
-    this.Lu = H.levels.map((lv, k) => {
+    this.LuData = H.levels.map((lv, k) => {
       const ab = new ArrayBuffer(32), u = new Uint32Array(ab), f = new Float32Array(ab);
       const c = k > 0 ? H.levels[k - 1] : null;
       u[0] = lv.n; u[1] = lv.off; u[2] = c ? c.n : 0; u[3] = c ? c.off : 0;
-      f[4] = this.k2[0]; f[5] = this.k2[1]; f[6] = W.JACOBI; u[7] = lv.L === grid.level ? grid.nf : 0;
-      return uniform(device, u);
+      f[6] = W.JACOBI; u[7] = lv.L === grid.level ? grid.nf : 0;
+      return ab;
     });
+    this.Lu = this.LuData.map(ab => uniform(device, new Uint32Array(ab)));
     this.params = new Float32Array(16);
     this.Pu = uniform(device, this.params);
     this.dparams = new ArrayBuffer(32);
     this.Du = uniform(device, new Uint32Array(this.dparams));
     this.tmean = 14;
-    this.writeParams(1, 0);
+    this.started = false;
+    this.setSpin(Omega);
 
     const K = {
       smooth: kernel(device, SMOOTH, 'smooth'), restrict: kernel(device, RESTRICT, 'restrict'), prolong: kernel(device, PROLONG, 'prolong'),
@@ -461,7 +461,7 @@ export class GpuWeather {
     this.cycle = cycle;
     // A step reading state p and writing 1 − p.
     this.steps = [0, 1].map(p => {
-      const list = [[K.rhs, K.rhs.bind({ U: Ltop, geo, s: this.S[p], b: Bv }), wg(n)]];
+      const list = [[K.rhs, K.rhs.bind({ U: Ltop, geo, s: this.S[p], b: Bv, P: this.Pu }), wg(n)]];
       for (let c = 0; c < W.CYCLES; c++) list.push(...cycle);
       list.push([K.corners, K.corners.bind({ U: Ltop, tris: this.tris, x: X, cp: this.C }), wg(grid.nf)]);
       list.push([K.lap, K.lap.bind({ U: Ltop, topo, geo, s: this.S[p], lap: this.LAP }), wg(n)]);
@@ -470,7 +470,6 @@ export class GpuWeather {
     });
     this.cur = 0;
     this.t = 0;
-    this.started = false;
     this.rng = mulberry(hash(seed));
     this.readBuf = device.createBuffer({ size: 40 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     this.reading = false;
@@ -483,6 +482,24 @@ export class GpuWeather {
       this.qRead = device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
       this.qBusy = false;
     }
+  }
+
+  /** The planet's spin (the Moon's tides lengthen the day): the Coriolis parameter, and L_d = NH/f, so the
+   *  baroclinic solve's screening; a running weather starts again from the climate under it. */
+  setSpin(Omega) {
+    const W = WEATHER, dev = this.device;
+    this.Omega = Omega;
+    this.f0 = 2 * Omega * Math.sin(Math.PI / 4);
+    this.F = (Omega / OMEGA) ** 2 / (W.LD * W.LD);
+    this.k2 = [W.K0 ** 2, 2 * this.F];
+    this.LuData.forEach((ab, k) => {
+      const f = new Float32Array(ab);
+      f[4] = this.k2[0]; f[5] = this.k2[1];
+      dev.queue.writeBuffer(this.Lu[k], 0, ab);
+    });
+    dev.queue.writeBuffer(this.inv, 0, coarseInverse(this.H, this.k2));
+    this.started = false;
+    this.writeParams(1, 0);
   }
 
   writeParams(abA, abB) {
@@ -603,7 +620,7 @@ export class GpuWeather {
   draw(out, live, phi = 1) {
     const dev = this.device, K = this.K, Ltop = this.Lu[this.Lu.length - 1], n = this.n;
     const u = new Uint32Array(this.dparams), f = new Float32Array(this.dparams);
-    f[0] = live; f[1] = 0.0065; u[2] = WEATHER.NB; f[3] = WEATHER.TAU_RAIN; f[4] = Math.min(1, Math.max(0, phi));
+    f[0] = live; f[1] = 0.0065; u[2] = WEATHER.NB; f[3] = WEATHER.TAU_RAIN; f[4] = Math.min(1, Math.max(0, phi)); f[5] = this.f0;
     dev.queue.writeBuffer(this.Du, 0, this.dparams);
     if (this.drawOut !== out) {
       this.drawOut = out;

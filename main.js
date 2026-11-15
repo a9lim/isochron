@@ -44,7 +44,7 @@ const WEATHER_GPU_MS = 12;    // the weather's share of the GPU's frame, when it
 // engine's fields are refined.
 const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || (matchMedia('(pointer: coarse)').matches ? 6 : 7))));
 const MESH_LEVEL = 7;
-const SPINUP_DAYS = 12;       // the weather's spin-up from the climate's state
+const SPINUP_DAYS = 5;        // the weather's spin-up from the climate's state (its storms reach their equilibrium in ~4)
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
 const query = new URLSearchParams(location.search);
@@ -397,10 +397,11 @@ function refreshClimate(force) {
 
 // ── The weather ──
 // Runs on the GPU (src/gpu/weather.js) only while its view is shown. It
-// starts from the climate at the season, spins up for ~12 days, then steps
-// with the dial within a share of the GPU's frame; when the dial outruns it
-// the globe crossfades to the climate's mean (the template's pressure and the
-// mean rain), which is what weather averages to. A kernel writes the globe's
+// starts from the climate at the season, spins up for ~5 days at twice its
+// share of the GPU's frame, then steps with the dial within that share; when
+// the dial outruns it the globe crossfades to the climate's mean (the
+// template's pressure and the mean rain), which is what weather averages to,
+// and once it is wholly the mean the weather waits. A kernel writes the globe's
 // weather fields each frame; the chart is read back and traced in a worker.
 let wxBehind = 0, wxSeason = -1, wxVersion = -1, wxLive = 0, chart = null, lastChart = 0, lastMean = -1e9, chartBusy = false;
 const SPINUP = SPINUP_DAYS * 86400;
@@ -427,12 +428,13 @@ function wxForcing(tau) {
   wxSeason = tau; wxVersion = climate.version;
 }
 function stepWeather(advYears) {
-  if (!wx || climate.stats.cycles < 2) return;     // the weather starts from a warm climate
+  if (!wx || climate.stats.cycles < 1) return;     // the weather starts from the climate's first cycle
   const tau = ((P.years % 1) + 1) % 1;
   wxForcing(tau);
-  if (!wx.started) { wx.start(); wxBehind = 0; chartWorker.postMessage({ type: 'reset' }); }
+  if (!wx.started) { wx.start(); wxBehind = 0; chart = chartGone = null; chartWorker.postMessage({ type: 'reset' }); }
   const budget = Math.max(1, Math.floor(WEATHER_GPU_MS / Math.max(0.02, wx.msPerStep)));
-  if (wx.t < SPINUP) wx.advance(Math.min(Math.ceil((SPINUP - wx.t) / wx.dt), 3 * budget));
+  if (wx.t < SPINUP) wx.advance(Math.min(Math.ceil((SPINUP - wx.t) / wx.dt), 2 * budget));
+  else if (weatherLive() <= 0) wxBehind = 0;           // not shown: the climate's mean is
   else {
     wxBehind = Math.min(2 * 86400, wxBehind + advYears * 3.156e7);
     const k = Math.min(Math.floor(wxBehind / wx.dt), budget);
@@ -579,8 +581,8 @@ function setView(v) {
   els.clPicker.hidden = v !== 'climate';
   drawTheKey();
   if (v === 'weather') {
-    // A weather built for an earlier spin is rebuilt (the Moon's tides lengthen the day).
-    if (wx && globe && Math.abs(wx.Omega / moon.Omega - 1) > 0.003) wx = new GpuWeather(globe.device, mesh, seed, globe.refiner, moon.Omega);
+    // A weather run under an earlier spin starts again under this one (the Moon's tides lengthen the day).
+    if (wx && Math.abs(wx.Omega / moon.Omega - 1) > 0.003) wx.setSpin(moon.Omega);
     refreshWeather(true);
   }
   for (const b of els.views) b.setAttribute('aria-checked', b.dataset.view === v ? 'true' : 'false');
