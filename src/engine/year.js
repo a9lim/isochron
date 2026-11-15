@@ -10,9 +10,11 @@
 // month. Its parts:
 //   the anomaly    T′ and the rain's anomaly (below);
 //   the veil       the volcanoes' sulfate (src/engine/volcanoes.js);
-//   soil, lakes    optional members (src/engine/soil.js, src/engine/lakes.js),
-//                  called with each month's and each year's inputs (see
-//                  `monthInputs` and `yearInputs` for the exact shapes).
+//   the ground     an optional member (src/engine/ground.js: the soil, the
+//                  snowpack and the ground's heat), called once a step with
+//                  the step's months and its anomaly on the engine's grid (see
+//                  `stepInputs` for the exact shape). The lakes are slower and
+//                  are stepped by the planet each frame (src/engine/planet.js).
 // Above the live range each part is replaced by its closure, and the change is
 // soft over half a decade of the dial (`live`, 1 below ~56 yr/s, 0 above
 // ~180): consumers weigh the live state by it. The anomaly's closure is its
@@ -43,7 +45,6 @@
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
 import { CLIMATE } from './climate.js';
-import { monthPhase } from './orbit.js';
 import { stream } from '../rng.js';
 import { VOLC, bandLat } from './volcanoes.js';
 
@@ -162,7 +163,7 @@ export class Year {
     this.t1 = null;
     this.live = 1;
     this.steps = 0; this.months = 0;
-    this.soil = null; this.lakes = null;    // optional parts (see monthInputs / yearInputs)
+    this.soil = null;      // the ground, optional (see stepInputs)
     this.stats = { meanT: 0, meanPrev: 0, F: 0, aod: 0, sigma: 0, cg: 0 };
     this.tagInfo = null;
   }
@@ -298,7 +299,6 @@ export class Year {
       if (V && years > this.t1) { V.step(this.t1, years - this.t1, false); }
       if (years > this.t1) { this.t0 = this.t1 = years; this.prev.T.set(this.Ta); this.prev.t = years; }
       if (this.soil && this.soil.closure) this.soil.closure({ years, live: 0 });
-      if (this.lakes && this.lakes.closure) this.lakes.closure({ years, live: 0 });
       return;
     }
     let k = 0;
@@ -308,10 +308,7 @@ export class Year {
       if (k === YEAR.MAX_STEPS || years - this.t1 > 2 * months / 12) months = Math.max(months, Math.ceil(12 * (years - this.t1)) + 1);
       this.step(months);
     }
-    if (w < 1) {
-      if (this.soil && this.soil.closure) this.soil.closure({ years, live: w });
-      if (this.lakes && this.lakes.closure) this.lakes.closure({ years, live: w });
-    }
+    if (w < 1 && this.soil && this.soil.closure) this.soil.closure({ years, live: w });
   }
 
   /** One step of `months` months from t1: eruptions within it, the veil, the anomaly, the parts. */
@@ -343,16 +340,9 @@ export class Year {
     for (let i = 0; i < this.n; i++) { s += this.Ta[i] * g.area[i]; f += F[i] * g.area[i]; st += this.tagT[i] * g.area[i]; }
     this.stats.meanPrev = this.stats.meanT; this.stats.meanT = s / (4 * Math.PI); this.stats.F = f / (4 * Math.PI); this.stats.aod = V ? V.global() : 0;
     if (this.tagInfo) this.tagMeasure(st / (4 * Math.PI), t1);
-    // The parts, month by month (the anomaly held over the step).
-    if (this.soil || this.lakes) {
-      for (let m = 0; m < months; m++) {
-        const tm = t0 + (m + 1) / 12, month = monthIndex(((tm - 1 / 24) % 1 + 1) % 1);
-        const inp = this.monthInputs(month, tm);
-        if (this.soil) this.soil.month(inp);
-        if (this.lakes) this.accumulateYear(inp, month);
-        if (this.lakes && Math.floor(tm + 1e-9) > Math.floor(tm - 1 / 12 + 1e-9)) this.lakes.year(this.yearInputs(tm));
-      }
-    }
+    // The anomaly on the engine's grid over the step (the lakes read it), and the ground's step.
+    this.fineAnomaly(months);
+    if (this.soil) this.soil.step(this.stepInputs(t0, months));
     this.months += months;
   }
 
@@ -429,55 +419,41 @@ export class Year {
   }
 
   /**
-   * The soil's hook, each month while live: `soil.month(input)` with
-   *   { years, month (0–11, January first), dt (yr: 1/12), live (0–1),
-   *     T: surface °C, P: mm in the month, PET: mm in the month,   (Float32Array per engine cell; 0 at sea)
-   *     land: Uint8Array }
-   * the climate's month plus the live anomaly (T′, and the rain's log anomaly, mean-preserving).
-   * PET is the climate's own (its Budyko curve's: 55 mm/yr per °C above −4 °C, spread by month).
+   * The anomaly on the engine's grid over a step of `months` months, weighted by `live`:
+   * T′ (K), and the rain's factor (mean-preserving: e^{s z − s²/2}, s the cell's spread, 0
+   * at sea). The anomaly is held over the step, so the rain's own noise (white at the month)
+   * is the mean of the step's months, its spread 1/√months of a month's; T′'s part keeps its
+   * own memory (and the factor's mean-keeping term takes z's smaller variance). In
+   * `this.anom`: { T, rf, months }.
    */
-  monthInputs(month, years) {
-    const c = this.climate, n = this.fine.n, w = this.live;
-    if (!this.inp) this.inp = { T: new Float32Array(n), P: new Float32Array(n), PET: new Float32Array(n), Tf: new Float32Array(n), Zf: new Float32Array(n) };
-    const I = this.inp, tau = monthPhase(month);
-    this.toFine(this.Ta, I.Tf); this.toFine(this.Za, I.Zf);
-    // The climate's harmonics at the month (as its tAt and pAt), inlined.
-    const cs = Math.cos(2 * Math.PI * tau), sn = Math.sin(2 * Math.PI * tau), c2 = cs * cs - sn * sn, s2 = 2 * sn * cs;
-    const [T0, T1, T2, T3, T4] = c.Tf, [P0, P1, P2, P3, P4] = c.Pf, lapse = CLIMATE.LAPSE, ep = c.elevPos;
-    for (let i = 0; i < n; i++) {
-      if (!c.landMask[i]) { I.T[i] = 0; I.P[i] = 0; I.PET[i] = 0; continue; }
-      const T = T0[i] + T1[i] * cs - T2[i] * sn + T3[i] * c2 - T4[i] * s2 - lapse * (ep ? ep[i] : 0) + w * I.Tf[i];
-      const p = Math.max(0, P0[i] + P1[i] * cs - P2[i] * sn + P3[i] * c2 - P4[i] * s2), s = this.rsig[i] * w;
-      I.T[i] = T;
-      I.P[i] = s > 0 ? p * 30.44 * Math.exp(s * I.Zf[i] - 0.5 * s * s) : p * 30.44;
-      I.PET[i] = 55 / 12 * Math.max(0, T + 4);
+  fineAnomaly(months) {
+    const n = this.fine.n, nc = this.n, w = this.live, c = this.climate;
+    if (!this.anom) this.anom = { T: new Float32Array(n), rf: new Float32Array(n), z: new Float32Array(n), v: new Float32Array(n), zc: new Float64Array(nc), vc: new Float64Array(nc), months: 0 };
+    // z's variance is ρ² + (1 − ρ²)/months (in v), which the factor's mean-keeping term takes.
+    const F = this.anom, eta = this.scratch.eta, k = 1 / Math.max(1, months);
+    for (let i = 0; i < nc; i++) {
+      const rho = YEAR.RHO_LAND * this.land[i] + YEAR.RHO_SEA * (1 - this.land[i]);
+      F.zc[i] = rho * this.Ta[i] / Math.max(1e-6, this.sigma[i]) + Math.sqrt((1 - rho * rho) * k) * eta[i];
+      F.vc[i] = rho * rho + (1 - rho * rho) * k;
     }
-    return { years, month, dt: 1 / 12, live: w, T: I.T, P: I.P, PET: I.PET, land: c.landMask };
-  }
-  accumulateYear(inp, month) {
-    const n = this.fine.n, c = this.climate;
-    if (!this.acc) this.acc = { P: new Float64Array(n), PET: new Float64Array(n), R: new Float64Array(n), months: 0 };
-    const A = this.acc, e = YEAR.ELASTIC;
+    this.toFine(this.Ta, F.T); this.toFine(F.zc, F.z); this.toFine(F.vc, F.v);
     for (let i = 0; i < n; i++) {
-      if (!c.landMask[i]) continue;
-      A.P[i] += inp.P[i]; A.PET[i] += inp.PET[i];
-      const s = this.rsig[i] * this.live;
-      A.R[i] += c.runoffM[12 * i + month] * Math.exp(e * s * this.inp.Zf[i] - 0.5 * e * e * s * s);
+      F.T[i] *= w;
+      const s = this.rsig ? this.rsig[i] * w : 0;
+      F.rf[i] = c.landMask[i] && s > 0 ? Math.exp(s * F.z[i] - 0.5 * s * s * F.v[i]) : 1;
     }
-    A.months++;
+    F.months = months;
+    return F;
   }
+
   /**
-   * The lakes' hook, each year while live: `lakes.year(input)` with
-   *   { years, dt (yr: 1), live (0–1),
-   *     runoff: m in the year per engine cell (the climate's, with the live rain anomaly through runoff's elasticity),
-   *     PmE: m in the year, precipitation less potential evaporation (what open water gains; land cells) }
+   * The ground's hook, once a step while live: `soil.step(input)` with
+   *   { years (the step's start), m0 (its first calendar month, 0 = January), months, live (0–1),
+   *     dT: K, rf: the rain's factor   (Float32Array per engine cell, from fineAnomaly, held over the step) }
+   * The ground adds them to the climate's months (its closure's forcing).
    */
-  yearInputs(years) {
-    const A = this.acc, n = this.fine.n;
-    if (!this.yinp) this.yinp = { runoff: new Float32Array(n), PmE: new Float32Array(n) };
-    const Y = this.yinp, k = A && A.months ? 12 / A.months : 1;
-    for (let i = 0; i < n; i++) { Y.runoff[i] = A ? A.R[i] * k : 0; Y.PmE[i] = A ? (A.P[i] - A.PET[i]) * k / 1000 : 0; }
-    if (A) { A.P.fill(0); A.PET.fill(0); A.R.fill(0); A.months = 0; }
-    return { years, dt: 1, live: this.live, runoff: Y.runoff, PmE: Y.PmE };
+  stepInputs(t0, months) {
+    const m0 = monthIndex(((t0 + 1 / 24) % 1 + 1) % 1);
+    return { years: t0, m0, months, live: this.live, dT: this.anom.T, rf: this.anom.rf };
   }
 }

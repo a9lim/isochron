@@ -5,12 +5,19 @@
 //   per plate step (0.5 Myr)   plates, plumes, landscape
 //   per frame                  the orbit the climate sees (averaged over the
 //                              time the dial passes in ~2 s), carbon, ice,
-//                              and the year (src/engine/year.js): its months
-//                              while the dial is below ~100 yr/s, the
-//                              volcanoes' mean forcing at every dial
+//                              the year (src/engine/year.js): its months
+//                              while the dial is below ~100 yr/s (the
+//                              anomaly, the veil, the ground's soil water and
+//                              snow), the volcanoes' mean forcing at every
+//                              dial; and the lakes, stepped below ~10⁴ yr/s
+//                              and at their balance above
 //   in the background          the climate's cycles; each completed cycle
-//                              refreshes weathering's map and the ice's
-//                              mass balance
+//                              refreshes weathering's map, the ice's mass
+//                              balance and the ground's periodic year
+//
+// The lakes are routed on the smooth surface, the ground plus its ice (so ice
+// dams them), and rebuilt after each landscape step and when the ice has
+// moved enough of the sea (src/engine/lakes.js carries their water over).
 import { buildGrid } from '../grid/icosphere.js';
 import { Tectonics } from './plates.js';
 import { Landscape } from './landscape.js';
@@ -25,6 +32,15 @@ import { refineTectonics } from './refine.js';
 import { Moon } from './tides.js';
 import { Volcanoes } from './volcanoes.js';
 import { Year } from './year.js';
+import { Ground } from './ground.js';
+import { Lakes } from './lakes.js';
+
+export const PLANET = {
+  LAKES_LIVE: 1e4,       // yr/s: lakes step below this, and sit at their balance above
+  LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
+  LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
+  LAKES_SETTLE: 4,       // climate cycles: the opening's lakes sit at their balance until the climate has settled
+};
 
 export { Record, SERIES } from './record.js';
 import { Record } from './record.js';
@@ -57,11 +73,20 @@ export class Planet {
     this.volcanoes = new Volcanoes(this.tec, this.plumes, this.carbon, seed);
     this.year = new Year(this.climate, this.volcanoes, seed);
     this.climate.year = this.year;
+    // The ground, live (src/engine/ground.js; its closure is the climate's), and the lakes.
+    this.ground = new Ground(this.climate);
+    this.year.soil = this.ground;
+    this.climate.ground = this.ground;
+    this.lakes = new Lakes(this.grid);
+    this.climate.lakes = this.lakes;
+    this.lakesBank = 0; this.lakesVersion = 0; this.lakesClimate = -1; this.lakesMinGap = 0; this.lakesBuiltAt = -Infinity;
+    this.lakeIn = { runoff: new Float32Array(this.grid.n), pe: new Float32Array(this.grid.n) };
     // The Moon and the spin it slows: its tides are solved on the GPU where there is one
     // (src/gpu/tides.js, from the engine's worker); headless, the Moon stays put.
     this.moon = new Moon();
     CLIMATE.OMEGA = this.moon.Omega;
     this.years = this.tec.t * 1e6;
+    this.rebuildLakes();
     this.seaLevel0 = this.tec.seaLevel;
     this.record = new Record();
     this.climateVersionSeen = -1;
@@ -113,6 +138,60 @@ export class Planet {
       }
     }
     this.year.advance(this.years, rate);
+    // Headless, the live ground's last twelve months are read once a year of the clock (the
+    // page reads its GPU's ~10 times a second, src/engine/worker.js).
+    const G = this.ground;
+    if (G.live && !G.gpu && !(this.years - G.aggYears < 1)) G.sample(G.month, this.years);
+    this.stepLakes(dt, rate);
+  }
+
+  /** Lakes routed afresh on the ground and its ice (the water carried over). */
+  rebuildLakes() {
+    this.lakes.reroute(this.tec.elev, this.tec.seaLevel, this.ice.H);
+    this.lakesSteps = this.land.steps; this.lakesIce = this.tec.iceWater; this.lakesBuiltYears = this.years;
+    this.lakesBuiltAt = typeof performance !== 'undefined' ? performance.now() : 0;
+    this.lakesClimate = -1;
+    this.lakesVersion++;
+  }
+
+  /**
+   * The lakes over dt years at `rate` years a second: rebuilt when the landscape has stepped
+   * (at most every half `lakesMinGap` ms of the wall clock: at 1 Myr/s it steps four times a
+   * second) or the ice has moved (at most every LAKES_ICE_YEARS of the clock and `lakesMinGap`
+   * ms: ice dams change over centuries), then stepped
+   * (backward Euler, at most 20 times a second of the dial and at least a quarter year a
+   * step) below LAKES_LIVE, at their balance above (when the climate or the basins change,
+   * or a tenth of a second's dial has passed).
+   */
+  stepLakes(dt, rate = 10 * dt) {
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    const iceMoved = Math.abs(this.tec.iceWater - this.lakesIce) > PLANET.LAKES_ICE && this.years - this.lakesBuiltYears >= PLANET.LAKES_ICE_YEARS && now - this.lakesBuiltAt >= this.lakesMinGap;
+    const landStepped = this.land.steps !== this.lakesSteps && now - this.lakesBuiltAt >= this.lakesMinGap / 2;
+    if (landStepped || iceMoved) this.rebuildLakes();
+    this.lakesBank += Math.max(0, dt);
+    // The opening's lakes sit at their balance with each of its first climate cycles, whatever
+    // the dial (the first, from a cold start, holds about half the lakes the third does).
+    const open = this.climate.soilWarm && this.climate.stats.cycles <= PLANET.LAKES_SETTLE && this.climate.version !== this.lakesClimate;
+    const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(0.25, rate / 20);
+    if (!open && (live ? this.lakesBank < due : this.lakesBank < due && this.climate.version === this.lakesClimate)) return;
+    const { runoff, pe } = this.lakeForcing();
+    if (live) this.lakes.step(this.lakesBank, runoff, pe); else this.lakes.equilibrium(runoff, pe, this.lakesBank);
+    this.lakesBank = 0; this.lakesClimate = this.climate.version;
+    this.lakesVersion++;
+  }
+
+  /**
+   * The lakes' forcing (m/yr per cell): runoff off dry ground, the ground's (its closure's,
+   * and the live ground's last twelve months by the live weight, which carry the year's
+   * anomaly with its own statistics); and open water's gain, the climate's rain less its
+   * potential evaporation. (The anomaly on the lakes' own surface is left out: held over the
+   * year's steps, a month's anomaly would stand for a season's.)
+   */
+  lakeForcing() {
+    const { runoff, pe } = this.lakeIn;
+    this.ground.runoff(runoff);
+    pe.set(this.climate.peAnn);
+    return this.lakeIn;
   }
 
   /** Background work on the climate; true when a cycle completed. */

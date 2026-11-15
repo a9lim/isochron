@@ -143,27 +143,41 @@ test("the closure's means: the eruption rate's forcing is the live veil's mean; 
   assert.equal(CLIMATE.F_VOLC, 0);
 });
 
-test('the stepper: live below ~56 yr/s, its closure above ~180, soft between; parts called by the month and the year', () => {
+test('the stepper: live below ~56 yr/s, its closure above ~180, soft between; the ground called each step', () => {
   assert.equal(Year.liveWeight(1), 1);
   assert.equal(Year.liveWeight(1e3), 0);
   const mid = Year.liveWeight(100);
   assert.ok(mid > 0.3 && mid < 0.7, `half-live near 100 yr/s (${mid.toFixed(2)})`);
   let prev = 1;
   for (let lr = 1.5; lr <= 2.5; lr += 0.01) { const v = Year.liveWeight(10 ** lr); assert.ok(v <= prev && prev - v < 0.04, 'smooth'); prev = v; }
-  // Hooks: a mock soil and lakes over three years at 1 yr/s, then outrun.
+  // Hooks: a mock ground over three years at 1 yr/s, then outrun.
   const c = world(4, (x, y, z) => z > 0.3), n = c.grid.n;
   Object.assign(c, {
     Pf: [new Float32Array(n).fill(2), ...Array.from({ length: 4 }, () => new Float32Array(n))],
     Tf: [new Float32Array(n).fill(10), ...Array.from({ length: 4 }, () => new Float32Array(n))],
     runoffM: new Float32Array(12 * n).fill(0.03), elevPos: new Float32Array(n),
   });
-  const y = new Year(c, null, 'hooks'), months = [], years = [], closures = [];
-  y.soil = { month: inp => { months.push(inp.month); assert.equal(inp.T.length, n); assert.ok(inp.P.every(v => v >= 0)); }, closure: inp => closures.push(inp.live) };
-  y.lakes = { year: inp => { years.push(inp.years); assert.ok(inp.runoff.some(v => v > 0)); }, closure: () => {} };
+  const y = new Year(c, null, 'hooks'), months = [], firsts = [], closures = [];
+  y.soil = {
+    step: inp => {
+      months.push(inp.months); firsts.push(inp.m0);
+      assert.equal(inp.dT.length, n); assert.equal(inp.rf.length, n);
+      assert.ok(inp.rf.every((v, i) => v > 0 && (c.landMask[i] || v === 1)), 'rain factors, 1 at sea');
+    },
+    closure: inp => closures.push(inp.live),
+  };
   for (let t = 0; t <= 3; t += 1 / 120) y.advance(t, 1);
-  assert.ok(months.length >= 36 && months.length <= 37, `${months.length} months`);
-  assert.ok(years.length === 3, `${years.length} years`);
-  assert.ok(new Set(months).size === 12, 'every month of the calendar');
+  const total = months.reduce((a, b) => a + b, 0);
+  assert.ok(total >= 36 && total <= 37, `${total} months`);
+  assert.ok(new Set(firsts).size === 12, 'every month of the calendar starts a step');
+  // At 30 yr/s a step holds a year: the ground gets it in one call.
+  const k0 = months.length;
+  let rs = 0, rc = 0;
+  y.soil.step = inp => { months.push(inp.months); for (let i = 0; i < n; i++) if (c.landMask[i]) { rs += inp.rf[i]; rc++; } };
+  for (let t = 3; t <= 300; t += 0.5) y.advance(t, 30);
+  assert.ok(months.slice(k0).every(m => m >= 12), `steps of ${Math.min(...months.slice(k0))} months and more`);
+  // The rain's factor keeps the mean rain over a long step too (its noise is the step's mean).
+  assert.ok(Math.abs(rs / rc - 1) < 0.03, `mean rain factor ${(rs / rc).toFixed(3)}`);
   const steps = y.steps;
   for (let t = 3; t <= 1e4; t += 50) y.advance(t, 3e3);
   assert.equal(y.steps, steps, 'outrun: no steps');

@@ -43,6 +43,10 @@
 //                its level would reach with WET more inflow is salt as well
 //                (speculation: WET = 50%, a guess at the spread of a dry
 //                basin's inflow, until the year's anomalies give it).
+//   rivers       each depression region's inflow and outflow over the last
+//                call (`regIn`, `regOut`, km³/yr): a river below a closed lake
+//                carries nothing, below a spilling one its overflow's share
+//                (src/render/rivers.js, `drainage`).
 //   reroutes     a new routing (the landscape every 0.25 Myr, or the ice) is
 //                a new hierarchy. The old lakes' water is laid on their cells
 //                and each cell's share goes to the new leaf there, or down the
@@ -53,7 +57,7 @@
 //
 // Lengths and levels in km, areas in km², volumes in km³, time in years,
 // runoff and P − E in m/yr.
-import { LAND } from './landscape.js';
+import { LAND, route } from './landscape.js';
 
 export const LAKES = {
   RAMP: 2 * LAND.ROUGH,   // km: a cell's ground below the grid's scale (the roughness's full range)
@@ -245,7 +249,24 @@ export class Lakes {
     this.I = new Float64Array(nb); this.inb = new Float64Array(nb); this.S = new Float64Array(nb);
     this.fullF = new Uint8Array(nb); this.mergedF = new Uint8Array(nb);
     this.closedFringe = new Float64Array(nb).fill(-Infinity);
+    this.regIn = new Float64Array(nr); this.regOut = new Float64Array(nr);
+    this.builds = (this.builds || 0) + 1;
     this.built = true;
+  }
+
+  /**
+   * Route the smooth surface and rebuild: the ground (km, `elev`) plus its ice (m, `iceH`),
+   * so ice dams lakes but holds none (it's dry); the sea below `seaLevel` is the outlet.
+   * Not the landscape's rough routing, whose roughness makes one-cell ponds. Returns rebuild's.
+   */
+  reroute(elev, seaLevel, iceH = null) {
+    const n = this.n, z = this.zr || (this.zr = new Float64Array(n)), base = this.baseR || (this.baseR = new Uint8Array(n)), dry = this.dryR || (this.dryR = new Uint8Array(n));
+    for (let i = 0; i < n; i++) {
+      const h = iceH ? iceH[i] : 0;
+      z[i] = elev[i] + h / 1000; base[i] = elev[i] < seaLevel ? 1 : 0; dry[i] = h > 1 ? 1 : 0;
+    }
+    this.routeR = route(this.grid, z, base, this.routeR);
+    return this.rebuild(this.routeR, z, dry);
   }
 
   /** Node b's pool at level h: volume, area, and (with weights) the cost of its wet ground and its slope. */
@@ -373,10 +394,12 @@ export class Lakes {
     inb.fill(0);
     let runIn = 0, vert = 0, toSea = 0;
     const act = [];
+    const rin = this.regIn, rout = this.regOut, idt = dt > 0 ? 1 / dt : 0;
     for (const q of this.regOrder) {
       const b0 = this.regNode0[q], b1 = this.regNode0[q + 1];
+      let qin = 0, qout = 0;
       for (let b = b0; b < b1; b++) {
-        if (c0[b] < 0) { S[b] = I[b] * dt + inb[b]; runIn += I[b] * dt; } else S[b] = S[c0[b]] + S[c1[b]];
+        if (c0[b] < 0) { S[b] = I[b] * dt + inb[b]; runIn += I[b] * dt; qin += S[b]; } else S[b] = S[c0[b]] + S[c1[b]];
       }
       const root = this.regRoot[q];
       for (const b of this.activeIn(q, act)) {
@@ -385,7 +408,7 @@ export class Lakes {
         for (let p = parent[b]; p >= 0; p = parent[p]) if (this.W[p] > 0) { joined = true; break; }
         if (joined) {
           const left = this.climb(b, S[b], root);
-          if (left > 0) { const t = link[root]; if (t < 0) toSea += left; else inb[t] += left; }
+          if (left > 0) { const t = link[root]; qout += left; if (t < 0) toSea += left; else inb[t] += left; }
           continue;
         }
         const V0 = this.held(b), c = V0 + S[b];
@@ -404,9 +427,10 @@ export class Lakes {
         vert += this.heldNow(b) + ex - c;
         if (ex > 0) {
           const left = parent[b] < 0 ? ex : this.climb(b, ex, root);
-          if (left > 0) { const t = link[root]; if (t < 0) toSea += left; else inb[t] += left; }
+          if (left > 0) { const t = link[root]; qout += left; if (t < 0) toSea += left; else inb[t] += left; }
         }
       }
+      rin[q] = qin * idt; rout[q] = qout * idt;
     }
     this.account(runIn, vert, toSea);
     this.refresh(dt, false);
@@ -443,6 +467,7 @@ export class Lakes {
     for (const q of this.regOrder) {
       const root = this.regRoot[q], o = this.eqSolve(root);
       if (o > 0) { const t = this.link[root]; if (t < 0) toSea += o; else this.inb[t] += o; }
+      this.regIn[q] = this.J[root]; this.regOut[q] = Math.max(0, o);
     }
     for (let b = 0; b < this.nb; b++) if (this.c0[b] < 0) runIn += this.I[b];
     this.account(runIn * dt, (toSea - runIn) * dt + this.storage() - before, toSea * dt);

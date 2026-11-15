@@ -334,6 +334,7 @@ const NODES = {
   ice: [0.16, 0.55, 'Ice'], carbon: [0.84, 0.56, 'Carbon'], landscape: [0.5, 0.6, 'Landscape'],
   sea: [0.16, 0.83, 'Sea level'], plates: [0.5, 0.9, 'Plates'], plumes: [0.86, 0.85, 'Plumes'],
   year: [0.66, 0.47, 'Year'], volcanoes: [0.68, 0.76, 'Volcanoes'],
+  ground: [0.34, 0.42, 'Ground'], lakes: [0.31, 0.66, 'Lakes'],
 };
 
 export function drawModel(canvas, s, pal) {

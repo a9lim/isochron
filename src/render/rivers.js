@@ -12,18 +12,82 @@
 // each point also keeps its discharge month by month, and rivers big enough only
 // in their wet season are traced too (the page draws their beds dry the rest of
 // the year).
+//
+// They run on their own drainage (`drainage`): the landscape's, except that in a
+// closed lake's basin water runs down the basin's floor to the lake and ends
+// there, and a spilling lake passes on only its overflow (its evaporation
+// taken), so a river below a closed lake is dry.
 
 export const RIVER_MIN = 1500;   // m³/s: a river worth drawing at this grid's scale
 
-/** `drawn`: the relief as the globe draws it (surface.js, metres over the sea ÷ 1000), whose zero is the coast; `Q12`: discharge by month (landscape.js, `monthly`). */
-export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_MIN) {
+/**
+ * The drainage rivers are drawn on, from the landscape's routing (`land.r`) and the lakes
+ * (src/engine/lakes.js): in a closed lake's depression each cell drains to its lowest
+ * neighbour in the depression (on the lakes' own surface) and the lake's cells are sinks;
+ * where the drainage leaves a spilling lake's depression, what it carries is scaled by the
+ * lake's outflow against its inflow (`pass`). Returns { rcv, order (receivers first), count,
+ * pass, lake (cells under a lake's water), key (changes when a lake opens or closes) }.
+ */
+/** What `drainage` depends on in the lakes: their basins, and which of them spill. */
+export function lakesKey(lakes) {
+  if (!lakes || !lakes.built) return '';
+  let key = `${lakes.builds}:`;
+  for (let q = 0; q < lakes.nr; q++) key += lakes.regOut[q] > 0 ? 's' : 'c';
+  return key;
+}
+
+export function drainage(grid, land, lakes) {
+  const n = grid.n, r = land.r, nbrOff = grid.nbrOff, nbr = grid.nbr;
+  const rcv = Int32Array.from(r.rcv), pass = new Float32Array(n).fill(1), lake = new Uint8Array(n);
+  const key = lakesKey(lakes);
+  if (lakes && lakes.built) {
+    const reg = lakes.regOf, z = lakes.z, under = lakes.under, nr = lakes.nr;
+    const closed = new Uint8Array(nr), f = new Float32Array(nr);
+    for (let q = 0; q < nr; q++) {
+      closed[q] = lakes.regOut[q] > 0 ? 0 : 1;
+      f[q] = lakes.regIn[q] > 0 ? Math.min(1, lakes.regOut[q] / lakes.regIn[q]) : 1;
+    }
+    for (let i = 0; i < n; i++) {
+      const q = reg[i];
+      if (q < 0) continue;
+      if (under[i]) lake[i] = 1;
+      if (closed[q]) {
+        if (under[i]) { rcv[i] = -1; continue; }
+        let best = z[i], to = -1;
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) { const j = nbr[t]; if (reg[j] === q && z[j] < best) { best = z[j]; to = j; } }
+        rcv[i] = to;
+      } else if (rcv[i] >= 0 && reg[rcv[i]] !== q) pass[i] = f[q];
+    }
+  }
+  // Receivers before donors: breadth first from the sinks and outlets.
+  const cnt = new Int32Array(n + 1);
+  for (let i = 0; i < n; i++) if (rcv[i] >= 0) cnt[rcv[i] + 1]++;
+  for (let i = 0; i < n; i++) cnt[i + 1] += cnt[i];
+  const don = new Int32Array(cnt[n]), fill = cnt.slice(0, n);
+  for (let i = 0; i < n; i++) if (rcv[i] >= 0) don[fill[rcv[i]]++] = i;
+  const order = new Int32Array(n);
+  let head = 0, tail = 0;
+  for (let i = 0; i < n; i++) if (rcv[i] < 0) order[tail++] = i;
+  while (head < tail) { const c = order[head++]; for (let t = cnt[c]; t < cnt[c + 1]; t++) order[tail++] = don[t]; }
+  return { rcv, order, count: tail, pass, lake, key };
+}
+
+/**
+ * `drawn`: the relief as the globe draws it (surface.js, metres over the sea ÷ 1000), whose
+ * zero is the coast; `Q12`: discharge by month (landscape.js, `monthly`), whose mean is the
+ * year's; `rt`: the drainage it was routed down (`drainage`), else the landscape's.
+ */
+export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_MIN, rt = null) {
   const n = grid.n, pos = grid.pos, r = land.r;
   if (!r) return [];
-  const Q = land.discharge, rcv = r.rcv, base = land.base, lake = land.lake;
+  const rcv = rt ? rt.rcv : r.rcv, base = land.base;
+  let Q = land.discharge;
+  if (Q12) { Q = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = 0; k < 12; k++) s += Q12[12 * i + k]; Q[i] = s / 12; } }
   // A lake of one cell isn't drawn (it would be a hexagon), so rivers run through it.
+  const wet = rt ? i => rt.lake[i] === 1 : i => land.lake[i] > 0.03;
   const isLake = i => {
-    if (!(lake[i] > 0.03)) return false;
-    for (let t = grid.nbrOff[i], e = grid.nbrOff[i + 1]; t < e; t++) if (lake[grid.nbr[t]] > 0.03) return true;
+    if (!wet(i)) return false;
+    for (let t = grid.nbrOff[i], e = grid.nbrOff[i + 1]; t < e; t++) if (wet(grid.nbr[t])) return true;
     return false;
   };
   const big = new Uint8Array(n);

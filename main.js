@@ -275,6 +275,13 @@ function yearFrame() {
   if (eruptionSeen.size > 200) for (const [k, t] of eruptionSeen) if (now - t > 5000) eruptionSeen.delete(k);
   return { veil, marks };
 }
+// The lakes as drawn (their depth from their water, and the salt flats), eased in by the globe.
+let lakesDrawn = null;
+function onLakes(m) {
+  lakesDrawn = m;
+  if (globe) globe.setLakes(m.draw, m.salt);
+  drawDirty = true;
+}
 function onTides(m) {
   // The largest amplitude (per unit equilibrium tide), for the caption.
   let mx = 0;
@@ -324,7 +331,7 @@ function uploadSurface(m, mode) {
     globe.setPolarity(polarity.table(origin, POL_DT, Math.ceil(POL_SPAN / POL_DT)), origin, POL_DT);
     polarityReady = true;
   }
-  globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.lakeDraw, m.normals, mode);
+  globe.setFields(m.elevRel, m.tfDraw, m.felsic, null, m.normals, mode);
   season.setSurface(m.elevRel);
 }
 let polarityReady = false;
@@ -677,7 +684,7 @@ function caption(force) {
 // ── Fig. 7: the model, with its live fluxes ──
 function modelSnapshot() {
   const cs = climate.stats, z = climate.zonal, cf = carbon.flux, st = tec.stats();
-  const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
+  const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare, rain = 0, ground = { wet: 0, beta: 0, live: 0 }, lakes = { n: 0, area: 0, inflow: 0 } } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
   const dT = z ? z.T[45] - 0.5 * (z.T[15] + z.T[75]) : 40;
   const forcing = 5.35 * Math.log(carbon.pco2 / CARBON.PCO2_0);
   const s65 = P.orbit.summer65(P.years / 1000);
@@ -697,6 +704,7 @@ function modelSnapshot() {
       tides: tide ? `${(moon.P / 1e12).toFixed(1)} TW` : '—',
       year: year.live > 0 ? `${yearMean >= 0 ? '+' : '−'}${Math.abs(yearMean).toFixed(2)} K` : `±${year.sigma.toFixed(1)} K`,
       volcanoes: `τ ${year.aod.toFixed(3)}`,
+      ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -713,7 +721,15 @@ function modelSnapshot() {
       { from: 'climate', to: 'ice', w: snow / 1e9 / 4000, label: `${Math.round(snow / 1e9)} km³/yr` },
       { from: 'ice', to: 'climate', w: iceArea / 1e12 / 20, label: 'albedo' },
       { from: 'ice', to: 'sea', w: ice.stats.seaLevel / 100, label: `−${Math.round(ice.stats.seaLevel)} m` },
-      { from: 'climate', to: 'landscape', w: run / (la || 1) / 0.5, label: `${Math.round(1000 * run / (la || 1))} mm/yr` },
+      // The ground: rain in, evaporation (its efficiency) and runoff out; the lakes from its runoff, in the landscape's basins behind the ice's dams.
+      { from: 'climate', to: 'ground', w: rain / (la || 1) / 1.5, label: `${Math.round(1000 * rain / (la || 1))} mm/yr`, bend: 0.35 },
+      { from: 'ground', to: 'climate', w: ground.beta, label: `β ${ground.beta.toFixed(2)}`, bend: 0.35 },
+      { from: 'year', to: 'ground', w: 0.4 * ground.live, bend: 0.1 },
+      { from: 'ground', to: 'landscape', w: run / (la || 1) / 0.5, label: `${Math.round(1000 * run / (la || 1))} mm/yr`, bend: -0.05 },
+      { from: 'ground', to: 'lakes', w: lakes.inflow / 1500, label: `${Math.round(lakes.inflow)} km³/yr`, bend: 0.05 },
+      { from: 'landscape', to: 'lakes', w: 0.25, label: 'basins', bend: 0.1 },
+      { from: 'ice', to: 'lakes', w: iceArea > 0 ? 0.25 : 0.05, label: 'dams', bend: -0.1 },
+      { from: 'lakes', to: 'climate', w: lakes.area / 1e6, label: 'open water', bend: -0.25 },
       { from: 'landscape', to: 'sea', w: land.flux.toSea / 6, label: `${land.flux.toSea.toFixed(1)} km³/yr`, bend: 0.08 },
       { from: 'climate', to: 'carbon', w: cf.weather / 0.2, label: `${fmt(cf.weather, 3)} Pg/yr` },
       { from: 'carbon', to: 'climate', w: Math.abs(forcing) / 6, label: `${forcing >= 0 ? '+' : '−'}${Math.abs(forcing).toFixed(1)} W/m²` },
@@ -966,7 +982,7 @@ function tick(now) {
     globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi, tides: sf.tides, veil: yf.veil });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks }, pal);
-    if (phi >= 1) drawDirty = false;
+    if (phi >= 1 && !globe.lakesEasing) drawDirty = false;
     lap('overlay');
   }
 }
@@ -983,6 +999,7 @@ engine.onmessage = e => {
   else if (m.type === 'fast') onFast(m);
   else if (m.type === 'tides') onTides(m);
   else if (m.type === 'year') onYear(m);
+  else if (m.type === 'lakes') onLakes(m);
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
@@ -996,6 +1013,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   season = new GpuSeason(g.device, grid, g.climBuffer);
   wx = new GpuWeather(g.device, mesh, seed, g.refiner, moon.Omega);
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
+  if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;
@@ -1008,4 +1026,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; } };

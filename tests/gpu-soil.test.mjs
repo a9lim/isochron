@@ -31,7 +31,7 @@ test('the ground on the GPU: the CPU reference, month by month and twelve at a d
   cpu.equilibrium(f.T, f.P, f.PET, { cold: true });
   const gpu = new GpuSoil(await device(), n, f.Smax);
   gpu.setForcing(f.T, f.P, f.PET);
-  gpu.setState(cpu.S, cpu.SWE, cpu.Tg);
+  gpu.setState(cpu.S, cpu.SWE, cpu.Tg, cpu.G);
   const dT = new Float32Array(12 * n), rf = new Float32Array(12 * n);
   const anomalies = y => { for (let j = 0; j < 12 * n; j++) { dT[j] = 6 * (jitter(j + 31 * y) - 0.5); rf[j] = 0.3 + 1.4 * jitter(j + 17 * y + 5); } };
   // A year a month at a time, then two years twelve months at a dispatch.
@@ -69,7 +69,7 @@ test('the ground on the GPU: the periodic year stays periodic', { skip }, async 
   cpu.equilibrium(f.T, f.P, f.PET, { cold: true });
   const gpu = new GpuSoil(await device(), n, f.Smax);
   gpu.setForcing(f.T, f.P, f.PET);
-  gpu.setState(cpu.S, cpu.SWE, cpu.Tg);
+  gpu.setState(cpu.S, cpu.SWE, cpu.Tg, cpu.G);
   gpu.step(0, 60);   // five years in one dispatch
   const r = await gpu.read({ state: true });
   let d = 0, dr = 0, s = 0;

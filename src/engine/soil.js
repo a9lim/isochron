@@ -14,6 +14,15 @@
 //                 deserts' soils out to their rivers (+350% runoff in arid
 //                 climates against Budyko's). The exponents and the rate are
 //                 fitted (synthesis): see potential evaporation below.
+//   groundwater   the soil's drainage recharges a linear store G (mm) that
+//                empties over TAU_G months (the lower zone of HBV and its kin,
+//                standard; τ synthesis), and its outflow is the baseflow the
+//                rivers carry, so a river runs on through a dry season (with
+//                the drainage straight to the rivers, rivers' months swung by a
+//                median 750× on the opening planet, against Earth's large
+//                rivers' 3–30×, from memory). Exact over a month for the
+//                month's recharge; it doesn't feed back on the soil, so its
+//                periodic state is solved after the soil's, in closed form.
 //   the month     backward Euler with the fluxes at the month's end, so any
 //                 month is stable: S_max w + Lᵢ(w⁴ − 1) + E_p β(w) + D w⁴ = S₀.
 //                 Split at w = 0.75 it is a w + c w⁴ = d on each side, convex,
@@ -55,6 +64,12 @@
 //                 over 1 K) it sheds half the month's rain and melt as quick
 //                 flow, and frozen ground below doesn't drain at all.
 //
+/** Groundwater over a month: the store at its end, from its start and the month's recharge (both mm); the outflow is g0 + rch − end. */
+export function groundwater(g0, rch) {
+  const a = Math.exp(-1 / SOIL.TAU_G);
+  return g0 * a + rch * SOIL.TAU_G * (1 - a);
+}
+
 // Water in mm, temperature in °C, time in months (12 equal months a year).
 // Forcing and monthly outputs are laid out 12 per cell, January first
 // (index 12 i + m), as the climate's runoffM. A cell with S_max ≤ 0 is sea.
@@ -71,6 +86,7 @@ export const SOIL = {
   DSTAR: 0.1,         // m of snow insulating as much as the ground's own metre
   RHO_SNOW: 300,      // kg/m³
   FROZEN: 0.5,        // share of rain and melt that runs off a frozen surface
+  TAU_G: 4,           // months: groundwater's time constant (synthesis)
   PET_K: 55 / 12,     // PET = PET_K · max(0, T + PET_T0), mm a month (the climate's Budyko PET by the month)
   PET_T0: 4,
   PERMA_W: 0.5,       // K, the width of permafrost's logistic in the ground's mean
@@ -154,9 +170,10 @@ export class Soil {
     this.S = new Float64Array(n);          // soil water, mm
     this.SWE = new Float64Array(n);        // snowpack, mm of water
     this.Tg = new Float64Array(n);         // the ground's temperature, °C
+    this.G = new Float64Array(n);          // groundwater, mm
     const m12 = () => new Float32Array(12 * n);
-    // By month (12 i + m), the month's totals (mm) and its end state.
-    this.out = { quick: m12(), base: m12(), evap: m12(), S: m12(), SWE: m12(), Tg: m12() };
+    // By month (12 i + m), the month's totals (mm: base is groundwater's outflow) and its end state.
+    this.out = { quick: m12(), base: m12(), evap: m12(), S: m12(), SWE: m12(), Tg: m12(), G: m12() };
     // The last twelve months' aggregates.
     this.runoff = new Float32Array(n);     // mm a year, quick and base
     this.evap = new Float32Array(n);       // mm a year
@@ -188,8 +205,9 @@ export class Soil {
       if (dT) { const tt = t + dT[i]; pet = Math.max(0, pet + k0 * (Math.max(0, tt + SOIL.PET_T0) - Math.max(0, t + SOIL.PET_T0))); t = tt; }
       if (rf) p *= rf[i];
       month(this.S[i], this.SWE[i], this.Tg[i], smax, t, p, pet);
-      o.quick[k] = R[0]; o.base[k] = R[1]; o.evap[k] = R[2]; o.S[k] = R[3]; o.SWE[k] = R[4]; o.Tg[k] = R[5];
-      this.S[i] = R[3]; this.SWE[i] = R[4]; this.Tg[i] = R[5];
+      const g0 = this.G[i], g1 = groundwater(g0, R[1]);
+      o.quick[k] = R[0]; o.base[k] = g0 + R[1] - g1; o.evap[k] = R[2]; o.S[k] = R[3]; o.SWE[k] = R[4]; o.Tg[k] = R[5]; o.G[k] = g1;
+      this.S[i] = R[3]; this.SWE[i] = R[4]; this.Tg[i] = R[5]; this.G[i] = g1;
     }
   }
 
@@ -256,6 +274,14 @@ export class Soil {
         xPrev = S0; gPrev = g; S = next;
       }
       this.S[i] = S; this.SWE[i] = W; this.Tg[i] = G;
+      // Groundwater's periodic year under the year's recharge (the soil's drainage, in o.base so
+      // far), in closed form: G₁₂ = a¹² G₀ + Σ, so G₀ = Σ / (1 − a¹²); then its outflow by month.
+      const a = Math.exp(-1 / C.TAU_G), a12 = a ** 12;
+      let g = 0;
+      for (let m = 0; m < 12; m++) g = groundwater(g, o.base[b + m]);
+      g /= 1 - a12;
+      this.G[i] = g;
+      for (let m = 0; m < 12; m++) { const k = b + m, g1 = groundwater(g, o.base[k]); o.base[k] = g + o.base[k] - g1; o.G[k] = g1; g = g1; }
       years += y; worst = Math.max(worst, y); cells++;
       if (!done) unconverged++;
     }
@@ -269,7 +295,7 @@ export class Soil {
     for (let i = 0; i < this.n; i++) {
       if (!(this.Smax[i] > 0)) continue;
       const k = 12 * i + p;
-      this.S[i] = o.S[k]; this.SWE[i] = o.SWE[k]; this.Tg[i] = o.Tg[k];
+      this.S[i] = o.S[k]; this.SWE[i] = o.SWE[k]; this.Tg[i] = o.Tg[k]; this.G[i] = o.G[k];
     }
   }
 
