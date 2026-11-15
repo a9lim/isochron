@@ -463,6 +463,9 @@ export class Lakes {
     const before = this.storage();
     this.inb.fill(0);
     if (!this.J || this.J.length < this.nb) this.J = new Float64Array(this.nb);
+    // Each node's subtree, in nodes (a merge's node comes after its children's).
+    if (!this.nsub || this.nsub.length < this.nb) this.nsub = new Int32Array(this.c0.length);
+    for (let b = 0; b < this.nb; b++) this.nsub[b] = this.c0[b] < 0 ? 1 : 1 + this.nsub[this.c0[b]] + this.nsub[this.c1[b]];
     let toSea = 0, runIn = 0;
     for (const q of this.regOrder) {
       const root = this.regRoot[q], o = this.eqSolve(root);
@@ -487,11 +490,20 @@ export class Lakes {
       this.W[b] = Math.min(this.cap[b], this._V); this.level[b] = h;
       return 0;
     }
-    const a = c0[b], c = c1[b];
-    let oa = this.eqSolve(a), oc = this.eqSolve(c);
-    const Jb = J[a] + J[c];
-    if (oa > 0 && !(oc > 0)) { inb[link[a]] += oa; oc = this.eqSolve(c); inb[link[a]] -= oa; }
-    else if (oc > 0 && !(oa > 0)) { inb[link[c]] += oc; oa = this.eqSolve(a); inb[link[c]] -= oc; }
+    // The smaller child first, and the other solved with its overflow if it has one; the smaller is
+    // solved again only when the larger overflows into it. (Solving both and then one again took
+    // 2^depth solves down a chain of nested basins: 78 deep, the engine hung.) A child that
+    // overflows without the other's water overflows with it too, full throughout either way, so
+    // only its inflow J counts the extra, which J[b] (the children's own inflows) takes back out.
+    let a = c0[b], c = c1[b];
+    if (this.nsub[a] > this.nsub[c]) { const t = a; a = c; c = t; }
+    let oa = this.eqSolve(a), oc, Jb;
+    if (oa > 0) { inb[link[a]] += oa; oc = this.eqSolve(c); inb[link[a]] -= oa; Jb = J[a] + (J[c] - oa); }
+    else {
+      oc = this.eqSolve(c);
+      if (oc > 0) { inb[link[c]] += oc; oa = this.eqSolve(a); inb[link[c]] -= oc; Jb = (J[a] - oc) + J[c]; }
+      else Jb = J[a] + J[c];
+    }
     J[b] = Jb;
     if (!(oa > 0 && oc > 0)) { this.W[b] = 0; return 0; }
     this.eval(b, spill[b], wts);
