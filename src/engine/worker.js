@@ -46,6 +46,7 @@ import { GpuIce } from '../gpu/ice.js';
 import { GpuFlexure } from '../gpu/flexure.js';
 import { GpuSoil } from '../gpu/soil.js';
 import { GpuMoisture } from '../gpu/moisture.js';
+import { GpuDust } from '../gpu/dust.js';
 import { GpuTides } from '../gpu/tides.js';
 import { GpuPlates } from '../gpu/plates.js';
 import { GpuSurface } from '../gpu/surface.js';
@@ -78,6 +79,7 @@ self.onmessage = e => {
     // The engine's own GPU device, for the ice (and the climate's heavy solves).
     gpuDevice().then(device => {
       P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
+      if (P.aeolian) P.aeolian.gpu = new GpuDust(device, P.aeolian.dust);
       // The bed's ELRA and the crust's flexure on this device (src/gpu/flexure.js), sharing the coarser grids.
       const have = P.ice.flex.levels.map(l => l.g);
       P.iceGpu.attachFlexure(new GpuFlexure(device, P.grid, { have }));
@@ -313,8 +315,9 @@ function sendClimate() {
     Tf: c.Tf.map(f32), Pf: c.Pf.map(f32), presPhase: c.presPhase.map(f32), W: c.W.map(f32),
     snowAnn: f32(c.snowAnn), landMask: Uint8Array.from(c.landMask), elevPos: f32(c.elevPos), zones: f32(c.zones),
     sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats }, prod: f32(P.life.export),
+    dust: P.aeolian ? f32(P.aeolian.load) : null, dustStats: P.aeolian ? { ...P.aeolian.stats } : null,
   };
-  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod].map(a => a.buffer);
+  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod, ...(m.dust ? [m.dust] : [])].map(a => a.buffer);
   post(m, transfer);
 }
 

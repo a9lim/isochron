@@ -53,6 +53,11 @@
 // `cover`, trees' and grass's shares), once known, sets land's albedo
 // (VECODE's surface albedos; trees mask snow) in place of the zones', and
 // land's evaporation: bare ground and grass at the ground's β, trees at √β.
+//
+// Dust (src/engine/aeolian.js, `dust`) packs its sources at each point of the
+// year after the winds and rain, and is solved after the six; its last
+// cycle's darkening of snow and ice (`dustDark`) enters the albedo, and its
+// forcing (`dustForcing`) the absorbed sunlight.
 
 import { buildGrid, gradient } from '../grid/icosphere.js';
 import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
@@ -253,6 +258,9 @@ export class Climate {
     const byLat = idx.slice().sort((a, b) => this.lat[a] - this.lat[b]);
     this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
     this.ice = null;     // src/engine/ice.js, when there is one
+    this.dust = null;    // src/engine/aeolian.js, when there is one: its sources packed at each point of the year
+    this.dustDark = null;      // its darkening of snow and ice (planetary albedo, ≤ 0), and its forcing (W/m²): the last cycle's
+    this.dustForcing = null;
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
@@ -321,15 +329,16 @@ export class Climate {
   /** Albedo of fine cell i at sea-level temperature T (at sea, the surface's: the air's plus the gyres' anomaly). */
   albedo(i, T) {
     const C = CLIMATE, s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s;
-    if (this.ice && this.ice.H[i] > 10) return C.ALB_SNOW;
+    const dk = this.dustDark ? this.dustDark[i] : 0, snowA = C.ALB_SNOW + dk;   // dusty snow and ice are darker
+    if (this.ice && this.ice.H[i] > 10) return snowA;
     if (this.landMask[i]) {
       const z = this.zones, o = NZ * i, cv = this.cover, Ts = T - C.LAPSE * this.elevPos[i];
       let a;
       // The plants' cover where it's known (trees mask snow), else the zones'.
-      if (cv) a = landAlbedo(cv.ft[i], cv.fg[i], ramp(-Ts, -1, 5), C.ALB_LAND + C.ALB_COVER + polar, C.ALB_SNOW);
+      if (cv) a = landAlbedo(cv.ft[i], cv.fg[i], ramp(-Ts, -1, 5), C.ALB_LAND + C.ALB_COVER + polar, snowA);
       else {
         const base = C.ALB_LAND + polar + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
-        a = base + (C.ALB_SNOW - base) * ramp(-Ts, -1, 5);
+        a = base + (snowA - base) * ramp(-Ts, -1, 5);
       }
       const lw = this.lakeWet[i];
       if (!(lw > 0)) return a;
@@ -338,7 +347,7 @@ export class Climate {
       return a + lw * (wa + (C.ALB_SEAICE - wa) * ramp(-Ts, 0, 4.5) - a);
     }
     const base = C.ALB_OCEAN + polar;
-    return base + (C.ALB_SEAICE - base) * ramp(-T, 1.5, 6);
+    return base + (C.ALB_SEAICE + dk - base) * ramp(-T, 1.5, 6);
   }
 
   /** The energy balance: absorbed sunlight from the last state, then the five harmonic solves. */
@@ -351,7 +360,7 @@ export class Climate {
     // Sea ice reads the sea's own surface: the air's temperature plus the gyres' anomaly
     // (warm currents keep a sea open poleward of its latitude's ice edge, cold ones carry
     // ice toward the equator), so the edge isn't the energy balance's latitude circle.
-    const sstA = this.ocean ? this.ocean.fine.sst : null;
+    const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing;   // dust's forcing with the sunlight it scatters
     for (let i = 0; i < n; i++) {
       const l = this.row[i], w = this.roww[i], land = this.landMask[i], tp = !land && sstA ? sstA[i] : 0;
       let f0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0, cold = 0;
@@ -364,7 +373,7 @@ export class Climate {
         f0 += fa; a1 += fa * c; b1 -= fa * sv; a2 += fa * c2; b2 -= fa * s2;
         cold += land ? ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5) : ramp(-T, 1.5, 6);
       }
-      F[0][i] = f0 / NS; F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
+      F[0][i] = f0 / NS + (dF ? dF[i] : 0); F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
       this.snowAnn[i] = cold / NS;
     }
     yield;
@@ -498,6 +507,7 @@ export class Climate {
     }
     yield;
     yield* this.moisture(p, T, carry);
+    if (this.dust) this.dust.phase(p, T);   // dust's sources on these winds and this rain (src/engine/aeolian.js)
   }
 
   /** The steady moisture balance at phase p, by fast sweeping. */
@@ -753,6 +763,7 @@ export class Climate {
     if (this.ocean) yield* this.ocean.solve();
     this.finish();
     yield;
+    if (this.dust) yield* this.dust.solve();
     yield* this.groundYear();
     this.warm = true;
     this.stats.cycles++;

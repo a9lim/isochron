@@ -51,7 +51,8 @@
 //   mass balance snow where the month is below freezing at the ice's surface;
 //                melt by positive degree days, the month's days spread normally
 //                about its mean (Reeh's scheme, standard); snow melts before
-//                ice. The surface's height cools it by the lapse rate, so a
+//                ice. Dust darkens both and raises their factors
+//                (src/engine/aeolian.js). The surface's height cools it by the lapse rate, so a
 //                high sheet keeps itself cold.
 //   the bed      (standard: ELRA, Le Meur and Huybrechts, from memory) relaxes
 //                over 3 kyr toward the flexural response to the ice's load,
@@ -181,6 +182,7 @@ export class Ice {
     this.mbVersion = -1;
     this.plateT = -Infinity;
     this.flex = null;                      // a Flexure (attachFlexure); without one the bed is local
+    this.dustDDF = null;                   // the degree-day factors' scale by the dust on snow and ice, 2 a cell (src/engine/aeolian.js)
     // m³, m², m; the ice's area-mean sliding speed (m/yr), its shares thawed and streaming (sliding faster than it
     // deforms), and the rock it erodes (m³/yr)
     this.stats = { volume: 0, area: 0, seaLevel: 0, sliding: 0, thawed: 0, streaming: 0, erosion: 0 };
@@ -251,10 +253,12 @@ export class Ice {
         acc += P * snow;
         pdd += MONTH_DAYS * (sig * phiN(T / sig) + T * PhiN(T / sig));
       }
-      // Snow melts first, then ice; in metres of ice.
-      const snowMelt = Math.min(acc, pdd * ICE.DDF_SNOW);
-      const left = pdd - snowMelt / ICE.DDF_SNOW;
-      const iceMelt = left * ICE.DDF_ICE;
+      // Snow melts first, then ice; in metres of ice. Dust darkens both, which raises their
+      // degree-day factors (src/engine/aeolian.js).
+      const dd = this.dustDDF, ks = ICE.DDF_SNOW * (dd ? dd[2 * i] : 1), ki = ICE.DDF_ICE * (dd ? dd[2 * i + 1] : 1);
+      const snowMelt = Math.min(acc, pdd * ks);
+      const left = pdd - snowMelt / ks;
+      const iceMelt = left * ki;
       this.M[i] = (acc - snowMelt - iceMelt) * (1000 / ICE.RHO_I);
       this.melt[i] = (snowMelt + iceMelt) * (1000 / ICE.RHO_I);
     }

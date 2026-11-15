@@ -239,11 +239,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     acc += P * snow;
     pdd += 30.44 * (Q.sigma * phiN(T / Q.sigma) + T * PhiN(T / Q.sigma));
   }
-  let snowMelt = min(acc, pdd * Q.ddfSnow);
-  let left = pdd - snowMelt / Q.ddfSnow;
-  let net = (acc - snowMelt - left * Q.ddfIce) * (1000.0 / U.rhoI);
+  // Dust's darkening scales the factors (P1.zw: snow's, ice's; src/engine/aeolian.js).
+  let ks = Q.ddfSnow * P1.z;
+  let ki = Q.ddfIce * P1.w;
+  let snowMelt = min(acc, pdd * ks);
+  let left = pdd - snowMelt / ks;
+  let net = (acc - snowMelt - left * ki) * (1000.0 / U.rhoI);
   M[i] = net;
-  Mx[i] = vec4f((snowMelt + left * Q.ddfIce) * (1000.0 / U.rhoI), tm, net, 0.0);
+  Mx[i] = vec4f((snowMelt + left * ki) * (1000.0 / U.rhoI), tm, net, 0.0);
 }`;
 
 const wg = n => Math.ceil(n / 64);
@@ -349,12 +352,12 @@ export class GpuIce {
     }
     if (c.version !== this.mbVersion) {
       this.mbVersion = c.version;
-      const a = this.climArr, T = c.Tf, P = c.Pf;
+      const a = this.climArr, T = c.Tf, P = c.Pf, dd = ice.dustDDF;
       for (let i = 0; i < n; i++) {
         const o = 12 * i;
         a[o] = T[0][i]; a[o + 1] = T[1][i]; a[o + 2] = T[2][i]; a[o + 3] = T[3][i];
         a[o + 4] = T[4][i]; a[o + 5] = P[0][i]; a[o + 6] = P[1][i]; a[o + 7] = P[2][i];
-        a[o + 8] = P[3][i]; a[o + 9] = P[4][i];
+        a[o + 8] = P[3][i]; a[o + 9] = P[4][i]; a[o + 10] = dd ? dd[2 * i] : 1; a[o + 11] = dd ? dd[2 * i + 1] : 1;
       }
       this.device.queue.writeBuffer(this.clim, 0, a);
       this.run(this.mbList);

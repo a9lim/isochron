@@ -39,6 +39,8 @@
 //                     the seafloor's hypsometry in the module's fixed 150 m
 //                     bins; productivity (`bio`) is the rivers' sediment and
 //                     the coasts' upwelling against the opening's, half each;
+//                     iron (`iron`) is the dust reaching the cold box's water
+//                     against the opening's (src/engine/aeolian.js);
 //                     carbonate weathering goes with land's runoff against
 //                     the opening's.
 //   export, drawn     the boxes' export production spread over the sea by
@@ -105,6 +107,7 @@ export class Life {
     this.cycles = 0;
     this.ref = null;                       // the opening's rivers, upwelling and runoff
     this.bio = 1;
+    this.dust = null;                      // src/engine/aeolian.js, when there is one: iron to the cold box
     this.toAir = 0;                        // Pg C the land's store has given the air since the sea settled
     this.stats = { trees: 0, grass: 0, bare: 1, landC: 0, air: 0, npp: 0, export: 0, ccd: 0, shelf: 0 };
   }
@@ -190,13 +193,15 @@ export class Life {
     this.bio += (want - this.bio) * LIFE.BIO_EASE;
     // The sea takes this planet's inputs from the end of the closure, where it settles on them
     // (before, it keeps the steady state it was built in).
+    // Dust's iron to the cold box's water (src/engine/aeolian.js), against what reaches it when the sea settles.
+    const iron = this.dust ? this.dust.ironTo(sst, edge, !this.carbon.settled) : 1;
     this.seaIn = {
       sstWarm, sstCold, iceFree: cA > 0 ? Math.max(0.05, 1 - iceA / cA) : 1, shelf: shelf * R2,
-      hyps: { depth, area: Array.from(hy) }, bio: this.bio, carbW: rel(runS, R.run),
+      hyps: { depth, area: Array.from(hy) }, bio: this.bio, carbW: rel(runS, R.run), iron,
     };
     if (this.carbon.settled || this.cycles >= LIFE.SETTLE) this.carbon.sea.set(this.seaIn);
     // The export, drawn: each box's spread over the sea by its supply.
-    const s = this.carbon.sea, mol = OC.RCP * s.in.bio, eW = mol / OC.TAU_W * s.P[0], eC = mol / OC.TAU_C * s.P[1];
+    const s = this.carbon.sea, mol = OC.RCP * s.in.bio, eW = mol / OC.TAU_W * s.P[0], eC = mol * s.in.iron / OC.TAU_C * s.P[1];
     const wt = this.scratch.wt || (this.scratch.wt = new Float32Array(2 * n));
     let sW = 0, sC = 0;
     for (let i = 0; i < n; i++) {

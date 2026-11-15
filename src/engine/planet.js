@@ -44,6 +44,7 @@ import { Flexure } from './flexure.js';
 import { Regolith } from './regolith.js';
 import { CrustFlex } from './crustflex.js';
 import { Life } from './life.js';
+import { Aeolian } from './aeolian.js';
 
 export const PLANET = {
   LAKES_LIVE: 1e4,       // yr/s: lakes step below this, and sit at their balance above
@@ -100,6 +101,9 @@ export class Planet {
     this.climate.ground = this.ground;
     this.lakes = new Lakes(this.grid);
     this.climate.lakes = this.lakes;
+    // Dust (src/engine/aeolian.js): lifted from bare, dry ground, dry lake beds and outwash in the
+    // climate's cycle; it darkens snow and ice, feeds the cold sea iron and settles as loess.
+    this.aeolian = opts.dust === false ? null : new Aeolian(this);
     this.lakesBank = 0; this.lakesVersion = 0; this.lakesClimate = -1; this.lakesMinGap = 0; this.lakesBuiltAt = -Infinity;
     this.lakeIn = { runoff: new Float32Array(this.grid.n), pe: new Float32Array(this.grid.n) };
     // The Moon and the spin it slows: its tides are solved on the GPU where there is one

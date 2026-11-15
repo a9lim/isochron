@@ -29,7 +29,9 @@
 //   0.05 cold (synthesis: chosen so the opening's rain, ~0.4 Pg C/yr, can
 //   feed the burial), all remineralized in the deep but the share of the
 //   carbonate that reaches the floor. `bio` is the caller's productivity (1
-//   at the opening). Nitrate's share of alkalinity is left out.
+//   at the opening), and `iron` scales the cold box's uptake alone (its
+//   preformed phosphate is what iron limits: Martin's hypothesis; 1 at the
+//   opening). Nitrate's share of alkalinity is left out.
 //
 // Chemistry (standard): the carbonate system from DIC and ALK, with borate and
 // water, solved for [H⁺] by safeguarded Newton. Constants, each checked
@@ -267,6 +269,7 @@ export class OceanCarbon {
       salinity: OC.SALINITY,
       shelf: 1,                // warm shallow shelf area (any unit; against its value at the opening)
       bio: 1,                  // productivity against the opening's
+      iron: 1,                 // the cold box's uptake by the iron dust brings, against the opening's (src/engine/aeolian.js)
       subduct: OC.SUBDUCT,     // per yr, share of the seafloor consumed
       iceFree: 1,              // the cold box's open water, for gas exchange
       hyps: null,              // { depth: m, area: any unit }, the seafloor below the shelves
@@ -342,7 +345,7 @@ export class OceanCarbon {
   /** Phosphate over h, implicit (linear), and the exports it sets (mol/yr). */
   nutrients(h, x) {
     const { T, Mcd, Mwd } = x, Mw = this.Mw, Mc = this.Mc, Md = this.Md, b = this.in.bio;
-    const uw = b / OC.TAU_W, uc = b / OC.TAU_C;
+    const uw = b / OC.TAU_W, uc = b * this.in.iron / OC.TAU_C;
     // dP/dt = L P, P in mol; concentrations P/M.
     const L = [
       -(T + Mwd) / Mw - uw, 0, (T + Mwd) / Md,
@@ -544,7 +547,7 @@ export class OceanCarbon {
   }
   nutrientsNoStep(x) {
     const b = this.in.bio;
-    x.eCw = OC.RCP * b / OC.TAU_W * this.P[0]; x.eCc = OC.RCP * b / OC.TAU_C * this.P[1];
+    x.eCw = OC.RCP * b / OC.TAU_W * this.P[0]; x.eCc = OC.RCP * b * this.in.iron / OC.TAU_C * this.P[1];
     x.eAw = OC.RAIN_W * x.eCw; x.eAc = OC.RAIN_C * x.eCc;
     x.rain = this.closed ? 0 : this.sed * (x.eAw + x.eAc) / this.area;
   }

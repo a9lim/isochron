@@ -725,6 +725,8 @@ function modelSnapshot() {
   // The plants and the sea's carbon (src/engine/life.js, src/engine/oceancarbon.js).
   const L = life || { trees: 0, npp: 0, air: 0, bio: 1, shelf: 0 }, seaC = carbon.sea || { ccd: 0 }, gas = cf.gas || 0, Pg = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(Math.abs(v) < 0.1 ? 3 : 2)} Pg/yr`;
   const reg = P.regolith;
+  // Dust (src/engine/aeolian.js), as of the climate's last cycle.
+  const D = climate.dust, Tg = v => `${Math.round(v)} Tg/yr`;
   const r = year.rates || { arcs: 0.1, hot: 0, flood: 0 }, Wm = v => { const a = Math.abs(v), t = a.toFixed(a < 0.1 ? 2 : 1); return `${+t === 0 ? '' : v > 0 ? '+' : '−'}${t} W/m²`; };
   return {
     values: {
@@ -739,6 +741,7 @@ function modelSnapshot() {
       ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
       veg: `${Math.round(100 * L.trees)}% trees`, seaC: `CCD ${(seaC.ccd / 1000).toFixed(1)} km`,
       regolith: reg ? `${reg.mean.toFixed(1)} m` : '—',
+      dust: climate.dust ? Tg(climate.dust.emission) : '—',
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -808,6 +811,18 @@ function modelSnapshot() {
       ] : []),
       ...(P.flex ? [{ from: 'landscape', to: 'plates', w: P.flex.rms / 300, label: `±${Math.round(P.flex.rms)} m`, bend: -0.25 }] : []),
       { from: 'ice', to: 'plates', w: ice.stats.area > 0 ? 0.3 : 0.05, label: 'bed', bend: 0.25 },
+      // Dust: lifted by the climate's winds from bare, dry ground (the cover), dry lake beds and the ice's outwash;
+      // it scatters sunlight, darkens snow and ice (faster melt), brings the cold sea iron and settles as loess.
+      ...(D ? [
+        { from: 'climate', to: 'dust', w: D.emission / 3000, label: 'wind', bend: 0.05 },
+        { from: 'veg', to: 'dust', w: D.fromBare / 2000, label: D.fromBare >= 1 ? Tg(D.fromBare) : '', bend: 0.1 },
+        { from: 'lakes', to: 'dust', w: D.fromSalt / 100, label: D.fromSalt >= 1 ? Tg(D.fromSalt) : '', bend: -0.15 },
+        { from: 'ice', to: 'dust', w: D.fromOutwash / 100, label: D.fromOutwash >= 1 ? Tg(D.fromOutwash) : '', bend: 0.1 },
+        { from: 'dust', to: 'climate', w: Math.abs(D.forcing) / 0.2, label: Wm(D.forcing), bend: 0.05 },
+        { from: 'dust', to: 'ice', w: (D.dark || 0) / 0.01, label: D.dark >= 5e-4 ? `α −${D.dark.toFixed(3)}` : '', bend: -0.1 },
+        { from: 'dust', to: 'seaC', w: Math.abs((D.iron || 1) - 1) / 0.3 + 0.1, label: `iron ${(D.iron || 1).toFixed(2)}×`, bend: -0.1 },
+        { from: 'dust', to: 'regolith', w: (D.loess || 0) / 1000, label: D.loess >= 1 ? `loess ${Tg(D.loess)}` : '', bend: 0.1 },
+      ] : []),
     ],
   };
 }
