@@ -9,7 +9,7 @@
 //
 // Globals from the shared layer: _PALETTE, _themePalette, _colophon,
 // initAboutPanel, initShortcuts, _loadTextFonts.
-import { buildGrid } from './src/grid/icosphere.js';
+import { buildGrid, cellCount } from './src/grid/icosphere.js';
 import { Record } from './src/engine/record.js';
 import { ClimateView, YearView } from './src/engine/mirror.js';
 import { OrbitCycles } from './src/engine/orbit.js';
@@ -31,6 +31,7 @@ import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
 import { drawKey } from './src/render/key.js';
+import { STREAM_GAP } from './src/render/streamlines.js';
 import { Year } from './src/engine/year.js';
 import { linkCharts, chartFrame } from './src/render/chart.js';
 
@@ -57,6 +58,7 @@ const els = {
   views: document.querySelectorAll('#view-picker .view-btn'),
   keyBtn: $('key-btn'), key: $('globe-key'), keyCanvas: $('key-canvas'),
   wxPicker: $('wx-picker'), wxBtns: document.querySelectorAll('#wx-picker .view-btn'),
+  clPicker: $('cl-picker'), clBtns: document.querySelectorAll('#cl-picker .view-btn'),
   experiments: $('experiments'),
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
@@ -88,6 +90,7 @@ const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-m
 let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
+let clMode = 'zones';               // the Climate view's map: its zones, or the air (winds, dust, the veil)
 // The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
 const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
 let tide = null;
@@ -393,6 +396,7 @@ chartWorker.postMessage({ type: 'init', level: MESH_LEVEL, chartLevel: 6 });
 let chartGone = null, chartArrive = 0, chartSpan = 150;
 chartWorker.onmessage = e => {
   const c = e.data, now = performance.now();
+  if (c.type === 'air') { onAir(c); return; }
   if (chart) chartSpan = 0.7 * chartSpan + 0.3 * Math.max(60, Math.min(1000, now - chartArrive));
   c.prevT = chart ? chart.t : c.t;
   chartGone = linkCharts(chart, c);
@@ -458,6 +462,52 @@ function refreshWeather(force) {
   drawDirty = true;
 }
 
+// ── The Air chart ──
+// The Climate view's winds: the climate's surface wind (its template's pressure through
+// src/engine/climate.js's `surfaceWind`) at the date the globe shows, or the year's mean where it
+// shows the year, traced into streamlines in the chart's worker (src/render/streamlines.js) on a
+// grid no finer than 110 km. Retraced when the drawn wind has moved (the climate, the date, the
+// season's weight, the spin) or the zoom crosses an octave, one trace in flight and at most one
+// every AIR_GAP ms while only the date moves, so each new set crossfades from the last whole.
+const AIR_LEVEL = Math.min(LEVEL, 6), AIR_N = cellCount(AIR_LEVEL), AIR_FADE = 300, AIR_GAP = 450;
+const DSEP = 0.075;                 // rad between streamlines (~28 px on a globe of 380), halved past an octave of zoom
+const air = { cur: null, prev: null, at: -1e9, busy: false, sent: null, sentAt: -1e9, id: 0, maxWind: 0 };
+const airShown = () => view === 'climate' && clMode === 'air';
+function refreshAir() {
+  if (!airShown() || air.busy || climate.version < 0) return;
+  const now = performance.now(), tau = ((P.years % 1) + 1) % 1, sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
+  const k = Math.max(0, Math.min(1, Math.round(Math.log2(camera.radius(cssW, cssH) / 380))));
+  const s = air.sent, dTau = s ? Math.abs(((tau - s.tau) % 1 + 1.5) % 1 - 0.5) : 1;
+  const moved = !s || climate.version !== s.version || k !== s.k || Math.abs(sw - s.sw) > 0.05 || (sw > 0.02 && dTau > 1 / 48) || Math.abs(moon.Omega / s.omega - 1) > 0.003;
+  if (!moved || (s && now - air.sentAt < AIR_GAP && climate.version === s.version && k === s.k)) return;
+  // The pressure the globe's date shows (the template's six points' harmonics), blended toward the year's mean.
+  const pres = new Float64Array(AIR_N), ph = climate.presPhase, NPH = ph.length;
+  for (let i = 0; i < AIR_N; i++) {
+    let m = 0;
+    for (let q = 0; q < NPH; q++) m += ph[q][i];
+    pres[i] = sw > 0 ? sw * climate.presAt(i, tau) + (1 - sw) * m / NPH : m / NPH;
+  }
+  air.sent = { version: climate.version, tau, sw, k, omega: moon.Omega };
+  air.sentAt = now; air.busy = true;
+  chartWorker.postMessage({ type: 'air', id: ++air.id, level: AIR_LEVEL, pres, omega: moon.Omega, dsep: DSEP / 2 ** k }, [pres.buffer]);
+}
+function onAir(m) {
+  air.busy = false;
+  const now = performance.now();
+  // A set that arrives before the last has half faded in replaces it; the outgoing keeps fading.
+  if (!(air.cur && now - air.at < 0.5 * AIR_FADE)) air.prev = air.cur;
+  air.cur = m; air.at = now; air.maxWind = m.maxWind;
+  drawDirty = true;
+  caption(true);
+}
+/** The sets to draw this frame, the new one fading in over the old. */
+function airFrame() {
+  if (!airShown() || !air.cur) return null;
+  const f = smooth(0, 1, (performance.now() - air.at) / AIR_FADE);
+  if (f < 1) drawDirty = true;
+  return { sets: [{ lines: air.prev && air.prev.lines, alpha: 1 - f, gap: air.prev && STREAM_GAP * air.prev.dsep }, { lines: air.cur.lines, alpha: f, gap: STREAM_GAP * air.cur.dsep }] };
+}
+
 // ── Canvas sizing ──
 let cssW = 1, cssH = 1, dpr = 1;
 const octx = els.overlay.getContext('2d');
@@ -483,7 +533,7 @@ function setDial(v) { els.dial.value = String(v); syncDial(); }
 
 // ── The view ──
 // ── The key ──
-function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view, palette()); }
+function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view === 'climate' ? `climate-${clMode}` : view, palette()); }
 function setWxMode(m) {
   wxMode = m;
   for (const b of els.wxBtns) b.setAttribute('aria-checked', b.dataset.wx === m ? 'true' : 'false');
@@ -492,6 +542,15 @@ function setWxMode(m) {
   caption(true);
 }
 for (const b of els.wxBtns) b.addEventListener('click', () => setWxMode(b.dataset.wx));
+function setClMode(m) {
+  clMode = m;
+  for (const b of els.clBtns) b.setAttribute('aria-checked', b.dataset.cl === m ? 'true' : 'false');
+  drawTheKey();
+  refreshAir();
+  drawDirty = true;
+  caption(true);
+}
+for (const b of els.clBtns) b.addEventListener('click', () => setClMode(b.dataset.cl));
 function setKey(on) {
   els.key.hidden = !on;
   els.keyBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -503,6 +562,7 @@ setKey(window.innerWidth > 860);
 function setView(v) {
   view = v;
   els.wxPicker.hidden = v !== 'weather';
+  els.clPicker.hidden = v !== 'climate';
   drawTheKey();
   if (v === 'weather') {
     // A weather built for an earlier spin is rebuilt (the Moon's tides lengthen the day).
@@ -655,7 +715,7 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const parts = [view === 'climate' ? 'Climate' : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : 'Relief', formatTime(P.years)];
+  const parts = [view === 'climate' ? `Climate, ${clMode}` : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : 'Relief', formatTime(P.years)];
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (view === 'weather') {
     const spun = wx && wx.started ? Math.min(1, wx.t / SPINUP) : 0;
@@ -701,7 +761,15 @@ function caption(force) {
     setCaption(parts.join(' · '), true);
     return;
   }
-  if (view === 'climate') {
+  if (airShown()) {
+    // The winds' fastest, the dust lifted and carried (its optical depth), and the veil's.
+    const D = climate.dust;
+    if (experiment.id !== 'eruption') {
+      if (air.cur) parts.push(`wind to ${air.maxWind.toFixed(0)} m/s`);
+      if (D) parts.push(`dust ${Math.round(D.emission).toLocaleString('en')} Tg/yr, τ ${D.tau.toFixed(3)}`);
+    }
+    if (year.live > 0) parts.push(`veil τ ${year.aod.toFixed(3)}`);
+  } else if (view === 'climate') {
     const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
     parts.push(`mean ${cs.meanT.toFixed(1)} °C`);
@@ -974,7 +1042,7 @@ window.addEventListener('DOMContentLoaded', () => {
         { label: 'Turn the globe', value: 'Drag' },
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
         { label: 'Rate', value: 'The dial, or [ and ]' },
-        { label: 'View', value: 'Relief, Climate or Weather, or 1, 2, 3' },
+        { label: 'View', value: 'Relief, Climate, Weather or Tides, or 1, 2, 3, 4' },
         { label: 'Experiments', value: 'The margin; each has one knob' },
       ],
       shortcuts,
@@ -1021,6 +1089,7 @@ function tick(now) {
   if (climateDirty || playing || performance.now() - coldEaseStart < 900) { refreshClimate(climateDirty); climateDirty = false; }
   lap('season');
   if (view === 'weather' && wx && (playing || !wx.started || wx.t < SPINUP)) { if (!playing) stepWeather(0); refreshWeather(); }
+  if (airShown()) refreshAir();
   if (playing && rate() < 20) drawDirty = true;   // the sky, the Sun, the Moon, the tide and the rivers' months move at a slow dial
   if (playing && year.live > 0 && year.eruptions.length) drawDirty = true;   // eruptions come and fade
   if (playing) caption(false);
@@ -1067,9 +1136,9 @@ function tick(now) {
     lap('lines');
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, blend: phi, tides: sf.tides, veil: yf.veil });
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, blend: phi, tides: sf.tides, veil: yf.veil });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() }, pal);
     if (phi >= 1 && !globe.lakesEasing) drawDirty = false;
     lap('overlay');
   }
@@ -1116,4 +1185,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get lines() { return lines; }, get rivers() { return rivers; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; } };

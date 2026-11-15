@@ -128,7 +128,7 @@
     <figure class="globe">
       <div class="globe-stage">
         <canvas id="globe-gpu" aria-hidden="true"></canvas>
-        <canvas id="globe-overlay" class="cursor-grab" aria-label="A globe of an Earth-like planet: its relief and plate boundaries, its climate zones, or its weather chart"></canvas>
+        <canvas id="globe-overlay" class="cursor-grab" aria-label="A globe of an Earth-like planet: its relief and plate boundaries, its climate zones or winds, its weather chart, or its tides"></canvas>
         <p id="globe-nogpu" class="globe-notice" role="status" hidden>This globe needs WebGPU.</p>
         <div class="globe-head">
           <div class="globe-head-row">
@@ -144,6 +144,10 @@
             <button class="view-btn" data-wx="pressure" role="radio" aria-checked="true">Pressure</button>
             <button class="view-btn" data-wx="temperature" role="radio" aria-checked="false">Temperature</button>
             <button class="view-btn" data-wx="humidity" role="radio" aria-checked="false">Humidity</button>
+          </div>
+          <div id="cl-picker" class="view-picker wx-picker" role="radiogroup" aria-label="Climate map" hidden>
+            <button class="view-btn" data-cl="zones" role="radio" aria-checked="true">Zones</button>
+            <button class="view-btn" data-cl="air" role="radio" aria-checked="false">Air</button>
           </div>
         </div>
         <div id="globe-key" class="globe-key"><canvas id="key-canvas" aria-label="Key to the view's symbols"></canvas></div>

@@ -1,8 +1,11 @@
 // The key at the globe's corner: each view's symbols, drawn as the scene draws
 // them, with their names (a glyph key: "Show, don't tell" keeps these on the
-// surface). The Climate view's fourteen classes are keyed in full in the margin;
-// here, their five groups.
+// surface). Only marks a reader needs named are keyed: the land's natural
+// colours, lakes, snow and sea ice, the highs' and lows' letters and the
+// temperature chart's warm and cold speak for themselves. The Climate view's
+// fourteen classes are keyed in full in the margin; here, their five groups.
 import { zonePattern } from './figures.js';
+import { streamWidth } from './streamlines.js';
 
 const FONT = "'Newsreader', 'STIX Two Text', serif";
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
@@ -34,43 +37,48 @@ const GLYPHS = {
   inactive: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.45); c.lineWidth = 1; c.setLineDash([1, 3]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   hotspot: (c, x, y, P) => { c.fillStyle = P.accent; c.strokeStyle = P.accent; c.lineWidth = 1; c.beginPath(); c.arc(x + 13, y + 6, 1.9, 0, 7); c.fill(); c.beginPath(); c.arc(x + 13, y + 6, 4.6, 0, 7); c.stroke(); },
   volcano: (c, x, y, P) => { c.fillStyle = P.accent; c.beginPath(); c.moveTo(x + 13, y + 1.5); c.lineTo(x + 18, y + 10); c.lineTo(x + 8, y + 10); c.closePath(); c.fill(); },
+  // The sulfate veil: graphite hatching along the circles of latitude, as the Air chart's.
   veil: (c, x, y, P) => {
-    c.fillStyle = rgba(P.text, 0.55);
-    for (let r = 0; r < 3; r++) for (let k = 0; k < 6; k++) { c.beginPath(); c.arc(x + 2.5 + 4.2 * k + (r % 2 ? 2.1 : 0), y + 2.5 + 3.6 * r, 0.65, 0, 7); c.fill(); }
+    c.strokeStyle = rgba(P.text, 0.5); c.lineWidth = 0.6;
+    c.beginPath(); for (let r = 1.5; r < 12; r += 3) { c.moveTo(x, y + r); c.lineTo(x + 26, y + r); } c.stroke();
   },
   river: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.9); c.lineWidth = 1.6; c.beginPath(); c.moveTo(x, y + 9); c.quadraticCurveTo(x + 10, y + 1, x + 26, y + 5); c.stroke(); },
-  lake: (c, x, y, P) => {
-    c.fillStyle = mixHex(P.canvas, P.ocean, P.tint ? P.tint[0] + 0.04 : 0.3);
-    c.beginPath(); c.ellipse(x + 13, y + 6, 11, 4.6, 0, 0, 7); c.fill();
-    c.strokeStyle = rgba(P.text, 0.55); c.lineWidth = 0.8; c.stroke();
+  // A streamline: its weight the wind's speed, an arrowhead downwind.
+  wind: (c, x, y, P) => {
+    c.strokeStyle = rgba(P.text, 0.72); c.fillStyle = rgba(P.text, 0.72); c.lineCap = 'round';
+    const pts = [[0, 9], [7, 6.6], [14, 5.2], [20, 4.8], [26, 5]];
+    for (let k = 0; k < pts.length - 1; k++) { c.lineWidth = streamWidth(2 + 10 * k / (pts.length - 2)); line(c, x + pts[k][0], y + pts[k][1], x + pts[k + 1][0], y + pts[k + 1][1]); }
+    const w = streamWidth(7), len = 2.6 + 2.2 * w, half = 1.1 + w, px = x + 14, py = y + 5.2, tx = 0.98, ty = -0.2;
+    c.beginPath(); c.moveTo(px + 0.55 * len * tx, py + 0.55 * len * ty);
+    c.lineTo(px - 0.45 * len * tx - half * ty, py - 0.45 * len * ty + half * tx);
+    c.lineTo(px - 0.45 * len * tx + half * ty, py - 0.45 * len * ty - half * tx); c.closePath(); c.fill();
+    c.lineCap = 'butt';
   },
+  // Salt flats: a pale crust under short graphite strokes (the shader's `strokes`).
   salt: (c, x, y, P) => {
-    // A pale crust cracked into polygons (as the shader's `cracks`).
-    c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.3) : mixHex(P.canvas, P.inks.ochre, 0.05); c.fillRect(x, y, 26, 12);
-    c.strokeStyle = P.dark ? mixHex(P.canvas, P.text, 0.12) : mixHex(P.canvas, P.text, 0.42); c.lineWidth = 0.75;
-    const net = [[0, 4, 5, 3], [5, 3, 9, 0], [5, 3, 7, 8], [7, 8, 0, 9], [7, 8, 13, 7], [13, 7, 12, 12], [13, 7, 17, 3], [17, 3, 15, 0], [17, 3, 22, 5], [22, 5, 26, 2], [22, 5, 21, 12]];
-    c.beginPath();
-    for (const [a, b, d, e] of net) { c.moveTo(x + a, y + b); c.lineTo(x + d, y + e); }
-    c.stroke();
+    const crust = P.dark ? mixHex(P.canvas, P.text, 0.3) : mixHex(P.canvas, P.inks.ochre, 0.05);
+    c.fillStyle = crust; c.fillRect(x, y, 26, 12);
+    c.strokeStyle = P.dark ? mixHex(P.canvas, P.text, 0.12) : mixHex(P.canvas, P.text, 0.55); c.lineWidth = 0.8;
+    for (let b = 0; b < 3; b++) for (let a = 0; a < 4; a++) { const cx = x + 3.2 + a * 6.5 + (b % 2) * 3.25; line(c, cx - 1.45, y + 2 + b * 4, cx + 1.45, y + 2 + b * 4); }
+    c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
-  // Ice-wedge polygons in violet, as the shader's `wedges`: the borders of the frozen cells of a
-  // hexagonal lattice, a whole net at the left and one polygon on its own at the right.
+  // Permafrost: a violet hatch on tesserae, each frozen or not (the shader's mosaic).
   permafrost: (c, x, y, P) => {
-    const s = 6.5, R = s / Math.sqrt(3), dy = s * Math.sqrt(3) / 2;
-    const frozen = [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 3]];
-    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
-    c.strokeStyle = rgba(P.inks.violet, 0.7); c.lineWidth = 0.75; c.lineJoin = 'round';
-    c.beginPath();
-    for (const [r, k] of frozen) {
-      const cx = x + k * s + (r % 2) * s / 2, cy = y + 2.5 + r * dy;
-      for (let v = 0; v <= 6; v++) {
-        const a = Math.PI / 2 + v * Math.PI / 3, px = cx + R * Math.cos(a), py = cy + R * Math.sin(a);
-        if (v) c.lineTo(px, py); else c.moveTo(px, py);
-      }
-    }
-    c.stroke(); c.restore();
+    c.save();
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + 10, y); c.lineTo(x + 12, y + 7); c.lineTo(x + 9, y + 12); c.lineTo(x, y + 12); c.closePath();
+    c.moveTo(x + 17, y); c.lineTo(x + 26, y); c.lineTo(x + 26, y + 12); c.lineTo(x + 15, y + 12); c.lineTo(x + 19, y + 6); c.closePath();
+    c.clip();
+    c.fillStyle = rgba(P.inks.violet, 0.07); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(P.inks.violet, 0.7); c.lineWidth = 0.8;
+    c.beginPath(); for (let t = 1.5; t < 26; t += 3.2) { c.moveTo(x + t, y); c.lineTo(x + t, y + 12); } c.stroke();
+    c.restore();
+    c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
-  seaice: (c, x, y, P) => { c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.16) : mixHex(P.canvas, P.ocean, 0.05); c.fillRect(x, y, 26, 12); c.strokeStyle = rgba(P.ocean, 0.7); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11); },
+  // The tide's amplitude: the co-range wash from none to 3 m.
+  amplitude: (c, x, y, P) => {
+    for (let k = 0; k < 26; k++) { c.fillStyle = mixHex(P.canvas, P.ocean, 0.05 + 0.62 * Math.sqrt(k / 25)); c.fillRect(x + k, y, 1.05, 12); }
+    c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+  },
   icesheet: (c, x, y, P) => {
     c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.2) : P.canvas; c.fillRect(x, y, 26, 12);
     c.strokeStyle = rgba(P.ocean, 0.4); c.lineWidth = 0.8; c.beginPath(); c.ellipse(x + 13, y + 6, 7, 3.2, 0, 0, 7); c.stroke();
@@ -110,7 +118,6 @@ const GLYPHS = {
     for (const t of [7, 19]) { c.beginPath(); c.arc(x + t, y + 5, 3.4, 0, Math.PI); c.stroke(); }
   },
   isobar: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.45); c.lineWidth = 1; c.beginPath(); c.moveTo(x, y + 9); c.quadraticCurveTo(x + 13, y - 1, x + 26, y + 9); c.stroke(); },
-  hl: (c, x, y, P) => { c.font = `600 13px ${FONT}`; c.fillStyle = P.text; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('H', x + 7, y + 6.5); c.fillText('L', x + 19, y + 6.5); },
   rain: (c, x, y, P) => { c.fillStyle = rgba(P.ocean, 0.85); for (let a = 0; a < 6; a++) for (let b = 0; b < 3; b++) { c.beginPath(); c.arc(x + 2.5 + a * 4.2 + (b % 2) * 2.1, y + 2 + b * 3.8, 0.85, 0, 7); c.fill(); } },
   // The Tides view: lines every lunar hour converging on an amphidrome, the high water, the energy lost.
   cotidal: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; for (const a of [-0.5, 0, 0.5, 1.0, 1.5, 2.0]) { c.beginPath(); c.moveTo(x + 13, y + 6); c.lineTo(x + 13 + 14 * Math.cos(a * Math.PI / 3 * 2), y + 6 + 7 * Math.sin(a * Math.PI / 3 * 2)); c.stroke(); } },
@@ -130,47 +137,49 @@ function front(c, x, y, ink, kind) {
   }
 }
 
-/** The vegetation swatches the Relief view blends (as its shader's biome colours). */
+/** A wash between the paper and an ink, as the charts tint. */
 function wash(c, x, y, P, ink, a) {
   c.fillStyle = mixHex(P.canvas, ink, a); c.fillRect(x, y, 26, 12);
   c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
 }
-function vegetation(c, x, y, P, kind) {
-  const ink = { forest: [P.inks.viridian, 0.42], grass: [P.inks.sap, 0.34], desert: [P.inks.ochre, 0.17], boreal: [P.inks.verdigris, 0.34], tundra: [P.inks.indigo, 0.17] }[kind];
-  c.fillStyle = mixHex(P.canvas, ink[0], ink[1]); c.fillRect(x, y, 26, 12);
-  c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
-}
 
+const FRONTS = [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded']];
 const ITEMS = {
-  relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['volcano', 'Eruption'], ['veil', 'Sulfate veil'], ['river', 'River'],
-    ['lake', 'Lake'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['icestream', 'Ice stream'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
-  climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['lake', 'Lake'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['dust', 'Dust'], ['volcano', 'Eruption']],
-  'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
-  'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
-  'weather-humidity': [['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['rain', 'Rain'], ['hl', 'High, low']],
-  tides: [['r:low', 'Small range'], ['r:high', 'Large range'], ['cotidal', 'Co-tidal, 1 lunar h'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water now'], ['dissipation', 'Tide’s energy lost']],
+  relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'],
+    ['volcano', 'Eruption'], ['river', 'River'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['icesheet', 'Ice sheet'], ['icestream', 'Ice stream']],
+  'climate-zones': [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['isotherm', 'Isotherm, 5 °C'],
+    ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['volcano', 'Eruption']],
+  'climate-air': [['wind', 'Wind'], ['dust', 'Dust'], ['veil', 'Sulfate veil'], ['volcano', 'Eruption']],
+  'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
+  'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
+  'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
+  tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 
+/** Two columns, each as wide as its longest name (measured, so nothing is clipped). */
 export function drawKey(canvas, view, P) {
-  const items = ITEMS[view] || ITEMS[`${view}-pressure`] || ITEMS.relief;
-  const cols = 2, colW = 118, rowH = 18;
-  const rows = Math.ceil(items.length / cols);
-  const w = cols * colW, h = rows * rowH + 2;
+  const items = ITEMS[view] || ITEMS.relief;
+  const cols = items.length > 4 ? 2 : 1, rows = Math.ceil(items.length / cols), rowH = 18, SW = 32, GAP = 16;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const c = canvas.getContext('2d');
+  c.font = `12px ${FONT}`;
+  const colW = Array.from({ length: cols }, (_, j) => {
+    let m = 0;
+    for (let k = j * rows; k < Math.min(items.length, (j + 1) * rows); k++) m = Math.max(m, c.measureText(items[k][1]).width);
+    return SW + Math.ceil(m) + (j < cols - 1 ? GAP : 2);
+  });
+  const w = colW.reduce((a, b) => a + b, 0), h = rows * rowH + 2;
   canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-  const c = canvas.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
+  // Column by column, so a column's names line up and its width is its own.
   items.forEach(([g, name], k) => {
-    const x = (k % cols) * colW, y = Math.floor(k / cols) * rowH + 2;
-    if (g.startsWith('v:')) vegetation(c, x, y, P, g.slice(2));
-    else if (g.startsWith('t:')) wash(c, x, y, P, g === 't:warm' ? P.inks.sienna : P.ocean, 0.3);
-    else if (g.startsWith('h:')) wash(c, x, y, P, g === 'h:moist' ? P.inks.verdigris : P.inks.ochre, 0.3);
-    else if (g.startsWith('r:')) wash(c, x, y, P, P.ocean, g === 'r:high' ? 0.6 : 0.1);
+    const j = Math.floor(k / rows), x = colW.slice(0, j).reduce((a, b) => a + b, 0), y = (k % rows) * rowH + 2;
+    if (g.startsWith('h:')) wash(c, x, y, P, g === 'h:moist' ? P.inks.verdigris : P.inks.ochre, 0.3);
     else if (g.startsWith('z:')) zonePattern(c, +g.slice(2), x, y, 26, 12, P);
     else GLYPHS[g](c, x, y, P);
     c.font = `12px ${FONT}`; c.fillStyle = P.text; c.textAlign = 'left'; c.textBaseline = 'middle';
-    c.fillText(name, x + 32, y + 6.5);
+    c.fillText(name, x + SW, y + 6.5);
   });
 }

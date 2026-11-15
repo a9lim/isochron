@@ -17,12 +17,14 @@
 // view keeps the rivers, lighter, and drops the tectonic symbols, as do the
 // Weather and Tides views (the rivers lighter still). Hotspots are
 // red points ringed, and a province in eruption a red stippled disc: the
-// mantle at the surface.
+// mantle at the surface. The Climate view's Air chart draws the winds as
+// streamlines (src/render/streamlines.js).
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 import { RIVER_MIN } from './rivers.js';
 import { drawChart } from './chart.js';
 import { freshU, inheritU, octaves, marks, dashes } from './along.js';
 import { drawSky } from './sky.js';
+import { drawStreamlines } from './streamlines.js';
 
 // Symbols scale with the globe (the radius on screen against 380 px), within
 // limits that keep them legible far out and unobtrusive close in.
@@ -261,6 +263,8 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   const climate = layers.view === 'climate', weather = layers.view === 'weather', tides = layers.view === 'tides';
   if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather || tides ? 0.35 : 0.9, layers.riverMonth);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
+  // The Climate view's Air chart: the winds as streamlines (src/render/streamlines.js).
+  if (layers.air) drawStreamlines(ctx, cx, cy, r, camera, layers.air.sets, withAlpha(palette.text, 0.62), Math.sqrt(symbolScale(r)));
   if (!climate && !tides && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
   if (!tides && layers.eruptions && layers.eruptions.length) drawEruptions(ctx, cx, cy, r, camera, layers.eruptions, palette);
   const lines = climate || tides ? null : layers.boundaries;

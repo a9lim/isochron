@@ -17,15 +17,19 @@
 //                    rock toward the summits; the cover lags its climate, so
 //                    after the ice goes bare ground and grass come first
 //   snow, sea ice    a light fill with a hard edge, as a map draws them
+//   phytoplankton    the sea's tint turns a little green where its export
+//                    production is high (src/engine/life.js): quiet in the
+//                    gyres, seen at upwelling coasts and in the cold sea (Relief)
 //   lakes            from their water (src/engine/lakes.js), in the sea's tint
 //                    by depth, with a hard shore; eased when they change
-//   salt flats       where a closed lake has dried: a pale crust cracked into
-//                    polygons (Relief)
-//   permafrost       ground frozen all year (src/engine/soil.js): a violet net
-//                    of ice-wedge polygons, each polygon frozen with the cell's
-//                    share, so continuous ground is a whole net and sporadic
-//                    ground scattered polygons; over snow, under lakes and the
-//                    ice sheets (Relief)
+//   salt flats       where a closed lake has dried: a pale crust, hard-edged,
+//                    under short graphite strokes (Relief)
+//   permafrost       ground frozen all year (src/engine/soil.js): a violet hatch
+//                    on a mosaic of tesserae fixed to the globe (the Climate
+//                    view's), each tessera frozen with the cell's share, so
+//                    continuous ground is hatched whole and sporadic ground in
+//                    scattered patches; over snow, under lakes and the ice
+//                    sheets (Relief)
 //   ice sheets       a light fill with a hard outline and contours of the
 //                    ice's surface every 500 m
 //   ice streams      where the ice slides faster than it deforms (on soft,
@@ -34,11 +38,15 @@
 // In the Climate view the sea carries isotherms of its surface temperature
 // every 5 °C, the gyres' streamlines every 3 Sv and short viridian strokes
 // whose density is the export production (the sea carbon's boxes spread by
-// what feeds them: upwelling, rivers, the cold sea), under an ochre stipple
-// whose density is the dust carried over it (src/engine/aeolian.js), which
-// settles on the ice sheets and the sea ice too. The Weather view is a
-// synoptic chart's base: pale land, the paper for sea, isobars every 4 hPa
-// (heavier every 20) and rain as a stipple whose density is the rate.
+// what feeds them: upwelling, rivers, the cold sea). Its Air chart is a
+// chart's base (pale land with half the relief, the paper for sea) under an
+// ochre stipple whose density is the dust the air carries (the year's mean
+// load, src/engine/aeolian.js) and, after an eruption, the sulfate veil as
+// graphite hatching along the circles of latitude, denser where its optical
+// depth is; the winds are streamlines on the overlay (src/render/streamlines.js).
+// The Weather view is a synoptic chart's base: pale land, the paper for sea,
+// isobars every 4 hPa (heavier every 20) and rain as a stipple whose density
+// is the rate.
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
 // tesserae fixed to the surface (a jittered 3D lattice), each taking one class
 // with the cell's probability, so a boundary is an ecotone that interleaves.
@@ -55,17 +63,19 @@ import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
 
 const SHADER = /* wgsl */ `
+const PLANKTON_HUE = 0.7;     // how far the depth tint's ink turns toward viridian where the sea blooms most
+const PLANKTON_WASH = 0.3;    // and a pale green laid over it there (so shelves, lightly tinted, show it too)
 struct U {
   view0: vec4f, view1: vec4f, view2: vec4f,
   frame: vec4f,      // sx, sy, tNow (rel. to the polarity origin), polarity dT
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate, 2 weather), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
-  inkG: vec4f,       // violet (permafrost's ice-wedge net)
+  inkG: vec4f,       // violet (permafrost's hatch)
   tide: vec4f,       // the tide's clock: Re, Im of e^{iφ₂} + ρ e^{iφs} (spring and neap), cos, sin φ₂
   tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now; w the lakes' ease (0 last, 1 new)
   veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
@@ -234,87 +244,6 @@ fn flowDash(T: Tri, d: vec3f, periodPx: f32, lpx: f32, wpx: f32) -> f32 {
   return T.w.x * dashP(T.x, T.f.x, o, d.yz, lpx, wpx) + T.w.y * dashP(T.y, T.f.y, o, d.zx, lpx, wpx) + T.w.z * dashP(T.z, T.f.z, o, d.xy, lpx, wpx);
 }
 
-// Salt crust: a jittered lattice's cells (Worley's), their borders cracks of constant width
-// on screen; the next octave's cracks fade in between the last's.
-fn crack1(uv: vec2f, fw: f32, F: f32, wpx: f32) -> f32 {
-  let q = uv * F;
-  let c = floor(q);
-  var d1 = 1e9;
-  var d2 = 1e9;
-  for (var dy = -1; dy <= 1; dy++) {
-    for (var dx = -1; dx <= 1; dx++) {
-      let cell = c + vec2f(f32(dx), f32(dy));
-      let d = q - (cell + 0.1 + 0.8 * hash3(vec3f(cell, 5.3)).xy);
-      let dd = dot(d, d);
-      if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) { d2 = dd; }
-    }
-  }
-  let edge = 0.5 * (sqrt(d2) - sqrt(d1)) / max(fw * F, 1e-7);
-  return 1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, edge);
-}
-fn cracks(T: Tri, periodPx: f32, wpx: f32) -> f32 {
-  let o = octave(periodPx);
-  let a = T.w.x * crack1(T.x, T.f.x, o.x, wpx) + T.w.y * crack1(T.y, T.f.y, o.x, wpx) + T.w.z * crack1(T.z, T.f.z, o.x, wpx);
-  let b = T.w.x * crack1(T.x, T.f.x, 2.0 * o.x, wpx) + T.w.y * crack1(T.y, T.f.y, 2.0 * o.x, wpx) + T.w.z * crack1(T.z, T.f.z, 2.0 * o.x, wpx);
-  return max(a, o.y * b);
-}
-
-// Ice-wedge polygons: the cells of a hexagonal lattice whose sites are jittered by ±0.15 of
-// their spacing (the salt crust's by ±0.4 on a square one), so the net is near-regular. Each
-// cell is frozen with probability share (its own hash against it) and a border is drawn
-// where a cell on either side is frozen, so a share of 1 is a whole net and a small one
-// scattered polygons. The distance is to the border itself (to the bisector of the nearest
-// site and each other), so the lines keep their width; wpx wide on screen.
-fn wedge1(uv: vec2f, fw: f32, F: f32, share: f32, wpx: f32) -> f32 {
-  let q = uv * F;
-  let r0 = floor(q.y / 0.8660254);
-  var rel: array<vec2f, 9>;
-  var frz: array<f32, 9>;
-  var best = 1e9;
-  var m = 0;
-  for (var k = 0; k < 9; k++) {
-    let r = r0 + f32(k / 3 - 1);
-    let odd = r - 2.0 * floor(r * 0.5);
-    let c = floor(q.x - 0.5 * odd) + f32(k % 3 - 1);
-    let h = hash3(vec3f(c, r, 11.7));
-    rel[k] = vec2f(c + 0.5 + 0.5 * odd, (r + 0.5) * 0.8660254) + 0.3 * (h.xy - 0.5) - q;
-    frz[k] = select(0.0, 1.0, h.z < share);
-    let dd = dot(rel[k], rel[k]);
-    if (dd < best) { best = dd; m = k; }
-  }
-  var edge = 1e9;
-  var on = 0.0;
-  for (var k = 0; k < 9; k++) {
-    let dv = rel[k] - rel[m];
-    let l = length(dv);
-    if (k == m || l < 1e-4) { continue; }
-    let d = dot(0.5 * (rel[m] + rel[k]), dv / l);
-    if (d < edge) { edge = d; on = max(frz[m], frz[k]); }
-  }
-  return on * (1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, edge / max(fw * F, 1e-7)));
-}
-fn wedgeTri(T: Tri, F: f32, share: f32, wpx: f32) -> f32 {
-  // A plane the triplanar blend barely weighs is skipped (no derivatives here, so the branch may).
-  var a = 0.0;
-  if (T.w.x > 0.01) { a += T.w.x * wedge1(T.x, T.f.x, F, share, wpx); }
-  if (T.w.y > 0.01) { a += T.w.y * wedge1(T.y, T.f.y, F, share, wpx); }
-  if (T.w.z > 0.01) { a += T.w.z * wedge1(T.z, T.f.z, F, share, wpx); }
-  return a;
-}
-// Two hexagonal nets an octave apart don't nest (the hatches' and the stipple's lattices do), so
-// laid over each other they'd read as one irregular net. The net crossfades to the next octave's
-// over a fifth of each octave's zoom instead: at rest it is nearly always one net, its polygons
-// 0.76–1.32 of the period across, and zooming never pops.
-fn wedges(T: Tri, share: f32, periodPx: f32, wpx: f32) -> f32 {
-  let o = octave(periodPx);
-  let w = smoothstep(0.4, 0.6, o.y);
-  var a = 0.0;
-  var b = 0.0;
-  if (w < 1.0) { a = wedgeTri(T, o.x, share, wpx); }
-  if (w > 0.0) { b = wedgeTri(T, 2.0 * o.x, share, wpx); }
-  return mix(a, b, w);
-}
-
 // The veil's optical depth at sin(latitude) z, linear between its bands' centres.
 fn veilAt(z: f32) -> f32 {
   let x = clamp((asin(clamp(z, -1.0, 1.0)) * 57.2957795 + 87.5) / 5.0, 0.0, 35.0);
@@ -433,14 +362,17 @@ fn hair(d: f32, w: f32) -> f32 {
   let fice = max(fwidth(iceH), 1.0);
   let flake = max(fwidth(lake), 1e-4);
   let fsalt = max(fwidth(salt), 1e-3);
+  let lat = asin(clamp(wpn.z, -1.0, 1.0));
+  let dlat = fwidth(lat);
   let iceSurf = max(e, 0.0) + iceH / 1000.0;
   let fsurf = fwidth(iceSurf);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
   let climate = u.mode.x > 0.5 && u.mode.x < 1.5;
-  let weather = u.mode.x > 1.5;
+  let weather = u.mode.x > 1.5 && u.mode.x < 4.5;
   let wxTemp = u.mode.x > 2.5 && u.mode.x < 3.5;
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
-  let tides = u.mode.x > 4.5;
+  let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
+  let air = u.mode.x > 5.5;
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
   let tA = length(tz);
@@ -454,8 +386,14 @@ fn hair(d: f32, w: f32) -> f32 {
 
   // Sea: depth tint, stripes on oceanic crust, isobaths every kilometre.
   let d = -e;
-  // Depth tint: a square-root curve, so shelves read as water and the abyss as deep.
-  var sea = mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(d / 6.0, 0.0, 1.0)));
+  // Depth tint: a square-root curve, so shelves read as water and the abyss as deep. Where
+  // phytoplankton grow (the export production, g C m⁻² yr⁻¹, in the zones' slot 14) the water
+  // turns a little green, by log production: nothing in the gyres (~4, the sea's median), half at
+  // ~12 (the most productive tenth: upwelling coasts, river mouths, the cold sea), all past 25.
+  let bloom = smoothstep(0.7, 1.4, log(max(i.z3.z, 1e-3)) / 2.302585);
+  let seaInk = mix(u.ocean.rgb, u.inkA.rgb, PLANKTON_HUE * bloom);
+  var sea = mix(u.canvas.rgb, seaInk, u.frame2.y + u.frame2.z * sqrt(clamp(d / 6.0, 0.0, 1.0)));
+  sea = mix(sea, mix(u.canvas.rgb, u.inkA.rgb, 0.45), PLANKTON_WASH * bloom);
   let w = max(1.5 * ftf, u.frame.w);
   let pbar = (polC(tf + w) - polC(tf - w)) / (2.0 * w);
   sea = mix(sea, u.text.rgb, 0.075 * (0.5 + 0.5 * pbar) * oceanic * (1.0 - cold));
@@ -467,13 +405,6 @@ fn hair(d: f32, w: f32) -> f32 {
   wash = mix(wash, u.text.rgb, 0.22 * hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4)));
   let st = psi / 3.0;
   wash = mix(wash, u.ocean.rgb, 0.75 * hair(abs(st - round(st)), max(fpsi / 3.0, 1e-4)) * step(0.5, abs(psi)));
-  // Dust (kg/m², the year's mean load, in the zones' last slot): ochre stipple, denser where more is
-  // carried, from ~0.01 g/m² to ~1; on the open sea under the export's strokes, and on ice over its fill
-  // (below). Over land the arid zones' own ochre stipple is where it rises.
-  let dl = smoothstep(-2.0, 0.3, log(max(i.z3.w * 1000.0, 1e-6)) / 2.302585);
-  let dustDots = stipple(T, mix(16.0, 4.2, dl) * u.mode.z, 0.75 * u.mode.z) * smoothstep(0.0, 0.1, dl) * select(0.0, 1.0, climate);
-  let dustInk = u.inkB.rgb;
-  wash = mix(wash, dustInk, 0.75 * dustDots);
   // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian strokes, denser where more sinks.
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
   let exMarks = strokes(T, mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
@@ -495,20 +426,22 @@ fn hair(d: f32, w: f32) -> f32 {
   land = mix(land, u.text.rgb, 0.07 * hair(abs(e - round(e)), fe) * step(0.5, e));
   land = mix(land, snowInk, ice);
   land = mix(land, u.text.rgb, 0.22 * iceEdge);
-  // Salt flats (Relief): a pale crust cracked into polygons, with a hard edge, under snow hidden.
+  // Salt flats (Relief): a pale crust with a hard edge under short graphite strokes, under snow hidden.
   let sk = clamp(0.5 + (salt - 0.25) / fsalt, 0.0, 1.0) * (1.0 - ice) * select(1.0, 0.0, climate);
   if (sk > 0.0) {
     let crust = select(mix(land, u.canvas.rgb, 0.72), mix(land, u.text.rgb, 0.24), dark);
-    let crackInk = select(mix(crust, u.text.rgb, 0.32), mix(crust, u.canvas.rgb, 0.5), dark);
-    land = mix(land, mix(crust, crackInk, cracks(T, 11.0 * u.mode.z, 0.7 * u.mode.z)), sk);
+    let saltInk = select(mix(crust, u.text.rgb, 0.55), mix(crust, u.canvas.rgb, 0.6), dark);
+    land = mix(land, mix(crust, saltInk, strokes(T, 6.5 * u.mode.z, 0.8 * u.mode.z)), sk);
   }
-  // Permafrost (Relief): the ice-wedge polygons' net in violet, each polygon frozen with the share's
-  // probability. Over snow (the ground stays frozen under it), under a lake's water, frozen over or
-  // not, and under the ice sheets (their fill, below).
+  // Permafrost (Relief): a violet hatch on the Climate view's mosaic of tesserae, each tessera frozen
+  // with the share's probability, so the soft share reads as patchiness. Over snow (the ground stays
+  // frozen under it), under a lake's water, frozen over or not, and under the ice sheets (their fill, below).
+  let tess = tessera(i.wp * u.mode.y);
   let pf = i.td.w * select(0.0, 1.0, u.mode.x < 0.5);
   if (pf > 0.002) {
-    let net = wedges(T, pf, 14.0 * u.mode.z, 0.75 * u.mode.z) * (1.0 - clamp(0.5 + lake / flake, 0.0, 1.0));
-    land = mix(land, u.inkG.rgb, 0.7 * net);
+    let frozen = select(0.0, 1.0, tess < pf) * (1.0 - clamp(0.5 + lake / flake, 0.0, 1.0));
+    land = mix(land, u.inkG.rgb, 0.07 * frozen);
+    land = mix(land, u.inkG.rgb, 0.7 * frozen * hatch(T, vec2f(1.0, 0.0), 4.2 * u.mode.z, 0.8 * u.mode.z));
   }
   // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
   // depth is smoothed and signed (dry land below zero), so the shore is a curve.
@@ -519,7 +452,7 @@ fn hair(d: f32, w: f32) -> f32 {
   // The Climate view: the zones' mosaic on land.
   var probs = array<f32, 16>(i.z0.x, i.z0.y, i.z0.z, i.z0.w, i.z1.x, i.z1.y, i.z1.z, i.z1.w,
                              i.z2.x, i.z2.y, i.z2.z, i.z2.w, i.z3.x, i.z3.y, 0.0, 0.0);
-  let h = tessera(i.wp * u.mode.y);
+  let h = tess;
   var acc = 0.0;
   var cls = 13;
   // Drawn in proportion to p²: an even ecotone stays an even mosaic, while the
@@ -545,9 +478,6 @@ fn hair(d: f32, w: f32) -> f32 {
   let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, e + iceH / 1000.0);
   land = mix(land, u.text.rgb, 0.55 * sheetEdge);
   sea = mix(sea, u.text.rgb, 0.55 * sheetEdge);
-  // Dust settling on the ice sheets and the sea ice (Climate view).
-  land = mix(land, dustInk, 0.75 * dustDots * sheet);
-  sea = mix(sea, dustInk, 0.75 * dustDots * max(sheet, ice));
   // Ice streams: where sliding carries more than half the flow and the ice moves at tens of m/yr.
   let slide = length(i.iv.xyz);
   let streamW = smoothstep(0.5, 0.7, slide) * smoothstep(15.0, 40.0, i.iv.w) * sheet * select(1.0, 0.0, climate);
@@ -590,6 +520,16 @@ fn hair(d: f32, w: f32) -> f32 {
   land = select(land, wland, weather);
   sea = select(sea, wsea, weather);
 
+  // The Climate view's Air chart: a chart's base, under an ochre stipple whose density is the dust the
+  // air carries (kg/m², the year's mean load, in the zones' last slot; ~0.01 g/m² to ~2), over land,
+  // sea and ice alike.
+  let dl = smoothstep(-2.0, 0.3, log(max(i.z3.w * 1000.0, 1e-6)) / 2.302585);
+  let dustDots = stipple(T, mix(16.0, 4.2, dl) * u.mode.z, 0.75 * u.mode.z) * smoothstep(0.0, 0.1, dl);
+  let aland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), u.inkB.rgb, 0.75 * dustDots);
+  let asea = mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), u.inkB.rgb, 0.75 * dustDots);
+  land = select(land, aland, air);
+  sea = select(sea, asea, air);
+
   // The Tides view: co-range wash (or, at the slowest dials, the sea's height now), co-tidal
   // lines every lunar hour fading into each amphidrome, the line of high water now, and a
   // sienna stipple where the tide's energy goes (its density the dissipation per area).
@@ -607,16 +547,20 @@ fn hair(d: f32, w: f32) -> f32 {
   let tland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
   land = select(land, tland, tides);
   sea = select(sea, tsea, tides);
-  let chart = weather || tides;
+  let chart = weather || tides || air;
 
   var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), e < 0.0);
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
-  // The sulfate veil (Relief only): a graphite stipple, denser where its optical depth is.
-  let aod = veilAt(wpn.z);
-  let vDots = stipple(T, mix(12.0, 6.0, smoothstep(0.02, 1.0, aod)) * u.mode.z, 0.6 * u.mode.z) * smoothstep(0.01, 0.04, aod);
-  c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.35), 0.6 * vDots * select(0.0, 1.0, u.mode.x < 0.5));
+  // The sulfate veil (Air): graphite hatching along the circles of latitude (the veil lies in bands),
+  // denser where its optical depth is (16 px apart at 0.02, 4 px at 1, by log optical depth).
+  if (air) {
+    let aod = veilAt(wpn.z);
+    let va = smoothstep(-1.7, 0.0, log(max(aod, 1e-4)) / 2.302585);
+    let vh = hatch1(vec2f(lat, 0.0), dlat, vec2f(1.0, 0.0), octave(mix(16.0, 4.0, va) * u.mode.z), 0.55 * u.mode.z);
+    c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.3), 0.5 * vh * smoothstep(0.01, 0.04, aod));
+  }
   return vec4f(c, 1.0);
 }
 `;
@@ -809,7 +753,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

@@ -5,12 +5,20 @@
 // 55 km cells costs ~6× as much and the chart's fields are smoothed past that
 // scale anyway), derives the wind, vorticity and the storms' pressure (ρfψ₂
 // less its zonal mean) and returns the chart's lines.
+//
+// It also traces the Climate view's Air chart (src/render/streamlines.js): the
+// page sends the template's pressure at the shown date (or the year's mean) on
+// a grid no finer than 110 km, and this derives the surface wind by the
+// climate's own formula and returns its streamlines.
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, restrict } from '../grid/transfer.js';
 import { chartLines } from './chart.js';
+import { surfaceWind } from '../engine/climate.js';
+import { traceStreamlines } from './streamlines.js';
 
 const A_M = 6.371e6, OMEGA = 7.292e-5, NB = 60;
 let g = null, T = null, lat = null, band = null, state = {}, zeta2, vel, pc;
+let airGrid = null, airWind = null, airGp = null;
 
 self.onmessage = e => {
   const m = e.data;
@@ -23,6 +31,15 @@ self.onmessage = e => {
     return;
   }
   if (m.type === 'reset') { state = {}; return; }
+  if (m.type === 'air') {
+    const ag = g && g.level === m.level ? g : (airGrid && airGrid.level === m.level ? airGrid : (airGrid = buildGrid(m.level)));
+    if (!airWind || airWind.length !== 3 * ag.n) { airWind = new Float32Array(3 * ag.n); airGp = new Float64Array(3 * ag.n); }
+    const { lines, maxWind } = traceStreamlines(ag, surfaceWind(ag, m.pres, m.omega, airWind, null, airGp), m.dsep);
+    const transfer = [];
+    for (const l of lines) transfer.push(l.P.buffer, l.V.buffer, l.S.buffer);
+    self.postMessage({ type: 'air', id: m.id, dsep: m.dsep, lines, maxWind }, transfer);
+    return;
+  }
   let { psi2, theta, qv } = m;
   if (T) { psi2 = restrict(T, psi2, new Float64Array(g.n)); theta = restrict(T, theta, new Float64Array(g.n)); qv = restrict(T, qv, new Float64Array(g.n)); }
   let { pres, land } = m;

@@ -153,6 +153,28 @@ const sigmoid = x => 1 / (1 + Math.exp(-x));
 const ramp = (x, a, b) => { const t = (x - a) / (b - a); return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); };
 const wsat = T => W0 * Math.exp(WA * (Math.max(-45, Math.min(45, T)) - 15));
 
+/**
+ * The surface wind from the template's sea-level pressure (hPa about the mean): r u + f k×u =
+ * −∇p/ρ, as 3-vectors (m/s) in each cell's tangent plane, written into `wind`. With `carry`,
+ * also the moisture's carrying wind: the geostrophic part and CARRY of the frictional drift.
+ * The climate's phases and the page's Air chart (src/render/streamlines.js) both take it.
+ */
+export function surfaceWind(g, pres, omega, wind, carry = null, gp = new Float64Array(3 * g.n)) {
+  gradient(g, pres, gp);
+  const r = CLIMATE.FRICTION, cy = CLIMATE.CARRY, pos = g.pos, n = g.n;
+  for (let i = 0; i < n; i++) {
+    const gx = -gp[3 * i] * 100 / R_M / 1.2, gy = -gp[3 * i + 1] * 100 / R_M / 1.2, gz = -gp[3 * i + 2] * 100 / R_M / 1.2;
+    const px = pos[3 * i], py = pos[3 * i + 1], pz = pos[3 * i + 2];
+    const f = 2 * omega * pz;
+    // k × G
+    const kx = py * gz - pz * gy, ky = pz * gx - px * gz, kz = px * gy - py * gx;
+    const d = r * r + f * f;
+    wind[3 * i] = (r * gx - f * kx) / d; wind[3 * i + 1] = (r * gy - f * ky) / d; wind[3 * i + 2] = (r * gz - f * kz) / d;
+    if (carry) { carry[3 * i] = (cy * r * gx - f * kx) / d; carry[3 * i + 1] = (cy * r * gy - f * ky) / d; carry[3 * i + 2] = (cy * r * gz - f * kz) / d; }
+  }
+  return wind;
+}
+
 /** Preconditioned conjugate gradients for a complex symmetric system (COCG; real when im = 0). */
 export function cocg(g, D, dr, di, br, bi, xr, xi, ws, maxIt, tol) {
   const n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, w = ws.w;
@@ -765,20 +787,9 @@ export class Climate {
     this.presPhase[p].set(pres);
     // Winds: r u + f k×u = −∇p/ρ.
     if (!this.gp) this.gp = new Float64Array(3 * n);
-    gradient(g, pres, this.gp);
-    const r = C.FRICTION, wind = this.windPhase[p];
     if (!this.carry) this.carry = new Float32Array(3 * n);
-    const carry = this.carry, cy = C.CARRY;
-    for (let i = 0; i < n; i++) {
-      const gx = -this.gp[3 * i] * 100 / R_M / 1.2, gy = -this.gp[3 * i + 1] * 100 / R_M / 1.2, gz = -this.gp[3 * i + 2] * 100 / R_M / 1.2;
-      const px = pos[3 * i], py = pos[3 * i + 1], pz = pos[3 * i + 2];
-      const f = 2 * C.OMEGA * pz;
-      // k × G
-      const kx = py * gz - pz * gy, ky = pz * gx - px * gz, kz = px * gy - py * gx;
-      const d = r * r + f * f;
-      wind[3 * i] = (r * gx - f * kx) / d; wind[3 * i + 1] = (r * gy - f * ky) / d; wind[3 * i + 2] = (r * gz - f * kz) / d;
-      carry[3 * i] = (cy * r * gx - f * kx) / d; carry[3 * i + 1] = (cy * r * gy - f * ky) / d; carry[3 * i + 2] = (cy * r * gz - f * kz) / d;
-    }
+    const carry = this.carry;
+    surfaceWind(g, pres, C.OMEGA, this.windPhase[p], carry, this.gp);
     yield;
     yield* this.moisture(p, T, carry);
     // Dust's sources on these winds and this rain (src/engine/aeolian.js).
