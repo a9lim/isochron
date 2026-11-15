@@ -7,8 +7,9 @@
 // Per cell, as Float32: the relief above sea level (km), the grounded ice (m), the twelve months'
 // surface temperature (°C) and rain (mm), the cover's trees and grass, the vegetation's NPP (kg C
 // per m² of vegetation a year), the zones' probabilities (NZ a cell), the ground's runoff (m/yr),
-// the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K),
-// the regolith (m), its production at bare rock (m/yr) and the rivers' erosion (mm/yr).
+// the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K), a
+// year's spread of log rain, the regolith (m), its production at bare rock (m/yr) and the rivers'
+// erosion (mm/yr).
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -16,8 +17,8 @@ import { buildGrid } from '../../src/grid/icosphere.js';
 import { NZ } from '../../src/engine/climate.js';
 
 const CACHE = join(dirname(fileURLToPath(import.meta.url)), '.cache');
-const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, reg: 1, p0: 1, ero: 1 };
-const VERSION = 2;
+const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigP: 1, reg: 1, p0: 1, ero: 1 };
+const VERSION = 3;
 
 /** The fields of a live Planet, into `f` (made if absent). */
 export function fieldsOf(P, f = null) {
@@ -28,6 +29,8 @@ export function fieldsOf(P, f = null) {
   f.ft.set(P.life.veg.ft); f.fg.set(P.life.veg.fg); f.npp.set(P.life.veg.pi);
   f.zones.set(c.zones); f.runoff.set(c.runoff); f.discharge.set(P.land.discharge);
   f.lake.set(c.lakeWet); f.perma.set(c.soil.permafrost); f.sigT.set(P.year.spreadFine().T);
+  // A year's spread of log rain (the year model's, the anomaly's memory kept): the harvests' weather.
+  for (let i = 0; i < n; i++) { let map = 0; for (let m = 0; m < 12; m++) map += c.P12[12 * i + m]; f.sigP[i] = map > 1 ? P.year.annualRainSpread(i, map) : 0; }
   f.reg.set(P.regolith.h);
   for (let i = 0; i < n; i++) { f.p0[i] = P.regolith.p0(i); f.ero[i] = P.land.erosion[i] || 0; }
   f.co2 = P.carbon.pco2; f.meanT = c.stats.meanT; f.settled = c.stats.settled;

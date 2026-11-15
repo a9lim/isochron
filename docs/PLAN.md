@@ -644,9 +644,49 @@ Both sides of the food capacity are logistics, solved exactly; an oracle checks 
 - early takeoff now 162–187 years after industry (more people, faster culture: a little ahead of Earth's ~245), with 3.3–3.4 B people and ~2.9 TW (0.85 kW a person, against Earth's 2.4: output a person is now the short one);
 - fossil carbon burned 4,090–4,670 Pg C, peak CO₂ 2,000–2,300 ppm; the live planet ends at 26.0 °C and 1,765 ppm.
 
+**v1.2, in progress (2026-11-15).** a9's asks: soft forms instead of hard caps, output per person, food stores, then capability from effective compute and robotics.
+- **Soft forms, chosen by what each cap stands for** (`softMin`, p the sharpness):
+  - sums over uneven units are harmonic: surface renewables' sites (p = 1); research intensity, dispersal, contact length and the food lift (p = 4);
+  - thresholds are logistic hazards: industry's ignition, the farming and industry spread gates;
+  - energy against the capital–labour bundle is a CES (σ_E 0.3, energy's cost share 7%: `energyCES`; standard KLE);
+  - the energy intensity's floor is an exponential approach; Skinner's step is a logistic in the grades;
+  - the trait nears its ceiling as (1 − (g/G_MAX)⁴);
+  - industry's farming is held at LIFT_MAX × the organic ceiling (an uncapped e^{z−3} had fed 10¹⁶ people);
+  - the heat budget stays sharp (P_HEAT 4) and flagged: it is a choice, the ending's. The principled replacement is a cost (compute's cooling as the surface warms, or crops' heat stress), which would make the radiator a result: for a9.
+- **Output per person** at early takeoff is now 22–27 subsistence-years (Earth's ~20–25), with output at 96–98% of what its factors could make (68% under Leontief energy). A_I0 0.7. Capital/output stays 1.5–2.2 against Earth's 3–4, because TFP grows ~4.5%/yr by then (the hyperbola's acceleration).
+- **Food stores** (working capital's distinct role), a closure in `demography`:
+  - a harvest spread E_RAIN × the year model's annual log-rain spread (`sigP` in the cache, v3), halved by rivers, halved for foragers;
+  - pooled by trade, √(1 + τ(ℓ/1500 km)²) once industry comes;
+  - granaries hold up to S_MAX = 0.5 years' food as culture grows;
+  - famine's expected deaths are F_FAM y σ G(u/(yσ)) beyond the mean's;
+  - seed grain is 1/R of the harvest (R from 4, rising with culture);
+  - Richerson's stability enters farming's origin hazard (× e^{−σ/0.15}).
+
+  The pre-industrial base dropped with the seed and the famines, so F0 went 1.5 → 2.5.
+- **Births and deaths, refit:** the long-run floors (births 0.8%, deaths M_MIN 0.25 × D_LO plus aging AGE 0.6% × (1 − e^{−y_g/30})) keep growth near none after the transition without slowing the transition itself.
+- **Capability from effective compute** (a9: "switch to effective compute"; `capability`):
+  - effective compute is the compute stock × e^{θ_C (z − Z_AI)};
+  - β_c is a logistic in its log₁₀ across the FLOP gap (20% at X20 8.7, ~98% four orders on; Davidson, from memory);
+  - β_p, for physical tasks, is the same 1.5 orders further (Moravec, speculation).
+- **Robotics** (a9's question; `labour`):
+  - tasks split cognitive and physical (Φ 0.5), combined at σ_G 0.5;
+  - physical AI work needs bodies: robots are capital (50 sy a body at Z_AI, cheaper e-fold per 2 of z, worn 10%/yr, 400 W);
+  - investment goes among fixed capital, compute and robots by marginal products taken as differences in labour, so compute's includes the capability it buys;
+  - 5% of investment past energy always buys ordinary computing.
+- **Research compute** (found: with compute bought only for production, research stayed with people, since ideas have no market return):
+  - R&D's share S_RD 3% of output × β_c;
+  - plus research's share Q_R 0.4 of AI's compute (labs train and research beside deploying);
+  - it runs AI's research minds and adds to the training runs.
+- **First reading on effective compute** (earthlike, before Q_R): β_c crosses the FLOP gap in ~30 years from early takeoff (0.08 → 0.98) and β_p reaches 0.85; output grows ×280 in ~32 years (doubling every ~4 years by the end). Research minds stayed flat until research compute was tied to AI's. The run with Q_R is in flight; its trace answers whether the ideas now go hyperbolic too.
+- **Run ends:**
+  - both task groups' β ≥ 0.95 with minds and output flat for 20 years;
+  - or a century past the dial;
+  - or 3 kyr after industry with no takeoff.
+- Oracles: 13 pass, including the soft forms, the partial expectation, the energy CES and the famine closure.
+
 Next, in order:
-1. **Output per person at early takeoff** (~13 subsistence-years against Earth's ~30, from memory) and the industrial era's length with it (A_I0, the energy intensity).
-2. **Stores** (v1.2): seed grain and granaries against the live year's droughts.
+1. **The effective-compute takeoff's shape** (the Q_R run), then the three seeds and live.
+2. **The heat budget as a cost** (cooling or heat stress), if a9 wants the radiator as a result.
 3. **Soil within a cell** (the regolith's relief at sub-grid scale) and **the ore map** (arcs, flood basalts, laterites).
 4. **The ending** (a9).
 5. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds.

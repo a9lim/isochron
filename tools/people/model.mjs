@@ -43,6 +43,10 @@
 //             geological rate on slopes, Montgomery 2007, from memory; conservation with culture,
 //             synthesis), stepped exactly (`regolithStep`): held here on the cached planet, the
 //             planet's own regolith when live.
+//   stores    working capital's one distinct role: a harvest spread (a year's rain spread on the
+//             planet, less by rivers, pooled by trade once industry comes) against granaries of up
+//             to S_MAX years' food, famine's expected deaths in the demography (a closure); and the
+//             seed kept for the next sowing (1/R of the harvest, R rising with culture).
 //   farming   an origin hazard where people are settled near foraging's ceiling, know enough
 //             (z ≥ Z_FARM) and have domesticates (the zones' seasonally dry climates: after Blumler
 //             via Diamond, from memory); packages spread by contact, slowed by the climate's
@@ -58,10 +62,18 @@
 //             grades fall (Goeller and Weinberg; Skinner's barrier; from memory).
 //   AI        capital that does labour (synthesis on Aghion, Jones and Jones; Davidson; from memory):
 //             compute × χ(z) labour-equivalents (rising e-fold per unit of z to X_MAX, speculation),
-//             drawing power. A share β(z) of tasks can be automated; within them AI and people
-//             substitute until AI fills them, and past that the tasks combine at elasticity σ
-//             (`taskLabor`): σ < 1 with β < 1 bounds output (Baumol), β → 1 frees it. Production
-//             and research alike.
+//             drawing power. Capability follows effective compute (`capability`: the stock × its
+//             efficiency e^{θ_C z}): the automatable shares of cognitive tasks β_c and of physical
+//             tasks β_p (GAP_P orders further) are logistics across the FLOP gap, so investing in
+//             compute buys capability as well as workers. Physical work needs bodies: robots are
+//             capital (`labour`), built by marginal product, worn, powered, cheaper with culture.
+//             Within each task group AI and people substitute until AI fills the automatable
+//             tasks, then the tasks combine at σ (`taskLabor`); cognitive against physical at σ_G
+//             (`groupCES`): σ < 1 bounds output by what isn't automated or embodied (Baumol).
+//             Research is cognitive, and runs on its own compute: R&D's share of output (S_RD),
+//             spent on compute as far as AI can do research, and research's share Q_R of AI's
+//             compute (labs train and research beside deploying); ideas have no market return, so
+//             production's compute alone would leave research to people.
 //   heat      surface solar is heat-neutral to first order; fossil carbon and fusion add heat, and
 //             together are capped at HEAT_MAX W/m² (the radiator's ceiling, an input until the
 //             ending is chosen). Sulfate from coal cools, scrubbed as culture grows.
@@ -85,18 +97,26 @@ export const PEOPLE = {
   COAST: 0.5, P_DRY: 250, Q_RIVER: 200, ICE_MAX: 10,   // the coast's bonus; rain (mm) below which water limits; a river (m³/s); ice (m)
   T_COLD0: 2, K_COLD: 5, W_COLD: 3, // coldest month (°C) a culture of z holds: T_COLD0 − K_COLD z, over W_COLD
   CAP_F: 8,                        // foraging's ceiling on the base density
-  F0: 1.5, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
+  F0: 2.5, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
+  R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of culture
+  LIFT_MAX: 4,                     // industry's farming at most this many times the organic ceiling
   E_AG: 200,                       // W of industrial energy a person fed past the organic ceiling takes (fertilizer, machines, transport; rough, from memory)
   CO2_FERT: 0.25,                  // crops' yield × (1 + β ln(CO₂/280)), VECODE's β
+  // Stores: the harvests' weather against granaries and trade (working capital's one distinct role)
+  E_RAIN: 0.7, IRR: 0.5,           // a harvest's spread per unit of a year's log-rain spread (rain-fed; ×IRR by a river or lake)
+  S_MAX: 0.5, Z_STORE: 1.5,        // years of food a farmer can keep, reached e-fold per Z_STORE of culture past Z_FARM
+  Z_TRADE: 7, W_TRADE: 1, L_CORR: 1500,   // food traded comes with industry; the weather's correlation length (km), so trade pools ~(ℓ/L_CORR)² harvests
+  SIG_REF: 0.15,                   // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory)
   // Soil (a renewable stock)
   H_YIELD: 0.3,                    // m: the yield's e-folding in soil depth (topsoil)
   E_TILL: 1, S_REF: 0.005, Z_CONS: 2,   // mm/yr of tillage's erosion at slope S_REF, falling e-fold per Z_CONS of culture past Z_FARM
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.01, Y_B: 15, K_B: 4,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B)
+  B_PRE: 0.035, B_MIN: 0.008, Y_B: 15, K_B: 4,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2,           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
+  AGE: 0.006, Y_AGE: 30,           // aging: crude deaths + AGE (1 − e^{−y_g/Y_AGE}) (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory), so long-run growth falls just below none
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   // Ideas
   THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
@@ -115,23 +135,30 @@ export const PEOPLE = {
   Z_FARM: 3, W_FARM: 0.25, H_FARM: 2e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, W_PKG: 2,
   DOMESTIC: { Af: 0.1, Am: 0.2, Aw: 0.5, As: 0.5, BS: 0.5, Cf: 0.3, Cs: 1, Cw: 0.7, Df: 0.1, Ds: 0.2, Dw: 0.2 },
   // Industry: where it starts and how it spreads
-  Z_IND: 7, COAL_MIN: 5, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
+  Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
   // The industrial economy (standard forms; Earth's values from memory)
-  A_I0: 0.6, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), capital's share, saving, workers' share
+  A_I0: 0.7, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), capital's share, saving, workers' share
   DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
-  E_SUB: 200, Z_EFF: 2.7, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~80 at Earth's present), falling e-fold per Z_EFF, at least
+  E_SUB: 200, Z_EFF: 2.7, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~80 at Earth's present), falling toward E_MIN_Y e-fold per Z_EFF
+  SIGMA_E: 0.3, W_E: 0.07,                          // energy against the capital–labour bundle: elasticity (standard estimates ~0.1–0.6) and energy's cost share (~6–8% of world output); both from memory
   R_EF0: 1000, R_ER0: 1500, R_EU0: 1000,            // W per sy of energy capital: fossil (full stock, × √ of what's left), renewables and fusion when mature (solar near parity with fossil at Earth's present, from memory)
   Z_REN: 11.5, W_REN: 0.5, Z_FUS: 12.5, W_FUS: 0.5, // where renewables and fusion come of age: fossil carbon is still the cheaper delivered energy at the takeoff's start (Z_AI), as on Earth now (a9)
   MARGIN: 0.05, T_BUILD: 5, F_IE: 0.6,              // energy capacity's margin; years to close a shortfall; energy's most of investment
   M_K: 1, E_M0: 30, X_SCALE: 2e13, X_CRUST: 1e14, SKINNER: 10,   // materials per sy invested; their energy (W per unit a year), rising e-fold per X_SCALE drawn, ×SKINNER past the crust's rich ores
   Z_SPACE: Infinity, E_SPACE: 100,                  // an off-world backstop on materials' energy (asteroids): off until the ending is chosen
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
-  // AI (speculation)
-  Z_AI: 11, W_AI: 0.7, B_MAX: 1, SIGMA: 0.5,        // where tasks automate (β = B_MAX σ((z − Z_AI)/W_AI)); the tasks' elasticity
-  X_AI: 1e-3, THETA_AI: 1, X_MAX: 1e4, W_C: 12, S_AI_R: 0.5,   // labour-equivalents per sy of compute at Z_AI, ×e per 1/θ_AI, at most; its power (W/sy); its share in research
+  // AI (speculation): capability from effective compute, labour from compute, bodies from robots
+  Z_AI: 11, B_MAX: 1, SIGMA: 0.5,                   // culture where AI's efficiencies are referenced; the automatable share's most; the tasks' elasticity
+  X20: 8.7, THETA_C: 2, FLOP_GAP: 4,                // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory)
+  GAP_P: 1.5, PHI: 0.5, SIGMA_G: 0.5,               // physical tasks need GAP_P orders more (Moravec, speculation); their share of production's tasks (~half, from memory); cognitive against physical, elasticity
+  S_IT: 0.05,                                       // ordinary computing's share of investment past energy (compute exists before AI pays)
+  X_AI: 1e-3, THETA_AI: 1, X_MAX: 1e4, W_C: 12,   // labour-equivalents per sy of compute at Z_AI, ×e per 1/θ_AI, at most; its power (W/sy)
+  S_RD: 0.03, Q_R: 0.4,                             // research's share of output (Earth's R&D ~2.5% of GDP, from memory), spent on compute as far as AI can do research (β_c); and research's share of AI's compute (training and research against deployment, speculation)
+  C_R0: 50, Z_RC: 2, DELTA_R: 0.1, W_R: 400,        // a robot's body: sy at Z_AI (a humanoid's ~$25k, from memory), cheaper e-fold per Z_RC; wear /yr; its power (W)
   // Energy and heat
   B_EBM: 2.09, SUN_ABS: 1.2e17, F_SUN: 0.05, HEAT_MAX: 11.8,   // B (W m⁻² K⁻¹); absorbed sunlight (W); surface renewables' most; the heat fossil carbon and fusion may add (W/m²)
+  P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Stepping
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4,
   Z_SAT: 30,                       // culture past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
@@ -139,6 +166,21 @@ export const PEOPLE = {
 const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
 const R = 6371, YEAR_S = 3.156e7, AREA_M2 = 4 * Math.PI * (R * 1e3) ** 2;
 const sig = x => 1 / (1 + Math.exp(-x));
+/**
+ * A soft ceiling: x/(1 + (x/c)^p)^{1/p}, linear well below c, approaching c above (synthesis).
+ * p = 1 is the harmonic form, 1/y = 1/x + 1/c (two limits in series; what many uneven units with
+ * their own limits sum to: the best sites first); larger p is a sharper bound.
+ */
+export const softMin = (x, c, p = 1) => (x > 0 ? x / Math.pow(1 + Math.pow(x / c, p), 1 / p) : 0);
+/** The normal distribution's partial expectation: E[(v − X)_+] for X ~ N(0, 1) is G(v) = vΦ(v) + φ(v). */
+export function partialG(v) {
+  const phi = Math.exp(-v * v / 2) / Math.sqrt(2 * Math.PI);
+  // Φ by Abramowitz and Stegun's 7.1.26 (|error| < 1.5e-7)
+  const x = Math.abs(v) / Math.SQRT2, t = 1 / (1 + 0.3275911 * x);
+  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  const Phi = 0.5 * (1 + (v >= 0 ? erf : -erf));
+  return v * Phi + phi;
+}
 const ex = x => Math.exp(Math.min(x, 300));
 const deg = r => r * 180 / Math.PI;
 
@@ -172,28 +214,91 @@ export function taskLabor(Lh, A, beta, sigma) {
  * memory). Food per person y_f = K/N and industrial income per person y_g (subsistence-years):
  *   births b = B_MIN + (B_PRE − B_MIN)/(1 + (y_g/Y_B)^K_B): fertility falls with industry's income,
  *     not with food (a well-fed frontier keeps its births);
- *   deaths d = m(y_g) [D_LO + (B_PRE − D_LO)/y_f] while fed (disease and density: zero growth at the
- *     food capacity before medicine), plus famine F_FAM (1/y_f − 1) below it; medicine
- *     m = M_MIN + (1 − M_MIN) e^{−y_g/Y_D} comes first, so mortality falls before fertility.
+ *   deaths d = m(y_g) [D_LO + (B_PRE − D_LO)/y_f] + age(y_g) while fed (disease and density: zero
+ *     growth at the food capacity before medicine), plus famine F_FAM (1/y_f − 1) below it; medicine
+ *     m = M_MIN + (1 − M_MIN) e^{−y_g/Y_D} comes first, so mortality falls before fertility, and aging
+ *     AGE (1 − e^{−y_g/Y_AGE}) lifts the crude rate once fertility has fallen (no age structure here:
+ *     its crude effect only).
+ * The harvest varies from year to year (σ, its relative spread) and a store covers shortfalls up to
+ * `store` years of food: famine's expected deaths over the year's spread, F_FAM y σ G(u/(y σ)) with
+ * u = 1 − store − y (G the normal's partial expectation), add what the mean shortfall alone misses
+ * (none as σ → 0). This is the closure for the droughts a step of years to centuries can't resolve
+ * (synthesis, as the planet's layers carry their statistics when the dial outruns them).
  * dN/dt = N (b − d) is a logistic on either side of N = K (fed, and short), each solved exactly; a
  * step that crosses K keeps its side's law (a small error). Returns the new total and the deaths'
  * density coefficient, which sets competition between lineages.
  */
-export function demography(N, K, yg, dt, P) {
+export function demography(N, K, yg, dt, P, sigma = 0, store = 0) {
   const b = P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B));
-  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D);
-  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0 };
+  // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), age = P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE));
+  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0, b, d: 0.05, famine: 0 };
   let r, a;
-  if (N <= K) { r = b - m * P.D_LO; a = m * (P.B_PRE - P.D_LO) / K; }
-  else { r = b - m * P.B_PRE + P.F_FAM; a = P.F_FAM / K; }
+  if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
+  else { r = b - m * P.B_PRE - age + P.F_FAM; a = P.F_FAM / K; }
+  // The years' famines past the mean's, held over the step.
+  let dv = 0;
+  if (sigma > 1e-6 && N > 0) {
+    const y = K / N, u = 1 - store - y, sy = y * sigma;
+    dv = P.F_FAM * Math.max(0, sy * partialG(u / sy) - Math.max(0, u));
+    r -= dv;
+  }
   const e = Math.exp(Math.max(-50, Math.min(50, r * dt)));
   const Nn = Math.abs(r) > 1e-12 ? r * N * e / (r + a * N * (e - 1)) : N / (1 + a * N * dt);
-  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, crowd: a * K, b, d: b - (r - a * N) };
+  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, crowd: a * K, b, d: b - (r - a * N), famine: dv };
+}
+
+/**
+ * Output's share of what its factors could make when it gets a share q of the energy they'd use:
+ * [(1 − w) + w q^ρ]^{1/ρ}, ρ = (σ − 1)/σ, normalized to 1 at q = 1 (energy against the capital–labour
+ * bundle at elasticity σ, energy's cost share w; standard KLE nesting). σ → 0 is Leontief, min(1, q).
+ */
+export function energyCES(q, sigma, w) {
+  const rho = (sigma - 1) / sigma, xa = Math.log(1 - w), xb = Math.log(w) + rho * Math.log(Math.max(q, 1e-300)), mx = Math.max(xa, xb);
+  return Math.exp((mx + Math.log(Math.exp(xa - mx) + Math.exp(xb - mx))) / rho);
+}
+
+/**
+ * Capability (speculation, after Davidson's compute-centric framework, from memory): effective
+ * compute is the compute stock × hardware's and algorithms' efficiency, e^{θ_C (z − Z_AI)}; tasks'
+ * requirements spread over the FLOP gap, so the automatable share of cognitive tasks is a
+ * logistic in log₁₀ effective compute, 20% at X20 and ~98% FLOP_GAP orders on, and physical
+ * tasks' the same GAP_P orders further (Moravec's paradox).
+ */
+export function capability(Kc, z, P) {
+  const s = P.FLOP_GAP / (Math.log(49) + Math.log(4)), mid = Math.log(4) * s;
+  const x = Math.log10(Math.max(Kc, 1e-30)) + P.THETA_C * (z - P.Z_AI) / Math.LN10 - P.X20;
+  return { x, bc: P.B_MAX * sig((x - mid) / s), bp: P.B_MAX * sig((x - P.GAP_P - mid) / s) };
+}
+
+/** Cognitive against physical tasks: [(1−Φ)^{1/σ} Gc^ρ + Φ^{1/σ} Gp^ρ]^{1/ρ}, normalized so Gc = (1−Φ)L, Gp = ΦL gives L. */
+function groupCES(Gc, Gp, phi, sigma) {
+  if (!(Gc > 0) || !(Gp > 0)) return sigma < 1 ? 0 : Gc + Gp;
+  const rho = (sigma - 1) / sigma, xa = Math.log(1 - phi) / sigma + rho * Math.log(Gc), xb = Math.log(phi) / sigma + rho * Math.log(Gp), mx = Math.max(xa, xb);
+  return Math.exp((mx + Math.log(Math.exp(xa - mx) + Math.exp(xb - mx))) / rho);
+}
+
+/**
+ * Production's labour from people Lh, production's compute Kc and robots Kr at culture z, with
+ * compute's power met at `aiOn`; research's compute Kq runs AI's research minds, and both stocks
+ * make the largest training runs (capability). Of production's AI labour-equivalents Kc χ(z) aiOn,
+ * physical work only as far as there are bodies (soft-min with the robots), the remainder
+ * cognitive; each task group by `taskLabor` (people split by the groups' shares), the groups by
+ * `groupCES`.
+ */
+export function labour(Lh, Kc, Kr, z, aiOn, P, Kq = 0) {
+  const chiRaw = P.X_AI * ex(P.THETA_AI * (z - P.Z_AI)), chi = chiRaw / (1 + chiRaw / P.X_MAX);
+  const { bc, bp, x } = capability(Kc + Kq, z, P);
+  const Ar = Kq * chi * aiOn, Aprod = Kc * chi * aiOn, A = Ar + Aprod;
+  const cost = P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300)), bodies = Kr / cost;
+  const Ap = softMin(P.PHI * Aprod, bodies, 4), Ac = Aprod - Ap;
+  const Gc = taskLabor((1 - P.PHI) * Lh, Ac, bc, P.SIGMA).L, Gp = taskLabor(P.PHI * Lh, Ap, bp, P.SIGMA).L;
+  return { L: groupCES(Gc, Gp, P.PHI, P.SIGMA_G), A, Ar, Ap, Ac, bc, bp, x, chi, bodies, Gc, Gp };
 }
 
 /** A fresh industrial economy (before industry: off). */
 export function newEconomy(P) {
-  return { on: false, Kf: 0, Kc: 0, Ke: [0, 0, 0], S: P.FOSSIL, X: 0, I: 0, Y: 0, Ypot: 0, avail: 1, A: 0, chi: 0, beta: 0, AAI: 0, AIr: 0,
+  return { on: false, Kf: 0, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0], S: P.FOSSIL, X: 0, I: 0, Y: 0, Ypot: 0, avail: 1, A: 0, chi: 0, beta: 0, betaP: 0, AAI: 0, AIr: 0, Ap: 0, bodies: 0,
     need: 0, Ef: 0, Er: 0, Eu: 0, Emat: 0, Ecomp: 0, burned: 0, heat: 0, aer: 0, Lh: 0, z: 0 };
 }
 
@@ -207,33 +312,38 @@ export function industrialStep(E, { Lh, z }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
   const A = P.A_I0 * ex(P.THETA * (z - P.Z_IND));
-  const chiRaw = P.X_AI * ex(P.THETA_AI * (z - P.Z_AI)), chi = chiRaw / (1 + chiRaw / P.X_MAX);
-  const beta = P.B_MAX * sig((z - P.Z_AI) / P.W_AI);
-  const AAI = E.Kc * chi;
+  const T0 = labour(Lh, E.Kc, E.Kr, z, 1, P, E.Kq);
   // Energy: compute's power, materials' for building, output's (its intensity falling with z).
-  const eY = Math.max(P.E_MIN_Y, P.E_SUB * Math.exp(-(z - P.Z_IND) / P.Z_EFF));
-  let em = P.E_M0 * ex(E.X / P.X_SCALE) * (E.X > P.X_CRUST ? P.SKINNER : 1);
+  const eY = P.E_MIN_Y + (P.E_SUB - P.E_MIN_Y) * Math.exp(-(z - P.Z_IND) / P.Z_EFF);
+  // Ores' grades fall smoothly past the crust's rich ones (Skinner's barrier as a gap in the grades' distribution).
+  let em = P.E_M0 * ex(E.X / P.X_SCALE) * (1 + (P.SKINNER - 1) * sig((E.X - P.X_CRUST) / (0.25 * P.X_CRUST)));
   if (z > P.Z_SPACE) em = Math.min(em, P.E_SPACE);
-  const Emat = em * P.M_K * E.I, Ecomp = P.W_C * E.Kc;
-  // Capacities; dispatch renewables, then fusion, then fossil carbon, against what's wanted at
-  // full power (compute and materials, and the output the factors could make).
-  const capR = P.F_SUN * P.SUN_ABS, capU = P.HEAT_MAX * AREA_M2;   // fusion's ceiling is the radiator's, shared with fossil carbon below
-  const cf = E.Ke[0] * rf, cr = Math.min(E.Ke[1] * rr, capR), cu = Math.min(E.Ke[2] * ru, capU);
-  const T0 = taskLabor(Lh, (1 - P.S_AI_R) * AAI, beta, P.SIGMA);
+  const Emat = em * P.M_K * E.I, Ecomp = P.W_C * (E.Kc + E.Kq) + P.W_R * T0.Ap;   // compute's power, and the working robots'
+  // Capacities: surface renewables approach their ceiling as the best sites fill (harmonic);
+  // fossil carbon and fusion share the radiator's heat budget (sharp: a choice, the ending's).
+  // Dispatch renewables, then fusion, then fossil carbon, against what's wanted at full power
+  // (compute and materials, and the output the factors could make).
+  const capR = P.F_SUN * P.SUN_ABS, capU = P.HEAT_MAX * AREA_M2;
+  const cr = softMin(E.Ke[1] * rr, capR, P.P_SITES), h0 = E.Ke[0] * rf + E.Ke[2] * ru, hk = h0 > 0 ? softMin(h0, capU, P.P_HEAT) / h0 : 1;
+  const cf = E.Ke[0] * rf * hk, cu = E.Ke[2] * ru * hk;
   const Yfull = A * Math.pow(Math.max(E.Kf, 0), P.ALPHA) * Math.pow(T0.L, 1 - P.ALPHA);
   const need = eY * Yfull + Emat + Ecomp;
   // Fossil carbon and fusion share the radiator's ceiling (surface renewables don't add heat).
-  const Er = Math.min(cr, need), Eu = Math.min(cu, need - Er), Ef = Math.min(cf, Math.max(0, need - Er - Eu), Math.max(0, capU - Eu));
+  const Er = Math.min(cr, need), Eu = Math.min(cu, need - Er), Ef = Math.min(cf, Math.max(0, need - Er - Eu));
   const sup = Er + Eu + Ef;
   // The energy, in order: compute first (it runs on power alone), then materials, then output.
   const Ec = Math.min(Ecomp, sup), Em = Math.min(Emat, sup - Ec), Eo = sup - Ec - Em;
-  const aiOn = Ecomp > 0 ? Ec / Ecomp : 1, T = taskLabor(Lh, (1 - P.S_AI_R) * AAI * aiOn, beta, P.SIGMA);
+  const aiOn = Ecomp > 0 ? Ec / Ecomp : 1, T = labour(Lh, E.Kc, E.Kr, z, aiOn, P, E.Kq);
   const Ypot = A * Math.pow(Math.max(E.Kf, 0), P.ALPHA) * Math.pow(T.L, 1 - P.ALPHA);
-  const Y = Math.min(Ypot, Eo / eY), avail = Ypot > 0 ? Y / Ypot : 1;
+  // Energy against the capital–labour bundle: a CES of low elasticity, normalized so the output
+  // the factors could make is what full energy gives (standard KLE nesting); σ_E → 0 is Leontief.
+  const Y = Ypot > 0 ? Ypot * energyCES(Eo / (eY * Ypot), P.SIGMA_E, P.W_E) : 0, avail = Ypot > 0 ? Y / Ypot : 1;
   // Investment: energy first (wear, and the shortfall closed over T_BUILD, to the best returns
   // among sources with room), the rest by marginal products.
   const I = P.SAVE * Y;
-  const heatRoom = cf + cu < 0.999 * capU, rets = [heatRoom ? rf : 0, cr < 0.999 * capR ? rr : 0, heatRoom ? ru : 0], w = rets.map(r => r ** 4), ws = w[0] + w[1] + w[2];
+  // Returns at the margin: a renewable's falls as the sites fill, the heat budget's as it's spent.
+  const mR = Math.pow(1 + Math.pow(E.Ke[1] * rr / capR, P.P_SITES), -1 - 1 / P.P_SITES), mH = h0 > 0 ? Math.pow(1 + Math.pow(h0 / capU, P.P_HEAT), -1 - 1 / P.P_HEAT) : 1;
+  const rets = [rf * mH, rr * mR, ru * mH], w = rets.map(r => r ** 4), ws = w[0] + w[1] + w[2];
   const gap = Math.max(0, need * (1 + P.MARGIN) - (cf + cr + cu));
   let Ie = 0, Ies = [0, 0, 0];
   if (ws > 0) {
@@ -241,17 +351,29 @@ export function industrialStep(E, { Lh, z }, dt, P) {
     Ie = Math.min(P.F_IE * I, P.DELTA_E * (E.Ke[0] + E.Ke[1] + E.Ke[2]) + gap / (rbar * P.T_BUILD));
     Ies = w.map(v => Ie * v / ws);
   }
-  const Ir = Math.max(0, I - Ie);
+  // The rest: ordinary computing's share to compute, the remainder among fixed capital, compute
+  // and robots by their marginal products (each by a small difference in labour, so compute's
+  // includes the capability a bigger run buys: the loop from investment to capability to returns).
+  // Research's compute: R&D's share of output, as far as AI can do research (β_c), ahead of the rest.
+  const Iq = Math.min(Math.max(0, I - Ie), P.S_RD * Y * T.bc);
+  const Ir = Math.max(0, I - Ie - Iq), YL = T.L > 0 ? (1 - P.ALPHA) * Y / T.L : 0;
+  const hc = Math.max(1e-3 * E.Kc, 1), hr = Math.max(1e-3 * E.Kr, 1);
   const MPf = E.Kf > 0 ? P.ALPHA * Y / E.Kf : Infinity;
-  const MPc = T.L > 0 ? (1 - P.ALPHA) * Y / T.L * T.dLdA * (1 - P.S_AI_R) * chi : 0;
-  const wc = MPf === Infinity || !(MPc > 0) ? 0 : 1 / (1 + Math.pow(MPf / MPc, 4));
+  const MPc = YL > 0 ? YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, aiOn, P, E.Kq).L - T.L) / hc : 0;
+  const MPr = YL > 0 ? YL * Math.max(0, labour(Lh, E.Kc, E.Kr + hr, z, aiOn, P, E.Kq).L - T.L) / hr : 0;
+  let wf = 1, wc = 0, wr = 0;
+  if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, c = MPr ** 4, t = a + b + c; if (t > 0) { wf = a / t; wc = b / t; wr = c / t; } }
+  const Ica = (1 - P.S_IT) * Ir * wc, Ic = P.S_IT * Ir + Ica, Ir_ = (1 - P.S_IT) * Ir * wr, If = (1 - P.S_IT) * Ir * wf;
+  // Labs keep research's share of AI's compute: for each unit deployed, Q_R/(1 − Q_R) for training and research.
+  const Iq2 = Math.min(If, P.Q_R / (1 - P.Q_R) * Ica), IfNet = If - Iq2;
   const grow = (K, inflow, d) => K * Math.exp(-d * dt) + inflow * (1 - Math.exp(-d * dt)) / d;
-  E.Kf = grow(E.Kf, Ir * (1 - wc), P.DELTA_F); E.Kc = grow(E.Kc, Ir * wc, P.DELTA_C);
+  E.Kf = grow(E.Kf, IfNet, P.DELTA_F); E.Kc = grow(E.Kc, Ic, P.DELTA_C); E.Kr = grow(E.Kr, Ir_, P.DELTA_R); E.Kq = grow(E.Kq, Iq + Iq2, P.DELTA_C);
+  E.flows = { f: IfNet, c: Ic, r: Ir_, e: Ie, q: Iq + Iq2 };
   E.Ke = E.Ke.map((K, s) => grow(K, Ies[s], P.DELTA_E));
   const burned = Math.min(E.S, Ef * YEAR_S * dt / P.J_PGC);
   E.S -= burned; E.X += P.M_K * I * dt; E.I = I;
   E.sup = sup;
-  Object.assign(E, { Y, Ypot, avail, A, chi, beta, AAI: AAI * aiOn, AIr: P.S_AI_R * AAI * aiOn, need, Ef, Er, Eu, Emat, Ecomp, burned, Lh, z, eY, em, wc });
+  Object.assign(E, { Y, Ypot, avail, A, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, Ecomp, burned, Lh, z, eY, em, wc, wr });
   E.heat = (Ef + Eu) / AREA_M2;
   E.aer = dt > 0 ? -P.AER * (burned / dt) * Math.exp(-Math.max(0, z - P.Z_IND) / P.Z_SCRUB) : 0;
   return E;
@@ -304,7 +426,7 @@ export class People {
       area: new Float64Array(nL), b: new Float64Array(nL), a: new Float64Array(nL), Tc: new Float64Array(nL),
       D: new Float64Array(nL), coast: new Uint8Array(nL), lat: new Float64Array(nL), lon: new Float64Array(nL),
       elev: new Float64Array(nL), zv: new Float32Array(14 * nL), deg: new Uint8Array(nL), mosaic: new Float64Array(nL),
-      alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL),
+      alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL),
     };
     const H = this.H;
     for (let c = 0; c < nL; c++) {
@@ -347,6 +469,7 @@ export class People {
       for (let k = 0; k < 14; k++) H.zv[14 * c + k] = f.zones[NZ * i + k] / zz;
       H.mosaic[c] = H.b[c] * 4 * ft * fg * sig((Tc - P.T_COLD0 - 10) / P.W_COLD);
       H.p0[c] = f.p0 ? f.p0[i] : 1e-4; H.ero[c] = f.ero ? f.ero[i] : 0;
+      H.sigY[c] = P.E_RAIN * (f.sigP ? f.sigP[i] : 0) * (river ? P.IRR : 1);
     }
   }
 
@@ -472,16 +595,20 @@ export class People {
   capAt(L, Zs, K, eg, zConst = 0) {
     const P = this.P, H = this.H, nL = this.nL, f = this.f, ind = this.ind;
     // Industry lifts farming past the organic ceiling as far as farming's own energy is met (E_AG a person fed).
-    const fert = Math.max(0.5, 1 + P.CO2_FERT * Math.log(this.co2 / P.CO2_0)), lift = this.econ.on ? Math.min(1, (this.econ.sup || 0) / Math.max(1, P.E_AG * this.people)) : 0;
+    const fert = Math.max(0.5, 1 + P.CO2_FERT * Math.log(this.co2 / P.CO2_0)), lift = this.econ.on ? softMin((this.econ.sup || 0) / Math.max(1, P.E_AG * this.people), 1, 4) : 0;
     for (let c = 0; c < nL; c++) {
       if (!H.alive[c]) { K[c] = 0; continue; }
       const z = Zs ? Zs[c] : zConst, ez = ex(P.THETA * z);
       const PF = ez / (1 + (ez - 1) / P.CAP_F);
       let farm = 0;
       if (f[c] > 0) {
-        const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A);
-        const PA = (1 - ind[c]) * cap + ind[c] * (cap + (x - cap) * lift);
-        farm = f[c] * H.a[c] * this.suit(this.pkg[c], c) * PA * this.soilYield(c) * fert;
+        // The organic ceiling, and industry's above it (fertilizer, machines, breeding: a few times
+        // the organic yields, modern grain's against pre-industrial, from memory), each approached softly.
+        const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A), capI = softMin(x, P.CAP_A * P.LIFT_MAX, 1);
+        const PA = cap + ind[c] * lift * Math.max(0, capI - cap);
+        // Less the seed kept for the next sowing (working capital's first claim).
+        const seed = 1 / (P.R_SEED0 * Math.exp(Math.min(Math.max(0, z - P.Z_FARM) / P.Z_R, 50)));
+        farm = f[c] * H.a[c] * this.suit(this.pkg[c], c) * PA * this.soilYield(c) * fert * (1 - seed);
       }
       K[c] = H.area[c] * this.coldOK(c, z) * ((1 - f[c]) * H.b[c] * PF * eg + farm);
     }
@@ -492,9 +619,9 @@ export class People {
     for (let k = 0; k < 14; k++) s += o[k] * zv[14 * c + k];
     return Math.pow(Math.max(0, s), this.P.W_PKG);
   }
-  reachL(gz) { const P = this.P; return Math.min(P.L_CMAX, P.L_C0 * Math.exp(Math.max(0, gz) / P.Z_L)); }
+  reachL(gz) { const P = this.P; return softMin(P.L_C0 * Math.exp(Math.min(Math.max(0, gz) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
-  Dz(z) { const P = this.P; return Math.min(P.D_MAX, P.D0 * Math.exp(P.D_Z * z)); }
+  Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4); }
   seaReach(z) { const P = this.P; return z > P.Z_BOAT ? P.L_SEA * (z - P.Z_BOAT) : 0; }
 
   step(dtWanted) {
@@ -513,13 +640,20 @@ export class People {
     // density coefficient, so the higher capacity excludes the lower (Lotka–Volterra in one niche,
     // standard).
     const lw = this.lw || (this.lw = new Float64Array(64));
+    this.gMax = live.reduce((g, L) => Math.max(g, L.g), 0); this.famine = 0;
     for (let c = 0; c < nL; c++) {
       const Nt = Ntot[c];
       if (!(Nt > 1e-6)) { for (const L of live) L.N[c] = 0; continue; }
       let inv = 0;
       for (const L of live) if (L.N[c] > 0) inv += L.N[c] / Nt / Math.max(L.K[c], 1e-12);
       const Kh = 1 / inv;
-      const { N: Nn, crowd } = demography(Nt, Kh, this.goods[c] / Nt, dt, P);
+      // The harvests' spread here: rain-fed farmers bear it whole, foragers half (they move), trade
+      // pools it once industry comes; granaries hold up to a share of a year.
+      const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tr = sig((z - P.Z_TRADE) / P.W_TRADE), ell = this.reachL(this.gMax + z);
+      const sg = this.H.sigY[c] * (fc + 0.5 * (1 - fc)) / Math.sqrt(1 + tr * (ell / P.L_CORR) ** 2);
+      const st = P.S_MAX * fc * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE));
+      const { N: Nn, crowd, famine } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st);
+      this.famine += famine * Nt;
       const Nbar = 0.5 * (Nt + Nn);
       let mx = -Infinity;
       live.forEach((L, k) => { lw[k] = L.N[c] > 0 ? Math.log(L.N[c]) - crowd * Nbar * dt / Math.max(L.K[c], 1e-12) : -Infinity; if (lw[k] > mx) mx = lw[k]; });
@@ -658,7 +792,7 @@ export class People {
     let zmax = 0;
     for (let c = 0; c < nL; c++) {
       if (!(Ntot[c] > 0)) continue;
-      const y = Out[c] / Ntot[c], sR = Math.min(P.S_R_MAX, Math.pow(Math.max(y, 1e-3), P.RHO_R));
+      const y = Out[c] / Ntot[c], sR = softMin(Math.pow(Math.max(y, 1e-3), P.RHO_R), P.S_R_MAX, 4);
       m[c] = sR * (N[c] + P.ETA * (Ntot[c] - N[c]));
       if (N[c] > 0) zmax = Math.max(zmax, Z[c]);
     }
@@ -732,7 +866,7 @@ export class People {
       let tot = 0;
       for (let c = 0; c < nL; c++) tot += L.N[c];
       const Ne = Math.max(10, P.NE_SHARE * tot), gens = dt / P.T_GEN;
-      L.g = Math.min(P.G_MAX, L.g + P.V_G * P.S_BG * gens + Math.sqrt(P.V_G * gens / Ne) * this.rng.normal());
+      L.g += P.V_G * P.S_BG * gens * Math.max(0, 1 - Math.pow(Math.max(0, L.g) / P.G_MAX, 4)) + Math.sqrt(P.V_G * gens / Ne) * this.rng.normal();
     }
     // Gene flow where lineages meet: traits and ancestry mix by the contact (soft species).
     for (let a = 0; a < live.length; a++) for (let b = a + 1; b < live.length; b++) {
@@ -756,7 +890,7 @@ export class People {
     for (let c = 0; c < nL; c++) {
       if (f[c] > 0 || !(Ntot[c] > 0) || H.D[c] <= 0 || !H.alive[c]) continue;
       const Kf = H.area[c] * this.coldOK(c, zc[c]) * H.b[c] * P.CAP_F;
-      const haz = P.H_FARM * H.D[c] * sig((zc[c] - P.Z_FARM) / P.W_FARM) * sig((Ntot[c] / Math.max(Kf, 1e-9) - P.SED) / 0.1);
+      const haz = P.H_FARM * H.D[c] * sig((zc[c] - P.Z_FARM) / P.W_FARM) * sig((Ntot[c] / Math.max(Kf, 1e-9) - P.SED) / 0.1) * Math.exp(-H.sigY[c] / P.SIG_REF);
       if (haz <= 0 || this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
       let near = false;
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (f[E.nb[o]] > 0) near = true;
@@ -776,7 +910,8 @@ export class People {
         const s = this.suit(p0[c], c), e = Math.exp(Math.min(50, P.R_ADOPT * dt));
         f[c] = s > 1e-9 ? s * f0[c] * e / (s + f0[c] * (e - 1)) : f0[c] / e;
       }
-      if (zc[c] < P.Z_FARM - 0.5) continue;
+      const know = sig((zc[c] - (P.Z_FARM - 0.5)) / 0.25);
+      if (know < 1e-3) continue;
       let bestQ = -1, bestIn = 0;
       for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
@@ -786,7 +921,7 @@ export class People {
       }
       if (bestQ >= 0) {
         if (p0[c] < 0 || this.suit(bestQ, c) > this.suit(p0[c], c)) pkg[c] = bestQ;
-        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c), f[c] + P.C_FARM * bestIn * dt));
+        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c), f[c] + P.C_FARM * know * bestIn * dt));
       }
     }
   }
@@ -802,7 +937,11 @@ export class People {
   industry(live, dt) {
     const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zc;
     if (!this.flags.industry) {
-      for (let c = 0; c < nL; c++) if (zc[c] >= P.Z_IND && this.f[c] > 0.2 && this.coalReach[c] >= P.COAL_MIN) {
+      // A hazard where culture, farming and coal all suffice (each a logistic, not a gate).
+      for (let c = 0; c < nL; c++) {
+        if (!(this.Ntot[c] > 0) || zc[c] < P.Z_IND - 1) continue;
+        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig((this.f[c] - 0.2) / 0.05) * sig(this.coalReach[c] - P.COAL_MIN);
+        if (this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
         ind[c] = 0.01; this.flags.industry = true;
         // The first works: fixed capital at its Solow balance for the cell's workers, and the
         // fossil capacity to run it.
@@ -820,9 +959,10 @@ export class People {
     for (let c = 0; c < nL; c++) {
       if (!(this.Ntot[c] > 0)) continue;
       let v = i0[c] > 0 ? P.R_IND * i0[c] * (1 - i0[c]) : 0;
-      if (zc[c] >= P.Z_IND - 1) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
+      const know = sig((zc[c] - (P.Z_IND - 1)) / 0.25);
+      if (know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (i0[d] > i0[c]) v += P.C_IND * (E.hop[o] ? 0.5 : 1) * (i0[d] - i0[c]) * this.speed(zc[c]) / P.V0;
+        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 : 1) * (i0[d] - i0[c]) * this.speed(zc[c]) / P.V0;
       }
       ind[c] = Math.min(1, i0[c] + v * dt);
     }
@@ -890,7 +1030,7 @@ export class People {
     let minds = 0, people = 0, farm = 0, indp = 0, zmax = 0, soilF = 0, farmA = 0;
     for (let c = 0; c < nL; c++) {
       const y = this.Ntot[c] > 0 ? this.Out[c] / this.Ntot[c] : 0;
-      minds += Math.min(P.S_R_MAX, Math.pow(Math.max(y, 1e-3), P.RHO_R)) * this.Ntot[c];
+      minds += softMin(Math.pow(Math.max(y, 1e-3), P.RHO_R), P.S_R_MAX, 4) * this.Ntot[c];
       people += this.Ntot[c]; farm += this.Ntot[c] * this.f[c]; indp += this.Ntot[c] * this.ind[c];
       if (this.f[c] > 0) { const a = H.area[c] * this.f[c]; soilF += a * this.soil[c]; farmA += a; }
     }
@@ -913,17 +1053,18 @@ export class People {
       F.peakFos = Math.max(F.peakFos || 0, E.Ef);
       once('peak', F.peakFos > 1e11 && E.Ef < 0.9 * F.peakFos, () => `fossil carbon's peak passed (${(F.peakFos / 1e12).toFixed(1)} TW; ${this.emitted.toFixed(0)} Pg C burned, ${E.S.toFixed(0)} left)`);
       once('renewables', E.Er > E.Ef && E.Er > 1e11, () => `renewables pass fossil carbon (${(E.Er / 1e12).toFixed(1)} TW)`);
-      once('present', E.beta >= 0.15, () => `early takeoff (β 0.15): ${(this.t - (this.events.find(e => e.kind === 'industry') || { t: this.t }).t).toFixed(0)} yr after industry, ${(people / 1e9).toFixed(2)} billion people, ${((E.Ef + E.Er + E.Eu) / 1e12).toFixed(1)} TW (fossil ${(100 * E.Ef / Math.max(1, E.Ef + E.Er + E.Eu)).toFixed(0)}%), ${this.emitted.toFixed(0)} Pg C burned, CO₂ ${this.co2.toFixed(0)} ppm (Earth's now: ~245 yr, 8, ~19 TW at ~80%, ~500 Pg C, ~420 ppm; from memory)`);
+      once('present', E.beta >= 0.15, () => `early takeoff (β_c 0.15; effective compute ${E.x.toFixed(2)} orders from 20%'s, compute ${E.Kc.toExponential(2)} sy): ${(this.t - (this.events.find(e => e.kind === 'industry') || { t: this.t }).t).toFixed(0)} yr after industry, ${(people / 1e9).toFixed(2)} billion people, ${((E.Ef + E.Er + E.Eu) / 1e12).toFixed(1)} TW (fossil ${(100 * E.Ef / Math.max(1, E.Ef + E.Er + E.Eu)).toFixed(0)}%), ${this.emitted.toFixed(0)} Pg C burned, CO₂ ${this.co2.toFixed(0)} ppm; ${(E.Y / people).toFixed(1)} sy of goods a person, K/Y ${(E.Kf / E.Y).toFixed(2)}, output at ${(100 * E.avail).toFixed(0)}% of its factors', famine ${(1000 * (this.famine / Math.max(1, people))).toFixed(2)}‰/yr (Earth's now: ~245 yr, 8, ~19 TW at ~80%, ~500 Pg C, ~420 ppm, ~20–25 sy, K/Y ~3–4; from memory)`);
+      once('robots', E.Ap > P.PHI * E.Lh && E.Lh > 0, () => `robots' work passes people's physical work (β_p ${E.betaP.toFixed(2)}, ${E.bodies.toExponential(2)} bodies)`);
       once('compute', E.AAI > E.Lh && E.Lh > 0, () => `AI's labour passes people's (β ${E.beta.toFixed(2)}, ${(people / 1e9).toFixed(2)} billion people)`);
       once('fusion', E.Eu > E.Er && E.Eu > 1e11, () => `fusion passes renewables (${(E.Eu / 1e12).toFixed(0)} TW)`);
-      once('sun', E.Er >= 0.99 * P.F_SUN * P.SUN_ABS, () => `surface renewables at their ceiling (${(P.F_SUN * P.SUN_ABS / 1e12).toFixed(0)} TW)`);
-      once('cap', E.Eu >= 0.99 * P.HEAT_MAX * AREA_M2, () => `fusion at the radiator's ceiling (${P.HEAT_MAX} W/m², ${(P.HEAT_MAX / P.B_EBM).toFixed(1)} K before feedbacks)`);
+      once('sun', E.Er >= 0.9 * P.F_SUN * P.SUN_ABS, () => `surface renewables at their ceiling (${(P.F_SUN * P.SUN_ABS / 1e12).toFixed(0)} TW)`);
+      once('cap', E.Eu + E.Ef >= 0.9 * P.HEAT_MAX * AREA_M2, () => `fossil carbon and fusion near the radiator's ceiling (${P.HEAT_MAX} W/m², ${(P.HEAT_MAX / P.B_EBM).toFixed(1)} K before feedbacks)`);
       once('fossil', E.S <= 1e-6, () => `the fossil carbon is spent (${this.emitted.toFixed(0)} Pg C)`);
     }
     this.history.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, farm: people > 0 ? farm / people : 0, ind: people > 0 ? indp / people : 0,
-      Y: E.Y, Kf: E.Kf, Kc: E.Kc, AI: E.AAI, beta: E.beta, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
+      Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
       energy: E.Ef + E.Er + E.Eu, co2: this.co2, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
-      soil: farmA > 0 ? soilF / farmA : 0, lineages: live.length });
+      soil: farmA > 0 ? soilF / farmA : 0, famine: people > 0 ? this.famine / people : 0, lineages: live.length });
   }
 
   /** Run until `stop` says so; dt from the culture's pace and the minds' doubling. */

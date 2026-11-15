@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography } from '../tools/people/model.mjs';
+import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES } from '../tools/people/model.mjs';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -73,7 +73,7 @@ test('the lineage with the higher capacity excludes the other', () => {
 
 /** A uniform world held at its capacity, culture alone moving: the minds within reach at z = 0. */
 function heldWorld(params) {
-  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_C0: 2e4, ACC: 0, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
+  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_C0: 1e9, ACC: 0, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
   const L = p.newLineage(null, 0, 0);
   p.capacity(L);
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
@@ -145,9 +145,9 @@ test('fixed capital settles at the Solow balance, K/Y = s/δ', () => {
   let If = 0;
   for (let k = 0; k < 4000; k++) {
     industrialStep(E, x, 0.5, P);
-    If = E.I - (E.Ke[0] * P.DELTA_E);   // at balance the energy capital only replaces its wear
+    If = E.flows.f;   // what's saved for fixed capital (past energy, ordinary computing and the margins)
   }
-  assert.ok(E.wc < 1e-3, `next to no compute well below Z_AI (${E.wc.toExponential(2)})`);
+  assert.ok(E.wc < 1e-3 && E.wr < 1e-3, `next to no AI compute or robots well below Z_AI (${E.wc.toExponential(2)}, ${E.wr.toExponential(2)})`);
   assert.ok(Math.abs(E.Kf * P.DELTA_F / If - 1) < 0.02, `K δ ${(E.Kf * P.DELTA_F).toExponential(3)} against what's saved for it ${If.toExponential(3)}`);
   const A = P.A_I0 * Math.exp(P.THETA * (x.z - P.Z_IND)), sf = If / E.Y;
   const Kstar = Math.pow(sf * A / P.DELTA_F, 1 / (1 - P.ALPHA)) * x.Lh;
@@ -185,4 +185,30 @@ test('births and deaths: zero growth at the food capacity before industry, the f
   // Exact over a long step: the fed side's logistic settles at its equilibrium (r/a).
   const r = demography(1e5, 1e6, 0, 5000, P);
   assert.ok(Math.abs(r.N / 1e6 - 1) < 1e-6, `settled at the food capacity: ${r.N}`);
+});
+
+test('the soft ceiling, the partial expectation and the energy CES at their limits', () => {
+  const close = (a, b, tol, what) => assert.ok(Math.abs(a / b - 1) < tol, `${what}: ${a} against ${b}`);
+  close(softMin(1e-3, 1, 1), 1e-3, 2e-3, 'well below the ceiling: linear');
+  close(softMin(1e6, 1, 4), 1, 1e-6, 'well above: the ceiling');
+  close(softMin(3, 2, 1), 1 / (1 / 3 + 1 / 2), 1e-12, 'p = 1 is the harmonic sum');
+  // G(v) = E[(v − X)_+]: φ(0) at 0, v far above, nothing far below; and against a quadrature.
+  close(partialG(0), 1 / Math.sqrt(2 * Math.PI), 1e-6, 'G(0)');
+  close(partialG(6), 6, 1e-6, 'G far above');
+  assert.ok(partialG(-6) < 1e-8, 'G far below');
+  let q = 0; for (let x = -10; x < 10; x += 1e-3) q += Math.max(0, 0.7 - x) * Math.exp(-x * x / 2) / Math.sqrt(2 * Math.PI) * 1e-3;
+  close(partialG(0.7), q, 1e-5, 'G(0.7) against a quadrature');
+  // Energy: full energy gives what the factors could make; σ → 0 is Leontief; at σ 0.3 a third short costs little.
+  close(energyCES(1, 0.3, 0.07), 1, 1e-12, 'full energy');
+  close(energyCES(0.5, 1e-3, 0.07), 0.5, 0.01, 'σ → 0: Leontief (slowly: w^σ)');
+  const h = energyCES(0.68, 0.3, 0.07);
+  assert.ok(h > 0.9 && h < 1, `at σ 0.3, 68% of the energy makes ${h.toFixed(3)} of the output`);
+});
+
+test('a spread of harvests kills in famine years, and stores take it back', () => {
+  const P = PEOPLE, d = (sigma, store) => { const r = demography(1e6, 1.05e6, 0, 1e-3, P, sigma, store); return r.famine; };
+  assert.ok(d(0, 0) === 0 && d(1e-9, 0) === 0, 'no spread, no famine past the mean\'s');
+  assert.ok(d(0.15, 0) > 1e-3, `a 15% spread near the food capacity starves some each year (${d(0.15, 0).toFixed(4)}/yr)`);
+  assert.ok(d(0.15, 0.25) < 0.1 * d(0.15, 0), `a quarter-year's store takes most of it back (${d(0.15, 0.25).toExponential(2)})`);
+  assert.ok(d(0.3, 0) > d(0.15, 0), 'more spread, more famine');
 });

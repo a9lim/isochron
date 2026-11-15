@@ -56,13 +56,17 @@ pp.run({
     if (!p.lineages.some(L => L.died === null)) { p.event('end', 'no one is left'); return true; }
     if (n < 3) return false;
     const g = Math.log(h[n - 1].minds / h[n - 2].minds) / h[n - 1].dt;
-    if (g > 0 && Math.log(2) / g < DAY && !p.flags.dial) { p.flags.dial = true; p.event('dial', 'the minds double in under a day: the dial runs out'); }
-    // The end: the minds flat at the radiator's ceilings, or (σ < 1 with tasks AI can't do) flat for
-    // two centuries with β at its most.
-    const atCeiling = p.flags.cap && p.flags.sun, bounded = p.econ.beta > 0.95 * p.P.B_MAX;
-    if (p.econ.on && n > 200 && (atCeiling || bounded)) {
-      const a = h[n - 200], b = h[n - 1];
-      if (Math.abs(Math.log(b.minds / a.minds)) < 0.01 && (atCeiling ? b.t - a.t > 1 : b.t - a.t > 200)) {
+    if (g > 0 && Math.log(2) / g < DAY && !p.flags.dial) { p.flags.dial = true; p.dialAt = p.t; p.event('dial', 'the minds double in under a day: the dial runs out'); }
+    // The arc on the dial is over a century after the dial runs out: stop there at the latest.
+    if (p.flags.dial && p.t - p.dialAt > 100) { const b = h[n - 1]; p.event('end', `a century past the dial's floor: minds ${g3(b.minds)} (AI ${g3(b.AI)}), energy ${g3(b.energy / 1e12)} TW, output at ${(100 * b.avail).toPrecision(2)}% of its factors', heat ${b.heat.toFixed(2)} W/m²`); return true; }
+    // The end: β at its most and the minds growing under 0.1%/yr over the last 20 years of the
+    // clock (at the energy's ceilings, or bounded by the tasks AI can't do).
+    const tInd = (p.events.find(e => e.kind === 'industry') || {}).t;
+    if (p.econ.on && !p.flags.dial && p.t - tInd > 3000) { p.event('end', 'no takeoff within 3 kyr of industry'); return true; }
+    if (p.econ.on && p.econ.beta > 0.95 * p.P.B_MAX && p.econ.betaP > 0.95 * p.P.B_MAX) {
+      let k = n - 1; while (k > 0 && h[n - 1].t - h[k].t < 20) k--;
+      const a = h[k], b = h[n - 1];
+      if (b.t - a.t >= 20 && Math.log(b.minds / a.minds) / (b.t - a.t) < 1e-3 && Math.log(b.Y / a.Y) / (b.t - a.t) < 1e-3) {
         p.event('end', `the minds level off at ${g3(b.minds)} (AI ${g3(b.AI)} labour-equivalents; energy ${g3(b.energy / 1e12)} TW, output at ${(100 * b.avail).toPrecision(2)}% of its factors'; heat ${b.heat.toFixed(2)} W/m², ${(b.heat / p.P.B_EBM).toFixed(2)} K before feedbacks)`);
         return true;
       }
@@ -73,7 +77,7 @@ pp.run({
 const ms = performance.now() - t0, h = pp.history;
 console.log(`\nper section (s): ${Object.entries(pp.prof).map(([k, v]) => `${k} ${(v / 1e3).toFixed(1)}`).join(' · ')}` +
   (live ? ` · planet: ${live.stats.steps} steps ${(live.stats.msFast / 1e3).toFixed(1)} s, ${live.stats.cycles} climate cycles ${(live.stats.msClimate / 1e3).toFixed(1)} s, ${live.stats.pulsed.toFixed(0)} Pg C pulsed` : ''));
-console.log(`${h.length} steps in ${(ms / 1e3).toFixed(1)} s · ended at ${fmtYears(pp.t)} · ${g3(h.at(-1).people / 1e9)} billion people (peak ${g3(Math.max(...h.map(x => x.people)) / 1e9)}) · minds ${g3(h.at(-1).minds)} · emitted ${pp.emitted.toFixed(0)} Pg C · peak CO₂ ${Math.max(...h.map(x => x.co2)).toFixed(0)} ppm`);
+console.log(`${h.length} steps in ${(ms / 1e3).toFixed(1)} s · ended at ${fmtYears(pp.t)} · ${g3(h.at(-1).people / 1e9)} billion people (peak ${g3(h.reduce((m, x) => Math.max(m, x.people), 0) / 1e9)}) · minds ${g3(h.at(-1).minds)} · emitted ${pp.emitted.toFixed(0)} Pg C · peak CO₂ ${h.reduce((m, x) => Math.max(m, x.co2), 0).toFixed(0)} ppm`);
 if (live) { const s = live.sample(); console.log(`the planet at the end: ${s.T.toFixed(2)} °C, CO₂ ${s.co2.toFixed(0)} ppm, sea ${s.sea.toFixed(1)} m, ice ${s.ice.toFixed(2)} M km³, trees ${(100 * s.trees).toFixed(1)}% of land, land carbon ${s.landC.toFixed(0)} Pg, regolith ${s.soil.toFixed(2)} m`); }
 const tip = pp.events.find(e => e.kind === 'tip');
 if (tip) {
