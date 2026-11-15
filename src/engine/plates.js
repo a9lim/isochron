@@ -198,8 +198,9 @@ export class Tectonics {
     this.rng = null;
     this.noise = null;
     this.counters = { made: 0, consumed: 0, collided: 0, merges: 0, rifts: 0, opened: 0, closed: 0 };
-    // What the CPU rewrote outside the step (rare events), for the GPU's mirror (src/gpu/plates.js).
-    this.dirty = { plates: new Set(), owner: false, mem: false };
+    // What the CPU rewrote outside the step (rare events), for the GPU's mirror (src/gpu/plates.js):
+    // whole plates, or frame cells one by one (k·n + j: a plate's stray pieces passed on, kept with a GPU).
+    this.dirty = { plates: new Set(), cells: new Set(), owner: false, mem: false };
     this.gpu = null;
   }
 
@@ -758,7 +759,8 @@ export class Tectonics {
    *
    * Checked every FRAGMENTS Myr of plate time (the labeling is ~1.6 ms at level 7), after the
    * step's rare events, on the GPU's path as on the CPU's: the CPU's frames are the GPU's, and
-   * the plates it rewrote go back up whole before the next step (src/gpu/plates.js).
+   * what it rewrote goes back up before the next step (src/gpu/plates.js: a new plate's frame
+   * whole, a joined piece's frame cells one by one).
    */
   resolveFragments() {
     if (this.t - (this.fragmentsAt ?? -Infinity) < PARAMS.FRAGMENTS - 1e-6) return;
@@ -791,10 +793,12 @@ export class Tectonics {
           // A plate of its own, in its parent's frame and with its motion, as a rift's half starts.
           Q.q.set(P.q); Q.R.set(P.R); Q.w.set(P.w);
           for (const i of cells) { copyCell(P, ref[i], Q, ref[i]); P.mask[ref[i]] = 0; owner[i] = Q.index; }
+          this.dirty.plates.add(k); this.dirty.plates.add(Q.index);
           this.counters.split = (this.counters.split || 0) + 1;
         } else {
           // To the plate around it: the one whose body it shares the most edges with (any piece's
-          // only where it touches no body, and then the labels are checked again).
+          // only where it touches no body, and then the labels are checked again). The frame cells
+          // it touches go to the GPU one by one.
           const edges = new Map(), loose = new Map();
           let guess = -1;
           for (const i of cells) for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
@@ -810,16 +814,18 @@ export class Tectonics {
           Q = this.plates[to];
           const R = Q.R;
           for (const i of cells) for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e && guess < 0; t++) if (owner[nbr[t]] === to) guess = ref[nbr[t]];
+          const touched = this.gpu ? this.dirty.cells : null;
           for (const i of cells) {
             const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
             const jt = nearest(g, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z, guess);
             copyCell(P, ref[i], Q, jt);
             P.mask[ref[i]] = 0;
+            if (touched) { touched.add(k * n + ref[i]); touched.add(to * n + jt); }
             owner[i] = to; ref[i] = jt; guess = jt;
           }
           this.counters.joined = (this.counters.joined || 0) + 1;
         }
-        this.dirty.plates.add(k); this.dirty.plates.add(Q.index); this.dirty.owner = true;
+        this.dirty.owner = true;
       }
     }
   }

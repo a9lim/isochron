@@ -159,6 +159,7 @@ test('a plate in pieces on the GPU path: passed on by the CPU and carried back u
   await tec.stepAsync(0.5);
   assert.equal(mostPieces(tec), 1, 'every plate one piece');
   assert.ok((tec.counters.joined || 0) > j0, 'the piece passed on');
+  assert.ok(tec.dirty.cells.size > 0, 'its frame cells go up one by one');
   await tec.stepAsync(0.5);
   assert.equal(await mirrorErrors(tec), 0, 'the CPU\'s frames mirror the GPU\'s');
 });
