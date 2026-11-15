@@ -46,6 +46,7 @@ import { GpuMoisture } from '../gpu/moisture.js';
 import { GpuTides } from '../gpu/tides.js';
 import { GpuPlates } from '../gpu/plates.js';
 import { GpuSurface } from '../gpu/surface.js';
+import { GpuDiffusion } from '../gpu/landscape.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 
@@ -81,6 +82,7 @@ self.onmessage = e => {
       P.ground.gpu = new GpuSoil(device, P.grid.n, 0);
       // The plates' step and the drawn surface too (src/gpu/plates.js says what stays here).
       try { P.tec.gpu = new GpuPlates(device, P.tec); surfaceGpu = new GpuSurface(device, P.grid); } catch (err) { console.warn('[isochron] plates on the GPU:', err.message); }
+      P.land.gpu = new GpuDiffusion(device, P.grid);   // the landscape's diffusion (src/gpu/landscape.js)
       // The tide at level 6 at most (its cells nest first in a finer grid), so the Moon recedes alike at every level.
       const tg = P.grid.level > 6 ? buildGrid(6) : P.grid;
       tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };

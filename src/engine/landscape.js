@@ -89,6 +89,10 @@ class Heap {
  * (priority flood with a small rise ε so filled flats still drain) and gives
  * each cell its steepest-descent receiver on the filled surface.
  * Returns { zf, rcv (−1 at outlets), rlen (km to the receiver), order }.
+ *
+ * The outlets head the order (they have no receivers), and only those beside
+ * dry ground seed the flood: the open sea reaches nothing but more sea, and
+ * pushing it all through the heap was four fifths of the flood's cost.
  */
 export function route(grid, z, base, out) {
   const n = grid.n, nbrOff = grid.nbrOff, nbr = grid.nbr, dist = grid.dist;
@@ -101,11 +105,15 @@ export function route(grid, z, base, out) {
   const heap = out?.heap || new Heap(n + 8);
   seen.fill(0); heap.n = 0;
   const EPS = 1e-6;
-  for (let i = 0; i < n; i++) if (base[i]) { zf[i] = z[i]; seen[i] = 1; heap.push(z[i], i); }
   let no = 0;
+  for (let i = 0; i < n; i++) {
+    if (!base[i]) continue;
+    zf[i] = z[i]; seen[i] = 1; order[no++] = i;
+    for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (!base[nbr[t]]) { heap.push(z[i], i); break; }
+  }
   while (heap.n > 0) {
     const c = heap.pop();
-    order[no++] = c;
+    if (!base[c]) order[no++] = c;
     const zc = zf[c];
     for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) {
       const j = nbr[t];
@@ -118,8 +126,8 @@ export function route(grid, z, base, out) {
   // Steepest descent on the filled surface. Outlets drain nowhere. A cell
   // filled more than 10 cm is under a lake.
   for (let i = 0; i < n; i++) {
-    lake[i] = !base[i] && zf[i] > z[i] + 1e-4 ? 1 : 0;
-    if (base[i]) { rcv[i] = -1; rlen[i] = 0; continue; }
+    if (base[i]) { lake[i] = 0; rcv[i] = -1; rlen[i] = 0; continue; }
+    lake[i] = zf[i] > z[i] + 1e-4 ? 1 : 0;
     let best = 0, r = -1, len = 0;
     for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
       const j = nbr[t];
@@ -233,14 +241,24 @@ export class Landscape {
    * overflow).
    */
   monthly(runoffM, rt = null) {
-    const n = this.grid.n, out = new Float32Array(12 * n), w = new Float64Array(n), q = new Float64Array(n);
+    const n = this.grid.n, out = new Float32Array(12 * n);
     if (!this.r) return out;
     const toM3s = 1e6 * 12 / 3.156e7;     // km² · m a month → m³/s
-    for (let m = 0; m < 12; m++) {
-      for (let i = 0; i < n; i++) w[i] = this.base[i] ? 0 : this.areaKm[i] * runoffM[12 * i + m];
-      if (rt) accumulatePass(rt, w, q); else accumulate(this.r.order, this.r.count, this.r.rcv, w, q);
-      for (let i = 0; i < n; i++) out[12 * i + m] = this.base[i] ? 0 : q[i] * toM3s;
+    // The twelve months down the drainage together, in one pass over the order.
+    const q = this.q12 || (this.q12 = new Float64Array(12 * n)), base = this.base, A = this.areaKm;
+    const { order, count, rcv } = rt || this.r, pass = rt ? rt.pass : null;
+    for (let i = 0, o = 0; i < n; i++, o += 12) {
+      if (base[i]) { for (let m = 0; m < 12; m++) q[o + m] = 0; continue; }
+      const a = A[i];
+      for (let m = 0; m < 12; m++) q[o + m] = a * runoffM[o + m];
     }
+    for (let k = count - 1; k >= 0; k--) {
+      const i = order[k], r = rcv[i];
+      if (r < 0) continue;
+      const p = pass ? pass[i] : 1, oi = 12 * i, or = 12 * r;
+      for (let m = 0; m < 12; m++) q[or + m] += q[oi + m] * p;
+    }
+    for (let i = 0, o = 0; i < n; i++, o += 12) if (!base[i]) for (let m = 0; m < 12; m++) out[o + m] = q[o + m] * toM3s;
     return out;
   }
 
@@ -276,8 +294,35 @@ export class Landscape {
     }
   }
 
-  /** Erode, carry and deposit over dt years, then diffuse. Updates the crust in place. */
+  /**
+   * Erode, carry and deposit over dt years, and diffuse; updates the crust in place. The
+   * diffusion's change is taken from the step's starting crust, as the rivers' is, and the
+   * two are summed (additive splitting, first order as the sequential is: a step's erosion
+   * is diffused at the next), so on the GPU it runs while the rivers cut here.
+   */
   step(dt) {
+    const d = this.diffusion(dt);
+    this.erode(dt);
+    this.writeBack(d);
+    this.settle();
+  }
+
+  /** step, with the diffusion on the GPU where there is one (`gpu`, src/gpu/landscape.js). */
+  async stepAsync(dt) {
+    if (!this.gpu) return this.step(dt);
+    const d = this.diffusionGpu(dt);
+    this.erode(dt);
+    this.writeBack(await d);
+    this.settle();
+  }
+
+  settle() {
+    this.steps++;
+    this.tec.updateElevation();
+  }
+
+  /** The rivers' part of a step: cut, carry and deposit, written into the plates' crust. */
+  erode(dt) {
     const tec = this.tec, g = this.grid, n = g.n, s = tec.seaLevel;
     const plates = tec.plates, owner = tec.owner, ref = tec.ref;
     this.reroute();
@@ -355,56 +400,91 @@ export class Landscape {
       p.h[j] = Math.max(0.5, p.h[j] + d);
       tec.h[i] = p.h[j]; tec.phi[i] = p.phi[j];
     }
-    this.diffuse(dt);
     this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt; this.flux.outwash = outwash / dt;
-    this.steps++;
-    tec.updateElevation();
   }
 
-  /** Thickness spreads between continental cells, faster under thick crust. */
-  diffuse(dt) {
-    const tec = this.tec, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, ell = g.ell, dist = g.dist;
-    const plates = tec.plates, owner = tec.owner, ref = tec.ref, h = tec.h, phi = tec.phi, A = this.areaKm;
-    let kmax = 0;
-    for (let i = 0; i < n; i++) if (phi[i] >= CONTINENTAL) kmax = Math.max(kmax, LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30);
-    // Explicit and conservative; substep to stay stable.
+  /**
+   * Diffusion's plan for dt years: κ on continental cells (read at the step's start, −1
+   * elsewhere), the continental cells, and the substeps (explicit, so κ_max·ds stays
+   * under a fifth of the smallest cell's area over its ~3.5 neighbours' share).
+   */
+  plan(dt) {
+    const tec = this.tec, n = this.grid.n, h = tec.h, phi = tec.phi, A = this.areaKm;
+    if (!this.kap) { this.kap = new Float64Array(n); this.kap32 = new Float32Array(n); this.cont = new Int32Array(n); }
+    const kap = this.kap, C = this.cont;
+    let kmax = 0, nc = 0;
+    for (let i = 0; i < n; i++) {
+      if (phi[i] < CONTINENTAL) { kap[i] = -1; continue; }
+      const k = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
+      kap[i] = k; kmax = Math.max(kmax, k); C[nc++] = i;
+    }
     const lim = 0.2 * Math.min(A[0], A[12]) / 3.5;   // κ·dt (km²) per substep; cell 0 is a pentagon
     const sub = Math.max(1, Math.ceil(kmax * dt / lim));
-    const ds = dt / sub;
-    // The continental edges and their weights, once (κ read at the start of the step), then
-    // the substeps on a copy of the thickness, written back to the plates at the end.
-    const ei = [], ej = [], ew = [];
-    for (let i = 0; i < n; i++) {
-      if (phi[i] < CONTINENTAL) continue;
-      const ki = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
-      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-        const j = nbr[t];
-        if (j < i || phi[j] < CONTINENTAL) continue;
-        const kj = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[j] - 40) / 30;
-        ei.push(i); ej.push(j); ew.push(0.5 * (ki + kj) * ds * (ell[t] / dist[t]));
-      }
+    return { kap, C, nc, sub, ds: dt / sub };
+  }
+
+  /** Diffuse now (on the CPU or the GPU): the change applied at once. */
+  diffuse(dt) { this.writeBack(this.diffusion(dt)); }
+  async diffuseGpu(dt) { this.writeBack(await this.diffusionGpu(dt)); }
+
+  /**
+   * Thickness spreads between continental cells, faster under thick crust: the change over
+   * dt years (km, per cell, on the cells `C`), not yet written.
+   */
+  diffusion(dt) {
+    const tec = this.tec, g = this.grid, n = g.n, h = tec.h, A = this.areaKm;
+    // The grid's edges (i < j, in the order cells list their neighbours) with ell/dist, once.
+    if (!this.edges) {
+      const ei = [], ej = [], eg = [];
+      for (let i = 0; i < n; i++) for (let t = g.nbrOff[i], e = g.nbrOff[i + 1]; t < e; t++) if (g.nbr[t] > i) { ei.push(i); ej.push(g.nbr[t]); eg.push(g.ell[t] / g.dist[t]); }
+      const m = ei.length;
+      this.edges = { i: Int32Array.from(ei), j: Int32Array.from(ej), g: Float64Array.from(eg), m };
+      this.dI = new Int32Array(m); this.dJ = new Int32Array(m); this.dWi = new Float64Array(m); this.dWj = new Float64Array(m);
+      this.loc = new Int32Array(n); this.hc = new Float64Array(n); this.ddh = new Float64Array(n);
     }
-    const m = ei.length, I = Int32Array.from(ei), J = Int32Array.from(ej), Wt = Float64Array.from(ew);
-    const hc = this.hc || (this.hc = new Float64Array(n)), h0 = this.h0 || (this.h0 = new Float64Array(n));
-    for (let k = 0; k < m; k++) { hc[I[k]] = h[I[k]]; hc[J[k]] = h[J[k]]; h0[I[k]] = h[I[k]]; h0[J[k]] = h[J[k]]; }
+    // The substeps run on the continental cells packed together (local index c, cell C[c]),
+    // which keeps them in cache: scattered over the grid they cost twice as much.
+    const { kap, C, nc, sub, ds } = this.plan(dt), loc = this.loc, hc = this.hc, dh = this.ddh;
+    for (let c = 0; c < nc; c++) { loc[C[c]] = c; hc[c] = h[C[c]]; }
+    // Each continental edge's flow (km³ per km of difference) over each end's area.
+    const E = this.edges, EI = E.i, EJ = E.j, EG = E.g, I = this.dI, J = this.dJ, Wi = this.dWi, Wj = this.dWj;
+    let m = 0;
+    for (let e = 0; e < E.m; e++) {
+      const i = EI[e], j = EJ[e], ki = kap[i], kj = kap[j];
+      if (ki < 0 || kj < 0) continue;
+      const w = 0.5 * (ki + kj) * ds * EG[e];
+      I[m] = loc[i]; J[m] = loc[j]; Wi[m] = w / A[i]; Wj[m] = w / A[j]; m++;
+    }
     for (let s = 0; s < sub; s++) {
-      const dh = this.dh;
-      for (let k = 0; k < m; k++) { dh[I[k]] = 0; dh[J[k]] = 0; }
+      dh.fill(0, 0, nc);
       for (let k = 0; k < m; k++) {
-        const i = I[k], j = J[k], flow = Wt[k] * (hc[j] - hc[i]);   // km³
-        dh[i] += flow / A[i];
-        dh[j] -= flow / A[j];
+        const i = I[k], j = J[k], d = hc[j] - hc[i];
+        dh[i] += Wi[k] * d;
+        dh[j] -= Wj[k] * d;
       }
-      for (let k = 0; k < m; k++) { const i = I[k], j = J[k]; if (dh[i] !== 0) { hc[i] += dh[i]; dh[i] = 0; } if (dh[j] !== 0) { hc[j] += dh[j]; dh[j] = 0; } }
+      for (let c = 0; c < nc; c++) hc[c] += dh[c];
     }
-    for (let k = 0; k < m; k++) {
-      for (const i of [I[k], J[k]]) {
-        const d = hc[i] - h0[i];
-        if (d === 0) continue;
-        const p = plates[owner[i]], j = ref[i];
-        p.h[j] += d; h[i] = p.h[j]; h0[i] = hc[i];
-      }
-    }
+    // The change, per cell (dh is free for it: cell C[c] ≥ c).
+    for (let c = nc - 1; c >= 0; c--) { const i = C[c]; dh[i] = hc[c] - h[i]; }
+    return { C, nc, d: dh };
+  }
+
+  /**
+   * diffusion on the GPU: the same plan, the substeps there (f32). The thickness goes up
+   * before this returns, so the crust may change while the GPU works.
+   */
+  async diffusionGpu(dt) {
+    const { kap, C, nc, sub, ds } = this.plan(dt), k32 = this.kap32;
+    for (let i = 0; i < kap.length; i++) k32[i] = kap[i];
+    return { C, nc, d: await this.gpu.diffuse(this.tec.h, k32, sub, ds) };
+  }
+
+  /** A diffusion's change `d` (km) on the continental cells `C` into the plates' crust, then read back from the frames. */
+  writeBack({ C, nc, d }) {
+    const tec = this.tec, plates = tec.plates, owner = tec.owner, ref = tec.ref, h = tec.h;
+    for (let c = 0; c < nc; c++) { const i = C[c]; if (d[i] !== 0) plates[owner[i]].h[ref[i]] += d[i]; }
+    // World cells that share a frame cell (nearest-cell rounding) all see its sum.
+    for (let c = 0; c < nc; c++) { const i = C[c]; h[i] = plates[owner[i]].h[ref[i]]; }
   }
 
   /** Total continental volume (km³), for conservation checks. */

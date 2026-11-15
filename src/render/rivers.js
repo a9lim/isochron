@@ -81,8 +81,12 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
   const n = grid.n, pos = grid.pos, r = land.r;
   if (!r) return [];
   const rcv = rt ? rt.rcv : r.rcv, base = land.base;
-  let Q = land.discharge;
-  if (Q12) { Q = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = 0; k < 12; k++) s += Q12[12 * i + k]; Q[i] = s / 12; } }
+  // The year's mean, and the wettest month's discharge, where the months are known.
+  let Q = land.discharge, peak = null;
+  if (Q12) {
+    Q = new Float32Array(n); peak = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let s = 0, m = 0; for (let k = 0, o = 12 * i; k < 12; k++) { const v = Q12[o + k]; s += v; if (v > m) m = v; } Q[i] = s / 12; peak[i] = m; }
+  }
   // A lake of one cell isn't drawn (it would be a hexagon), so rivers run through it.
   const wet = rt ? i => rt.lake[i] === 1 : i => land.lake[i] > 0.03;
   const isLake = i => {
@@ -92,9 +96,7 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
   };
   const big = new Uint8Array(n);
   const onLand = i => !drawn || drawn[i] > 0;
-  // The wettest month's discharge, where the months are known.
-  const peak = i => { if (!Q12) return 0; let m = 0; for (let k = 0; k < 12; k++) m = Math.max(m, Q12[12 * i + k]); return m; };
-  for (let i = 0; i < n; i++) if ((Q[i] >= qmin || peak(i) >= 1.5 * qmin) && rcv[i] >= 0 && !isLake(i) && onLand(i)) big[i] = 1;
+  for (let i = 0; i < n; i++) if ((Q[i] >= qmin || (peak && peak[i] >= 1.5 * qmin)) && rcv[i] >= 0 && !isLake(i) && onLand(i)) big[i] = 1;
   // Each cell's main donor: its largest big donor.
   const main = new Int32Array(n).fill(-1);
   for (let i = 0; i < n; i++) {
@@ -116,7 +118,7 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
       if (j < 0) break;
       if (base[j] || !onLand(j)) {                 // the mouth: where the drawn coast crosses i → j
         const f = drawn ? Math.min(0.95, Math.max(0.05, drawn[i] / (drawn[i] - drawn[j]))) : 0.5;
-        const x = pos[3 * i] + f * (pos[3 * j] - pos[3 * i]), y = pos[3 * i + 1] + f * (pos[3 * j + 1] - pos[3 * i + 1]), z = pos[3 * i + 2] + f * (pos[3 * j + 2] - pos[3 * i + 2]), m = Math.hypot(x, y, z);
+        const x = pos[3 * i] + f * (pos[3 * j] - pos[3 * i]), y = pos[3 * i + 1] + f * (pos[3 * j + 1] - pos[3 * i + 1]), z = pos[3 * i + 2] + f * (pos[3 * j + 2] - pos[3 * i + 2]), m = Math.sqrt(x * x + y * y + z * z);
         mouth = [x / m, y / m, z / m];
         break;
       }
@@ -166,32 +168,35 @@ function relax(line, passes) {
   for (let pass = 0; pass < passes && m > 2; pass++) {
     Q.set(P);
     for (let k = 1; k < m - 1; k++) {
-      let x = 0.5 * Q[3 * k] + 0.25 * (Q[3 * k - 3] + Q[3 * k + 3]), y = 0.5 * Q[3 * k + 1] + 0.25 * (Q[3 * k - 2] + Q[3 * k + 4]), z = 0.5 * Q[3 * k + 2] + 0.25 * (Q[3 * k - 1] + Q[3 * k + 5]);
-      const r = Math.hypot(x, y, z);
+      const x = 0.5 * Q[3 * k] + 0.25 * (Q[3 * k - 3] + Q[3 * k + 3]), y = 0.5 * Q[3 * k + 1] + 0.25 * (Q[3 * k - 2] + Q[3 * k + 4]), z = 0.5 * Q[3 * k + 2] + 0.25 * (Q[3 * k - 1] + Q[3 * k + 5]);
+      const r = Math.sqrt(x * x + y * y + z * z);
       P[3 * k] = x / r; P[3 * k + 1] = y / r; P[3 * k + 2] = z / r;
     }
   }
-  return { P: Array.from(P), W: line.W, M: line.M };
+  return { P, W: line.W, M: line.M };
 }
 
+/** Corner-cutting `passes` times: each segment gives points at ¼ and ¾, the ends held (m points become 2m). */
 function smooth(line, passes) {
-  let { P, W, M } = line;
-  for (let pass = 0; pass < passes; pass++) {
-    const m = W.length;
-    if (m < 3) break;
-    const P2 = [P[0], P[1], P[2]], W2 = [W[0]], M2 = M.slice(0, 12);
+  let P = line.P, W = Float64Array.from(line.W), M = Float64Array.from(line.M), m = W.length;
+  for (let pass = 0; pass < passes && m >= 3; pass++) {
+    const m2 = 2 * m, P2 = new Float64Array(3 * m2), W2 = new Float64Array(m2), M2 = new Float64Array(12 * m2);
+    P2[0] = P[0]; P2[1] = P[1]; P2[2] = P[2]; W2[0] = W[0];
+    for (let q = 0; q < 12; q++) M2[q] = M[q];
+    let o = 1;
     for (let k = 0; k < m - 1; k++) {
-      for (const f of [0.25, 0.75]) {
-        let x = P[3 * k] * (1 - f) + P[3 * k + 3] * f, y = P[3 * k + 1] * (1 - f) + P[3 * k + 4] * f, z = P[3 * k + 2] * (1 - f) + P[3 * k + 5] * f;
-        const r = Math.hypot(x, y, z);
-        P2.push(x / r, y / r, z / r);
-        W2.push(W[k] * (1 - f) + W[k + 1] * f);
-        for (let q = 0; q < 12; q++) M2.push(M[12 * k + q] * (1 - f) + M[12 * k + 12 + q] * f);
+      for (let s = 0; s < 2; s++, o++) {
+        const f = s ? 0.75 : 0.25, g = 1 - f;
+        const x = P[3 * k] * g + P[3 * k + 3] * f, y = P[3 * k + 1] * g + P[3 * k + 4] * f, z = P[3 * k + 2] * g + P[3 * k + 5] * f;
+        const r = Math.sqrt(x * x + y * y + z * z);
+        P2[3 * o] = x / r; P2[3 * o + 1] = y / r; P2[3 * o + 2] = z / r;
+        W2[o] = W[k] * g + W[k + 1] * f;
+        for (let q = 0, a = 12 * k, b = 12 * o; q < 12; q++) M2[b + q] = M[a + q] * g + M[a + 12 + q] * f;
       }
     }
-    P2.push(P[3 * m - 3], P[3 * m - 2], P[3 * m - 1]); W2.push(W[m - 1]);
-    for (let q = 0; q < 12; q++) M2.push(M[12 * (m - 1) + q]);
-    P = P2; W = W2; M = M2;
+    P2[3 * o] = P[3 * m - 3]; P2[3 * o + 1] = P[3 * m - 2]; P2[3 * o + 2] = P[3 * m - 1]; W2[o] = W[m - 1];
+    for (let q = 0; q < 12; q++) M2[12 * o + q] = M[12 * (m - 1) + q];
+    P = P2; W = W2; M = M2; m = m2;
   }
   return { P: Float32Array.from(P), W: Float32Array.from(W), M: Float32Array.from(M) };
 }
