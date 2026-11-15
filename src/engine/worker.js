@@ -205,13 +205,15 @@ async function climateLoop() {
 // (its frequency 2(Ω − n) moves the basins' resonances); warm from the last.
 function solveTides() {
   if (!tides || tides.running) return;
-  const m = P.moon, drift = m.omegaSolved ? Math.abs(m.omega / m.omegaSolved - 1) : 1;
-  if (P.tec.t - tides.at < 2 && drift < 0.003) return;
+  const m = P.moon, drift = Math.abs(m.omega / m.omegaSolved - 1);
+  if ((P.tec.t - tides.at < 2 && drift < 0.003) || !(m.omega > 0)) return;
   tides.running = true; tides.at = P.tec.t;
-  const g = tides.gpu, omega = m.omega, t0 = performance.now();
+  const g = tides.gpu, omega = m.omega, Omega = m.Omega, t0 = performance.now();
   g.ocean(P.tideDepth(g.n));
-  g.solve(omega, m.Omega).then(r => {
-    m.Punit = r.P; m.omegaSolved = omega;
+  g.solve(omega, Omega).then(r => {
+    // A solve that failed would carry into every warm start after it: drop it, start the next cold.
+    if (!Number.isFinite(r.P)) { console.warn('[isochron] tides: a solve diverged; the next starts cold'); g.reset(); tides.at = -Infinity; return; }
+    m.solved(r.P, omega, Omega);
     const up = a => { if (!tides.T) return Float32Array.from(a); const f = new Float64Array(P.grid.n); prolong(tides.T, a, f); return Float32Array.from(f); };
     const msg = { type: 'tides', C: up(r.C), S: up(r.S), diss: up(r.diss), Punit: r.P, omega, ms: performance.now() - t0 };
     post(msg, [msg.C.buffer, msg.S.buffer, msg.diss.buffer]);

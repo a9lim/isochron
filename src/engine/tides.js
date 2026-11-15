@@ -4,10 +4,11 @@
 // equilibrium tide of the Moon (and, scaled, the Sun), on a C grid over the
 // Voronoi cells: the sea's height on cells, the velocity normal to each edge
 // between two sea cells (a coast's edges are closed). Coriolis acts on each
-// edge through the cells' velocity rebuilt from their edges' normals (Perot's
-// reconstruction, as models on hexagonal grids do), stepped forward–backward
-// with Heun's step for the rotation (pure rotation then neither grows nor
-// decays). It runs until periodic, then the semidiurnal harmonic is read off
+// edge through the other edges of its two cells, with weights from Perot's
+// reconstruction of the cells' velocities, made energy-neutral (below); stepped
+// forward–backward, with Heun's step for the rotation (pure rotation then grows
+// by (fΔt)⁴/8 a step, ~1e-8, far under any drag). It runs until periodic, then
+// the semidiurnal harmonic is read off
 // over a cycle: amplitude and phase on every sea cell, so co-tidal lines and
 // amphidromic points come out of the basins' shapes and the planet's spin.
 //   drag        bottom friction, linearized (C_D·U₀/H), strongest on shelves;
@@ -17,6 +18,17 @@
 //   self-attraction and loading: the sea's height scaled by β ≈ 0.9; the body
 //               tide by α = 1 + k₂ − h₂ ≈ 0.69 (standard values, from memory)
 // Dissipation is the drag's work, cycle-averaged: what slows the spin.
+//   Coriolis, energy-neutral: Perot's velocities averaged onto an edge give a
+//               rotation that is nearly antisymmetric when the depth is uniform,
+//               but the energy weighs each edge by its depth (Σ ρ H u² ℓ d), so
+//               where one cell's edges span a deep sea and a shelf (a cliff of a
+//               coast, a trench beside a margin) it made energy: ~f ΔH/H against
+//               a deep drag ~1e-5/s, and in 6–25 Myr of moving coasts one such
+//               cell grew without bound (606 m, 1,500 TW, the spin through zero).
+//               The weights are antisymmetrized in that norm, M' = ½(M − D⁻¹MᵀD),
+//               D = H ℓ d, so Coriolis does no work at all: TRiSK's linear form,
+//               ½(1 + H′/H) (Thuburn and others 2009; Ringler and others 2010;
+//               standard, from memory), on Perot's weights (synthesis).
 //
 // The Moon: each tide's torque is its dissipation over the rate it is dragged
 // past the planet (P = T(Ω − n)); the planet's spin slows by T/C and the Moon's
@@ -95,10 +107,30 @@ export function tideMesh(grid) {
     nrm[3 * e] = nx / nr; nrm[3 * e + 1] = ny / nr; nrm[3 * e + 2] = nz / nr;
     aE[e] = len[e] * d[e] / 2;   // the edge's diamond (steradians); they sum to 4π
   }
-  // Perot's weights: v_i = Σ_t (s u)_t w_t tan_t, w = ℓ (d/2) / A_i.
-  const pw = new Float64Array(m);
-  for (let i = 0; i < n; i++) for (let t = nbrOff[i]; t < nbrOff[i + 1]; t++) pw[t] = ell[t] * dist[t] / 2 / area[i];
-  return { grid, n, ne, A, B, len, d, nrm, mid, aE, cellEdge, cellSign, pw, tan };
+  // Coriolis per unit Ω: −f (r̂ × v̄)·n̂ on edge e, v̄ the mean of its two cells' velocities
+  // rebuilt by Perot (v_i = Σ_t (s u)_t w_t tan_t, w = ℓ (d/2) / A_i), is linear in the other
+  // edges of those cells (at most ten; e's own term, ~0, is dropped). `ct` is each entry's
+  // transpose: where e stands in the row of the edge it reads.
+  const cOff = new Int32Array(ne + 1), cIdx = [], cM = [];
+  for (let e = 0; e < ne; e++) {
+    const rx = mid[3 * e], ry = mid[3 * e + 1], rz = mid[3 * e + 2], f = 2 * rz;
+    for (const c of [A[e], B[e]]) for (let t = nbrOff[c]; t < nbrOff[c + 1]; t++) {
+      const e2 = cellEdge[t];
+      if (e2 === e) continue;
+      const w = cellSign[t] * ell[t] * dist[t] / 2 / area[c], tx = tan[3 * t], ty = tan[3 * t + 1], tz = tan[3 * t + 2];
+      const cx = ry * tz - rz * ty, cy = rz * tx - rx * tz, cz = rx * ty - ry * tx;
+      cIdx.push(e2); cM.push(-f * 0.5 * w * (cx * nrm[3 * e] + cy * nrm[3 * e + 1] + cz * nrm[3 * e + 2]));
+    }
+    cOff[e + 1] = cIdx.length;
+  }
+  const ct = new Int32Array(cIdx.length);
+  for (let e = 0; e < ne; e++) for (let k = cOff[e]; k < cOff[e + 1]; k++) {
+    const e2 = cIdx[k];
+    let q = cOff[e2];
+    while (cIdx[q] !== e) q++;
+    ct[k] = q;
+  }
+  return { grid, n, ne, A, B, len, d, nrm, mid, aE, cellEdge, cellSign, cOff, cIdx: Int32Array.from(cIdx), cM: Float64Array.from(cM), ct };
 }
 
 /**
@@ -114,7 +146,7 @@ export class Tides {
     this.n = n; this.ne = ne;
     this.H = new Float64Array(n); this.He = new Float64Array(ne); this.r = new Float64Array(ne);
     this.eta = new Float64Array(n); this.u = new Float64Array(ne); this.us = new Float64Array(ne);
-    this.v = new Float64Array(3 * n); this.vs = new Float64Array(3 * n);
+    this.corW = new Float64Array(mesh.cIdx.length);   // the Coriolis weights per unit Ω, energy-neutral for this sea
     this.cosEq = new Float64Array(n); this.sinEq = new Float64Array(n);
     const pos = grid.pos;
     // The semidiurnal equilibrium tide's shape: cos²φ e^{2iλ} (the Moon over the equator).
@@ -139,28 +171,24 @@ export class Tides {
       this.r[e] = T.CDU / h + T.K_IT * step * step / hm;
     }
     for (let i = 0; i < this.n; i++) if (!(H[i] > 0)) this.eta[i] = 0;
-  }
-
-  /** v on cells from u on edges (Perot). */
-  rebuild(u, v) {
-    const { grid, cellEdge, cellSign, pw, tan } = this.mesh, { nbrOff } = grid;
-    for (let i = 0; i < this.n; i++) {
-      let x = 0, y = 0, z = 0;
-      for (let t = nbrOff[i]; t < nbrOff[i + 1]; t++) {
-        const q = cellSign[t] * u[cellEdge[t]] * pw[t];
-        x += q * tan[3 * t]; y += q * tan[3 * t + 1]; z += q * tan[3 * t + 2];
+    // Coriolis antisymmetrized in the energy's norm, D = H ℓ d: M' = ½(M − D⁻¹MᵀD), so that
+    // Σ D u M'u = 0 for every u (see the head of the file). Closed edges read and get nothing.
+    const { cOff, cIdx, cM, ct, len, d } = this.mesh, W = this.corW;
+    for (let e = 0; e < ne; e++) {
+      const De = this.He[e] * len[e] * d[e];
+      for (let k = cOff[e]; k < cOff[e + 1]; k++) {
+        const e2 = cIdx[k];
+        W[k] = De > 0 && this.He[e2] > 0 ? 0.5 * (cM[k] - this.He[e2] * len[e2] * d[e2] / De * cM[ct[k]]) : 0;
       }
-      v[3 * i] = x; v[3 * i + 1] = y; v[3 * i + 2] = z;
     }
   }
 
-  /** −f (r̂ × v̄)·n̂ on edge e, v̄ the mean of its cells' rebuilt velocities. */
-  coriolis(e, v, Omega) {
-    const { A, B, nrm, mid } = this.mesh, i = A[e], j = B[e];
-    const vx = 0.5 * (v[3 * i] + v[3 * j]), vy = 0.5 * (v[3 * i + 1] + v[3 * j + 1]), vz = 0.5 * (v[3 * i + 2] + v[3 * j + 2]);
-    const rx = mid[3 * e], ry = mid[3 * e + 1], rz = mid[3 * e + 2], f = 2 * Omega * rz;
-    const cx = ry * vz - rz * vy, cy = rz * vx - rx * vz, cz = rx * vy - ry * vx;
-    return -f * (cx * nrm[3 * e] + cy * nrm[3 * e + 1] + cz * nrm[3 * e + 2]);
+  /** Coriolis on edge e from the edges' u, per unit Ω (multiply by Ω). */
+  coriolis(e, u) {
+    const { cOff, cIdx } = this.mesh, W = this.corW;
+    let c = 0;
+    for (let k = cOff[e]; k < cOff[e + 1]; k++) c += W[k] * u[cIdx[k]];
+    return c;
   }
 
   /** Run to periodic at frequency omega (rad/s) under spin Omega; `cycles` periods, the last read. */
@@ -171,27 +199,26 @@ export class Tides {
     let cmax = 0, dmin = Infinity;
     for (let e = 0; e < ne; e++) if (this.He[e] > 0) { cmax = Math.max(cmax, Math.sqrt(T.G * Math.max(H[A[e]], H[B[e]]))); dmin = Math.min(dmin, d[e] * R); }
     const period = 2 * Math.PI / omega, N = Math.ceil(period / (0.4 * dmin / Math.max(cmax, 1))), dt = period / N;
-    const u = this.u, us = this.us, v = this.v, vs = this.vs, eta = this.eta;
+    const u = this.u, us = this.us, eta = this.eta, c0 = new Float64Array(ne);
     const C = new Float64Array(n), S = new Float64Array(n), u2 = new Float64Array(ne);
     const ga = T.G * T.ALPHA, gb = T.G * T.BETA;
     for (let k = 0; k < cycles * N; k++) {
       const t = k * dt, cw = Math.cos(omega * t), sw = Math.sin(omega * t);
       // Momentum: gravity (with the equilibrium tide), Coriolis by Heun, drag implicit.
-      this.rebuild(u, v);
       for (let e = 0; e < ne; e++) {
         if (!(this.He[e] > 0)) { us[e] = 0; continue; }
         const i = A[e], j = B[e];
         const eqi = this.cosEq[i] * cw - this.sinEq[i] * sw, eqj = this.cosEq[j] * cw - this.sinEq[j] * sw;
         const grav = -(gb * (eta[j] - eta[i]) - ga * (eqj - eqi)) / (d[e] * R);
-        us[e] = (u[e] + dt * (grav + this.coriolis(e, v, Omega))) / (1 + dt * this.r[e]);
+        c0[e] = Omega * this.coriolis(e, u);
+        us[e] = (u[e] + dt * (grav + c0[e])) / (1 + dt * this.r[e]);
       }
-      this.rebuild(us, vs);
       for (let e = 0; e < ne; e++) {
         if (!(this.He[e] > 0)) continue;
         const i = A[e], j = B[e];
         const eqi = this.cosEq[i] * cw - this.sinEq[i] * sw, eqj = this.cosEq[j] * cw - this.sinEq[j] * sw;
         const grav = -(gb * (eta[j] - eta[i]) - ga * (eqj - eqi)) / (d[e] * R);
-        u[e] = (u[e] + dt * (grav + 0.5 * (this.coriolis(e, v, Omega) + this.coriolis(e, vs, Omega)))) / (1 + dt * this.r[e]);
+        u[e] = (u[e] + dt * (grav + 0.5 * (c0[e] + Omega * this.coriolis(e, us)))) / (1 + dt * this.r[e]);
       }
       // Continuity: the edges' transports.
       const read = k >= (cycles - 1) * N, t1 = t + dt, c1 = Math.cos(omega * t1), s1 = Math.sin(omega * t1);
@@ -223,36 +250,59 @@ export class Tides {
   }
 }
 
+const YEAR_S = 3.15576e7, N_YEAR = 2 * Math.PI / YEAR_S;   // s; the Sun's mean motion, rad/s
+
 /**
- * The planet's spin and its Moon. `P` is the lunar semidiurnal tide's dissipation
- * for a unit equilibrium tide (from a solve); the actual scales with the square
- * of the tide's amplitude at the Moon's distance.
+ * The planet's spin and its Moon. `Punit` is the lunar semidiurnal tide's dissipation
+ * for a unit equilibrium tide, from a solve at the frequency `omegaSolved`; the actual
+ * scales with the square of the tide's amplitude at the Moon's distance.
+ *
+ * Between solves the tide keeps a constant time lag (standard: Mignard's and Hut's
+ * weak-friction tide): its torque is k(Ω − n), so the dissipation T(Ω − n) goes as
+ * (Ω − n)², and k is set by the last solve, k = P/(Ω − n)² there. Holding the
+ * dissipation instead made the torque P/(Ω − n) grow without bound toward the
+ * synchronous spin, and an explicit step could carry the spin through it. Within a
+ * re-solve's 0.3% the two differ by 0.6%.
  */
 export class Moon {
   constructor() {
     this.a = EARTH.a0;
     this.Omega = EARTH.Omega0;
-    this.Punit = 0;          // W per m² of equilibrium amplitude, the last solve's
-    this.omegaSolved = 0;    // the frequency it was solved at
+    this.Punit = 0;                      // W per m² of equilibrium amplitude, the last solve's
+    this.omegaSolved = this.omega;       // the lunar semidiurnal frequency 2(Ω − n) it was solved at
+    this.spinSolved = this.Omega;        // and the spin then (the solar tide's frequency is 2(Ω − n☉))
   }
-  /** W: the lunar tides' dissipation and the solar's, now (the lunar scale with the Moon's distance). */
-  get PL() { const amp = lunarTide(this.a); return this.Punit * amp * amp * TIDES.DIURNAL; }
-  get PS() { return this.Punit * (TIDES.SOLAR * lunarTide(EARTH.a0)) ** 2; }
+  /** Take a solve: its dissipation per unit equilibrium tide, at the frequency and spin it ran with. */
+  solved(Punit, omega, Omega) { this.Punit = Punit; this.omegaSolved = omega; this.spinSolved = Omega; }
+  /** N m s: each tide's torque per unit (Ω − its body's mean motion), now. */
+  get kL() { const amp = lunarTide(this.a); return this.Punit * amp * amp * TIDES.DIURNAL / (0.5 * this.omegaSolved) ** 2; }
+  get kS() { return this.Punit * (TIDES.SOLAR * lunarTide(EARTH.a0)) ** 2 / (this.spinSolved - N_YEAR) ** 2; }
+  /** W: the lunar tides' dissipation and the solar's, now. */
+  get PL() { const x = this.Omega - meanMotion(this.a); return this.kL * x * x; }
+  get PS() { const x = this.Omega - N_YEAR; return this.kS * x * x; }
   get P() { return this.PL + this.PS; }
   /** The semidiurnal lunar tide's frequency (rad/s). */
   get omega() { return 2 * (this.Omega - meanMotion(this.a)); }
   /** The sidereal day (hours) and the solar day. */
   get day() { return 2 * Math.PI / this.Omega / 3600; }
-  get solarDay() { const nY = 2 * Math.PI / 3.15576e7; return 2 * Math.PI / (this.Omega - nY) / 3600; }
+  get solarDay() { return 2 * Math.PI / (this.Omega - N_YEAR) / 3600; }
 
-  /** Advance dt years: the lunar tides' torque recedes the Moon; both tides slow the spin. */
+  /**
+   * Advance dt years: the lunar tides' torque recedes the Moon; both tides slow the spin.
+   * The spin by backward Euler, C(Ω′ − Ω) = −dt [k_L(Ω′ − n) + k_S(Ω′ − n☉)]: Ω′ is a
+   * weighted mean of Ω, n and n☉, so no step carries it past the synchronous spins or
+   * below zero, whatever the dissipation. The orbit takes the lunar torque's impulse at Ω′
+   * whole (L = μ√(GMa) solved for a), so the step keeps the angular momentum exactly; n is
+   * held at its start (the Moon moves ~30 km a step).
+   */
   step(dtYears) {
     if (!(this.Punit > 0) || !(dtYears > 0)) return;
-    const E = EARTH, s = dtYears * 3.15576e7, PL = this.PL, PS = this.PS;
-    const n = meanMotion(this.a), TL = PL / Math.max(1e-9, this.Omega - n), TS = PS / this.Omega;
-    // Steps of at most ~1 kyr would be overkill: the rates change over Myr; one explicit step.
-    this.Omega -= (TL + TS) / E.C * s;
+    const E = EARTH, s = dtYears * YEAR_S, n = meanMotion(this.a), kL = this.kL, kS = this.kS;
+    const Om = (E.C * this.Omega + s * (kL * n + kS * N_YEAR)) / (E.C + s * (kL + kS));
+    const TL = kL * (Om - n);
+    this.Omega = Om;
     const mu = E.M * E.m / (E.M + E.m), GMt = E.GM * (E.M + E.m);
-    this.a += 2 * TL * Math.sqrt(this.a / GMt) / mu * s;
+    const L = mu * Math.sqrt(GMt * this.a) + TL * s;
+    this.a = (L / mu) ** 2 / GMt;
   }
 }
