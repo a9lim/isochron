@@ -97,6 +97,7 @@ export class Regolith {
     this.minGap = 0;                       // ms of the wall clock between updates (the page sets it)
     this.lastAt = -Infinity;
     this.settled = false;
+    this.aeolian = null;                   // src/engine/aeolian.js, when there is one
     // The budget since the opening (m³ of rock): taken by the ice, melted out as till, carried off as outwash.
     this.budget = { eroded: 0, till: 0, outwash: 0 };
     this.stats = { mean: 0, bare: 0, soft: 0, iceBed: 0, glacial: 0 };   // land's mean (m), bare share, the ice's bed softness, its erosion (mm/yr)
@@ -128,7 +129,9 @@ export class Regolith {
     for (let i = 0; i < n; i++) {
       const p = t.plates[t.owner[i]], j = t.ref[i];
       let h = 0;
-      if (t.elev[i] > t.seaLevel) h = R.START >= 0 ? R.START : regolithStep(0, this.p0(i), (E[i] || 0) * 1e-3, yrs);
+      // The rivers' erosion, and the wind's where dust has been lifted (src/engine/aeolian.js).
+      const D = this.aeolian ? this.aeolian.deflation(i) : 0;
+      if (t.elev[i] > t.seaLevel) h = R.START >= 0 ? R.START : regolithStep(0, this.p0(i), (E[i] || 0) * 1e-3 + D, yrs);
       p.reg[j] = h;
     }
     this.sample();
@@ -186,9 +189,12 @@ export class Regolith {
     }
     if (this.ice) {
       const G = this.ice.takeGlacial(this.glac), A = this.ice.areaM, keep = 1 - R.OUTWASH, sed = land.sedIn, resid = this.resid;
+      // Dust (src/engine/aeolian.js): the outwash plains its source; its budget over these years, m of
+      // rock per cell (the sources deflated from their layer, loess and the sea's dust laid down).
+      const dust = this.aeolian ? (this.aeolian.glacial(G, years), this.aeolian.budget(years, this.h)) : null;
       for (let i = 0; i < n; i++) {
-        const ero = G.eroded[i], till = G.till[i];
-        if (!(ero > 0) && !(till > 0) && resid[i] === 0) continue;
+        const dz = dust ? dust[i] : 0, ero = G.eroded[i] + (dz < 0 ? -dz : 0), till = G.till[i];
+        if (!(ero > 0) && !(till > 0) && !(dz > 0) && resid[i] === 0) continue;
         const p = plates[owner[i]], j = ref[i];
         // Erosion: the layer first, then rock; the crust loses both.
         const r = p.reg[j] - ero;
@@ -200,6 +206,7 @@ export class Regolith {
           sed[i] += (till - lay) * A[i] / 1e9;          // km³ for the landscape's next step
           this.budget.outwash += (till - lay) * A[i];
         }
+        if (dz > 0) lay += dz;                            // loess on land, the sea's dust on its floor
         if (lay > 0) {
           const d = lay / 1000;
           p.phi[j] = (p.phi[j] * p.h[j] + R.SED_FELSIC * d) / (p.h[j] + d);
@@ -215,7 +222,7 @@ export class Regolith {
         resid[i] = want - done;
         t.h[i] = t.h[i] === h0 ? p.h[j] : t.h[i] + done;
         t.phi[i] = p.phi[j];
-        this.budget.eroded += ero * A[i]; this.budget.till += till * A[i];
+        this.budget.eroded += G.eroded[i] * A[i]; this.budget.till += till * A[i];
       }
     }
     const is = this.ice ? this.ice.stats : null;

@@ -29,7 +29,9 @@
 // In the Climate view the sea carries isotherms of its surface temperature
 // every 5 °C, the gyres' streamlines every 3 Sv and short viridian strokes
 // whose density is the export production (the sea carbon's boxes spread by
-// what feeds them: upwelling, rivers, the cold sea). The Weather view is a
+// what feeds them: upwelling, rivers, the cold sea), under an ochre stipple
+// whose density is the dust carried over it (src/engine/aeolian.js), which
+// settles on the ice sheets and the sea ice too. The Weather view is a
 // synoptic chart's base: pale land, the paper for sea, isobars every 4 hPa
 // (heavier every 20) and rain as a stipple whose density is the rate.
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
@@ -403,6 +405,13 @@ fn hair(d: f32, w: f32) -> f32 {
   wash = mix(wash, u.text.rgb, 0.22 * hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4)));
   let st = psi / 3.0;
   wash = mix(wash, u.ocean.rgb, 0.75 * hair(abs(st - round(st)), max(fpsi / 3.0, 1e-4)) * step(0.5, abs(psi)));
+  // Dust (kg/m², the year's mean load, in the zones' last slot): ochre stipple, denser where more is
+  // carried, from ~0.01 g/m² to ~1; on the open sea under the export's strokes, and on ice over its fill
+  // (below). Over land the arid zones' own ochre stipple is where it rises.
+  let dl = smoothstep(-2.0, 0.3, log(max(i.z3.w * 1000.0, 1e-6)) / 2.302585);
+  let dustDots = stipple(T, mix(16.0, 4.2, dl) * u.mode.z, 0.75 * u.mode.z) * smoothstep(0.0, 0.1, dl) * select(0.0, 1.0, climate);
+  let dustInk = u.inkB.rgb;
+  wash = mix(wash, dustInk, 0.75 * dustDots);
   // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian strokes, denser where more sinks.
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
   let exMarks = strokes(T, mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
@@ -466,6 +475,9 @@ fn hair(d: f32, w: f32) -> f32 {
   let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, e + iceH / 1000.0);
   land = mix(land, u.text.rgb, 0.55 * sheetEdge);
   sea = mix(sea, u.text.rgb, 0.55 * sheetEdge);
+  // Dust settling on the ice sheets and the sea ice (Climate view).
+  land = mix(land, dustInk, 0.75 * dustDots * sheet);
+  sea = mix(sea, dustInk, 0.75 * dustDots * max(sheet, ice));
   // Ice streams: where sliding carries more than half the flow and the ice moves at tens of m/yr.
   let slide = length(i.iv.xyz);
   let streamW = smoothstep(0.5, 0.7, slide) * smoothstep(15.0, 40.0, i.iv.w) * sheet * select(1.0, 0.0, climate);
