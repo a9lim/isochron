@@ -36,6 +36,15 @@ From a9, 2026-11-14, choosing the roadmap from a brainstorm by Claude and Codex:
 - Life stays minimal: enough to make the environment robust, no more.
 - The rest of the engine on the GPU is a goal, as a session of its own.
 
+From a9, 2026-11-15, taking up Claude's proposal for people (Roadmap 2.0):
+
+- People (J2 in the ideas list, parked on 2026-11-14) are unparked and carried through to artificial superintelligence. This is the one exception to "life stays minimal".
+- It is version 2.0, given its size.
+- It lives as an experiment, started from the planet's opening, not as a hazard in every run.
+- Fossil fuels are seeded at genesis from the opening's sedimentary settings.
+- The ice fix (sheets that swing with the orbit, and sea level with them) would help but isn't a prerequisite, if the experiment's world can be set up to do without it.
+- A headless prototype comes first, in `tools/`, iterated on and tested before anything goes into the sim.
+
 
 ## Thesis: one planet, one state, one dial
 
@@ -455,6 +464,110 @@ At level 7 the monthly per-cell state is 164k cells × 1,200 months a second at 
 ### Considered, not taken
 
 The 2026-11-14 brainstorm also covered the geology readouts (isotope proxies, a Geology view, following a rock, polar wander paths, seafloor fabric, rock types), the hand (a probe, sculpting, impacts, rain tracing), the rest of the year and the sea (ENSO, tropical cyclones, the weather's feedback to the climate, clouds, deep-water formation, tidal fronts, marine ice sheets, primitive equations), biodiversity, deep time (the long arc, true polar wander, an interior cutaway, water through the mantle), the sky (the Moon's rhythm, other planets, day and night), names and events, determinism and branching, and wild cards. The full list, with marks and costs, is `docs/IDEAS.md` at commit 8a7782d.
+
+## Roadmap 2.0: people
+
+Proposed by Claude and taken up by a9 on 2026-11-15 (Decisions). Hominins appear, spread and branch; one branch tips; farming, industry and compute follow, each writing into the layers 1.0 built. The planet needs few new sinks: NPP and the cover set what people eat, land use writes the cover, the land's carbon, the regolith, erosion, dust and the lakes, fossil carbon is the Pulse spread over centuries, industrial sulfate is the volcanoes' veil held up, acidification is the sea's Ω, and waste heat is one more forcing beside `F_VOLC`.
+
+### One loop, run four times
+
+The spine is Kremer's loop (standard, Kremer 1993, from memory): minds make ideas, ideas raise what the land carries, and what it carries makes minds. Each era changes what the minds are and what they draw on, and each transition should be a bifurcation of that loop rather than a scripted age. That is the difference from SimEarth (Maxis 1990, from memory), whose ages were stages ending in an Exodus.
+
+| Era | Minds | Capacity from | The loop |
+|---|---|---|---|
+| Foragers | people | foraged NPP | closes only past a threshold in the connected population (the collective brain: Henrich 2004, from memory) |
+| Farmers | people | cropland, 10–100× the people per km² | closed: Malthusian and hyperbolic |
+| Industry | people | fossil energy | broken by the demographic transition (Galor and Weil, from memory): income stops becoming people, and growth turns exponential |
+| Compute | compute | electricity | closed again with no demographic brake (Aghion, Jones and Jones; Davidson's compute-centric takeoff; from memory): hyperbolic, capped by the planet's energy and heat |
+
+### The dial follows the doubling time
+
+Under hyperbolic growth the doubling time is proportional to the time left, t* − t (standard). A dial that sets its rate so each doubling takes a few seconds falls log-linearly by itself. From the first hominins (~3 Myr before t*) to doubling times of hours is ~9.5 decades; the dial spans 10.5. At ~5 s a decade the arc plays in under a minute, from plate speed down to live weather, and the takeoff lands where the dial runs out (synthesis). The person can take the dial at any time; every layer's closure already handles every rate.
+
+### Stages
+
+**11. Foragers and the tree** (L; the riskiest).
+- Density per lineage on the engine's grid; each lineage carries ancestry as fractions, so species are clusters, admixture is soft, and introgression can emerge (synthesis).
+- Fisher–KPP spread (standard: a front at 2√(rD)) over a capacity from NPP, the cover's edible share, water and a cold limit that culture lowers; slope costs; sea crossings open with culture.
+- A lineage splits when its range stays broken into isolated pieces (as `resolveFragments` does for plates); contact brings gene flow and competition.
+- The first hominin is the one step with no mechanism: the experiment places it where tree–grass mosaics are (after Potts' variability selection, speculation).
+- A branch tips when its connected population and learning capacity pass a threshold: culture ratchets up, capacity rises, the branch spreads.
+- Without ice that swings, there are no glacial land bridges and no glacial pacing; the experiment's world may be chosen or set so that it doesn't need them (Decisions).
+
+**12. Farming** (L).
+- An origin hazard: settled density × domesticates (the zones' seasonally dry climates and grass cover, after Blumler via Diamond, from memory) × the climate's stability (the year's spread) × CO₂ (Sage 1995, from memory): Richerson, Boyd and Bettinger's "impossible in the Pleistocene, mandatory in the Holocene" as a model (standard hypothesis).
+- Spread as a wave of advance (Ammerman and Cavalli-Sforza, ~1 km/yr, from memory), slowed by the climate's distance from a package's origin, so Diamond's axes either emerge or don't.
+- The footprint: crops and pasture in the cover (albedo, evaporation, land carbon), erosion under fields 10–100× the geological rate (Montgomery 2007, from memory) into the regolith and the rivers, dust from bare fields, irrigation from lakes; the year's droughts become famines.
+
+**13. Industry** (M–L).
+- Fossil carbon in the plates' frames, as the regolith is: seeded at genesis from the opening's sedimentary settings (coal in wet, forested lowland basins, oil on shelves), topped up by the run's own organic burial (`CARBON.ORG`), reached where erosion exhumes it. Hubbert's curves come from mining a finite map.
+- An organic economy's ceiling on income until fossil energy is tapped (Wrigley, from memory), so the revolution starts where the coal is.
+- Downstream exists: CO₂ through the sea's carbon (the Pulse's theory as the oracle), sulfate as a standing veil, Ω on the shelves, the ice and the sea, dams as lakes.
+
+**14. Compute and the takeoff** (M).
+- A compute stock built by investment; AI labour is compute × algorithmic efficiency; ideas come from people and AI (semi-endogenous growth, Jones 1995, from memory).
+- Energy from each cell's absorbed sunlight, the template's wind, discharge × relief, and fossil carbon.
+- Waste heat as forcing: ~1% of absorbed sunlight is ~2.4 W/m², ~1.2 K on this energy balance before feedbacks (B = 2.09). The planet becomes a radiator, and the climate is where the takeoff shows (speculation as a scenario; the energy balance is standard).
+
+**Across the stages:** the follow dial; a People view (dot density, a dot per N people, standard thematic cartography; fields as hatching; in the dark theme, dots lit by energy per person); a spindle diagram of the tree on log time (palaeontology's convention); People, Farms, Industry and Compute in Fig. 7. The red stays the mantle's.
+
+### Experiments
+
+Each a number against a theory, as in 1.0:
+- **Dispersal**: the front's speed against 2√(rD).
+- **Kremer's continents**: culture at a date against the landmass's connected population (his natural experiment, from memory: Old World, Americas, Australia, Tasmania, Flores).
+- **Axes**: farming's spread east–west against north–south.
+- **Long Anthropocene**: Ruddiman's hypothesis, farming on and off: the CO₂ it adds and whether the next glacial starts (wants the ice fix, and CH₄ for the other half).
+- **Carbon budget**: cumulative emissions against peak CO₂, and the shares left in the air after 1, 10 and 100 kyr.
+- **Takeoff**: knob, how far AI substitutes for people in research; number, the singularity date's interval, fitted as `tools/horizon-fit.mjs` fits the home page's.
+- **Radiator**: warming per PW of use against 1/B with the feedbacks.
+
+### Out
+
+Agents, polities, war, named cultures, tech trees and ages (they turn fields into a game, and names and events were already considered and not taken). What a superintelligence wants: alignment has no quantity in this model, so it says what the takeoff costs the planet, not what it is for.
+
+### Open for a9
+
+- The endpoint: the radiator (Claude's proposal: every mark is a flux), leaving (a swarm that dims the Sun in `sky.js`), or stopping at t*.
+
+### The prototype
+
+`tools/people/` and `tools/people-run.mjs`, headless, on a settled planet's fields read once and held fixed (the climate, the cover, the relief; nothing writes back yet). It answers one question first: on this planet's geography, does a tipping point and a hyperbola come out of the loop without being put in? The model is described in `tools/people/model.mjs`'s header and its constants in `PEOPLE`; the record of the first iterations follows.
+
+### Prototype log
+
+**v0 (2026-11-15).** Level 6, the opening's fields cached per seed (`tools/people/planet.mjs`, ~11 s a planet once). The loop in one equation: culture z (e-folds of productivity) per lineage and cell, dz/dt = A M − λ z, capacity ∝ e^{θz}; A is Kremer's constant (von Foerster's C = 1/(θA) ≈ 1.7×10¹¹ person-years: A = 6×10⁻¹²), λ Tasmania's loss (10⁻⁵/yr, ~10% in 10 kyr), M the minds within a contact length ℓ inside the connected body a cell's people live in. Foraging's productivity saturates at ×8 (the wild food), farming's at ×40 (the organic economy) until coal lifts it; the demographic transition fades growth with the income industry brings; compute buys minds per unit of output, rising e-fold per unit of z to a ceiling; energy is capped at 5% of absorbed sunlight.
+
+Oracles (`tests/people.test.mjs`, 6 tests, ~2.5 s): a Fisher front within 7% of 2√(rD) less Bramson's delay and the sphere's curvature (from a settled disc: from one seeded cell the K/2 contour runs ahead of 2√(rD) for centuries); people kept by the spread to the leading edge's floor; competitive exclusion; culture at A M/λ; the saddle-node, holding at 0.9 of A θ e M₀ = λ at its lower root and running away at 1.1; with no loss, N = 100 N₀ at t*(1 − 1/100) within 2%.
+
+Runs (`node tools/people-run.mjs {seed} 5e6`, 34–65 s each). Every seed runs the whole arc. Times before the fitted t* (people):
+
+| | earthlike | b | c |
+|---|---|---|---|
+| tip | 62 kyr | 216 kyr | 151 kyr |
+| farming origins | 2 (BS 14°, Cs 29°), 14–8 kyr | 3 (Cw, BS, Cw), 39–16 kyr | 3 (Cf, Cw, Cw), 24–10 kyr |
+| industry, compute, ceiling | 831, 437, 309 yr | 588, 268, 125 yr | 743, 332, 173 yr |
+| hyperbola's exponent, people / minds (R²; an exponential's) | 0.93 / 1.00 (0.97–0.98; 0.52–0.62) | 0.95 / 0.98 (0.94–0.97; 0.35–0.43) | 0.96 / 1.04 (0.96–0.97; 0.43–0.50) |
+| lineages (splits, merges) | 10 (9, 3) | 3 (2, 2) | 3 (2, 1) |
+| peak people; emitted; peak CO₂ | 0.53 B; 535 Pg C; 437 ppm | 0.70 B; 1,056; 572 | 0.54 B; 768; 479 |
+| the follow dial (3 s a doubling) | 100 s | 105 s | 93 s |
+
+What the runs say:
+- **A tip and a hyperbola come out.** No date or curve is put in. The exponent near 1 is structural (ψ = 1 with a capacity ∝ e^{θz} gives exactly 1/(t* − t), the test's algebra), but the spatial loop keeps it through foraging, farming and contact growing, with R² well above an exponential's on every seed.
+- **The threshold sits at a hominin world's size** (synthesis, the most interesting result and the most fragile). Kremer's constant and Tasmania's loss put the collective brain's threshold λ/(Aθe) at ~6×10⁵ minds within reach, which is the scale of a Pleistocene hominin population. Whether a world tips depends on its largest warm continent: with contact alone growing, seeds `b` and `c` (0.6–1.7 M hominins) sat at the threshold for 5 Myr and never tipped; with the trait also raising foraging's yield (e^{0.1 g}, speculation) all three tip.
+- **The hominin era's length is a clock**, the trait's rate (S_BG): ~1.7–1.9 Myr here, tuned, not emergent. Which lineage tips, where, and when relative to the geography is the emergent part.
+- **The arc compresses after the tip.** Industry to compute to the ceiling takes 300–800 years, and the demographic transition arrives at ~0.5 B people (Earth's ~1 B at industry, ~8 B now): population can't outgrow r = 2%/yr once productivity runs, so the transition comes as soon as industry lifts the organic ceiling.
+- **The ending is an input.** The minds level off at X_MAX × the energy cap (3×10¹⁶), and the radiator's 5.6 K is F_SUN read back through B; "the dial runs out" lands at the same moment as the cap.
+- **The follow dial plays an arc in ~100 s**, about 40 of them hominins, 15 farmers and 35 compute: twice the minute the plan guessed.
+
+Fixed on the way (each found by a run, not by reading): the trait first multiplied the innovation rate, so after the tip culture exploded (minds doubling in a day within 1 kyr); a resolvent of contact per edge kept the minds within reach at band scale (~10³), so nothing tipped; Gompertz growth's per-capita rate is unbounded at low density (fronts set by the population's floor), so growth is logistic; the transition keyed on income y = K/N stopped growth on every empty frontier (land is income too), so it keys on industry's share; the first seed sat on an islet for 5 Myr (the mosaic score's coastal bonus); each lineage growing into the room the others left at the step's start overshot together (population swinging ×4), so competition is solved exactly; lineages that met stayed separate labels, so they merge; the energy cap's multiplicative feedback oscillated and hung the radiator's stop.
+
+Next, in order:
+1. **Write back.** Run on the `Planet` itself rather than its cached fields: land use into the cover and its carbon, emissions into `OceanCarbon` (the Pulse's chemistry, not v0's three-exponential fit), sulfate as a standing veil, waste heat as a forcing in the energy balance. This is the coupling the thesis is about, and the radiator stops being an input.
+2. **The world set up** (Decisions): the orbit's swings in the habitat (rain and cold) as the pacing of hominin ranges, refugia and splits; with a static climate the tree only branches where deserts already cut the range.
+3. **The compressed late arc:** population through the transition (mortality falling before fertility), industry's spread time, renewables and compute's spacing in z.
+4. **The experiments' numbers from runs:** Kremer's continents (culture at a date against each landmass's connected population), Axes (farming's spread east–west against north–south), Dispersal (the front against 2√(rD) on the planet's lattice: forager fronts are 14 km wide against 120 km cells, and a 1D lattice's linear speed there is ~1.0 km/yr against the continuum's 0.57, so the oracle is the lattice's).
+5. **Surveys across seeds** (`tools/people-survey.mjs`): how often a world tips, how many farming origins, the spread of t*, the follow dial's length.
 
 ## Open decisions
 
