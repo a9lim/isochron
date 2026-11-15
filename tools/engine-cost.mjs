@@ -4,7 +4,7 @@
 // as the engine's worker runs them (src/engine/worker.js); then the landscape's
 // step by part, the lakes' rebuild, and the rivers' retrace.
 // usage: node tools/engine-cost.mjs [level] [steps] [dt Myr] [seed] [gpu]
-//   gpu: the plates, the surface and the landscape's diffusion on the GPU (src/gpu/;
+//   gpu: the plates, the surface and the crust's flexure on the GPU (src/gpu/;
 //   needs tests/node_modules)
 import { Planet } from '../src/engine/planet.js';
 import { surfaceFields } from '../src/render/surface.js';
@@ -27,8 +27,6 @@ if (useGpu) {
   const device = await gpuDevice();
   tec.gpu = new GpuPlates(device, tec);
   surfaceGpu = new GpuSurface(device, P.grid);
-  const { GpuDiffusion } = await import('../src/gpu/landscape.js');
-  P.land.gpu = new GpuDiffusion(device, P.grid);
   const { GpuFlexure } = await import('../src/gpu/flexure.js');
   if (P.crustFlex) P.crustFlex.useSolver(new GpuFlexure(device, P.grid, { have: P.ice.flex.levels.map(l => l.g) }));
 }
@@ -44,7 +42,7 @@ for (const k in T) delete T[k];
 if (tec.gpu) tec.gpu.prof = null;
 async function stepOnce() {
   await lap('plateStep', () => P.plateStepAsync(dt * 1e6));
-  await lap('landscape', async () => { if (P.landBank >= 2.5e5) { await P.land.stepAsync(P.landBank); P.landBank = 0; } });
+  await lap('landscape', () => { if (P.landBank >= 2.5e5) { P.land.step(P.landBank); P.landBank = 0; } });
   const f = await lap('surface', () => surfaceGpu ? surfaceGpu.fields(tec, P.land, P.ice) : surfaceFields(P.grid, tec, P.land, P.ice));
   await lap('lines', () => traceBoundaries(tec));
   return f;
@@ -71,12 +69,12 @@ for (const ldt of [2.5e5, 5e5]) {
     if (s <= 1) for (const k in L) delete L[k];
     await time('step', async () => {
       await time('erode', () => land.erode(ldt));
-      await time('diffuse', () => land.gpu ? land.diffuseGpu(ldt) : land.diffuse(ldt));
+      await time('diffuse', () => land.diffuse(ldt));
       await time('settle', () => land.settle());
     });
   }
   const per = k => (L[k] || 0) / reps;
-  console.log(`  landscape   ${per('step').toFixed(1)} per ${ldt / 1e6} Myr step: routing ${per('reroute').toFixed(1)}, stream power ${per('cut').toFixed(1)}, sediment and the coast ${(per('erode') - per('reroute') - per('cut')).toFixed(1)}, diffusion${land.gpu ? ' (GPU)' : ''} ${per('diffuse').toFixed(1)} (${land.plan(ldt).sub} substeps), elevation and the sea ${per('settle').toFixed(1)}`);
+  console.log(`  landscape   ${per('step').toFixed(1)} per ${ldt / 1e6} Myr step: routing ${per('reroute').toFixed(1)}, stream power ${per('cut').toFixed(1)}, sediment and the coast ${(per('erode') - per('reroute') - per('cut')).toFixed(1)}, diffusion ${per('diffuse').toFixed(1)} (${land.plan(ldt).sub} substeps), elevation and the sea ${per('settle').toFixed(1)}`);
 }
 for (const k in L) delete L[k];
 for (let s = 0; s < reps; s++) {

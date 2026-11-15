@@ -148,7 +148,7 @@ export class Planet {
     this.moon.step(dt);
     CLIMATE.OMEGA = this.moon.Omega;
     this.landBank = (this.landBank || 0) + dt;
-    if (this.landBank >= 2.5e5) { await this.land.stepAsync(this.landBank); this.landBank = 0; }
+    if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
     if (this.crustFlex?.gpu) await this.crustFlex.stepAsync(dt / 1e6);
     else if (this.crustFlex) { this.crustFlex.step(dt / 1e6); tec.updateElevation(); }
   }
