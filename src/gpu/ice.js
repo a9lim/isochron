@@ -2,7 +2,8 @@
 // The physics is src/engine/ice.js's, which stays the headless reference
 // (tests/gpu-node.test.mjs and tests/gpu-ice-sliding.test.mjs check the two
 // agree): shallow ice with Glen's law plus Weertman sliding where the bed is
-// thawed (the bed's temperature by conduction), explicit, the step set by the
+// thawed (the bed's temperature by Robin's column with the deformation's
+// heat), explicit, the step set by the
 // stability limit in the worst cell on the two diffusivities' sum; the
 // degree-day mass balance from the climate's harmonics; basal melt; calving
 // afloat; erosion under sliding ice, its debris carried with the ice and
@@ -26,23 +27,36 @@ struct Iu { n: u32, gamma: f32, amin: f32, maxStep: f32,
             rhoI: f32, rhoW: f32, rhoM: f32, tauBed: f32,
             k: f32, beta: f32, thawW: f32, latent: f32,
             lapse: f32, kg: f32, el: f32, stepC: f32,
-            g: f32, useFlex: u32, flexOff: u32, pad: f32 };
+            g: f32, useFlex: u32, flexOff: u32, kappa: f32,
+            uMax: f32, pad0: f32, pad1: f32, pad2: f32 };
 struct Ctl { dmax: atomic<u32>, remaining: f32, done: f32, dt: f32, lim: f32, p0: f32, p1: f32, p2: f32 };
 struct CtlR { dmax: u32, remaining: f32, done: f32, dt: f32, lim: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(0) var<uniform> U: Iu;
 `;
 // Per cell: six neighbours (a pentagon's sixth is itself), and per slot (ℓ/d, ∇ weights).
 // ba = (the bed above sea level (m), the cell's area (m²), the sliding coefficient, the geothermal flux (W/m²));
-// M = the net balance; Mx = (melt, the annual mean at sea level (°C)); D = (diffusivity, sliding speed, thawed share, basal melt).
+// M = the net balance; Mx = (melt, the annual mean at sea level (°C), the net balance again for the bed's
+// column (the diffusivity's kernel has no binding to spare), 0); D = (diffusivity, sliding speed, thawed share, basal melt).
 const DIFF = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> nb: array<u32>;
 @group(0) @binding(2) var<storage, read> ew: array<vec4f>;
 @group(0) @binding(3) var<storage, read> ba: array<vec4f>;
 @group(0) @binding(4) var<storage, read> H: array<f32>;
-@group(0) @binding(5) var<storage, read> Mx: array<vec2f>;
+@group(0) @binding(5) var<storage, read> Mx: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> D: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> vel: array<vec4f>;
 @group(0) @binding(8) var<storage, read_write> ctl: Ctl;
+fn erf(x: f32) -> f32 {
+  let a = abs(x);
+  let t = 1.0 / (1.0 + 0.3275911 * a);
+  return sign(x) * (1.0 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * exp(-a * a));
+}
+// Robin's effective depth (src/engine/ice.js, robinDepth).
+fn robin(h: f32, a: f32) -> f32 {
+  if (!(a > 1e-6)) { return h; }
+  let l = sqrt(U.kappa * h / a);
+  return l * 1.2533141 * erf(h / (1.4142136 * l));
+}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -60,20 +74,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   g = g / ${R_M.toExponential(6)};
   let g2 = dot(g, g);
   let gm = sqrt(g2);
-  // The bed: its temperature by conduction, the thawed share, sliding, basal melt.
+  // The bed: its temperature (Robin's column, with the deformation's heat), the thawed share, sliding, basal melt.
   let rg = U.rhoI * U.g;
-  let Ts = min(0.0, Mx[i].y - U.lapse * max(0.0, si) / 1000.0);
-  let Tb = Ts + bi.w * h / U.k;
+  let mx = Mx[i];
+  let Ts = min(0.0, mx.y - U.lapse * max(0.0, si) / 1000.0);
+  let R = robin(h, mx.z);
+  let tau = rg * h * gm;
+  let strain = tau * U.gamma * h * h * h * h * g2 * gm / ${SEC.toExponential(6)};
+  let Tb = Ts + (bi.w + strain) * R / U.k;
   let Tpm = -U.beta * h;
   let thaw = 1.0 / (1.0 + exp(clamp((Tpm - Tb) / U.thawW, -60.0, 60.0)));
-  let tau = rg * h * gm;
   let C = bi.z * thaw;
   let tp = ${ICE.P === 3 ? 'tau * tau' : `pow(tau, ${(ICE.P - 1).toFixed(3)})`};
   let ub = C * tp * tau;
-  let heat = bi.w + tau * ub / ${SEC.toExponential(6)} - U.k * max(0.0, Tpm - Ts) / h;
+  let heat = bi.w + strain + tau * ub / ${SEC.toExponential(6)} - U.k * max(0.0, Tpm - Ts) / R;
   let mb = thaw * max(0.0, heat) * ${SEC.toExponential(6)} / (U.rhoI * U.latent);
-  let d = U.gamma * h * h * h * h * h * g2 + C * rg * h * h * tp;
-  D[i] = vec4f(d, ub, thaw, mb);
+  var d = U.gamma * h * h * h * h * h * g2 + C * rg * h * h * tp;
+  var ubc = ub;
+  // The speed limit (src/engine/ice.js, U_MAX).
+  let cap = U.uMax * h / max(gm, 1e-12);
+  if (d > cap) { ubc = ub * cap / d; d = cap; }
+  D[i] = vec4f(d, ubc, thaw, mb);
   vel[i] = select(vec4f(0.0), vec4f(-g / gm, d * gm / h), gm > 0.0);
   atomicMax(&ctl.dmax, bitcast<u32>(d));
 }`;
@@ -125,7 +146,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }`;
 // Mass balance and basal melt, calving, meltwater, erosion and melt-out; acc = (eroded, till, melt, 0).
 const APPLY = HEAD + /* wgsl */`
-@group(0) @binding(1) var<storage, read> Mx: array<vec2f>;
+@group(0) @binding(1) var<storage, read> Mx: array<vec4f>;
 @group(0) @binding(2) var<storage, read> dHb: array<vec4f>;
 @group(0) @binding(3) var<storage, read> ctl: CtlR;
 @group(0) @binding(4) var<storage, read> M: array<f32>;
@@ -187,7 +208,7 @@ struct Mu { ph: array<vec4f, 12>, lapse: f32, sigma: f32, ddfSnow: f32, ddfIce: 
 @group(0) @binding(3) var<storage, read> ba: array<vec4f>;
 @group(0) @binding(4) var<storage, read> H: array<f32>;
 @group(0) @binding(5) var<storage, read_write> M: array<f32>;
-@group(0) @binding(6) var<storage, read_write> Mx: array<vec2f>;
+@group(0) @binding(6) var<storage, read_write> Mx: array<vec4f>;
 fn phiN(x: f32) -> f32 { return exp(-0.5 * x * x) * 0.3989422804; }
 fn PhiN(x: f32) -> f32 {
   let t = 1.0 / (1.0 + 0.2316419 * abs(x));
@@ -206,7 +227,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var tm = 0.0;
   for (var m = 0u; m < 12u; m++) { let c = Q.ph[m]; tm += T0.x + T0.y * c.x - T0.z * c.y + T0.w * c.z - T1.x * c.w; }
   tm = tm / 12.0;
-  if (!(b > 0.0 || h * U.rhoI > -b * U.rhoW)) { M[i] = 0.0; Mx[i] = vec2f(0.0, tm); return; }
+  if (!(b > 0.0 || h * U.rhoI > -b * U.rhoW)) { M[i] = 0.0; Mx[i] = vec4f(0.0, tm, 0.0, 0.0); return; }
   let sKm = max(0.0, b + h) / 1000.0;
   var acc = 0.0;
   var pdd = 0.0;
@@ -220,8 +241,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
   let snowMelt = min(acc, pdd * Q.ddfSnow);
   let left = pdd - snowMelt / Q.ddfSnow;
-  M[i] = (acc - snowMelt - left * Q.ddfIce) * (1000.0 / U.rhoI);
-  Mx[i] = vec2f((snowMelt + left * Q.ddfIce) * (1000.0 / U.rhoI), tm);
+  let net = (acc - snowMelt - left * Q.ddfIce) * (1000.0 / U.rhoI);
+  M[i] = net;
+  Mx[i] = vec4f((snowMelt + left * Q.ddfIce) * (1000.0 / U.rhoI), tm, net, 0.0);
 }`;
 
 const wg = n => Math.ceil(n / 64);
@@ -245,7 +267,7 @@ export class GpuIce {
     const B = (size, data) => storage(device, size, data);
     this.nb = B(nb.byteLength, nb); this.ew = B(ew.byteLength, ew);
     this.ba = B(16 * n); this.H = B(4 * n, Float32Array.from(ice.H)); this.w = B(4 * n, Float32Array.from(ice.w));
-    this.M = B(4 * n); this.Mx = B(8 * n); this.D = B(16 * n); this.dHb = B(16 * n); this.vel = B(16 * n);
+    this.M = B(4 * n); this.Mx = B(16 * n); this.D = B(16 * n); this.dHb = B(16 * n); this.vel = B(16 * n);
     this.b = B(4 * n, Float32Array.from(ice.debris)); this.acc = B(16 * n);
     this.clim = B(48 * n);
     this.ctl = B(32);
@@ -271,7 +293,7 @@ export class GpuIce {
     ];
     this.bindBed(this.noFlex);
     this.mbList = [[K.mb, K.mb.bind({ U, Q: this.Q, clim: this.clim, ba: this.ba, H: this.H, M: this.M, Mx: this.Mx }), x]];
-    this.readBuf = device.createBuffer({ size: 72 * n + 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    this.readBuf = device.createBuffer({ size: 80 * n + 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     this.reading = false; this.lastRead = -Infinity; this.lastBed = -Infinity; this.reads = 0;
     this.dt = ICE.MAX_STEP;          // the step's limit at the last read, to plan how many to encode
     this.mbVersion = -1;
@@ -281,11 +303,11 @@ export class GpuIce {
 
   /** The uniform block from ICE (call `setParams` after changing ICE's constants). */
   params() {
-    const ub = new ArrayBuffer(80), uu = new Uint32Array(ub), uf = new Float32Array(ub);
+    const ub = new ArrayBuffer(96), uu = new Uint32Array(ub), uf = new Float32Array(ub);
     uu[0] = this.n;
     uf.set([this.ice.Gamma, this.amin, ICE.MAX_STEP, ICE.RHO_I, ICE.RHO_W, ICE.RHO_M, ICE.TAU_BED,
       ICE.K, ICE.BETA, ICE.THAW_W, ICE.LATENT, ICE.LAPSE, ICE.KG, ICE.EL, stepCoef(), ICE.G], 1);
-    uu[17] = this.flex ? 1 : 0; uu[18] = this.flex ? this.flex.off : 0;
+    uu[17] = this.flex ? 1 : 0; uu[18] = this.flex ? this.flex.off : 0; uf[19] = ICE.KAPPA; uf[20] = ICE.U_MAX;
     return uu;
   }
   setParams() { this.device.queue.writeBuffer(this.U, 0, this.params()); }
@@ -370,27 +392,27 @@ export class GpuIce {
     enc.copyBufferToBuffer(this.ctl, 0, this.readBuf, 24 * n, 32);
     if (slow) {
       enc.copyBufferToBuffer(this.M, 0, this.readBuf, 24 * n + 32, 4 * n);
-      enc.copyBufferToBuffer(this.Mx, 0, this.readBuf, 28 * n + 32, 8 * n);
-      enc.copyBufferToBuffer(this.D, 0, this.readBuf, 36 * n + 32, 16 * n);
-      enc.copyBufferToBuffer(this.b, 0, this.readBuf, 52 * n + 32, 4 * n);
-      enc.copyBufferToBuffer(this.acc, 0, this.readBuf, 56 * n + 32, 16 * n);
+      enc.copyBufferToBuffer(this.Mx, 0, this.readBuf, 28 * n + 32, 16 * n);
+      enc.copyBufferToBuffer(this.D, 0, this.readBuf, 44 * n + 32, 16 * n);
+      enc.copyBufferToBuffer(this.b, 0, this.readBuf, 60 * n + 32, 4 * n);
+      enc.copyBufferToBuffer(this.acc, 0, this.readBuf, 64 * n + 32, 16 * n);
       enc.clearBuffer(this.acc);
     }
     this.device.queue.submit([enc.finish()]);
     try {
-      await this.readBuf.mapAsync(GPUMapMode.READ, 0, slow ? 72 * n + 32 : 24 * n + 32);
-      const ice = this.ice, buf = this.readBuf.getMappedRange(0, slow ? 72 * n + 32 : 24 * n + 32);
+      await this.readBuf.mapAsync(GPUMapMode.READ, 0, slow ? 80 * n + 32 : 24 * n + 32);
+      const ice = this.ice, buf = this.readBuf.getMappedRange(0, slow ? 80 * n + 32 : 24 * n + 32);
       const a = new Float32Array(buf, 0, 6 * n + 8);
       ice.H.set(a.subarray(0, n)); ice.w.set(a.subarray(n, 2 * n)); ice.vel.set(a.subarray(2 * n, 6 * n));
       const lim = a[6 * n + 4];
       if (lim > 0) this.dt = lim;
       if (slow) {
-        const m = new Float32Array(buf, 24 * n + 32, 12 * n);
+        const m = new Float32Array(buf, 24 * n + 32, 14 * n);
         for (let i = 0; i < n; i++) {
-          const x = n + 2 * i, d = 3 * n + 4 * i, e = 8 * n + 4 * i;
+          const x = n + 4 * i, d = 5 * n + 4 * i, e = 10 * n + 4 * i;
           ice.M[i] = m[i]; ice.melt[i] = m[x]; ice.Ts0[i] = m[x + 1];
           ice.ub[i] = m[d + 1]; ice.thaw[i] = m[d + 2]; ice.mb[i] = m[d + 3];
-          ice.debris[i] = m[7 * n + i];
+          ice.debris[i] = m[9 * n + i];
           ice.eroded[i] += m[e]; ice.till[i] += m[e + 1]; ice.meltAcc[i] += m[e + 2];
         }
       }

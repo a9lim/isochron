@@ -21,6 +21,9 @@
 //                    polygons (Relief)
 //   ice sheets       a light fill with a hard outline and contours of the
 //                    ice's surface every 500 m
+//   ice streams      where the ice slides faster than it deforms (on soft,
+//                    thawed beds: src/engine/regolith.js), fine dashes along
+//                    its flow, as glaciological velocity maps draw them (Relief)
 // In the Climate view the sea carries isotherms of its surface temperature
 // every 5 °C and the gyres' streamlines every 3 Sv. The Weather view is a
 // synoptic chart's base: pale land, the paper for sea, isobars every 4 hPa
@@ -97,7 +100,7 @@ fn toView(p: vec3f) -> vec3f {
   o.wp = p;
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
-  o.iv = vec4f(toView(iv.xyz), iv.w);
+  o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   o.wx = wx;
   o.td = td;
   o.lw = lw;
@@ -166,6 +169,30 @@ fn stipple1(uv: vec2f, fw: f32, o: vec2f, rpx: f32) -> f32 {
 fn stipple(T: Tri, periodPx: f32, rpx: f32) -> f32 {
   let o = octave(periodPx);
   return T.w.x * stipple1(T.x, T.f.x, o, rpx) + T.w.y * stipple1(T.y, T.f.y, o, rpx) + T.w.z * stipple1(T.z, T.f.z, o, rpx);
+}
+
+// Ice streams: dashes along a flow d (unit, in the plane), one to each point of a staggered
+// lattice, lpx long and wpx wide on screen. Each dash is placed by its own point, so a flow
+// that turns turns its dashes without the moiré a line pattern would make.
+fn dash1(uv: vec2f, fw: f32, F: f32, d: vec2f, lpx: f32, wpx: f32) -> f32 {
+  let q = uv * F;
+  let row = floor(q.y);
+  let qx = q.x + 0.5 * (row - 2.0 * floor(row * 0.5));
+  let c = vec2f(qx - floor(qx) - 0.5, q.y - row - 0.5);
+  let px = max(fw * F, 1e-7);
+  let a = abs(dot(c, d)) / px;
+  let b = abs(c.x * d.y - c.y * d.x) / px;
+  return (1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, b)) * (1.0 - smoothstep(0.5 * lpx - 0.7, 0.5 * lpx + 0.7, a));
+}
+fn dashP(uv: vec2f, fw: f32, o: vec2f, d2: vec2f, lpx: f32, wpx: f32) -> f32 {
+  let l = length(d2);
+  if (l < 1e-4) { return 0.0; }
+  let d = d2 / l;
+  return max(dash1(uv, fw, o.x, d, lpx, wpx), o.y * dash1(uv, fw, 2.0 * o.x, d, lpx, wpx));
+}
+fn flowDash(T: Tri, d: vec3f, periodPx: f32, lpx: f32, wpx: f32) -> f32 {
+  let o = octave(periodPx);
+  return T.w.x * dashP(T.x, T.f.x, o, d.yz, lpx, wpx) + T.w.y * dashP(T.y, T.f.y, o, d.zx, lpx, wpx) + T.w.z * dashP(T.z, T.f.z, o, d.xy, lpx, wpx);
 }
 
 // Salt crust: a jittered lattice's cells (Worley's), their borders cracks of constant width
@@ -411,6 +438,14 @@ fn hair(d: f32, w: f32) -> f32 {
   let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, e + iceH / 1000.0);
   land = mix(land, u.text.rgb, 0.55 * sheetEdge);
   sea = mix(sea, u.text.rgb, 0.55 * sheetEdge);
+  // Ice streams: where sliding carries more than half the flow and the ice moves at tens of m/yr.
+  let slide = length(i.iv.xyz);
+  let streamW = smoothstep(0.5, 0.7, slide) * smoothstep(15.0, 40.0, i.iv.w) * sheet * select(1.0, 0.0, climate);
+  if (streamW > 0.01) {
+    let st = flowDash(T, i.iv.xyz / max(slide, 1e-6), 6.0 * u.mode.z, 5.0 * u.mode.z, 0.9 * u.mode.z) * streamW;
+    land = mix(land, u.ocean.rgb, 0.6 * st);
+    sea = mix(sea, u.ocean.rgb, 0.6 * st);
+  }
 
   // The Weather view: a chart's base, isobars, and rain as stipple.
   var wland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);

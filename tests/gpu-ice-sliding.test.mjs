@@ -46,7 +46,7 @@ test('sliding ice on the GPU: the CPU reference, with erosion, till, outwash and
   const gi = new GpuIce(device, gpuIce);
   gi.mbVersion = 0;
   device.queue.writeBuffer(gi.M, 0, Float32Array.from(gpuIce.M));
-  device.queue.writeBuffer(gi.Mx, 0, Float32Array.from({ length: 2 * n }, (_, k) => k % 2 ? gpuIce.Ts0[k >> 1] : gpuIce.melt[k >> 1]));
+  device.queue.writeBuffer(gi.Mx, 0, Float32Array.from({ length: 4 * n }, (_, k) => [gpuIce.melt, gpuIce.Ts0, gpuIce.M, null][k & 3]?.[k >> 2] ?? 0));
   gi.attachFlexure(new GpuFlexure(device, g, { have: grids.filter(Boolean) }), { Te });
   // Read back every 10 kyr, as the page does every ~100 ms: the GPU plans its steps from the limit it last read.
   for (let k = 0; k < 120; k++) { cpu.advance(1000, 1e9); gi.advance(1000, 400); if (k % 10 === 9) await settle(gi); }
@@ -90,7 +90,7 @@ test('sliding ice on the GPU: the step at level 7, and its cost', { skip }, asyn
     const gi = new GpuIce(device, ice);
     gi.mbVersion = 0;
     device.queue.writeBuffer(gi.M, 0, Float32Array.from(ice.M));
-    device.queue.writeBuffer(gi.Mx, 0, Float32Array.from({ length: 2 * n }, (_, k) => k % 2 ? ice.Ts0[k >> 1] : ice.melt[k >> 1]));
+    device.queue.writeBuffer(gi.Mx, 0, Float32Array.from({ length: 4 * n }, (_, k) => [ice.melt, ice.Ts0, ice.M, null][k & 3]?.[k >> 2] ?? 0));
     gi.attachFlexure(new GpuFlexure(device, g, { have: grids.filter(Boolean) }), { Te: new Float32Array(n).fill(60) });
     for (let k = 0; k < 60; k++) gi.advance(1000, 400);       // a cap grown, then timed
     await settle(gi);

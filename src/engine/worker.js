@@ -6,7 +6,8 @@
 //   surface   after plate steps, or when the sea has moved: the drawn fields,
 //             the lines, the plates' rotations, the crust's statistics
 //   climate   after each completed climate cycle: its harmonics and zones
-//   fast      ~10 times a second: ice, carbon, plumes, the record's samples
+//   fast      ~10 times a second: ice, carbon, plumes, the regolith's and the
+//             crust's flexure's statistics, the record's samples
 //
 //   year      after each of the year's steps (src/engine/year.js, live below
 //             ~100 yr/s): the anomaly at the step's end on the engine's grid,
@@ -39,6 +40,7 @@ import { traceBoundaries } from '../render/lines.js';
 import { traceRivers, drainage, lakesKey, RIVER_MIN } from '../render/rivers.js';
 import { gpuDevice } from '../gpu/device.js';
 import { GpuIce } from '../gpu/ice.js';
+import { GpuFlexure } from '../gpu/flexure.js';
 import { GpuSoil } from '../gpu/soil.js';
 import { GpuMoisture } from '../gpu/moisture.js';
 import { GpuTides } from '../gpu/tides.js';
@@ -66,10 +68,16 @@ self.onmessage = e => {
     // The ground steps live on the GPU only (on the CPU a month costs ~13 ms at level 7); the
     // lakes rebuild for the ice at most once a second.
     P.ground.cpuLive = false; P.lakesMinGap = 1000;
+    // The regolith takes the ice's integrals as they come back (~400 ms), at most every 250 ms.
+    P.regolith.minGap = 250;
     apply(m.params);
     // The engine's own GPU device, for the ice (and the climate's heavy solves).
     gpuDevice().then(device => {
       P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
+      // The bed's ELRA and the crust's flexure on this device (src/gpu/flexure.js), sharing the coarser grids.
+      const have = P.ice.flex.levels.map(l => l.g);
+      P.iceGpu.attachFlexure(new GpuFlexure(device, P.grid, { have }));
+      if (P.crustFlex) P.crustFlex.useSolver(new GpuFlexure(device, P.grid, { have }));
       P.ground.gpu = new GpuSoil(device, P.grid.n, 0);
       // The plates' step and the drawn surface too (src/gpu/plates.js says what stays here).
       try { P.tec.gpu = new GpuPlates(device, P.tec); surfaceGpu = new GpuSurface(device, P.grid); } catch (err) { console.warn('[isochron] plates on the GPU:', err.message); }
@@ -292,6 +300,16 @@ function sendClimate() {
   post(m, transfer);
 }
 
+/** The ice's flow as the globe draws it: its direction as long as sliding's share of the speed, and the speed (m/yr). */
+function drawnFlow(ice) {
+  const v = Float32Array.from(ice.vel), n = ice.grid.n;
+  for (let i = 0; i < n; i++) {
+    const o = 4 * i, sp = v[o + 3], s = sp > 0 ? Math.min(1, Math.max(1e-3, ice.ub[i] / sp)) : 0;
+    v[o] *= s; v[o + 1] *= s; v[o + 2] *= s;
+  }
+  return v;
+}
+
 function sendFast(first) {
   lastFast = performance.now();
   const { grid, tec, land, climate, ice, carbon, plumes, ocean } = P;
@@ -299,9 +317,10 @@ function sendFast(first) {
   if (P.ground.live && P.ground.gpu) P.ground.readBack(monthAt(((P.years % 1) + 1) % 1).i, P.years).catch(err => console.warn('[isochron] ground:', err.message));
   const m = {
     type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, samples: Float64Array.from(samples),
-    iceH: Float32Array.from(ice.H), iceVel: Float32Array.from(ice.vel), iceStats: { ...ice.stats },
+    iceH: Float32Array.from(ice.H), iceVel: drawnFlow(ice), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out) },
     landFlux: { ...land.flux },
+    regolith: { ...P.regolith.stats, ...P.regolith.budget }, flex: P.crustFlex ? { ...P.crustFlex.stats } : null,
     moon: { a: P.moon.a, Omega: P.moon.Omega, omega: P.moon.omega, P: P.moon.P, day: P.moon.day },
     plumes: { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) },
     year: { live: P.year.live, meanT: P.year.stats.meanT, sigma: P.year.stats.sigma, F: P.year.stats.F, Fmean: CLIMATE.F_VOLC, Frate: P.volcanoes.meanForcing(),
@@ -315,7 +334,8 @@ function sendFast(first) {
   // The model figure's sums over the planet, a few times a second.
   if (first || !sendFast.lastAgg || lastFast - sendFast.lastAgg > 400) {
     sendFast.lastAgg = lastFast;
-    let snow = 0, iceArea = 0, run = 0, la = 0, hiLand = 0, sstLo = 0, sstHi = 0, bShare = 0, rain = 0, wet = 0, beta = 0, sa = 0, lakeIn = 0;
+    let snow = 0, iceArea = 0, run = 0, la = 0, hiLand = 0, sstLo = 0, sstHi = 0, bShare = 0, rain = 0, wet = 0, beta = 0, sa = 0, lakeIn = 0, cap = 0, supply = 0;
+    const R = P.regolith;
     const G = P.ground, live = G.live && G.agg ? G.weight : 0, soil = climate.soil, L = P.lakes;
     const runoff = G.runoff(sendFast.ro || (sendFast.ro = new Float32Array(grid.n)));
     for (let i = 0; i < grid.n; i++) {
@@ -324,6 +344,7 @@ function sendFast(first) {
       if (ice.H[i] > 20) iceArea += a;
       if (climate.landMask[i]) {
         run += runoff[i] * a; la += a; bShare += a * (climate.zones[NZ * i + 4] + climate.zones[NZ * i + 5]); rain += climate.pAnn[i] * a;
+        cap += a * R.capacity(i); supply += a * (0.25 + 0.75 * R.prod[i] / (R.prod[i] + CARBON.E_HALF));
         if (soil.Smax[i] > 0) { sa += a; wet += a * (live > 0 ? (1 - live) * soil.wet[i] + live * G.agg.wet[i] : soil.wet[i]); beta += a * (live > 0 ? (1 - live) * soil.beta[i] + live * G.agg.beta[i] : soil.beta[i]); }
         if (L.built && L.catch[i] >= 0) lakeIn += runoff[i] * a;
       }
@@ -331,7 +352,7 @@ function sendFast(first) {
       if (ocean.fine.sea[i]) { sstLo = Math.min(sstLo, ocean.fine.sst[i]); sstHi = Math.max(sstHi, ocean.fine.sst[i]); }
     }
     const ls = L.built ? L.stats() : { lakes: 0, area: 0, closed: 0, saltArea: 0, volume: 0 };
-    m.agg = { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare, rain,
+    m.agg = { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare, rain, cap: la > 0 ? cap / la : 0, supply: la > 0 ? supply / la : 0,
       ground: { wet: sa > 0 ? wet / sa : 0, beta: sa > 0 ? beta / sa : 0, live },
       lakes: { n: ls.lakes, closed: ls.closed, area: ls.area, salt: ls.saltArea, volume: ls.volume, inflow: lakeIn / 1e9 } };
   }

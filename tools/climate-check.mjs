@@ -1,5 +1,6 @@
 // The climate on a seeded planet: global means, the zonal profile, the zones' shares.
 // usage: node tools/climate-check.mjs [seed] [overrides-json for CLIMATE]
+//   env: FIXED=1 the zones' fixed widths, NOLAKES=1 no lakes, NOREG=1 no regolith
 import { buildGrid } from '../src/grid/icosphere.js';
 import { Tectonics } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
@@ -7,6 +8,7 @@ import { genesis } from '../src/engine/genesis.js';
 import { Climate, CLIMATE, ZONES, NZ } from '../src/engine/climate.js';
 import { Year } from '../src/engine/year.js';
 import { Lakes } from '../src/engine/lakes.js';
+import { Regolith } from '../src/engine/regolith.js';
 Object.assign(CLIMATE, JSON.parse(process.argv[3] || '{}'));
 const g = buildGrid(6), tec = new Tectonics(g), land = new Landscape(tec);
 genesis(tec, process.argv[2] || 'earthlike', { spinup: 40, landscape: land });
@@ -16,7 +18,11 @@ if (!process.env.FIXED) clim.year = new Year(clim);
 // The lakes at their balance after each cycle, as at a fast dial (NOLAKES=1: none).
 const lakes = process.env.NOLAKES ? null : new Lakes(g);
 if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.seaLevel); }
-const cycle = () => { clim.solve(1); if (lakes) lakes.equilibrium(clim.runoff, clim.peAnn, 1); };
+// The regolith sets the soil's capacity (NOREG=1: the fixed capacity, as before phase 7); its
+// opening layer settles with the climate's third cycle.
+const reg = process.env.NOREG ? null : new Regolith(tec, land, clim);
+if (reg) { land.preview(); reg.init(); }
+const cycle = () => { clim.solve(1); if (reg) reg.update(0); if (lakes) lakes.equilibrium(clim.runoff, clim.peAnn, 1); };
 let t0 = performance.now();
 cycle();
 const cold = performance.now() - t0; t0 = performance.now();
@@ -34,6 +40,7 @@ console.log(ZONES.map((name, k) => `${name} ${(100 * share[k] / la).toFixed(0)}`
   for (let i = 0; i < g.n; i++) if (clim.landMask[i]) { const a = g.area[i]; run += a * clim.runoff[i] * 1000; pl += a * clim.Pf[0][i] * 365.25; beta += a * clim.soil.beta[i]; pf += a * clim.soil.permafrost[i]; }
   const L = lakes ? lakes.stats() : null, R2 = 6371 * 6371;
   console.log(`land: runoff ${(run / la).toFixed(0)} mm/yr (${(100 * run / pl).toFixed(0)}% of rain) · soil β ${(beta / la).toFixed(2)} · permafrost ${(100 * pf / la).toFixed(0)}% · soil's year ${clim.stats.soilYears.toFixed(2)} yr a cell` +
+    (reg ? ` · regolith ${reg.stats.mean.toFixed(2)} m (bare ${(100 * reg.stats.bare).toFixed(0)}%)` : '') +
     (L ? ` · lakes ${L.lakes} (${L.closed} closed) ${(L.area / 1e3).toFixed(0)}k km² (${(100 * L.area / (la * R2)).toFixed(2)}% of land), salt ${(L.saltArea / 1e3).toFixed(0)}k km²` : ''));
 }
 let wmax = 0, wsum = 0; for (let i = 0; i < g.n; i++) { const w = Math.hypot(clim.windPhase[2][3*i], clim.windPhase[2][3*i+1], clim.windPhase[2][3*i+2]); wmax = Math.max(wmax, w); wsum += w * g.area[i]; }

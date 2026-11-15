@@ -299,7 +299,8 @@ export class Climate {
     }
     // The soil's capacity: land, but not under grounded ice (the ice owns its water).
     const cap = this.soilCap || (this.soilCap = new Float32Array(n));
-    for (let i = 0; i < n; i++) cap[i] = this.landMask[i] && !(H && H[i] > 1) ? SOIL.SMAX : 0;
+    const reg = this.regolith;              // the regolith's depth sets it (src/engine/regolith.js)
+    for (let i = 0; i < n; i++) cap[i] = this.landMask[i] && !(H && H[i] > 1) ? (reg ? reg.capacity(i) : SOIL.SMAX) : 0;
     this.soil.setCapacity(cap);
     if (this.lakes) this.lakeWet.set(this.lakes.wet); else this.lakeWet.fill(0);
     gradient(this.grid, this.elevPos, this.upz);

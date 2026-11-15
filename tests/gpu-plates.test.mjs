@@ -148,6 +148,30 @@ test('rare events on the GPU path: a rift and a merge, run on the CPU and carrie
   assert.equal(await mirrorErrors(tec), 0, 'after the merge');
 });
 
+test('the frames\' extras on the GPU path (the regolith, the flexure\'s correction): carried with the crust, fresh on new crust', { skip }, async () => {
+  const a = planet().t, b = planet().t;
+  await gpu(b);
+  const t0 = a.t, n = grid6.n;
+  // Mark each frame cell's extras by its crust's age, so a carried value is recognizable.
+  for (const tec of [a, b]) for (const p of tec.plates) for (let j = 0; j < n; j++) { const v = p.mask[j] ? t0 - p.tf[j] : 0; p.reg[j] = v; p.cf[j] = 2 * v; p.mq[j] = 3 * v; }
+  for (let k = 0; k < 6; k++) { a.step(0.5); await b.stepAsync(0.5); }
+  const check = tec => {
+    let carried = 0, fresh = 0, bad = 0;
+    for (const p of tec.plates) for (let j = 0; j < n; j++) {
+      if (!p.mask[j]) continue;
+      const v = t0 - p.tf[j];
+      if (p.tf[j] > t0 - 1e-3) { if (p.reg[j] === 0 && p.cf[j] === 0 && p.mq[j] === -1) fresh++; else bad++; }
+      else if (Math.abs(p.reg[j] - v) < 1e-4 * v && Math.abs(p.cf[j] - 2 * v) < 1e-4 * v && Math.abs(p.mq[j] - 3 * v) < 1e-4 * v) carried++;
+      else bad++;
+    }
+    return { carried, fresh, bad };
+  };
+  const ca = check(a), cb = check(b);
+  console.log(`  after 3 Myr: CPU ${ca.carried} carried, ${ca.fresh} fresh, ${ca.bad} otherwise; GPU path ${cb.carried} carried, ${cb.fresh} fresh, ${cb.bad} otherwise`);
+  assert.equal(ca.bad, 0, 'the CPU\'s step');
+  assert.equal(cb.bad, 0, 'the GPU\'s edits');
+});
+
 test('the drawn surface on the GPU: the CPU\'s fields', { skip }, async () => {
   const { gpuDevice } = await import('../src/gpu/device.js');
   const { GpuSurface } = await import('../src/gpu/surface.js');

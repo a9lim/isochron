@@ -237,6 +237,7 @@ function onFast(m) {
   ice.H = m.iceH; ice.vel = m.iceVel; ice.stats = m.iceStats;
   Object.assign(carbon, m.carbon);
   land.flux = m.landFlux;
+  P.regolith = m.regolith; P.flex = m.flex;
   plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
   if (m.agg) P.agg = m.agg;
   if (m.moon) Object.assign(moon, m.moon);
@@ -693,6 +694,7 @@ function modelSnapshot() {
   const sea = Math.round((tec.seaLevel - P.seaLevel0) * 1000);
   // The year: its anomaly's global mean now, the veil's forcing (its departure from the eruption rate's mean, live), and the mean's.
   const yearMean = year.meanAt(P.years);
+  const reg = P.regolith;
   const r = year.rates || { arcs: 0.1, hot: 0, flood: 0 }, Wm = v => { const a = Math.abs(v), t = a.toFixed(a < 0.1 ? 2 : 1); return `${+t === 0 ? '' : v > 0 ? '+' : '−'}${t} W/m²`; };
   return {
     values: {
@@ -705,6 +707,7 @@ function modelSnapshot() {
       year: year.live > 0 ? `${yearMean >= 0 ? '+' : '−'}${Math.abs(yearMean).toFixed(2)} K` : `±${year.sigma.toFixed(1)} K`,
       volcanoes: `τ ${year.aod.toFixed(3)}`,
       ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
+      regolith: reg ? `${reg.mean.toFixed(1)} m` : '—',
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -747,6 +750,18 @@ function modelSnapshot() {
       { from: 'volcanoes', to: 'climate', w: Math.abs(year.Frate) / 1, label: Wm(year.Fmean), red: true, bend: -0.1 },
       { from: 'climate', to: 'year', w: 0.25, bend: -0.15 },
       { from: 'year', to: 'zones', w: year.sigma / 2, label: `±${year.sigma.toFixed(1)} K`, bend: 0.1 },
+      // The regolith: the ice strips it and lays till, the rivers strip it; it softens the ice's bed, holds the
+      // soil's water and feeds weathering fresh rock. The ice's outwash is the rivers' sediment; loads bend the crust.
+      ...(reg ? [
+        { from: 'ice', to: 'regolith', w: reg.glacial / 0.1, label: `${reg.glacial.toFixed(2)} mm/yr`, bend: 0.15 },
+        { from: 'regolith', to: 'ice', w: reg.iceBed, label: `bed ${reg.iceBed.toFixed(2)}`, bend: 0.15 },
+        { from: 'landscape', to: 'regolith', w: 0.2, bend: -0.1 },
+        { from: 'regolith', to: 'ground', w: (P.agg?.cap || 0) / 300, label: `${Math.round(P.agg?.cap || 0)} mm`, bend: -0.2 },
+        { from: 'regolith', to: 'carbon', w: (P.agg?.supply || 0) / 1.5, label: `supply ${(P.agg?.supply || 0).toFixed(2)}`, bend: 0.1 },
+        { from: 'ice', to: 'landscape', w: (land.flux.outwash || 0) / 0.5, label: land.flux.outwash > 0.005 ? `${land.flux.outwash.toFixed(2)} km³/yr` : '', bend: -0.15 },
+      ] : []),
+      ...(P.flex ? [{ from: 'landscape', to: 'plates', w: P.flex.rms / 300, label: `±${Math.round(P.flex.rms)} m`, bend: -0.25 }] : []),
+      { from: 'ice', to: 'plates', w: ice.stats.area > 0 ? 0.3 : 0.05, label: 'bed', bend: 0.25 },
     ],
   };
 }

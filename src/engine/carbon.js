@@ -64,12 +64,15 @@ export class Carbon {
   measure() {
     const c = this.climate, g = c.grid, n = g.n, L = c.landMask, erosion = this.land ? this.land.erosion : null;
     const ice = c.ice ? c.ice.H : null;
+    // Fresh rock's supply: the regolith's production where there is one (src/engine/regolith.js: at
+    // steady state it is the erosion, E_HALF's rate), else the erosion itself.
+    const prod = this.land && this.land.regolith ? this.land.regolith.prod : null;
     let f = 0;
     for (let i = 0; i < n; i++) {
       if (!L[i] || (ice && ice[i] > 10)) continue;
       const run = c.runoff[i] * 1000;                                  // mm/yr
       const T = c.Tf[0][i] - 6.5 * c.elevPos[i];
-      const e = erosion ? erosion[i] : CARBON.E_HALF;
+      const e = prod ? prod[i] : erosion ? erosion[i] : CARBON.E_HALF;
       const supply = 0.25 + 0.75 * e / (e + CARBON.E_HALF);
       f += g.area[i] * Math.pow(Math.max(0, run), CARBON.RUNOFF_EXP) * Math.exp((T - 15) / CARBON.TE) * supply;
     }
