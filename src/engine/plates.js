@@ -18,7 +18,9 @@
 //                    continent against continent thickens the crust, marks a
 //                    suture, and, along a long enough front, merges the plates.
 // Then ω comes from a torque balance on each plate: slab pull and ridge push
-// against basal drag, continents dragging harder (their keels).
+// against basal drag, continents dragging harder (their keels). A plate is one
+// connected body: a piece the step cuts off becomes a plate of its own or joins
+// the plate around it (resolveFragments).
 //
 // Other layers keep state of their own with the crust, in the same frames
 // (FRAME_EXTRA): the regolith (src/engine/regolith.js) and the flexure's
@@ -60,6 +62,7 @@ export const PARAMS = {
   MAX_LIVE_PLATES: 16,
   MICROPLATE: 0.004 * 4 * Math.PI,  // a plate smaller than this joins its largest neighbour
   MAX_PLATE_AREA: 0.2 * 4 * Math.PI,
+  FRAGMENTS: 0.5,  // Myr of plate time between checks that each plate is one piece (resolveFragments)
   RIFT_TAU: 25,  // Myr, how long a rift's opening torque lasts
   RIFT_SPEED: 0.004,  // rad/Myr per steradian of plate
   WATER_TAU: 150,  // Myr: the ocean's volume drifts toward the land fraction set at genesis (the deep water cycle's stand-in)
@@ -76,6 +79,28 @@ export function copyCell(P, jf, Q, jt) {
 }
 /** A frame cell's extras as new crust has them. */
 export function freshExtras(P, j) { for (const [k, v] of EXTRA) P[k][j] = v; }
+
+const scratch = new WeakMap();   // per grid: the fragments' labels and work arrays (resolveFragments)
+
+/** Each plate's world cells by connected component: comp per cell, and per component its area (cA) and plate (cK); the count. */
+function components(g, owner, s) {
+  const n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, area = g.area, comp = s.comp, stack = s.stack, cA = s.cA, cK = s.cK;
+  comp.fill(-1);
+  let nc = 0;
+  for (let i = 0; i < n; i++) {
+    if (comp[i] >= 0) continue;
+    const k = owner[i];
+    let sp = 0, A = 0;
+    stack[sp++] = i; comp[i] = nc;
+    while (sp > 0) {
+      const q = stack[--sp];
+      A += area[q];
+      for (let t = nbrOff[q], e = nbrOff[q + 1]; t < e; t++) { const j = nbr[t]; if (comp[j] < 0 && owner[j] === k) { comp[j] = nc; stack[sp++] = j; } }
+    }
+    cA[nc] = A; cK[nc] = k; nc++;
+  }
+  return nc;
+}
 
 // ── Small vector and rotation helpers ──
 
@@ -173,8 +198,9 @@ export class Tectonics {
     this.rng = null;
     this.noise = null;
     this.counters = { made: 0, consumed: 0, collided: 0, merges: 0, rifts: 0, opened: 0, closed: 0 };
-    // What the CPU rewrote outside the step (rare events), for the GPU's mirror (src/gpu/plates.js).
-    this.dirty = { plates: new Set(), owner: false, mem: false };
+    // What the CPU rewrote outside the step (rare events), for the GPU's mirror (src/gpu/plates.js):
+    // whole plates, or frame cells one by one (k·n + j: a plate's stray pieces passed on, kept with a GPU).
+    this.dirty = { plates: new Set(), cells: new Set(), owner: false, mem: false };
     this.gpu = null;
   }
 
@@ -388,6 +414,7 @@ export class Tectonics {
     this.mergeWelded();
     this.maybeRift();
     this.maybeInitiate();
+    this.resolveFragments();
   }
 
   /**
@@ -402,8 +429,9 @@ export class Tectonics {
    * The same step with its per-cell work on the GPU (src/gpu/plates.js): the pass
    * over the cells, relaxation, sampling, the memories' decay, elevation, the sea
    * level, the kinematics and the balance's sums. What stays here is per plate or
-   * rare: ω from the sums, collision tallies, the water's drift, and merges, rifts
-   * and initiation (the memories are read down first where those need them).
+   * rare: ω from the sums, collision tallies, the water's drift, merges, rifts and
+   * initiation (the memories are read down first where those need them), and a
+   * plate's stray pieces passed on (resolveFragments).
    */
   async stepAsync(dt) {
     const t1 = this.t + dt;
@@ -437,6 +465,7 @@ export class Tectonics {
     this.maybeRift();
     const site = this.initiationSite();
     if (site) { if (!merge) await this.gpu.pullMemory(); this.initiate(site); }
+    this.resolveFragments();
   }
 
   decayPairs(dt) {
@@ -708,6 +737,96 @@ export class Tectonics {
       const j = nearest(g, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z, guess);
       guess = j;
       this.owner[i] = to; this.ref[i] = j;
+    }
+  }
+
+  /**
+   * A plate is one body. The step can leave a plate in pieces: an initiation takes the ocean
+   * between two of a plate's continents, a trench consumes a neck, a rift's plane crosses a
+   * plate twice, and the grid's rounding leaves a few cells of a plate inside its neighbour.
+   * Left alone, a piece cut off from its plate moves with the plate's rotation, set by forces
+   * elsewhere, and ploughs through the plate around it: new crust fills the gap behind it,
+   * young and so buoyant enough to consume the old seafloor ahead, and the piece grows into a
+   * tongue of ridge and trench at 5–15 cm/yr against the plate it sits in; the seafloor it
+   * consumes hangs slabs on that plate, whose pull, all round the ring, drives the plates
+   * faster (at the opening a fifth to a half of the trench cells that pulled were on such
+   * rings, and pieces covered 4–18% of the surface). So each plate keeps its largest piece;
+   * every other piece becomes a plate of its own if it is a plate's size (MICROPLATE) and
+   * there is room (MAX_LIVE_PLATES), else passes to the plate whose body it shares the most
+   * boundary with, re-expressed in that plate's frame, as relaxation and merges move crust.
+   * Crust moves; none is made or destroyed. The memories (slabs, fronts) stay where they are
+   * and decay, as relaxation leaves them.
+   *
+   * Checked every FRAGMENTS Myr of plate time (the labeling is ~1.6 ms at level 7), after the
+   * step's rare events, on the GPU's path as on the CPU's: the CPU's frames are the GPU's, and
+   * what it rewrote goes back up before the next step (src/gpu/plates.js: a new plate's frame
+   * whole, a joined piece's frame cells one by one).
+   */
+  resolveFragments() {
+    if (this.t - (this.fragmentsAt ?? -Infinity) < PARAMS.FRAGMENTS - 1e-6) return;
+    this.fragmentsAt = this.t;
+    const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, pos = g.pos, owner = this.owner, ref = this.ref;
+    let s = scratch.get(g);
+    if (!s) scratch.set(g, s = { comp: new Int32Array(n), stack: new Int32Array(n), order: new Int32Array(n), cA: new Float64Array(n), cK: new Int16Array(n) });
+    const { comp, order, cA, cK } = s;
+    for (let pass = 0, again = true; again && pass < 4; pass++) {
+      again = false;
+      const nc = components(g, owner, s);
+      const body = new Int32Array(MAX_PLATES).fill(-1);
+      let plates = 0;
+      for (let c = 0; c < nc; c++) { const k = cK[c]; if (body[k] < 0) plates++; if (body[k] < 0 || cA[c] > cA[body[k]]) body[k] = c; }
+      if (nc === plates) return;
+      // The pieces' cells, grouped (a counting sort on the component), the largest pieces first.
+      const start = new Int32Array(nc + 1);
+      for (let i = 0; i < n; i++) start[comp[i] + 1]++;
+      for (let c = 0; c < nc; c++) start[c + 1] += start[c];
+      const at = start.slice(0, nc);
+      for (let i = 0; i < n; i++) order[at[comp[i]]++] = i;
+      const pieces = [];
+      for (let c = 0; c < nc; c++) if (body[cK[c]] !== c) pieces.push(c);
+      pieces.sort((a, b) => cA[b] - cA[a]);
+      for (const c of pieces) {
+        const k = cK[c], P = this.plates[k], cells = order.subarray(start[c], start[c + 1]);
+        let Q = null;
+        if (cA[c] >= PARAMS.MICROPLATE && this.alivePlates().length < PARAMS.MAX_LIVE_PLATES) Q = this.allocPlate();
+        if (Q) {
+          // A plate of its own, in its parent's frame and with its motion, as a rift's half starts.
+          Q.q.set(P.q); Q.R.set(P.R); Q.w.set(P.w);
+          for (const i of cells) { copyCell(P, ref[i], Q, ref[i]); P.mask[ref[i]] = 0; owner[i] = Q.index; }
+          this.dirty.plates.add(k); this.dirty.plates.add(Q.index);
+          this.counters.split = (this.counters.split || 0) + 1;
+        } else {
+          // To the plate around it: the one whose body it shares the most edges with (any piece's
+          // only where it touches no body, and then the labels are checked again). The frame cells
+          // it touches go to the GPU one by one.
+          const edges = new Map(), loose = new Map();
+          let guess = -1;
+          for (const i of cells) for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+            const j = nbr[t], o = owner[j];
+            if (o === k) continue;
+            const m = comp[j] === body[o] ? edges : loose;
+            m.set(o, (m.get(o) || 0) + 1);
+          }
+          if (!edges.size) again = true;
+          let to = -1, most = 0;
+          for (const [o, m] of edges.size ? edges : loose) if (m > most) { most = m; to = o; }
+          if (to < 0) continue;
+          Q = this.plates[to];
+          const R = Q.R;
+          for (const i of cells) for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e && guess < 0; t++) if (owner[nbr[t]] === to) guess = ref[nbr[t]];
+          const touched = this.gpu ? this.dirty.cells : null;
+          for (const i of cells) {
+            const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
+            const jt = nearest(g, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z, guess);
+            copyCell(P, ref[i], Q, jt);
+            P.mask[ref[i]] = 0;
+            if (touched) { touched.add(k * n + ref[i]); touched.add(to * n + jt); }
+            owner[i] = to; ref[i] = jt; guess = jt;
+          }
+          this.counters.joined = (this.counters.joined || 0) + 1;
+        }
+        this.dirty.owner = true;
+      }
     }
   }
 

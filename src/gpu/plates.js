@@ -7,7 +7,8 @@
 //
 // Residency. The CPU's plate frames stay authoritative: the landscape and the
 // plumes write them through (owner, ref), and the rare events (merges, rifts,
-// initiation) rewrite whole plates. The GPU keeps a mirror of every frame
+// initiation, a plate's stray pieces passed on: Tectonics.resolveFragments)
+// rewrite whole plates. The GPU keeps a mirror of every frame
 // (crust: h, φ, formation and suture time per frame cell; mask: one bit per
 // plate per frame cell) and the world's memories (slab, arc, collision front).
 //   up, each step      the top cells' h and φ as the CPU's frames hold them (so
@@ -22,7 +23,8 @@
 //                      only, travel with it)
 //   on demand          the memories, before a merge or an initiation (the CPU
 //                      runs those); after one, the plates it touched, owner and
-//                      ref, and the memories go back up
+//                      ref, and the memories go back up (after pieces passed on,
+//                      the plates and owner and ref: the memories stay)
 // The step is read-only on the frames until it has decided every cell; the
 // writes that follow resolve conflicts deterministically (a frame cell that two
 // world cells both reach, which nearest-cell rounding makes, is written once,
@@ -56,7 +58,7 @@ struct Uni {
   arcDphi: f32, slabMax: f32, ka: f32, ks: f32,
   kc: f32, kRidge: f32, kSlab: f32, keel: f32,
   kCollide: f32, founderAge: f32, volume: f32, guess: f32,
-  segLen: u32, tb: u32, nseg: u32, pad1: u32,
+  segLen: u32, tb: u32, nseg: u32, npatch: u32,
   plates: array<Plate, ${MAXP}>,
 };
 `;
@@ -74,6 +76,7 @@ const DECL = {
   maskA: 'var<storage, read_write> mask: array<atomic<u32>>',
   maskW: 'var<storage, read_write> mask: array<u32>',
   maskIn: 'var<storage, read> maskIn: array<u32>',
+  pin: 'var<storage, read> pin: array<vec4u>',            // 2 per frame cell the CPU rewrote alone: (k·n + j, held), bitcast crust
   crust: 'var<storage, read> crust: array<vec4f>',        // per plate and frame cell: (h, φ, tf, suture)
   crustW: 'var<storage, read_write> crust: array<vec4f>',
   mem: 'var<storage, read> mem: array<vec4f>',            // 3 per cell: (slab, bitcast plate, age, arc), (slab dir, col), (col dir, bitcast plates)
@@ -143,6 +146,18 @@ const K = {
   // Rare events' masks: the touched plates' bits replaced.
   maskSet: mk(['U', 'maskW', 'maskIn'], MAIN + `
   mask[i] = (mask[i] & ~U.tb) | maskIn[i];
+}`),
+  // Frame cells the CPU rewrote one by one (a plate's stray pieces passed on), each listed once.
+  patch: mk(['U', 'maskA', 'crustW', 'pin'], `
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let e = id.x;
+  if (e >= U.npatch) { return; }
+  let a = pin[2u * e];
+  let k = a.x / U.n;
+  let j = a.x % U.n;
+  if (a.y != 0u) { atomicOr(&mask[j], 1u << k); } else { atomicAnd(&mask[j], ~(1u << k)); }
+  crust[a.x] = bitcast<vec4f>(pin[2u * e + 1u]);
 }`),
   // Every cell decides from the step's start: which plates cover it, which stays on top, which are
   // consumed. Run twice: the CPU's pass unmasks a frame cell as it consumes it, so a later world
@@ -721,7 +736,7 @@ export class GpuPlates {
     const S = (bytes, data) => storage(device, bytes, data);
     this.b = {
       geo: G.geo, egw: G.egw,
-      oref: S(8 * n), oref2: S(8 * n), mask: S(4 * n), maskIn: S(4 * n), crust: S(16 * MAXP * n),
+      oref: S(8 * n), oref2: S(8 * n), mask: S(4 * n), maskIn: S(4 * n), crust: S(16 * MAXP * n), pin: S(32 * this.cap),
       mem: S(48 * n), memN: S(48 * n), chA: S(8 * n), chB: S(8 * n), rec: S(32 * n), recA: S(32 * n), recZ: S(32 * n), rlx: S(8 * n), top: S(8 * n), ls: S(8 * n),
       wh: S(4 * n), wphi: S(4 * n), wtf: S(4 * n), wsut: S(4 * n), elev: S(4 * n),
       bal: S(16 * n), tc: S(16 * n), kin: S(8 * n), fnd: S(16 * n), fndB: S(16 * n), contrib: S(48 * n),
@@ -756,7 +771,7 @@ export class GpuPlates {
     for (const p of tec.plates) this.pushFrame(p, words);
     this.device.queue.writeBuffer(this.b.mask, 0, words);
     this.pushOwners(); this.pushMemory();
-    tec.dirty.plates.clear(); tec.dirty.owner = tec.dirty.mem = false;
+    tec.dirty.plates.clear(); tec.dirty.cells.clear(); tec.dirty.owner = tec.dirty.mem = false;
   }
 
   pushFrame(p, words) {
@@ -786,9 +801,26 @@ export class GpuPlates {
     this.device.queue.writeBuffer(this.b.mem, 0, m);
   }
 
-  /** What the CPU changed since the last step: the plates rare events touched, owners, memories. */
+  /** What the CPU changed since the last step: the plates rare events touched, frame cells, owners, memories. */
   pushChanges() {
-    const d = this.tec.dirty;
+    const d = this.tec.dirty, n = this.n;
+    if (d.cells.size) {
+      // Frame cells rewritten one by one, as they stand now, where their plate doesn't go up whole.
+      const list = [...d.cells].filter(f => !d.plates.has(Math.floor(f / n)));
+      if (list.length > this.cap) for (const f of list) d.plates.add(Math.floor(f / n));
+      else if (list.length) {
+        const u = new Uint32Array(8 * list.length), fl = new Float32Array(u.buffer);
+        list.forEach((f, e) => {
+          const p = this.tec.plates[Math.floor(f / n)], j = f % n;
+          u[8 * e] = f; u[8 * e + 1] = p.mask[j];
+          fl[8 * e + 4] = p.h[j]; fl[8 * e + 5] = p.phi[j]; fl[8 * e + 6] = p.tf[j]; fl[8 * e + 7] = p.sut[j];
+        });
+        this.device.queue.writeBuffer(this.b.pin, 0, u);
+        this.uu[27] = list.length;
+        this.patchPending = true;
+      }
+      d.cells.clear();
+    }
     if (d.plates.size) {
       const words = new Uint32Array(this.n);
       let tb = 0;
@@ -827,11 +859,13 @@ export class GpuPlates {
     this.pushChanges();
     const buf = dev.createBuffer({ size: 16 * n * np + 4 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     const enc = dev.createCommandEncoder();
-    if (this.maskPending) {
+    if (this.maskPending || this.patchPending) {
       this.device.queue.writeBuffer(this.U, 0, this.ub);
-      const pass = enc.beginComputePass(), k = this.k.maskSet;
-      pass.setPipeline(k.pipeline); pass.setBindGroup(0, k.group); pass.dispatchWorkgroups(Math.ceil(n / 64)); pass.end();
-      this.maskPending = false;
+      const pass = enc.beginComputePass();
+      if (this.maskPending) { const k = this.k.maskSet; pass.setPipeline(k.pipeline); pass.setBindGroup(0, k.group); pass.dispatchWorkgroups(Math.ceil(n / 64)); }
+      if (this.patchPending) { const k = this.k.patch; pass.setPipeline(k.pipeline); pass.setBindGroup(0, k.group); pass.dispatchWorkgroups(Math.ceil(this.uu[27] / 64)); }
+      pass.end();
+      this.maskPending = this.patchPending = false;
     }
     enc.copyBufferToBuffer(this.b.crust, 0, buf, 0, 16 * n * np);
     enc.copyBufferToBuffer(this.b.mask, 0, buf, 16 * n * np, 4 * n);
@@ -922,6 +956,7 @@ export class GpuPlates {
     const enc = dev.createCommandEncoder(), pass = enc.beginComputePass(), x = Math.ceil(n / 64);
     const run = (name, gx = x, gy = 1) => { const k = this.k[name]; pass.setPipeline(k.pipeline); pass.setBindGroup(0, k.group); pass.dispatchWorkgroups(gx, gy); };
     if (this.maskPending) { run('maskSet'); this.maskPending = false; }
+    if (this.patchPending) { run('patch', Math.ceil(this.uu[27] / 64)); this.patchPending = false; }
     for (const name of names) {
       if (name === 'sea') run(name, 1); else if (name === 'reduce') run(name, this.S, np);
       else if (name === 'decide') { run('decide1'); run('decide'); }

@@ -1,5 +1,6 @@
 // Plates: exact rigid motion, crust made equals crust consumed under one
-// relative rotation, sea level conserves water, genesis gives a sane planet.
+// relative rotation, sea level conserves water, genesis gives a sane planet,
+// and a plate stays one body.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid, nearest } from '../src/grid/icosphere.js';
@@ -7,6 +8,7 @@ import { Tectonics } from '../src/engine/plates.js';
 import { genesis } from '../src/engine/genesis.js';
 import { oceanVolume, solveSeaLevel, subsidence } from '../src/engine/crust.js';
 import { Polarity } from '../src/engine/polarity.js';
+import { mostPieces, deepCell, strand } from './pieces.mjs';
 
 const grid = buildGrid(5);
 
@@ -117,4 +119,32 @@ test('genesis gives a sane planet that runs', () => {
   assert.ok(s1.plates >= 3, `plates ${s1.plates}`);
   assert.ok(s1.fastest < 16, `fastest ${s1.fastest} cm/yr`);
   console.log(`  level 6 step: ${ms.toFixed(1)} ms; after 30 Myr: ${s1.plates} plates, land ${(100 * s1.land).toFixed(1)}%, fastest ${s1.fastest.toFixed(1)} cm/yr, ocean age ${s1.meanOceanAge.toFixed(0)} Myr, sea level ${(1000 * (s1.seaLevel - s0.seaLevel)).toFixed(0)} m; ${JSON.stringify(tec.counters)}`);
+});
+
+test('a plate is one body: a stray piece joins the plate around it, or past a plate\'s size becomes one; crust moves, none is made', () => {
+  const g6 = buildGrid(6);
+  const tec = new Tectonics(g6);
+  genesis(tec, 'earthlike', {});
+  const alive = tec.alivePlates().sort((p, q) => q.area - p.area);
+  const a = alive[0].index, b = alive[1].index, c = alive[2].index, d = alive[3].index;
+  // A piece of b inside a (19 cells), and one of c inside d past MICROPLATE (217 cells; ~164 at level 6).
+  const small = strand(tec, deepCell(tec, a, 2), 2, b);
+  const at = deepCell(tec, d, 8);
+  assert.ok(at >= 0, 'a plate wide enough to hold the big piece');
+  const big = strand(tec, at, 8, c);
+  assert.ok(mostPieces(tec) >= 2);
+  const crust = i => { const p = tec.plates[tec.owner[i]], j = tec.ref[i]; return [p.h[j], p.phi[j], p.tf[j]]; };
+  const before = new Map([...small, ...big].map(i => [i, crust(i)]));
+  const n0 = tec.alivePlates().length;
+  tec.resolveFragments();
+  assert.equal(mostPieces(tec), 1, 'every plate one piece');
+  for (const i of small) assert.equal(tec.owner[i], a, 'the small piece joins the plate around it');
+  const nb = tec.owner[big[0]];
+  assert.ok(big.every(i => tec.owner[i] === nb) && nb !== c && nb !== d, 'the big piece is a plate of its own');
+  assert.equal(tec.alivePlates().length, n0 + 1);
+  assert.deepEqual(tec.plates[nb].w, tec.plates[c].w, 'with its parent\'s motion');
+  for (const [i, v] of before) assert.deepEqual(crust(i), v, 'each cell keeps its crust');
+  for (let i = 0; i < g6.n; i++) assert.equal(tec.plates[tec.owner[i]].mask[tec.ref[i]], 1, 'every world cell reads held crust');
+  // And the planet runs on, each plate whole after every step (checked every 0.5 Myr).
+  for (let s = 0; s < 40; s++) { tec.step(0.5); assert.equal(mostPieces(tec), 1, `pieces at ${tec.t} Myr`); }
 });
