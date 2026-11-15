@@ -297,7 +297,7 @@ How each phase is built:
 
 Today the climate is a periodic solution, so every year is the same year, and nothing can remember a wet decade. This phase gives the year a state.
 
-- **The year's stepper** (synthesis). A monthly step on the engine's worker, live below ~100 yr/s, for the state that lives between the season and the plate step: the anomaly, the aerosol, soil water and snow, lake water, and phase 7b's sea ice. Above that each is replaced by its closure. The climate cycle reads the stepper's slow means (the soil's wetness, the lakes' area) the way it now reads the zones.
+- **The year's stepper** (synthesis). A monthly step on the engine's worker, live below ~100 yr/s, for the state that lives between the season and the plate step: the anomaly, the aerosol, soil water and snow, and lake water. Above that each is replaced by its closure. The climate cycle reads the stepper's slow means (the soil's wetness, the lakes' area) the way it now reads the zones.
 - **Interannual variability** (standard: Hasselmann's stochastic climate model).
   - An anomaly T′ on the climate's coarse grid: C ∂T′/∂t = −B T′ + ∇·D∇T′ + F, with F red noise correlated over ~1,500 km. Its amplitude by latitude is calibrated against the QG weather's variance by a `tools/` run and kept as a fitted profile. Sea anomalies last for years, land ones for weeks.
   - A rain anomaly, correlated with T′ and with noise of its own.
@@ -342,13 +342,9 @@ Today the climate is a periodic solution, so every year is the same year, and no
 - **Oracles.** Vialov's profile with a sliding term (the plug-flow limit). The regolith's steady depth h* = h₀ ln(P₀/E). The line-load and point-load solutions on a uniform plate. Eroded and deposited mass conserved.
 - **Cost** L–XL. **Risk:** sliding shortens the ice's explicit step, and the GPU ice (`src/gpu/ice.js`) needs the sliding term too.
 
-### Phase 7b. Sea ice that moves (if scope allows)
+### Phase 7b. Sea ice that moves: out
 
-- Thickness and concentration on the coarse grid, stepped with the year.
-- Growth by Stefan's law from freezing degree days and the ocean's heat; melt by positive degree days.
-- Drift with the wind (Nansen's ~2%, turned ~25° from it) and the gyres' surface currents, with a cavitating-fluid pressure (Flato and Hibler) so the ice can't pile up without limit.
-- Coastal polynyas open where winds blow offshore, and the edge grows tongues along the currents. The climate's next cycle reads the concentration for albedo and evaporation instead of the diagnostic share. This answers the near-circular ice edge (`docs/LOG.md`) with dynamics.
-- **Oracles.** Stefan's √FDD growth, free drift, conservation. **Cost** L.
+Decided after phase 7 (2026-11-14). The module was built (Stefan's growth, free drift with Nansen's rule, a cavitating-fluid pressure) and tested, but at 220 km with ~12 Sv gyres the drift doesn't make the ice edge less circular: the energy balance sets it. The edge was the reason for the phase, and dynamic ice kept more summer ice, a tuning cost with nothing to show for it. Not integrated; the module is in git history (aab9310).
 
 ### Phase 8. Minimal life
 
@@ -386,7 +382,7 @@ Dust comes last because it's the thread between the other three sectors. Built e
   - Glacials are dusty (more bare ground, more outwash, more wind), so dust amplifies the ice ages.
 - **Drawn.** The transported mass as ochre stipple crossing the sea and settling on ice, its density the dust load (Open decisions).
 - **Survey: the ice ages.** With phases 6–9 the Ice ages experiment has its amplifiers: regolith, ocean carbon, dust and vegetation. Survey seeds and CO₂ for three things: the dominant period, the glacial–interglacial CO₂ swing (Earth's ~90 ppm), and dust (Earth's several-fold). Whether a 100-kyr rhythm emerges is the speculation the plan has carried since phase 3.
-- **Fig. 7 redrawn** for the new nodes: the year, volcanoes, soil, lakes, regolith, vegetation, ocean carbon and dust, plus sea ice if 7b lands.
+- **Fig. 7 redrawn** for the new nodes: the year, volcanoes, soil, lakes, regolith, vegetation, ocean carbon and dust.
 - **Oracles.** Dust conserved (emitted = deposited). A one-dimensional plume decaying downwind over its length U/k.
 - **Cost** M–L.
 
@@ -408,7 +404,6 @@ A session of its own, in three parts set by what phases 6–9 touch:
 | aerosol (6) | 1 yr | 1 month | 100 yr/s | the mean forcing of the eruption rate |
 | soil water, snow (6) | months | 1 month | 100 yr/s | its climatological year |
 | lakes (6) | 10–10³ yr | 1 yr | 10⁴ yr/s | the equilibrium level |
-| sea ice (7b) | months–yr | 1 month | 100 yr/s | the diagnostic share (today's) |
 | regolith (7) | 10⁴–10⁶ yr | landscape step | always | none: it accumulates |
 | flexure (7) | ELRA's 3 kyr | when loads move | always | none |
 | vegetation (8) | 10–10³ yr | 1 yr | 10⁵ yr/s | cover in balance with the climate |
@@ -429,7 +424,6 @@ At level 7 the monthly per-cell state is 164k cells × 1,200 months a second at 
 | ice | landscape | glacial erosion, till, outwash | 10⁴ yr |
 | regolith | ice, soil, carbon | bed friction, water capacity, weathering's supply | 10⁴–10⁶ yr |
 | loads | crust | flexure | 10³ yr–Myr |
-| sea ice (7b) | climate | albedo, evaporation | months |
 | vegetation | climate | albedo (snow masking), transpiration | 10–10³ yr |
 | vegetation | carbon, dust | land carbon, bare ground | 10–10³ yr |
 | sea temperature | carbon | solubility | 10³ yr |
@@ -451,7 +445,6 @@ The 2026-11-14 brainstorm also covered the geology readouts (isotope proxies, a 
   - Whether ice streams are drawn or left to the relief.
   - The salt flats' pattern, and whether old shorelines are drawn.
   - Whether permafrost is drawn.
-- Phase 7b in or out, decided after phase 7.
 
 ## Risks
 
