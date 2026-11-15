@@ -191,6 +191,7 @@ function advance() {
 function show(m, mode) {
   const old = shown;
   shown = m;
+  if (!old) caption(true);
   tec.t = m.t; tec.plates = m.plates;
   P.landBank = m.landBank;
   elevRel = m.elevRel;
@@ -731,7 +732,10 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const parts = [view === 'climate' ? `Climate, ${clMode}` : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : 'Relief', formatTime(P.years)];
+  const name = view === 'climate' ? `Climate, ${clMode}` : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : 'Relief';
+  // Until the planet's first surface arrives (its spin-up, ~1.7 s) there is nothing to read out.
+  if (!shown) { setCaption(name, true); return; }
+  const parts = [name, formatTime(P.years)];
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (view === 'weather') {
     const spun = wx && wx.started ? Math.min(1, wx.t / SPINUP) : 0;
@@ -753,7 +757,7 @@ function caption(force) {
   }
   // The experiment's measured number.
   const cs = climate.stats;
-  if (experiment.id === 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
+  if (experiment.id === 'snowball' && cs.cycles > 0) parts.push(`ice line ${Math.round(cs.iceLat)}°`);
   if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${(ice.stats.volume / 1e15).toFixed(1)} M km³`, p ? `period ${p} kyr` : 'period —'); }
   if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.balance)} ppm`);
   if (experiment.id === 'eruption') {
