@@ -48,11 +48,17 @@
 // the year, goes to the landscape and the rivers; its evaporative efficiency
 // to the next cycle's moisture. Lakes (src/engine/lakes.js) add open water to
 // the moisture balance and the albedo.
+//
+// The plants' cover (src/engine/vegetation.js, through src/engine/life.js:
+// `cover`, trees' and grass's shares), once known, sets land's albedo
+// (VECODE's surface albedos; trees mask snow) in place of the zones', and
+// land's evaporation: bare ground and grass at the ground's β, trees at √β.
 
 import { buildGrid, gradient } from '../grid/icosphere.js';
 import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
 import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit.js';
 import { Soil, SOIL, potentialEvaporation } from './soil.js';
+import { landAlbedo, VEG } from './vegetation.js';
 
 export const CLIMATE = {
   A: 203.3, B: 2.09,       // OLR = A + B·T (W/m², T in °C), North's fit to Earth (from memory)
@@ -65,6 +71,7 @@ export const CLIMATE = {
   ALB_OCEAN: 0.25, ALB_LAND: 0.27, ALB_POLAR: 0.12,   // + ALB_POLAR·sin²φ (sun angle, cloud)
   ALB_SNOW: 0.62, ALB_SEAICE: 0.56,
   ALB_DESERT: 0.07, ALB_FOREST: -0.03,
+  ALB_COVER: 0.03,         // snow-free land's offset under the plants' cover (which also masks snow): retuned so the opening's mean holds
   CO2: 280, CO2_REF: 280,  // ppm
   S: S0,
   // Circulation and moisture
@@ -79,6 +86,7 @@ export const CLIMATE = {
   EVAP: 0.35,              // 1/day toward saturation at 7 m/s
   RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
   LAND_EVAP: 0.56,         // land's evaporation relative to the sea's, at the soil's full efficiency (β = 1): retuned
+  LAND_EVAP_COVER: 0.52,   // the same with the plants' cover (src/engine/vegetation.js's factors): retuned so land's rain holds
                            // from 0.6 when the soil's β replaced P/(P + 2.5 mm/day), so land's rain stayed within 0.6%
   LAKE_ICE: 0.15,          // a frozen lake's evaporation relative to open water's
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
@@ -314,9 +322,15 @@ export class Climate {
     const C = CLIMATE, s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s;
     if (this.ice && this.ice.H[i] > 10) return C.ALB_SNOW;
     if (this.landMask[i]) {
-      const z = this.zones, o = NZ * i;
-      const base = C.ALB_LAND + polar + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
-      const Ts = T - C.LAPSE * this.elevPos[i], a = base + (C.ALB_SNOW - base) * ramp(-Ts, -1, 5), lw = this.lakeWet[i];
+      const z = this.zones, o = NZ * i, cv = this.cover, Ts = T - C.LAPSE * this.elevPos[i];
+      let a;
+      // The plants' cover where it's known (trees mask snow), else the zones'.
+      if (cv) a = landAlbedo(cv.ft[i], cv.fg[i], ramp(-Ts, -1, 5), C.ALB_LAND + C.ALB_COVER + polar, C.ALB_SNOW);
+      else {
+        const base = C.ALB_LAND + polar + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
+        a = base + (C.ALB_SNOW - base) * ramp(-Ts, -1, 5);
+      }
+      const lw = this.lakeWet[i];
       if (!(lw > 0)) return a;
       // A lake's share of the cell: open water, or its ice (fresh water freezes at 0 °C).
       const wa = C.ALB_OCEAN + polar;
@@ -519,7 +533,10 @@ export class Climate {
       let e = C.EVAP * (speed + 3) / 10;
       if (land) {
         // The soil's evaporative efficiency at this point of the year, and a lake's open water.
-        const el = e * C.LAND_EVAP * beta[i] * (gw > 0 ? 1 - gw + gw * gratio[i] : 1) * ramp(Ts, -5, 5), lw = this.lakeWet[i];
+        // With the plants' cover: bare ground and grass at β, trees at √β (deeper roots).
+        const b = beta[i] * (gw > 0 ? 1 - gw + gw * gratio[i] : 1), cv = this.cover;
+        const bc = cv ? (VEG.E_BARE * Math.max(0, 1 - cv.ft[i] - cv.fg[i]) + cv.fg[i]) * b + VEG.E_TREE * cv.ft[i] * Math.sqrt(b) : b;
+        const el = e * (cv ? C.LAND_EVAP_COVER : C.LAND_EVAP) * bc * ramp(Ts, -5, 5), lw = this.lakeWet[i];
         e = lw > 0 ? el + lw * (e * (1 - (1 - C.LAKE_ICE) * ramp(-Ts, 0, 4.5)) - el) : el;
       } else if (T[i] < -1.8) e *= 0.15;   // sea ice
       ec[i] = e;

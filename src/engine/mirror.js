@@ -23,6 +23,8 @@ export class ClimateView {
   update(m) {
     for (const k of ['version', 'stats', 'zonal', 'Tf', 'Pf', 'presPhase', 'W', 'snowAnn', 'landMask', 'elevPos', 'zones']) this[k] = m[k];
     this.ocean = { sst: m.sst, psi: m.psi, stats: m.oceanStats };
+    // The sea's export production (g C m⁻² yr⁻¹) rides in the zones' first free slot, which the globe draws.
+    if (m.prod) for (let i = 0, n = m.prod.length; i < n; i++) this.zones[NZ * i + 14] = m.prod[i];
   }
 }
 for (const k of ['tAt', 'pAt', 'presAt', 'surfaceT']) ClimateView.prototype[k] = Climate.prototype[k];

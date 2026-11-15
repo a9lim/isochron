@@ -14,6 +14,9 @@
 //   in the background          the climate's cycles; each completed cycle
 //                              refreshes weathering's map, the ice's mass
 //                              balance and the ground's periodic year
+//   after each cycle, too      the plants' cover's climate and the sea's
+//                              inputs (src/engine/life.js); the cover itself
+//                              steps per frame, its carbon traded with the air
 //
 // The lakes are routed on the smooth surface, the ground plus its ice (so ice
 // dams them), and rebuilt after each landscape step and when the ice has
@@ -34,6 +37,7 @@ import { Volcanoes } from './volcanoes.js';
 import { Year } from './year.js';
 import { Ground } from './ground.js';
 import { Lakes } from './lakes.js';
+import { Life } from './life.js';
 
 export const PLANET = {
   LAKES_LIVE: 1e4,       // yr/s: lakes step below this, and sit at their balance above
@@ -68,6 +72,8 @@ export class Planet {
     this.ocean = new Ocean(this.climate, this.climate.coarse);
     this.climate.ocean = this.ocean;
     this.carbon = new Carbon(this.tec, this.land, this.climate, this.plumes);
+    // Minimal life: the plants' cover and its carbon, and the sea's inputs (src/engine/life.js).
+    this.life = new Life(this);
     this.orbit = new OrbitCycles(seed);
     // The year: the anomaly, the volcanoes' veil, and (when plugged in) the soil and the lakes.
     this.volcanoes = new Volcanoes(this.tec, this.plumes, this.carbon, seed);
@@ -141,6 +147,7 @@ export class Planet {
    * tenth of a second of the dial.
    */
   fast(dt, iceMs = 4, rate = 10 * dt) {
+    this.life.fast(dt, rate);
     this.carbon.step(dt);
     CLIMATE.CO2 = this.carbon.pco2;
     if (dt > 0) {
@@ -217,7 +224,9 @@ export class Planet {
     return done;
   }
   afterClimate() {
+    this.life.afterClimate();
     this.carbon.measure();
+    this.life.afterMeasure();
     this.climateVersionSeen = this.climate.version;
   }
 

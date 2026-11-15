@@ -239,6 +239,7 @@ function onFast(m) {
   land.flux = m.landFlux;
   plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
   if (m.agg) P.agg = m.agg;
+  if (m.life) life = m.life;
   if (m.moon) Object.assign(moon, m.moon);
   if (m.prof) engineProf = m.prof;
   if (m.year) year.stats(m.year);
@@ -280,6 +281,13 @@ let lakesDrawn = null;
 function onLakes(m) {
   lakesDrawn = m;
   if (globe) globe.setLakes(m.draw, m.salt);
+  drawDirty = true;
+}
+// The plants' cover as the Relief view draws it (src/engine/life.js), and the land's and the sea's carbon.
+let coverDrawn = null, life = null;
+function onCover(m) {
+  coverDrawn = m.w;
+  if (globe) globe.setCover(m.w);
   drawDirty = true;
 }
 function onTides(m) {
@@ -519,7 +527,14 @@ const EXPERIMENTS = [
   { id: 'eruption', name: 'Eruption', dial: 0, view: 'relief',
     setup: () => { erupt.id = 1; },
     knob: { label: 'Sulfate', min: -1, max: Math.log10(30), step: 0.01, value: 1, fmt: v => `${pinatubos(10 ** v)} Pinatubos`, apply: v => { erupt.M = 10 ** v; } } },
+  // One pulse of carbon into the air once the sea has settled; each new size pulses again.
+  { id: 'pulse', name: 'Pulse', dial: 3.5, view: 'climate',
+    setup: () => { pulse.id = 1; },
+    knob: { label: 'Carbon', min: Math.log10(500), max: 4, step: 0.01, value: Math.log10(2000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => { pulse.PgC = 10 ** v; } } },
 ];
+// The Pulse experiment's pulse: its size (Pg C) and a count, so the engine pulses once per size set.
+const pulse = { PgC: 2000, id: 0 };
+const pgc = v => (v < 1000 ? Math.round(v / 10) * 10 : Math.round(v / 100) * 100).toLocaleString('en');
 // The Eruption experiment's eruption: its size (Pinatubos) and a count, so the engine erupts once per size set.
 const erupt = { M: 10, id: 0 };
 let eruptTimer = 0;
@@ -537,11 +552,12 @@ function chooseExperiment(id) {
 /** The experiments' parameters, as the engine's thread holds them. */
 function params() {
   return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX },
-    ERUPT: experiment.id === 'eruption' && erupt.id > 0 ? { M: erupt.M, id: erupt.id } : null };
+    ERUPT: experiment.id === 'eruption' && erupt.id > 0 ? { M: erupt.M, id: erupt.id } : null,
+    PULSE: experiment.id === 'pulse' && pulse.id > 0 ? { PgC: pulse.PgC, id: pulse.id } : null };
 }
 function sendParams() { if (engineStarted) engine.postMessage({ type: 'params', params: params() }); }
 function defaults() {
-  CLIMATE.S = S0; CARBON.FIXED = 0; CARBON.OUTGAS = 1;
+  CLIMATE.S = S0; CARBON.FIXED = 0; CARBON.OUTGAS = 1; pulse.id = 0;
   Object.assign(PARAMS, BASE);
 }
 function setExperiment(id) {
@@ -571,6 +587,7 @@ els.knobInput.addEventListener('input', () => {
   k.apply(+els.knobInput.value);
   // A new size erupts again once the knob rests.
   if (experiment.id === 'eruption') { clearTimeout(eruptTimer); eruptTimer = setTimeout(() => { erupt.id++; sendParams(); caption(true); }, 350); }
+  else if (experiment.id === 'pulse') { clearTimeout(eruptTimer); eruptTimer = setTimeout(() => { pulse.id++; sendParams(); caption(true); }, 350); }
   else sendParams();
   caption(true);
 });
@@ -664,6 +681,17 @@ function caption(force) {
     } else parts.push(`${pinatubos(erupt.M)} Pinatubos`, 'waiting for the climate');
     if (view === 'relief') { setCaption(parts.join(' · '), true); return; }
   }
+  if (experiment.id === 'pulse') {
+    // The share of the pulse still in the air (against a twin of the sea without it) after 1, 10
+    // and 100 kyr, and the theory's: the closed sea, the compensated sea, then weathering.
+    const g = carbon.pulse, sh = v => (v == null ? '—' : `${(100 * v).toFixed(v < 0.1 ? 1 : 0)}%`);
+    if (g) {
+      parts.push(`${pgc(g.PgC)} Pg C`, `CO₂ ${Math.round(carbon.pco2)} ppm`, `in the air ${sh(g.share)}`,
+        `1 kyr ${sh(g.at[0])} · 10 kyr ${sh(g.at[1])} · 100 kyr ${sh(g.at[2])}`, `theory ${sh(g.theory.s1)}, ${sh(g.theory.s10)}, ${sh(g.theory.s100)}`);
+    } else parts.push(`${pgc(pulse.PgC)} Pg C`, 'waiting for the sea');
+    setCaption(parts.join(' · '), true);
+    return;
+  }
   if (view === 'climate') {
     const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
@@ -693,6 +721,8 @@ function modelSnapshot() {
   const sea = Math.round((tec.seaLevel - P.seaLevel0) * 1000);
   // The year: its anomaly's global mean now, the veil's forcing (its departure from the eruption rate's mean, live), and the mean's.
   const yearMean = year.meanAt(P.years);
+  // The plants and the sea's carbon (src/engine/life.js, src/engine/oceancarbon.js).
+  const L = life || { trees: 0, npp: 0, air: 0, bio: 1, shelf: 0 }, seaC = carbon.sea || { ccd: 0 }, gas = cf.gas || 0, Pg = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(Math.abs(v) < 0.1 ? 3 : 2)} Pg/yr`;
   const r = year.rates || { arcs: 0.1, hot: 0, flood: 0 }, Wm = v => { const a = Math.abs(v), t = a.toFixed(a < 0.1 ? 2 : 1); return `${+t === 0 ? '' : v > 0 ? '+' : '−'}${t} W/m²`; };
   return {
     values: {
@@ -705,6 +735,7 @@ function modelSnapshot() {
       year: year.live > 0 ? `${yearMean >= 0 ? '+' : '−'}${Math.abs(yearMean).toFixed(2)} K` : `±${year.sigma.toFixed(1)} K`,
       volcanoes: `τ ${year.aod.toFixed(3)}`,
       ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
+      veg: `${Math.round(100 * L.trees)}% trees`, seaC: `CCD ${(seaC.ccd / 1000).toFixed(1)} km`,
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -747,6 +778,22 @@ function modelSnapshot() {
       { from: 'volcanoes', to: 'climate', w: Math.abs(year.Frate) / 1, label: Wm(year.Fmean), red: true, bend: -0.1 },
       { from: 'climate', to: 'year', w: 0.25, bend: -0.15 },
       { from: 'year', to: 'zones', w: year.sigma / 2, label: `±${year.sigma.toFixed(1)} K`, bend: 0.1 },
+      // The plants: grown by the climate's warmth and rain and the ground's water, fed by the CO₂; their
+      // albedo (masking snow) and transpiration back to the climate; their carbon to the air, and their
+      // cover into weathering's map.
+      { from: 'climate', to: 'veg', w: L.npp / 60, label: `NPP ${Math.round(L.npp)} Pg/yr`, bend: 0.15 },
+      { from: 'veg', to: 'climate', w: L.trees / 0.5, label: 'albedo', bend: 0.15 },
+      { from: 'ground', to: 'veg', w: 0.25, bend: -0.2 },
+      { from: 'veg', to: 'carbon', w: Math.abs(L.air) / 0.5, label: Math.abs(L.air) > 5e-4 ? Pg(L.air) : '', bend: 0.05 },
+      { from: 'carbon', to: 'veg', w: 0.15, bend: 0.05 },
+      // The sea's carbon: the air–sea exchange (either way), the gyres' temperatures and upwelling,
+      // the shelves the sea level floods, the rivers' nutrients, and the carbonate the plates carry down.
+      gas >= 0 ? { from: 'carbon', to: 'seaC', w: gas / 0.5, label: Pg(gas).replace('+', ''), bend: 0.12 }
+        : { from: 'seaC', to: 'carbon', w: -gas / 0.5, label: Pg(-gas).replace('+', ''), bend: 0.12 },
+      { from: 'ocean', to: 'seaC', w: (cf.export || 0) / 5, label: `export ${(cf.export || 0).toFixed(1)} Pg/yr`, bend: -0.25 },
+      { from: 'sea', to: 'seaC', w: (L.shelf || 0) / 30, label: 'shelves', bend: -0.2 },
+      { from: 'landscape', to: 'seaC', w: L.bio / 2, label: `${L.bio.toFixed(2)}×`, bend: -0.1 },
+      { from: 'plates', to: 'seaC', w: (cf.arc || 0) / 0.1, bend: 0.1 },
     ],
   };
 }
@@ -1000,6 +1047,7 @@ engine.onmessage = e => {
   else if (m.type === 'tides') onTides(m);
   else if (m.type === 'year') onYear(m);
   else if (m.type === 'lakes') onLakes(m);
+  else if (m.type === 'cover') onCover(m);
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
@@ -1014,6 +1062,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   wx = new GpuWeather(g.device, mesh, seed, g.refiner, moon.Omega);
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
   if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt);
+  if (coverDrawn) g.setCover(coverDrawn);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;

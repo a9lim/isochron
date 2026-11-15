@@ -61,6 +61,8 @@ const GLYPHS = {
   },
   isotherm: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
   current: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 1; c.beginPath(); c.ellipse(x + 13, y + 6, 11, 4.5, 0, 0, 7); c.stroke(); },
+  // Export production: short viridian strokes on a staggered lattice, as the shader's `dashes`.
+  export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; c.lineCap = 'round'; for (let b = 0; b < 3; b++) for (let a = 0; a < 4; a++) { const cx = x + 3.5 + a * 6.4 + (b % 2) * 3.2; line(c, cx - 1.5, y + 2 + b * 4, cx + 1.5, y + 2 + b * 4); } c.lineCap = 'butt'; },
   cold: (c, x, y, P) => front(c, x, y, P.inks.prussian, 'tri'),
   warm: (c, x, y, P) => front(c, x, y, P.inks.sienna, 'semi'),
   stationary: (c, x, y, P) => {
@@ -117,7 +119,7 @@ function vegetation(c, x, y, P, kind) {
 const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['volcano', 'Eruption'], ['veil', 'Sulfate veil'], ['river', 'River'],
     ['lake', 'Lake'], ['salt', 'Salt flat'], ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
-  climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['lake', 'Lake'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv'], ['volcano', 'Eruption']],
+  climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['lake', 'Lake'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['volcano', 'Eruption']],
   'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
   'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
   'weather-humidity': [['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['rain', 'Rain'], ['hl', 'High, low']],

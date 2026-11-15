@@ -7,6 +7,8 @@ import { genesis } from '../src/engine/genesis.js';
 import { Climate, CLIMATE, ZONES, NZ } from '../src/engine/climate.js';
 import { Year } from '../src/engine/year.js';
 import { Lakes } from '../src/engine/lakes.js';
+import { Vegetation } from '../src/engine/vegetation.js';
+import { coverClimate } from '../src/engine/life.js';
 Object.assign(CLIMATE, JSON.parse(process.argv[3] || '{}'));
 const g = buildGrid(6), tec = new Tectonics(g), land = new Landscape(tec);
 genesis(tec, process.argv[2] || 'earthlike', { spinup: 40, landscape: land });
@@ -16,7 +18,13 @@ if (!process.env.FIXED) clim.year = new Year(clim);
 // The lakes at their balance after each cycle, as at a fast dial (NOLAKES=1: none).
 const lakes = process.env.NOLAKES ? null : new Lakes(g);
 if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.seaLevel); }
-const cycle = () => { clim.solve(1); if (lakes) lakes.equilibrium(clim.runoff, clim.peAnn, 1); };
+// The plants' cover at its balance after each cycle, as at the opening (NOVEG=1: none, the zones' albedo).
+const veg = process.env.NOVEG ? null : new Vegetation(g.n, g.area);
+const cycle = () => {
+  clim.solve(1);
+  if (lakes) lakes.equilibrium(clim.runoff, clim.peAnn, 1);
+  if (veg) { coverClimate(veg, clim, CLIMATE.CO2); veg.equilibrate(); clim.cover = { ft: veg.ft, fg: veg.fg }; }
+};
 let t0 = performance.now();
 cycle();
 const cold = performance.now() - t0; t0 = performance.now();
@@ -38,6 +46,11 @@ console.log(ZONES.map((name, k) => `${name} ${(100 * share[k] / la).toFixed(0)}`
 }
 let wmax = 0, wsum = 0; for (let i = 0; i < g.n; i++) { const w = Math.hypot(clim.windPhase[2][3*i], clim.windPhase[2][3*i+1], clim.windPhase[2][3*i+2]); wmax = Math.max(wmax, w); wsum += w * g.area[i]; }
 console.log(`wind (Jun–Jul) mean ${(wsum / 4 / Math.PI).toFixed(1)} m/s max ${wmax.toFixed(1)}`);
+if (veg) {
+  const land = new Uint8Array(g.n); for (let i = 0; i < g.n; i++) land[i] = clim.landMask[i];
+  const t = veg.totals(land);
+  console.log(`cover: trees ${(100 * t.trees).toFixed(0)}% · grass ${(100 * t.grass).toFixed(0)}% · bare ${(100 * t.bare).toFixed(0)}% of land · land carbon ${t.veg.toFixed(0)} Pg in plants, ${t.soil.toFixed(0)} in soil`);
+}
 // Land-only seasonal range (warmest − coldest month) by 10° band.
 {
   const { monthPhase } = await import('../src/engine/orbit.js');

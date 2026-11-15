@@ -20,6 +20,9 @@
 //   lakes     when the lakes have changed, at most ~4 times a second: their
 //             drawn depth and salt flats (src/render/surface.js, lakeFields)
 //
+//   cover     when the plants' cover has changed, at most twice a second: the
+//             Relief view's eight colour weights a cell (src/engine/life.js)
+//
 // The ground's live state is stepped on this thread's GPU device (src/gpu/
 // soil.js) and read back ~10 times a second: the lakes' runoff, the climate's
 // evaporation, and the rivers' month.
@@ -53,6 +56,7 @@ const ticks = [];
 let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
 let yearSent = -1, yearLiveSent = -1, eruptId = null, eruptWaiting = null, riversId = 0, riversCells = null, riversQ12 = null, riversRt = null, lastRate = 1;
 let lakesSent = -1, lastLakes = 0;
+let coverSent = -1, lastCover = 0, pulseId = null, pulseWaiting = null;
 
 const post = (m, transfer = []) => self.postMessage(m, transfer);
 const ch = new MessageChannel();
@@ -97,6 +101,11 @@ function apply(p) {
   // The Eruption experiment: one tagged eruption each time its size is set, once the climate
   // is warm (the anomaly's heat capacity reads its land and sea ice).
   if (p.ERUPT && p.ERUPT.id !== eruptId) { eruptId = p.ERUPT.id; eruptWaiting = p.ERUPT.M; }
+  // The Pulse experiment: one pulse each time its size is set, once the sea has settled.
+  if (p.PULSE && p.PULSE.id !== pulseId) { pulseId = p.PULSE.id; pulseWaiting = p.PULSE.PgC; }
+}
+function pulseWhenSettled() {
+  if (pulseWaiting !== null && P.carbon.settled) { P.carbon.startPulse(pulseWaiting); pulseWaiting = null; }
 }
 function eruptWhenWarm() {
   if (eruptWaiting !== null && P.climate.stats.cycles >= 2) { P.year.eruptTagged(eruptWaiting, P.years); eruptWaiting = null; }
@@ -121,6 +130,7 @@ async function pumpTicks() {
   let ta = performance.now();
   const lap = k => { const tb = performance.now(); prof[k] = (prof[k] || 0) + tb - ta; ta = tb; };
   eruptWhenWarm();
+  pulseWhenSettled();
   while (ticks.length) {
     const m = ticks.shift();
     lastRate = m.rate ?? m.window / 2;
@@ -147,6 +157,7 @@ async function pumpTicks() {
   if (P.year.steps !== yearSent || (P.year.live > 0) !== yearLiveSent) { sendYear(); lap('year'); }
   if (P.lakesVersion !== lakesSent && now - lastLakes > 250) { sendLakes(); lap('lakes'); }
   if (now - lastFast > 100) { sendFast(false); lap('fastMsg'); }
+  if (P.life.version !== coverSent && now - lastCover > 500) { sendCover(); lap('cover'); }
   if ((playing || pending > 0) && !climateRunning) climateLoop();
   solveTides();
 }
@@ -231,6 +242,13 @@ function sendLakes() {
   post({ type: 'lakes', draw: f.draw, salt: f.salt }, [f.draw.buffer, f.salt.buffer]);
 }
 
+// The plants' cover as the Relief view draws it: eight colour weights a cell.
+function sendCover() {
+  lastCover = performance.now(); coverSent = P.life.version;
+  const w = P.life.colours();
+  post({ type: 'cover', w }, [w.buffer]);
+}
+
 // The year's step: the anomaly at its end (the page holds the last as this one's start), the veil, the eruptions.
 let yearAnomSent = -1;
 function sendYear() {
@@ -286,9 +304,9 @@ function sendClimate() {
     type: 'climate', version: c.version, stats: { ...c.stats, cycleMs }, zonal: c.zonal,
     Tf: c.Tf.map(f32), Pf: c.Pf.map(f32), presPhase: c.presPhase.map(f32), W: c.W.map(f32),
     snowAnn: f32(c.snowAnn), landMask: Uint8Array.from(c.landMask), elevPos: f32(c.elevPos), zones: f32(c.zones),
-    sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats },
+    sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats }, prod: f32(P.life.export),
   };
-  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi].map(a => a.buffer);
+  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod].map(a => a.buffer);
   post(m, transfer);
 }
 
@@ -300,7 +318,9 @@ function sendFast(first) {
   const m = {
     type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, samples: Float64Array.from(samples),
     iceH: Float32Array.from(ice.H), iceVel: Float32Array.from(ice.vel), iceStats: { ...ice.stats },
-    carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out) },
+    carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out),
+      sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 }, pulse: carbon.tag ? carbon.tag.info : null },
+    life: { ...P.life.stats },
     landFlux: { ...land.flux },
     moon: { a: P.moon.a, Omega: P.moon.Omega, omega: P.moon.omega, P: P.moon.P, day: P.moon.day },
     plumes: { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) },

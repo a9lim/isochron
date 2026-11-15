@@ -11,9 +11,11 @@
 //                    formation times, so chrons finer than a pixel read as the
 //                    mid-tone rather than shimmering.
 //   hairlines        the coastline, and every kilometre of depth and height
-//   vegetation       land is coloured by the climate's zones (forests,
-//                    savanna, steppe, desert, boreal forest, tundra), rock
-//                    toward the summits
+//   vegetation       land is coloured by the plants' cover (src/engine/life.js:
+//                    trees, grass and bare ground by warmth, as forests,
+//                    savanna, steppe, desert, boreal forest, tundra and rock),
+//                    rock toward the summits; the cover lags its climate, so
+//                    after the ice goes bare ground and grass come first
 //   snow, sea ice    a light fill with a hard edge, as a map draws them
 //   lakes            from their water (src/engine/lakes.js), in the sea's tint
 //                    by depth, with a hard shore; eased when they change
@@ -22,7 +24,9 @@
 //   ice sheets       a light fill with a hard outline and contours of the
 //                    ice's surface every 500 m
 // In the Climate view the sea carries isotherms of its surface temperature
-// every 5 °C and the gyres' streamlines every 3 Sv. The Weather view is a
+// every 5 °C, the gyres' streamlines every 3 Sv and short viridian strokes
+// whose density is the export production (the sea carbon's boxes spread by
+// what feeds them: upwelling, rivers, the cold sea). The Weather view is a
 // synoptic chart's base: pale land, the paper for sea, isobars every 4 hPa
 // (heavier every 20) and rain as a stipple whose density is the rate.
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
@@ -57,6 +61,7 @@ struct U {
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
+@group(0) @binding(2) var<storage, read> cover: array<vec4f>;   // the cover's eight colour weights a vertex
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -73,6 +78,7 @@ struct VOut {
   @location(10) wx: vec4f,
   @location(11) td: vec4f,
   @location(12) lw: vec4f,
+  @location(13) cv: vec4f,   // the cover's colour (premultiplied) and its weight
 };
 
 fn toView(p: vec3f) -> vec3f {
@@ -82,7 +88,7 @@ fn toView(p: vec3f) -> vec3f {
 @vertex fn vs(@location(0) p: vec3f, @location(1) fc: vec4f, @location(2) nc: vec3f, @location(3) c: vec4f,
               @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
               @location(8) iv: vec4f, @location(9) wx: vec4f, @location(10) fp: vec4f, @location(11) np: vec3f,
-              @location(12) td: vec4f, @location(13) lw: vec4f) -> VOut {
+              @location(12) td: vec4f, @location(13) lw: vec4f, @builtin(vertex_index) vi: u32) -> VOut {
   // Between plate steps the surface blends from the last step's state to this
   // one's (each step moves the crust less than half a cell), so it moves
   // continuously rather than in ticks.
@@ -101,6 +107,14 @@ fn toView(p: vec3f) -> vec3f {
   o.wx = wx;
   o.td = td;
   o.lw = lw;
+  // The cover's colour: its classes (src/engine/vegetation.js, COLOURS) in the biomes' colours,
+  // rock as the summits' (linear in the weights, so blending here is blending the weights).
+  let c0 = cover[2u * vi];
+  let c1 = cover[2u * vi + 1u];
+  let rock = mix(u.canvas.rgb, u.land.rgb, 0.5);
+  o.cv = vec4f(c0.x * biome(0) + c0.y * biome(6) + c0.z * biome(9) + c0.w * biome(2)
+             + c1.x * biome(5) + c1.y * biome(12) + c1.z * biome(4) + c1.w * rock,
+               c0.x + c0.y + c0.z + c0.w + c1.x + c1.y + c1.z + c1.w);
   return o;
 }
 
@@ -166,6 +180,23 @@ fn stipple1(uv: vec2f, fw: f32, o: vec2f, rpx: f32) -> f32 {
 fn stipple(T: Tri, periodPx: f32, rpx: f32) -> f32 {
   let o = octave(periodPx);
   return T.w.x * stipple1(T.x, T.f.x, o, rpx) + T.w.y * stipple1(T.y, T.f.y, o, rpx) + T.w.z * stipple1(T.z, T.f.z, o, rpx);
+}
+// Short strokes on the stipple's staggered lattice: a stroke 0.45 of the period long, wpx wide.
+fn dash1(uv: vec2f, fw: f32, F: f32, wpx: f32) -> f32 {
+  let q = uv * F;
+  let row = floor(q.y / 0.8660254);
+  let odd = row - 2.0 * floor(row * 0.5);
+  let qx = q.x + 0.5 * odd;
+  let c = vec2f(qx - floor(qx) - 0.5, (q.y / 0.8660254 - row - 0.5) * 0.8660254);
+  let d = length(vec2f(max(abs(c.x) - 0.225, 0.0), c.y)) / max(fw * F, 1e-7);
+  return 1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, d);
+}
+fn dashes1(uv: vec2f, fw: f32, o: vec2f, wpx: f32) -> f32 {
+  return mix(dash1(uv, fw, o.x, wpx), dash1(uv, fw, 2.0 * o.x, wpx), o.y);
+}
+fn dashes(T: Tri, periodPx: f32, wpx: f32) -> f32 {
+  let o = octave(periodPx);
+  return T.w.x * dashes1(T.x, T.f.x, o, wpx) + T.w.y * dashes1(T.y, T.f.y, o, wpx) + T.w.z * dashes1(T.z, T.f.z, o, wpx);
 }
 
 // Salt crust: a jittered lattice's cells (Worley's), their borders cracks of constant width
@@ -345,6 +376,10 @@ fn hair(d: f32, w: f32) -> f32 {
   wash = mix(wash, u.text.rgb, 0.22 * hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4)));
   let st = psi / 3.0;
   wash = mix(wash, u.ocean.rgb, 0.75 * hair(abs(st - round(st)), max(fpsi / 3.0, 1e-4)) * step(0.5, abs(psi)));
+  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian strokes, denser where more sinks.
+  let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
+  let exMarks = dashes(T, mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
+  wash = mix(wash, u.inkA.rgb, 0.6 * exMarks);
   sea = select(sea, wash, climate);
   // Snow and sea ice: a light fill with a hard edge, as a map draws them.
   let iceInk = select(mix(u.canvas.rgb, u.ocean.rgb, 0.05), mix(u.canvas.rgb, u.text.rgb, 0.16), dark);
@@ -354,17 +389,10 @@ fn hair(d: f32, w: f32) -> f32 {
   sea = mix(sea, iceInk, ice);
   sea = mix(sea, u.ocean.rgb, 0.55 * iceEdge);
 
-  // Land: vegetation from the climate's zones (the height's umber where they
-  // aren't known yet), rock toward the summits, contours every kilometre.
+  // Land: the plants' cover (the height's umber where it isn't known yet), rock
+  // toward the summits, contours every kilometre.
   let heightTint = mix(u.canvas.rgb, u.land.rgb, u.frame2.w + u.light.w * smoothstep(0.0, 5.0, e));
-  var veg = vec3f(0.0);
-  var vw = 0.0;
-  for (var k = 0; k < 14; k++) {
-    let pk = select(select(select(i.z3[k - 12], i.z2[k - 8], k < 12), i.z1[k - 4], k < 8), i.z0[k], k < 4);
-    veg += pk * biome(k);
-    vw += pk;
-  }
-  var land = select(heightTint, veg / max(vw, 1e-6), vw > 0.5);
+  var land = select(heightTint, i.cv.rgb / max(i.cv.w, 1e-6), i.cv.w > 0.5);
   land = mix(land, mix(u.canvas.rgb, u.land.rgb, 0.5), smoothstep(1.2, 4.0, e) * 0.85);
   land = mix(land, u.text.rgb, 0.07 * hair(abs(e - round(e)), fe) * step(0.5, e));
   land = mix(land, snowInk, ice);
@@ -506,9 +534,11 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   // The tide's harmonic and dissipation, then the lakes' drawn depth and salt (the last and the
   // new): one buffer, as a pipeline has eight vertex buffers at most.
   const tideBuf = device.createBuffer({ size: nm * 32, usage: VS });
+  // The cover's eight colour weights a vertex, read by the vertex shader from storage (a ninth vertex buffer is past the limit).
+  const coverBuf = storage(device, nm * 32);
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
-  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 32, tideBuf);
+  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 32, tideBuf), coverS = S(n * 32, coverBuf);
   const refiner = refining ? new Refiner(device, mesh, coarse) : null;
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -550,7 +580,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   function rebind() {
     bind = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }],
+      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }],
     });
   }
 
@@ -626,6 +656,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
     },
     get lakesEasing() { return performance.now() - lakeAt < LAKE_EASE; },
+    /** Per cell: the plants' cover as eight colour weights (src/engine/vegetation.js, COLOURS; zero off its land). */
+    setCover(w) { device.queue.writeBuffer(coverS, 0, w); refine(coverS, coverBuf, 2); },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
     refiner,
