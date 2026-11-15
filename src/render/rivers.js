@@ -140,7 +140,8 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
     if (c.mouth) { P.push(...c.mouth); W.push(W[W.length - 1]); month(last); }
     if (c.end >= 0) { P.push(pos[3 * c.end], pos[3 * c.end + 1], pos[3 * c.end + 2]); W.push(Q[last]); month(last); }
     if (W.length < 2) continue;
-    const line = smooth(relax({ P, W, M }, Math.round(4 * Math.sqrt(n / 40962))), 3);
+    // Corner-cut three times at level 6 (~14 km apart), twice at level 7 (its points start twice as close).
+    const line = smooth(relax({ P, W, M }, Math.round(4 * Math.sqrt(n / 40962))), Math.max(1, Math.round(3 - Math.log2(n / 40962) / 2)));
     if (c.end >= 0) {
       const stem = out[chainOf[c.end]];
       if (stem) {

@@ -21,7 +21,7 @@ import { monthName, monthAt, S0, solarLongitude } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
-import { drawOverlay, turned, morphed, matchLines, link } from './src/render/overlay.js';
+import { drawOverlay, placeLine, capOf, capFaces, matchLines, link } from './src/render/overlay.js';
 import { makeStars, ecliptic } from './src/render/sky.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
@@ -192,6 +192,9 @@ function show(m, mode) {
     matchLines(oldLines, lines, l => l.left < l.right ? `${l.left},${l.right}` : `${l.right},${l.left}`);
     for (const l of lines) l.prevT = oldT;
     keepSides(lines);
+    // A line morphs from its predecessor, and a retrace without a step from that one's (below):
+    // nothing further back is needed, and kept it would hold every line ever traced.
+    for (const l of lines) if (l.prev) { l.prev.prev = null; l.prev.corr = null; }
   } else {
     // Retraced without a step: the same line, so it carries on morphing from its predecessor's predecessor.
     const oldLines = lines;
@@ -204,12 +207,13 @@ function show(m, mode) {
     }
     keepSides(lines);
   }
+  for (const l of lines) capOf(l);
   if (m.rivers) {
     const oldR = rivers, oldRT = riversT;
     rivers = m.rivers; riversT = m.t; rivers.id = m.riversId;
     riversGone = matchLines(oldR, rivers, r => r.plate, true);
-    for (const r of rivers) r.prevT = oldRT;
-    for (const r of riversGone) r.goneT = oldRT;
+    for (const r of rivers) { r.prevT = oldRT; if (r.prev) { r.prev.prev = null; r.prev.corr = null; } capOf(r); }
+    for (const r of riversGone) { r.goneT = oldRT; r.prev = null; r.corr = null; capOf(r); }
   }
   if (globe) uploadSurface(m, mode);
   void old;
@@ -1031,12 +1035,14 @@ function tick(now) {
     const tShow = tau ?? tec.t;
     // Each line is turned with its plates to the shown moment and morphed from its
     // predecessor's course (rivers over the landscape's own step).
+    // A line wholly behind the globe is neither placed nor drawn (`hidden`).
+    const cm = camera.m, w = [0, 0, 0];
     if (lines) for (const ln of lines) {
       const a = tec.plates[ln.left], b = tec.plates[ln.right];
-      const w = [0.5 * (a.w[0] + b.w[0]), 0.5 * (a.w[1] + b.w[1]), 0.5 * (a.w[2] + b.w[2])];
-      const cur = turned(ln.P, w, tShow - linesT);
-      ln.shown = ln.prev ? morphed(turned(ln.prev.P, w, tShow - ln.prevT), cur, phi, ln.corr) : cur;
-      ln.shownL = turned(ln.L, w, tShow - linesT);
+      w[0] = 0.5 * (a.w[0] + b.w[0]); w[1] = 0.5 * (a.w[1] + b.w[1]); w[2] = 0.5 * (a.w[2] + b.w[2]);
+      ln.hidden = view === 'climate' || view === 'tides' || view === 'weather' || !capFaces(ln, w, tShow - linesT, cm);
+      if (ln.hidden) continue;
+      placeLine(ln, w, tShow - linesT, tShow - ln.prevT, phi);
       ln.shownU = shownU(ln, phi);
     }
     if (rivers) {
@@ -1045,14 +1051,16 @@ function tick(now) {
       for (const rv of rivers) {
         const pl = tec.plates[rv.plate];
         rv.alpha = rv.prev ? 1 : phiL;           // a river with no predecessor fades in
-        if (!pl || !pl.alive) { rv.shown = rv.P; continue; }
-        const cur = turned(rv.P, pl.w, tShow - riversT);
-        rv.shown = rv.prev ? morphed(turned(rv.prev.P, pl.w, tShow - rv.prevT), cur, phiL, rv.corr) : cur;
+        if (!pl || !pl.alive) { rv.shown = rv.P; rv.hidden = false; continue; }
+        rv.hidden = !capFaces(rv, pl.w, tShow - riversT, cm);
+        if (!rv.hidden) placeLine(rv, pl.w, tShow - riversT, tShow - rv.prevT, phiL);
       }
       for (const rv of riversGone) {
         const pl = tec.plates[rv.plate];
         rv.alpha = 1 - phiL;                     // and one with no successor fades out
-        rv.shown = pl && pl.alive ? turned(rv.P, pl.w, tShow - rv.goneT) : rv.P;
+        if (!pl || !pl.alive) { rv.shown = rv.P; rv.hidden = false; continue; }
+        rv.hidden = !capFaces(rv, pl.w, tShow - rv.goneT, cm);
+        if (!rv.hidden) placeLine(rv, pl.w, tShow - rv.goneT, 0, 1);
       }
     }
     lap('lines');
@@ -1107,4 +1115,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get lines() { return lines; }, get rivers() { return rivers; } };

@@ -86,7 +86,7 @@ function box(c, K) {
 export function shownU(l, phi) {
   if (!l.u) freshU(l);
   if (!l.prev || phi >= 1 || l.u0 === l.u) return l.u;
-  const u = l.u, u0 = l.u0, out = new Float32Array(u.length);
+  const u = l.u, u0 = l.u0, out = l.uBuf && l.uBuf.length === u.length ? l.uBuf : (l.uBuf = new Float32Array(u.length));
   for (let k = 0; k < u.length; k++) out[k] = u0[k] + phi * (u[k] - u0[k]);
   return out;
 }

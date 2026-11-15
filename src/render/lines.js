@@ -6,8 +6,9 @@
 // swings ±60°. Instead:
 //   1. trace the boundary edges into polylines between triple junctions
 //      (one polyline separates one pair of plates, left and right);
-//   2. smooth each polyline (a Laplacian pass removes the stair, two rounds
-//      of Chaikin corner-cutting round it), on the sphere, junctions fixed;
+//   2. smooth each polyline (a Laplacian pass removes the stair, Chaikin
+//      corner-cutting rounds it: two rounds at level 6, one at level 7, ~27 km
+//      apart either way), on the sphere, junctions fixed;
 //   3. classify every point of the smoothed line from the two plates' own
 //      rotations there: the relative velocity's component across the line
 //      (opening or closing) against its component along it (sliding), averaged
@@ -117,8 +118,11 @@ function build(tec, corners, cells, closed) {
     if (closed) for (let c = 0; c < 3; c++) Q[3 * (N - 1) + c] = Q[c];
     const t = P; P = Q; Q = t;
   }
-  // Chaikin, twice.
-  for (let it = 0; it < 2; it++) ({ P, over, arc } = chaikin(P, over, arc, closed));
+  // Chaikin: twice at level 6, so points lie ~27 km apart (~1.6 px at the usual zoom); once on
+  // the finer grid, which starts with them twice as close (twice there doubled every line's
+  // points, and the page's cost of placing, matching and drawing them, for nothing seen).
+  const rounds = Math.max(1, Math.round(2 - Math.log2(g.n / 40962) / 2));
+  for (let it = 0; it < rounds; it++) ({ P, over, arc } = chaikin(P, over, arc, closed));
 
   // Classify each point from the plates' rotations.
   const M = P.length / 3;

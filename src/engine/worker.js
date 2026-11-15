@@ -65,6 +65,12 @@ let lakesSent = -1, lastLakes = 0;
 let coverSent = -1, lastCover = 0, pulseId = null, pulseWaiting = null;
 
 const post = (m, transfer = []) => self.postMessage(m, transfer);
+// The engine's own GPU device, asked for as the thread starts, so the GPU's own start overlaps the
+// planet's spin-up; the pump waits for it (a level-7 plate step on the CPU is ~250 ms cold) unless
+// there is none.
+const deviceP = typeof navigator !== 'undefined' && navigator.gpu ? gpuDevice() : Promise.reject(new Error('no WebGPU'));
+deviceP.catch(() => {});
+let gpuWait = true;
 const ch = new MessageChannel();
 ch.port1.onmessage = pump;
 function schedule() { if (!scheduled) { scheduled = true; ch.port2.postMessage(0); } }
@@ -79,8 +85,8 @@ self.onmessage = e => {
     // The regolith takes the ice's integrals as they come back (~400 ms), at most every 250 ms.
     P.regolith.minGap = 250;
     apply(m.params);
-    // The engine's own GPU device, for the ice (and the climate's heavy solves).
-    gpuDevice().then(device => {
+    // The engine's own GPU device: the ice, the climate's heavy solves, the plates and the rest.
+    deviceP.then(device => {
       P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
       P.climate.ebmGpu = new GpuEnergyBalance(device, P.climate, { have: P.ice.flex.levels.map(l => l.g) });
       if (P.aeolian) P.aeolian.gpu = new GpuDust(device, P.aeolian.dust);
@@ -94,8 +100,7 @@ self.onmessage = e => {
       // The tide at level 6 at most (its cells nest first in a finer grid), so the Moon recedes alike at every level.
       const tg = P.grid.level > 6 ? buildGrid(6) : P.grid;
       tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };
-      schedule();
-    }, err => console.warn('[isochron] engine GPU:', err.message));
+    }, err => console.warn('[isochron] engine GPU:', err.message)).finally(() => { gpuWait = false; schedule(); });
     post({ type: 'ready', seaLevel0: P.seaLevel0, years: P.years, pco2: P.carbon.pco2 });
     sendSurface(false);
     sendLakes();
@@ -131,9 +136,9 @@ function eruptWhenWarm() {
 let surfaceGpu = null, pumping = false, lastSlice = 0;
 async function pump() {
   scheduled = false;
-  if (!P || pumping) return;
+  if (!P || pumping || gpuWait) return;
   pumping = true;
-  try { await pumpTicks(); } finally { pumping = false; }
+  try { await pumpTicks(); } finally { pumping = false; wakeClimate(); }
   if (ticks.length) schedule();
 }
 
@@ -180,7 +185,14 @@ async function pumpTicks() {
 // where the cycle hands it some, and letting the ticks in between slices.
 let climateRunning = false, cycleStart = 0, cycleMs = 0;
 const prof = {};                   // ms spent per section since the last fast message, for tuning
-const nextTask = () => new Promise(res => { const c = new MessageChannel(); c.port1.onmessage = () => res(); c.port2.postMessage(0); });
+// A macrotask's turn (one channel for all of them), and a wait until the climate's next slice is due
+// or the pump has ended, whichever is first: spinning on turns for it kept the thread busy and made garbage.
+const taskCh = new MessageChannel(), taskQ = [];
+taskCh.port1.onmessage = () => taskQ.shift()();
+const nextTask = () => new Promise(res => { taskQ.push(res); taskCh.port2.postMessage(0); });
+let wake = null;
+function wakeClimate() { if (wake) { const w = wake; wake = null; w(); } }
+const untilSlice = ms => new Promise(res => { const id = setTimeout(() => { wake = null; res(); }, ms); wake = () => { clearTimeout(id); res(); }; });
 // A cycle, then what follows one (src/engine/planet.js), each sliced alike.
 function* cycleThenAfter() { yield* P.climate.cycle(); yield* P.afterClimateSteps(); }
 async function climateLoop() {
@@ -188,7 +200,8 @@ async function climateLoop() {
   const c = P.climate;
   try {
     while (playing || pending > 0) {
-      if (pumping && performance.now() - lastSlice < (c.stats.settled ? 10 : CLIMATE_OPENING) * CLIMATE_MS) { await nextTask(); continue; }
+      const due = lastSlice + (c.stats.settled ? 10 : CLIMATE_OPENING) * CLIMATE_MS - performance.now();
+      if (pumping && due > 0) { await untilSlice(due); continue; }
       if (!c.it) { c.it = cycleThenAfter(); cycleStart = performance.now(); }
       const t0 = performance.now();
       let r;

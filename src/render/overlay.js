@@ -47,6 +47,84 @@ export function turned(P, w, tau) {
   return out;
 }
 
+/** The rotation matrix (row-major, 9) of a turn by ω over `tau` Myr, into `R`; false if there is none. */
+function rotation(w, tau, R) {
+  const wm = Math.hypot(w[0], w[1], w[2]), a = wm * tau;
+  if (!(Math.abs(a) > 1e-9)) { R[0] = R[4] = R[8] = 1; R[1] = R[2] = R[3] = R[5] = R[6] = R[7] = 0; return false; }
+  const x = w[0] / wm, y = w[1] / wm, z = w[2] / wm, c = Math.cos(a), s = Math.sin(a), C = 1 - c;
+  R[0] = c + x * x * C;     R[1] = x * y * C - z * s; R[2] = x * z * C + y * s;
+  R[3] = y * x * C + z * s; R[4] = c + y * y * C;     R[5] = y * z * C - x * s;
+  R[6] = z * x * C - y * s; R[7] = z * y * C + x * s; R[8] = c + z * z * C;
+  return true;
+}
+
+/**
+ * Where a line or river is drawn now, into its own buffer (`l.shown`): its course turned by ω
+ * over `tCur` Myr, morphed (at φ < 1) from its predecessor's course turned over `tPrev`, point by
+ * corresponding point (`morphed`). The turn is kept (`l.R`) for what else is placed on the line.
+ */
+export function placeLine(l, w, tCur, tPrev, phi) {
+  const cur = l.P, m = cur.length / 3, R = l.R || (l.R = new Float64Array(9));
+  rotation(w, tCur, R);
+  if (!l.shown || l.shown === l.P || l.shown.length !== cur.length) l.shown = new Float32Array(cur.length);
+  const out = l.shown, prev = l.prev && l.corr && phi < 1 ? l.prev.P : null;
+  const r0 = R[0], r1 = R[1], r2 = R[2], r3 = R[3], r4 = R[4], r5 = R[5], r6 = R[6], r7 = R[7], r8 = R[8];
+  if (!prev) {
+    for (let k = 0; k < 3 * m; k += 3) {
+      const x = cur[k], y = cur[k + 1], z = cur[k + 2];
+      out[k] = r0 * x + r1 * y + r2 * z; out[k + 1] = r3 * x + r4 * y + r5 * z; out[k + 2] = r6 * x + r7 * y + r8 * z;
+    }
+    return out;
+  }
+  const Q = placeLine.Q || (placeLine.Q = new Float64Array(9)), corr = l.corr;
+  rotation(w, tPrev, Q);
+  const q0 = Q[0], q1 = Q[1], q2 = Q[2], q3 = Q[3], q4 = Q[4], q5 = Q[5], q6 = Q[6], q7 = Q[7], q8 = Q[8];
+  for (let k = 0; k < m; k++) {
+    const j = corr[2 * k], t = corr[2 * k + 1], a = 3 * j, b = a + 3, o = 3 * k;
+    const px = prev[a] + t * (prev[b] - prev[a]), py = prev[a + 1] + t * (prev[b + 1] - prev[a + 1]), pz = prev[a + 2] + t * (prev[b + 2] - prev[a + 2]);
+    const qx = q0 * px + q1 * py + q2 * pz, qy = q3 * px + q4 * py + q5 * pz, qz = q6 * px + q7 * py + q8 * pz;
+    const x0 = cur[o], y0 = cur[o + 1], z0 = cur[o + 2];
+    const cx = r0 * x0 + r1 * y0 + r2 * z0, cy = r3 * x0 + r4 * y0 + r5 * z0, cz = r6 * x0 + r7 * y0 + r8 * z0;
+    const x = qx + phi * (cx - qx), y = qy + phi * (cy - qy), z = qz + phi * (cz - qz), r = Math.hypot(x, y, z) || 1;
+    out[o] = x / r; out[o + 1] = y / r; out[o + 2] = z / r;
+  }
+  return out;
+}
+
+/**
+ * The cap a line (and its predecessor) lies in: its points' mean direction and their widest
+ * angle from it (`l.cap`), so a line wholly behind the globe needn't be placed or drawn.
+ */
+export function capOf(l) {
+  let sx = 0, sy = 0, sz = 0;
+  const sets = l.prev && l.corr ? [l.P, l.prev.P] : [l.P];
+  for (const P of sets) for (let k = 0; k < P.length; k += 3) { sx += P[k]; sy += P[k + 1]; sz += P[k + 2]; }
+  const r = Math.hypot(sx, sy, sz);
+  if (!(r > 1e-9)) { l.cap = null; return; }
+  sx /= r; sy /= r; sz /= r;
+  let lo = 1;
+  for (const P of sets) for (let k = 0; k < P.length; k += 3) lo = Math.min(lo, sx * P[k] + sy * P[k + 1] + sz * P[k + 2]);
+  l.cap = [sx, sy, sz, Math.acos(Math.max(-1, Math.min(1, lo)))];
+}
+
+/**
+ * Whether any of a line's cap, turned by ω over `tau` Myr, faces the viewer (`m`: the camera's
+ * matrix; view z beyond 0.02 shows), with a margin for the morph and the predecessor's own turn.
+ */
+export function capFaces(l, w, tau, m) {
+  const c = l.cap;
+  if (!c || c[3] > 1.4) return true;
+  const wm = Math.hypot(w[0], w[1], w[2]), a = wm * tau;
+  let x = c[0], y = c[1], z = c[2];
+  if (Math.abs(a) > 1e-9) {
+    const kx = w[0] / wm, ky = w[1] / wm, kz = w[2] / wm, co = Math.cos(a), si = Math.sin(a), d = (kx * x + ky * y + kz * z) * (1 - co);
+    const nx = x * co + (ky * z - kz * y) * si + kx * d, ny = y * co + (kz * x - kx * z) * si + ky * d, nz = z * co + (kx * y - ky * x) * si + kz * d;
+    x = nx; y = ny; z = nz;
+  }
+  const vz = m[6] * x + m[7] * y + m[8] * z;
+  return Math.acos(Math.max(-1, Math.min(1, vz))) - c[3] < 1.551 + 0.06;   // acos(0.02) ≈ 1.551
+}
+
 const RIVER_BUCKETS = 6;
 
 /**
@@ -73,6 +151,7 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
   const v = [0, 0, 0];
   const faded = [];
   for (const river of rivers) {
+    if (river.hidden) continue;
     const { W } = river, P = river.shown || river.P;
     if (river.alpha !== undefined && river.alpha < 0.999) { faded.push(river); continue; }
     let px = 0, py = 0, pv = false;
@@ -165,6 +244,8 @@ function drawEruptions(ctx, cx, cy, r, camera, eruptions, palette) {
   ctx.globalAlpha = 1;
 }
 
+const scratch = {};   // drawOverlay's per-line screen points, grown as lines need
+
 export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
@@ -194,10 +275,12 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   const v = [0, 0, 0];
 
   for (const line of lines) {
-    const { type, over, arc, slide } = line, P = line.shown || line.P, L = line.shownL || line.L;
+    if (line.hidden) continue;
+    const { type, over, arc, slide } = line, P = line.shown || line.P, L = line.L, R = line.shown && line.R;
     if (!line.u) freshU(line);
     const M = type.length, u = line.shownU || line.u;
-    const sx = new Float32Array(M), sy = new Float32Array(M), vis = new Uint8Array(M);
+    if (!scratch.sx || scratch.sx.length < M) { const c = Math.max(M, 2 * (scratch.sx ? scratch.sx.length : 256)); scratch.sx = new Float32Array(c); scratch.sy = new Float32Array(c); scratch.vis = new Uint8Array(c); }
+    const sx = scratch.sx.subarray(0, M), sy = scratch.sy.subarray(0, M), vis = scratch.vis.subarray(0, M);
     let has = 0;
     for (let k = 0; k < M; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
@@ -214,7 +297,10 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
     if (has & (1 << INACTIVE)) dashes(paths[INACTIVE], sx, sy, k => vis[k] && vis[k + 1] && type[k] === INACTIVE, u, [0.5, 3.5], sc, r);
     // The screen direction of the line's left side at segment k, from its world vector.
     const lf = [0, 0], leftOf = (k, tx, ty) => {
-      camera.view(L[3 * k], L[3 * k + 1], L[3 * k + 2], v);
+      // The left side as traced, turned with the line (placeLine's turn) only where a mark needs it.
+      const x = L[3 * k], y = L[3 * k + 1], z = L[3 * k + 2];
+      if (R) camera.view(R[0] * x + R[1] * y + R[2] * z, R[3] * x + R[4] * y + R[5] * z, R[6] * x + R[7] * y + R[8] * z, v);
+      else camera.view(x, y, z, v);
       const s = -ty * v[0] + tx * -v[1] < 0 ? -1 : 1;
       lf[0] = -ty * s; lf[1] = tx * s;
       return lf;

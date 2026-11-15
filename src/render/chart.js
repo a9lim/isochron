@@ -519,6 +519,11 @@ export function linkCharts(prev, cur) {
     }
     gone[k] = prev ? prev[k].filter(p => !used.has(p)) : [];
   }
+  // Each line and centre morphs from its predecessor only: kept, the links back would hold every chart.
+  for (const k of ['fronts', 'dry', 'troughs', 'ridges', 'shear', 'highs', 'lows']) {
+    for (const c of cur[k]) if (c.prev) { c.prev.prev = null; c.prev.corr = null; }
+    for (const g of gone[k]) { g.prev = null; g.corr = null; }
+  }
   return gone;
 }
 
