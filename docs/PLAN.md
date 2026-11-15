@@ -464,7 +464,7 @@ The 2026-11-14 brainstorm also covered the geology readouts (isotope proxies, a 
   - the Climate view's sea carries both dust (ochre dots, under) and export production (viridian strokes);
   - ice streams are prussian dashes along the flow;
   - salt flats are a pale crust pattern, with no old shorelines;
-  - permafrost isn't drawn.
+  - permafrost is a violet net of ice-wedge polygons (Relief), each polygon frozen with the ground's share, over snow and under lakes and ice.
 
 ## Risks
 

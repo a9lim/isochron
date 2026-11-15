@@ -364,6 +364,7 @@ function refreshClimate(force) {
     season.setClimate(climate);
     if (climateVersionDrawn >= 0) coldEaseStart = nowMs;
     globe.setZones(climate.zones);
+    globe.setPermafrost(climate.permafrost);
     figuresDirty = true;
     climateVersionDrawn = climate.version;
   }

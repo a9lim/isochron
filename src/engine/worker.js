@@ -5,7 +5,8 @@
 //
 //   surface   after plate steps, or when the sea has moved: the drawn fields,
 //             the lines, the plates' rotations, the crust's statistics
-//   climate   after each completed climate cycle: its harmonics and zones
+//   climate   after each completed climate cycle: its harmonics and zones (and
+//             what rides with them: the export, the dust, the permafrost)
 //   fast      ~10 times a second: ice, carbon, plumes, the regolith's and the
 //             crust's flexure's statistics, the record's samples
 //
@@ -329,9 +330,24 @@ function sendClimate() {
     snowAnn: f32(c.snowAnn), landMask: Uint8Array.from(c.landMask), elevPos: f32(c.elevPos), zones: f32(c.zones),
     sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats }, prod: f32(P.life.export),
     dust: P.aeolian ? f32(P.aeolian.load) : null, dustStats: P.aeolian ? { ...P.aeolian.stats } : null,
+    permafrost: drawnPermafrost(c.soil),
   };
-  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod, ...(m.dust ? [m.dust] : [])].map(a => a.buffer);
+  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod, m.permafrost, ...(m.dust ? [m.dust] : [])].map(a => a.buffer);
   post(m, transfer);
+}
+
+// The permafrost's share as the globe draws it: the climate's closure's (src/engine/soil.js), and on a
+// cell without soil (the sea, grounded ice) its soil neighbours' mean, so the share the globe
+// interpolates toward a coast or an ice sheet's margin stays the land's.
+function drawnPermafrost(soil) {
+  const { n, nbrOff, nbr } = P.grid, pf = soil.permafrost, cap = soil.Smax, out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (cap[i] > 0) { out[i] = pf[i]; continue; }
+    let t = 0, k = 0;
+    for (let e = nbrOff[i], end = nbrOff[i + 1]; e < end; e++) { const j = nbr[e]; if (cap[j] > 0) { t += pf[j]; k++; } }
+    out[i] = k ? t / k : 0;
+  }
+  return out;
 }
 
 /** The ice's flow as the globe draws it: its direction as long as sliding's share of the speed, and the speed (m/yr). */

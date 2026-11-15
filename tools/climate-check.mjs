@@ -72,9 +72,14 @@ console.log(ZONES.map((name, k) => `${name} ${(100 * share[k] / la).toFixed(0)}`
 }
 {
   let run = 0, pl = 0, beta = 0, pf = 0;
-  for (let i = 0; i < g.n; i++) if (clim.landMask[i]) { const a = g.area[i]; run += a * clim.runoff[i] * 1000; pl += a * clim.Pf[0][i] * 365.25; beta += a * clim.soil.beta[i]; pf += a * clim.soil.permafrost[i]; }
+  const zon = new Float64Array(3);   // land by its permafrost's share: continuous (> 0.9), discontinuous (0.5–0.9), sporadic (0.1–0.5)
+  for (let i = 0; i < g.n; i++) if (clim.landMask[i]) {
+    const a = g.area[i], p = clim.soil.permafrost[i];
+    run += a * clim.runoff[i] * 1000; pl += a * clim.Pf[0][i] * 365.25; beta += a * clim.soil.beta[i]; pf += a * p;
+    if (p > 0.9) zon[0] += a; else if (p > 0.5) zon[1] += a; else if (p > 0.1) zon[2] += a;
+  }
   const L = lakes ? lakes.stats() : null, R2 = 6371 * 6371;
-  console.log(`land: runoff ${(run / la).toFixed(0)} mm/yr (${(100 * run / pl).toFixed(0)}% of rain) · soil β ${(beta / la).toFixed(2)} · permafrost ${(100 * pf / la).toFixed(0)}% · soil's year ${clim.stats.soilYears.toFixed(2)} yr a cell` +
+  console.log(`land: runoff ${(run / la).toFixed(0)} mm/yr (${(100 * run / pl).toFixed(0)}% of rain) · soil β ${(beta / la).toFixed(2)} · permafrost ${(100 * pf / la).toFixed(0)}% (land continuous ${(100 * zon[0] / la).toFixed(1)}%, discontinuous ${(100 * zon[1] / la).toFixed(1)}, sporadic ${(100 * zon[2] / la).toFixed(1)}) · soil's year ${clim.stats.soilYears.toFixed(2)} yr a cell` +
     (reg ? ` · regolith ${reg.stats.mean.toFixed(2)} m (bare ${(100 * reg.stats.bare).toFixed(0)}%)` : '') +
     (L ? ` · lakes ${L.lakes} (${L.closed} closed) ${(L.area / 1e3).toFixed(0)}k km² (${(100 * L.area / (la * R2)).toFixed(2)}% of land), salt ${(L.saltArea / 1e3).toFixed(0)}k km²` : ''));
 }

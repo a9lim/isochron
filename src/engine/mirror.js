@@ -20,6 +20,7 @@ export class ClimateView {
     this.zones = new Float32Array(NZ * n);
     this.ocean = { sst: f(0), psi: f(0), stats: { maxSv: 0 } };
     this.dust = null;      // the dust's stats (src/engine/aeolian.js)
+    this.permafrost = f(0);   // the ground's share frozen all year, as drawn (the worker's drawnPermafrost)
   }
   update(m) {
     for (const k of ['version', 'stats', 'zonal', 'Tf', 'Pf', 'presPhase', 'W', 'snowAnn', 'landMask', 'elevPos', 'zones']) this[k] = m[k];
@@ -29,6 +30,7 @@ export class ClimateView {
     // The dust's load (kg/m², the year's mean) in the second.
     if (m.dust) for (let i = 0, n = m.dust.length; i < n; i++) this.zones[NZ * i + 15] = m.dust[i];
     this.dust = m.dustStats || null;
+    if (m.permafrost) this.permafrost = m.permafrost;
   }
 }
 for (const k of ['tAt', 'pAt', 'presAt', 'surfaceT']) ClimateView.prototype[k] = Climate.prototype[k];

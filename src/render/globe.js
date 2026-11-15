@@ -21,6 +21,11 @@
 //                    by depth, with a hard shore; eased when they change
 //   salt flats       where a closed lake has dried: a pale crust cracked into
 //                    polygons (Relief)
+//   permafrost       ground frozen all year (src/engine/soil.js): a violet net
+//                    of ice-wedge polygons, each polygon frozen with the cell's
+//                    share, so continuous ground is a whole net and sporadic
+//                    ground scattered polygons; over snow, under lakes and the
+//                    ice sheets (Relief)
 //   ice sheets       a light fill with a hard outline and contours of the
 //                    ice's surface every 500 m
 //   ice streams      where the ice slides faster than it deforms (on soft,
@@ -60,6 +65,7 @@ struct U {
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
+  inkG: vec4f,       // violet (permafrost's ice-wedge net)
   tide: vec4f,       // the tide's clock: Re, Im of e^{iφ₂} + ρ e^{iφs} (spring and neap), cos, sin φ₂
   tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now; w the lakes' ease (0 last, 1 new)
   veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
@@ -253,6 +259,62 @@ fn cracks(T: Tri, periodPx: f32, wpx: f32) -> f32 {
   return max(a, o.y * b);
 }
 
+// Ice-wedge polygons: the cells of a hexagonal lattice whose sites are jittered by ±0.15 of
+// their spacing (the salt crust's by ±0.4 on a square one), so the net is near-regular. Each
+// cell is frozen with probability share (its own hash against it) and a border is drawn
+// where a cell on either side is frozen, so a share of 1 is a whole net and a small one
+// scattered polygons. The distance is to the border itself (to the bisector of the nearest
+// site and each other), so the lines keep their width; wpx wide on screen.
+fn wedge1(uv: vec2f, fw: f32, F: f32, share: f32, wpx: f32) -> f32 {
+  let q = uv * F;
+  let r0 = floor(q.y / 0.8660254);
+  var rel: array<vec2f, 9>;
+  var frz: array<f32, 9>;
+  var best = 1e9;
+  var m = 0;
+  for (var k = 0; k < 9; k++) {
+    let r = r0 + f32(k / 3 - 1);
+    let odd = r - 2.0 * floor(r * 0.5);
+    let c = floor(q.x - 0.5 * odd) + f32(k % 3 - 1);
+    let h = hash3(vec3f(c, r, 11.7));
+    rel[k] = vec2f(c + 0.5 + 0.5 * odd, (r + 0.5) * 0.8660254) + 0.3 * (h.xy - 0.5) - q;
+    frz[k] = select(0.0, 1.0, h.z < share);
+    let dd = dot(rel[k], rel[k]);
+    if (dd < best) { best = dd; m = k; }
+  }
+  var edge = 1e9;
+  var on = 0.0;
+  for (var k = 0; k < 9; k++) {
+    let dv = rel[k] - rel[m];
+    let l = length(dv);
+    if (k == m || l < 1e-4) { continue; }
+    let d = dot(0.5 * (rel[m] + rel[k]), dv / l);
+    if (d < edge) { edge = d; on = max(frz[m], frz[k]); }
+  }
+  return on * (1.0 - smoothstep(0.5 * wpx - 0.5, 0.5 * wpx + 0.5, edge / max(fw * F, 1e-7)));
+}
+fn wedgeTri(T: Tri, F: f32, share: f32, wpx: f32) -> f32 {
+  // A plane the triplanar blend barely weighs is skipped (no derivatives here, so the branch may).
+  var a = 0.0;
+  if (T.w.x > 0.01) { a += T.w.x * wedge1(T.x, T.f.x, F, share, wpx); }
+  if (T.w.y > 0.01) { a += T.w.y * wedge1(T.y, T.f.y, F, share, wpx); }
+  if (T.w.z > 0.01) { a += T.w.z * wedge1(T.z, T.f.z, F, share, wpx); }
+  return a;
+}
+// Two hexagonal nets an octave apart don't nest (the hatches' and the stipple's lattices do), so
+// laid over each other they'd read as one irregular net. The net crossfades to the next octave's
+// over a fifth of each octave's zoom instead: at rest it is nearly always one net, its polygons
+// 0.76–1.32 of the period across, and zooming never pops.
+fn wedges(T: Tri, share: f32, periodPx: f32, wpx: f32) -> f32 {
+  let o = octave(periodPx);
+  let w = smoothstep(0.4, 0.6, o.y);
+  var a = 0.0;
+  var b = 0.0;
+  if (w < 1.0) { a = wedgeTri(T, o.x, share, wpx); }
+  if (w > 0.0) { b = wedgeTri(T, 2.0 * o.x, share, wpx); }
+  return mix(a, b, w);
+}
+
 // The veil's optical depth at sin(latitude) z, linear between its bands' centres.
 fn veilAt(z: f32) -> f32 {
   let x = clamp((asin(clamp(z, -1.0, 1.0)) * 57.2957795 + 87.5) / 5.0, 0.0, 35.0);
@@ -440,6 +502,14 @@ fn hair(d: f32, w: f32) -> f32 {
     let crackInk = select(mix(crust, u.text.rgb, 0.32), mix(crust, u.canvas.rgb, 0.5), dark);
     land = mix(land, mix(crust, crackInk, cracks(T, 11.0 * u.mode.z, 0.7 * u.mode.z)), sk);
   }
+  // Permafrost (Relief): the ice-wedge polygons' net in violet, each polygon frozen with the share's
+  // probability. Over snow (the ground stays frozen under it), under a lake's water, frozen over or
+  // not, and under the ice sheets (their fill, below).
+  let pf = i.td.w * select(0.0, 1.0, u.mode.x < 0.5);
+  if (pf > 0.002) {
+    let net = wedges(T, pf, 14.0 * u.mode.z, 0.75 * u.mode.z) * (1.0 - clamp(0.5 + lake / flake, 0.0, 1.0));
+    land = mix(land, u.inkG.rgb, 0.7 * net);
+  }
   // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
   // depth is smoothed and signed (dry land below zero), so the shore is a curve.
   let lk = clamp(0.5 + lake / flake, 0.0, 1.0) * (1.0 - ice);   // a lake under snow is frozen over
@@ -578,8 +648,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const zoneBuf = device.createBuffer({ size: nm * 64, usage: VS });
   const iceBuf = device.createBuffer({ size: nm * 16, usage: VS });
   const wxBuf = device.createBuffer({ size: nm * 16, usage: VS });      // written by the weather's kernels, on the mesh
-  // The tide's harmonic and dissipation, then the lakes' drawn depth and salt (the last and the
-  // new): one buffer, as a pipeline has eight vertex buffers at most.
+  // The tide's harmonic and dissipation and the permafrost's share, then the lakes' drawn depth and
+  // salt (the last and the new): one buffer, as a pipeline has eight vertex buffers at most.
   const tideBuf = device.createBuffer({ size: nm * 32, usage: VS });
   // The cover's eight colour weights a vertex, read by the vertex shader from storage (a ninth vertex buffer is past the limit).
   const coverBuf = storage(device, nm * 32);
@@ -590,7 +660,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, mesh.tris);
-  const uniBuf = device.createBuffer({ size: 29 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 30 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -614,7 +684,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(116);
+  const uni = new Float32Array(120);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -687,6 +757,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       for (let i = 0; i < n; i++) { a[8 * i] = C[i]; a[8 * i + 1] = S[i]; a[8 * i + 2] = diss[i]; }
       device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
     },
+    /** Per cell: the permafrost's share (0..1; src/engine/soil.js), as the worker draws it (`drawnPermafrost`). */
+    setPermafrost(p) {
+      const a = tideLake;
+      for (let i = 0; i < n; i++) a[8 * i + 3] = p[i];
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
+    },
     /**
      * Per cell: the lakes' drawn depth (km, signed: dry land below zero) and salt flats' share
      * (src/render/surface.js, lakeFields), eased from what is drawn now.
@@ -736,11 +812,11 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       uni.set([mode.view === 'climate' ? 1 : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
-      put(68, palette.inks.sienna);
+      put(68, palette.inks.sienna); put(72, palette.inks.violet);
       uni[55] = mode.blend ?? 1;
       const td = mode.tides || { m: [1, 0], hw: [1, 0], amp: 0, now: 0 };
-      uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, lakeMix()], 72);
-      if (mode.veil) uni.set(mode.veil, 80); else uni.fill(0, 80, 116);
+      uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, lakeMix()], 76);
+      if (mode.veil) uni.set(mode.veil, 84); else uni.fill(0, 84, 120);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();
