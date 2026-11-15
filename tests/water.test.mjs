@@ -93,7 +93,9 @@ test('the closure-to-live handover is continuous: the first live year repeats th
 
 test('the lakes are rebuilt when the ice moves: an ice dam makes a lake, and its loss lets the water go', () => {
   const P = planet(), g = P.grid, n = g.n, tec = P.tec, L = P.lakes, H = P.ice.H;
-  // A big river's inland reach (three land cells from the sea), dammed by ice across its cell and its neighbours.
+  // A big river's reach well inland, ringed by ice: its six neighbours under 3 km of it,
+  // so the reach is a closed depression whatever the valley's shape (a dam across the river alone, below it,
+  // left the reach a way round on some planets).
   const rt = drainage(g, P.land, L), Q = new Float64Array(n), land = i => i >= 0 && !P.land.base[i];
   accumulatePass(rt, Float64Array.from(P.climate.runoff, (r, i) => P.land.base[i] ? 0 : r * g.area[i]), Q);
   let dam = -1;
@@ -102,12 +104,12 @@ test('the lakes are rebuilt when the ice moves: an ice dam makes a lake, and its
     if (land(i) && land(a) && land(b) && land(d) && L.regOf[i] < 0 && (dam < 0 || Q[i] > Q[dam])) dam = i;
   }
   assert.ok(dam >= 0);
-  // Two cells upstream, past the ice: the main stem's.
+  // Two cells upstream: the main stem's.
   const donor = c => { let best = -1; for (let i = 0; i < n; i++) if (rt.rcv[i] === c && land(i) && (best < 0 || Q[i] > Q[best])) best = i; return best; };
   const up = donor(donor(dam));
   assert.ok(up >= 0 && L.regOf[up] < 0, 'the reach above runs free');
   const saved = Float32Array.from(H), builds = L.builds;
-  for (const j of [dam, ...Array.from(g.nbr.subarray(g.nbrOff[dam], g.nbrOff[dam + 1]))]) if (land(j)) H[j] = 3000;
+  for (const j of g.nbr.subarray(g.nbrOff[up], g.nbrOff[up + 1])) if (land(j)) H[j] = 3000;
   // The lakes alone (the ice isn't stepped, so the dam stays as laid), at 10 yr/s, on the
   // closure's runoff (the live ground lets go only the water of the months it steps).
   P.ground.closure({ live: 0 });

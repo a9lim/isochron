@@ -83,9 +83,11 @@ test('iron raises the cold sea\'s uptake: more export, CO₂ drawn down', t => {
   a.ref = null;
   assert.equal(a.ironTo(sst, 0, true), 1, 'the reference: × 1');
   const o = a.dust.out, keep = Float32Array.from(o.depAnn);
-  for (let i = 0; i < n; i++) if (!L[i] && sst[i] <= 0) o.depAnn[i] *= 3;
-  const f3 = a.ironTo(sst, 0, false), K = AEOLIAN.IRON_K;
-  assert.ok(Math.abs(f3 - (1 + K) * 3 / (3 + K)) < 1e-9, `× ${f3.toFixed(3)} at three times the iron`);
+  // Four times (a power of two, so the f32 deposits and their sums scale exactly: three times rounded
+  // each deposit, and the factor came out a few parts in 10⁹ off on some planets).
+  for (let i = 0; i < n; i++) if (!L[i] && sst[i] <= 0) o.depAnn[i] *= 4;
+  const f4 = a.ironTo(sst, 0, false), K = AEOLIAN.IRON_K;
+  assert.ok(Math.abs(f4 - (1 + K) * 4 / (4 + K)) < 1e-12, `× ${f4.toFixed(3)} at four times the iron`);
   o.depAnn.set(keep);
   assert.ok(a.ironFlux > 0, 'soluble iron to the sea');
   // The sea: the cold box's uptake × 1.5 against a control, closed, 5 kyr.
