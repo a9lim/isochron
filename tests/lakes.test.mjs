@@ -176,6 +176,32 @@ test('the closure agrees with a long run of steps, through a cascade', () => {
   assert.ok(Math.abs(balance(lakes)) < 1e-9 * lakes.total.runoff);
 });
 
+test('the closure down a deep chain of nested basins: each basin solved about once', () => {
+  // Rings round the pole, each a moat inside a rim higher than the last: water in a moat rises
+  // to the rim inside it and joins everything within, so the basins nest one in the next.
+  const th = theta(g6, [0, 0, 1]), w = 0.06, K = 22;
+  const z = Float64Array.from(th, (t, i) => {
+    if (t >= K * w) return 0.5 + 0.05 * (K - 1) - 2 * (t - K * w);
+    const k = Math.floor(t / w), u = t / w - k;
+    return u > 0.55 ? 0.5 + 0.05 * k : 0.4 + 0.05 * (k - 1) + 0.01 * (1 + g6.pos[3 * i]);
+  });
+  const { lakes } = setup(g6, z);
+  const depth = b => lakes.c0[b] < 0 ? 1 : 1 + Math.max(depth(lakes.c0[b]), depth(lakes.c1[b]));
+  const deepest = Math.max(...Array.from({ length: lakes.nr }, (_, q) => depth(lakes.regRoot[q])));
+  let calls = 0;
+  const solve = lakes.eqSolve;
+  lakes.eqSolve = function (b) { calls++; return solve.call(this, b); };
+  // Dry enough that some basins hold their water and others spill into the next.
+  const runoff = Float64Array.from(z, v => v > 0 ? 0.05 : 0), pe = new Float64Array(n6).fill(-1);
+  lakes.equilibrium(runoff, pe, 1);
+  const ls = lakes.list();
+  console.log(`  ${lakes.nb} basins, nested ${deepest} deep: ${calls} solves (solving both children, then one again, took 38,820 here, with the same lakes); ${ls.length} lakes, ${ls.filter(l => l.spilling).length} spilling`);
+  assert.ok(deepest >= 20, `nested ${deepest} deep`);
+  assert.ok(calls <= 3 * lakes.nb, `${calls} solves for ${lakes.nb} basins`);
+  assert.ok(ls.some(l => l.spilling) && ls.some(l => !l.spilling), 'some lakes spill, some hold');
+  assert.ok(Math.abs(balance(lakes)) < 1e-9 * lakes.total.runoff, 'water kept');
+});
+
 test('a reroute carries the water and conserves it; a dam that goes releases its lake', () => {
   const { z } = twoCones(g6);
   const { lakes } = setup(g6, z);
