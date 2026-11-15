@@ -83,7 +83,7 @@ export function drainage(grid, land, lakes) {
  * zero is the coast; `Q12`: discharge by month (landscape.js, `monthly`), whose mean is the
  * year's; `rt`: the drainage it was routed down (`drainage`), else the landscape's.
  */
-export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_MIN, rt = null) {
+export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_MIN, rt = null, lakeDraw = null) {
   const n = grid.n, pos = grid.pos, r = land.r;
   if (!r) return [];
   const rcv = rt ? rt.rcv : r.rcv, base = land.base, { order, count } = rt || r;
@@ -93,9 +93,13 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
     Q = new Float32Array(n); peak = new Float32Array(n);
     for (let i = 0; i < n; i++) { let s = 0, m = 0; for (let k = 0, o = 12 * i; k < 12; k++) { const v = Q12[o + k]; s += v; if (v > m) m = v; } Q[i] = s / 12; peak[i] = m; }
   }
-  // A lake of one cell isn't drawn (it would be a hexagon), so rivers run through it.
+  // A river stops at a lake as the globe draws it (`lakeDraw`, src/render/surface.js's lakeFields:
+  // water where it is above zero), so it runs on through a lake too small or shallow to be drawn,
+  // and stops at one that is, running into the lake's cell (and a river leaving a lake starts at
+  // its cell) for the page to cut where the drawn shore crosses it (overlay.js, lakeAlong).
+  // Without the drawn field, the drainage's lakes of two cells and more (one would draw as a hexagon).
   const wet = rt ? i => rt.lake[i] === 1 : i => land.lake[i] > 0.03;
-  const isLake = i => {
+  const isLake = lakeDraw ? i => lakeDraw[i] > 0 : i => {
     if (!wet(i)) return false;
     for (let t = grid.nbrOff[i], e = grid.nbrOff[i + 1]; t < e; t++) if (wet(grid.nbr[t])) return true;
     return false;
@@ -145,7 +149,12 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
   for (let h = 0; h < n; h++) {
     if (!big[h] || (d1[h] >= 0 && !node[h])) continue;
     const cells = [];
-    let i = h, end = -1, atNode = false, mouth = null;
+    let i = h, end = -1, atNode = false, mouth = null, into = -1, from = -1;
+    // A source below a lake leaves it: the lake's cell that drains here (the largest).
+    if (d1[h] < 0) for (let t = grid.nbrOff[h], e = grid.nbrOff[h + 1]; t < e; t++) {
+      const d = grid.nbr[t];
+      if (rcv[d] === h && isLake(d) && (from < 0 || Q[d] > Q[from])) from = d;
+    }
     for (;;) {
       cells.push(i);
       chainOf[i] = chains.length;
@@ -157,12 +166,12 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
         mouth = [x / m, y / m, z / m];
         break;
       }
-      if (!big[j]) break;                          // into a lake
+      if (!big[j]) { if (isLake(j) || rcv[j] < 0) into = j; break; }   // into a lake (or a closed depression's sink): on to its cell
       if (node[j]) { end = j; atNode = true; break; }   // into a node: a new river starts there
       if (d1[j] !== i) { end = j; break; }          // a tributary: it ends on the larger river
       i = j;
     }
-    chains.push({ cells, end, atNode, mouth, q: Q[cells[cells.length - 1]] });
+    chains.push({ cells, end, atNode, mouth, into, from, q: Q[cells[cells.length - 1]] });
   }
   // Smooth the larger rivers first, then move each tributary's end onto its river's course (a
   // node's point is the node's cell, which every line meeting there holds as its end).
@@ -173,8 +182,10 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
     const c = chains[k];
     const P = [], W = [], M = [];
     const month = i => { for (let k = 0; k < 12; k++) M.push(Q12 ? Q12[12 * i + k] : Q[i]); };
+    if (c.from >= 0) { P.push(pos[3 * c.from], pos[3 * c.from + 1], pos[3 * c.from + 2]); W.push(Q[c.cells[0]]); month(c.cells[0]); }
     for (const i of c.cells) { P.push(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]); W.push(Q[i]); month(i); }
     const last = c.cells[c.cells.length - 1];
+    if (c.into >= 0) { P.push(pos[3 * c.into], pos[3 * c.into + 1], pos[3 * c.into + 2]); W.push(Q[last]); month(last); }
     if (c.mouth) { P.push(...c.mouth); W.push(W[W.length - 1]); month(last); }
     if (c.end >= 0) { P.push(pos[3 * c.end], pos[3 * c.end + 1], pos[3 * c.end + 2]); W.push(Q[last]); month(last); }
     if (W.length < 2) continue;

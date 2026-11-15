@@ -266,16 +266,18 @@ async function sendSurface(fromStep, steps = 0, ms = 0) {
   if (rk !== riversSteps) {
     const rt = riversRt = drainage(grid, land, P.lakes);
     riversQ12 = land.monthly(P.climate.runoffM, rt);
-    m.rivers = traceRivers(grid, land, f.elevRel, riversQ12, RIVER_MIN, rt); riversSteps = rk;
+    m.rivers = traceRivers(grid, land, f.elevRel, riversQ12, RIVER_MIN, rt, lakesDraw); riversSteps = rk;
     m.riversId = ++riversId; riversCells = m.rivers.map(r => r.cells);
   }
   post(m, [f.elevRel.buffer, f.normals.buffer, f.tfDraw.buffer, f.felsic.buffer, m.elev.buffer]);
 }
 
 // The lakes as drawn: their depth from their water, and the salt flats.
+let lakesDraw = null;
 function sendLakes() {
   lastLakes = performance.now(); lakesSent = P.lakesVersion;
   const f = lakeFields(P.grid, P.tec, P.lakes, P.ice.H);
+  lakesDraw = Float32Array.from(f.draw);      // kept: rivers run to the lakes the page draws
   post({ type: 'lakes', draw: f.draw, salt: f.salt }, [f.draw.buffer, f.salt.buffer]);
 }
 
