@@ -25,7 +25,7 @@ import { drawOverlay, placeLine, capOf, capFaces, matchLines, link } from './src
 import { makeStars, ecliptic } from './src/render/sky.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
-import { traceRivers } from './src/render/rivers.js';
+import { succeedRivers } from './src/render/rivers.js';
 import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
 import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
@@ -128,6 +128,13 @@ let shown = null, shownFrom = 0;    // the surface blended to, and the time of t
 let tau = null, engineRate = 0, pace = 0, lastArrive = -1;
 const arrivals = [];               // [wall ms, model Myr] of recent surfaces, for the engine's pace
 let riversT = 0, linesT = 0, riversGone = [], surfaceMsg = null;
+// Rivers crossfade where a retrace changed them, as the shown moment crosses the step that brought
+// it ([riversFrom, riversT] Myr), and within RIVER_FADE ms of the wall clock whatever the clock
+// does (a pause, or a retrace once the shown moment has caught up, neither holds nor skips one).
+let riversFrom = 0, riversWall = 0, riversFading = false;
+const RIVER_FADE = 400;
+const riverSpacing = 1.07 * Math.sqrt(4 * Math.PI / grid.n);   // rad between neighbouring cells
+const riverPhi = t => Math.min(1, Math.max(riversT > riversFrom ? (t - riversFrom) / (riversT - riversFrom) : 0, (performance.now() - riversWall) / RIVER_FADE));
 function onSurface(m) {
   surfaceMsg = m;
   tec.seaLevel = m.seaLevel; tec.elev = m.elev; tecStats = m.stats;
@@ -212,11 +219,15 @@ function show(m, mode) {
   }
   for (const l of lines) capOf(l);
   if (m.rivers) {
-    const oldR = rivers, oldRT = riversT;
-    rivers = m.rivers; riversT = m.t; rivers.id = m.riversId;
-    riversGone = matchLines(oldR, rivers, r => r.plate, true);
-    for (const r of rivers) { r.prevT = oldRT; if (r.prev) { r.prev.prev = null; r.prev.corr = null; } capOf(r); }
-    for (const r of riversGone) { r.goneT = oldRT; r.prev = null; r.corr = null; capOf(r); }
+    // No morph: an unchanged course stays, a changed one crossfades where it changed, from now
+    // until the shown moment reaches the new rivers' (src/render/rivers.js, `succeedRivers`).
+    const drawn = rivers ? rivers.concat(riversGone) : [], t = tau ?? m.t;
+    riversGone = succeedRivers(drawn, m.rivers, riverPhi(t), riverSpacing);
+    rivers = m.rivers; rivers.id = m.riversId;
+    riversFrom = Math.min(t, m.t); riversT = m.t; riversWall = performance.now();
+    riversFading = riversGone.length > 0 || rivers.some(r => r.fa0);
+    for (const r of rivers) capOf(r);
+    for (const r of riversGone) capOf(r);
   }
   if (globe) uploadSurface(m, mode);
   void old;
@@ -1103,8 +1114,8 @@ function tick(now) {
     const phi = stepTau(frameDt);
     if (phi < 1 || queue.length) drawDirty = true;
     const tShow = tau ?? tec.t;
-    // Each line is turned with its plates to the shown moment and morphed from its
-    // predecessor's course (rivers over the landscape's own step).
+    // Each boundary is turned with its plates to the shown moment and morphed from its
+    // predecessor's course; rivers turn and fade (below).
     // A line wholly behind the globe is neither placed nor drawn (`hidden`).
     const cm = camera.m, w = [0, 0, 0];
     if (lines) for (const ln of lines) {
@@ -1116,21 +1127,19 @@ function tick(now) {
       ln.shownU = shownU(ln, phi);
     }
     if (rivers) {
-      // Rivers morph over the landscape's own step, from their predecessors' time to theirs.
-      const phiL = rivers.length && rivers[0].prevT < riversT ? Math.min(1, Math.max(0, (tShow - rivers[0].prevT) / (riversT - rivers[0].prevT))) : 1;
-      for (const rv of rivers) {
+      // Rivers turn with their plates from the last retrace's moment (the old ones fading out
+      // too, so a course that stays and the one it covers coincide), and fade point by point.
+      const phiR = riverPhi(tShow);
+      if (phiR >= 1 && riversFading) { riversFading = false; riversGone = []; for (const rv of rivers) rv.fa0 = rv.fa1 = null; }
+      for (const rv of riversGone.length ? rivers.concat(riversGone) : rivers) {
         const pl = tec.plates[rv.plate];
-        rv.alpha = rv.prev ? 1 : phiL;           // a river with no predecessor fades in
+        if (rv.fa0) {
+          const a = rv.shownA && rv.shownA.length === rv.fa0.length ? rv.shownA : (rv.shownA = new Float32Array(rv.fa0.length));
+          for (let k = 0; k < a.length; k++) a[k] = rv.fa0[k] + (rv.fa1[k] - rv.fa0[k]) * phiR;
+        } else rv.shownA = null;
         if (!pl || !pl.alive) { rv.shown = rv.P; rv.hidden = false; continue; }
         rv.hidden = !capFaces(rv, pl.w, tShow - riversT, cm);
-        if (!rv.hidden) placeLine(rv, pl.w, tShow - riversT, tShow - rv.prevT, phiL);
-      }
-      for (const rv of riversGone) {
-        const pl = tec.plates[rv.plate];
-        rv.alpha = 1 - phiL;                     // and one with no successor fades out
-        if (!pl || !pl.alive) { rv.shown = rv.P; rv.hidden = false; continue; }
-        rv.hidden = !capFaces(rv, pl.w, tShow - rv.goneT, cm);
-        if (!rv.hidden) placeLine(rv, pl.w, tShow - rv.goneT, 0, 1);
+        if (!rv.hidden) placeLine(rv, pl.w, tShow - riversT, 0, 1);
       }
     }
     lap('lines');
@@ -1139,7 +1148,7 @@ function tick(now) {
     globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, blend: phi, tides: sf.tides, veil: yf.veil });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() }, pal);
-    if (phi >= 1 && !globe.lakesEasing) drawDirty = false;
+    if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
     lap('overlay');
   }
 }

@@ -147,6 +147,8 @@ function riverW(river, k, month) {
   return q * (1 + month.aw * (A[j] - 1));
 }
 
+const riverBucket = w => Math.min(RIVER_BUCKETS - 1, Math.floor(Math.log10(Math.max(1, w / RIVER_MIN)) * 2.2));
+
 function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) {
   const lw = Math.sqrt(symbolScale(r));
   const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D()), dry = new Path2D();
@@ -154,8 +156,8 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
   const faded = [];
   for (const river of rivers) {
     if (river.hidden) continue;
+    if (river.shownA) { faded.push(river); continue; }
     const { W } = river, P = river.shown || river.P;
-    if (river.alpha !== undefined && river.alpha < 0.999) { faded.push(river); continue; }
     let px = 0, py = 0, pv = false;
     for (let k = 0; k < W.length; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
@@ -163,11 +165,7 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
       if (vis && pv) {
         const w = riverW(river, k, month);
         if (month ? isDry(river, k, w) : w < RIVER_MIN * 0.999) { if (month) { dry.moveTo(px, py); dry.lineTo(x, y); } }
-        else {
-          const q = Math.log10(Math.max(1, w / 1500));
-          const b = Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2));
-          paths[b].moveTo(px, py); paths[b].lineTo(x, y);
-        }
+        else { const b = paths[riverBucket(w)]; b.moveTo(px, py); b.lineTo(x, y); }
       }
       px = x; py = y; pv = vis;
     }
@@ -179,28 +177,41 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
     ctx.lineWidth = (0.6 + 0.42 * b) * lw;
     ctx.stroke(paths[b]);
   }
-  if (month) {
-    ctx.strokeStyle = withAlpha(color, 0.55 * alpha); ctx.lineWidth = 0.9 * lw;
+  const strokeDry = (path, a) => {
+    ctx.strokeStyle = withAlpha(color, 0.55 * a); ctx.lineWidth = 0.9 * lw;
     ctx.setLineDash([0.5 * lw, 3 * lw]);
-    ctx.stroke(dry);
+    ctx.stroke(path);
     ctx.setLineDash([]);
-  }
-  // Rivers appearing or vanishing between landscape steps fade.
+  };
+  if (month) strokeDry(dry, alpha);
+  // Where a retrace changed a river, its old course fades out and its new one in, point by
+  // point (shownA): what stayed is drawn whole. A segment takes the larger of its ends' alphas
+  // (so a stretch fading in meets the one that stayed without a gap), in runs of one weight and
+  // alpha, each one path (so its joins don't darken).
   for (const river of faded) {
-    const { W } = river, P = river.shown || river.P;
-    ctx.strokeStyle = withAlpha(color, alpha * Math.max(0, river.alpha));
-    let px = 0, py = 0, pv = false;
+    const { W } = river, P = river.shown || river.P, A = river.shownA;
+    let px = 0, py = 0, pv = false, path = null, pb = -2, pa = -1;
+    const flush = () => {
+      if (!path) return;
+      if (pb < 0) strokeDry(path, alpha * pa);
+      else { ctx.strokeStyle = withAlpha(color, alpha * pa); ctx.lineWidth = (0.6 + 0.42 * pb) * lw; ctx.stroke(path); }
+      path = null;
+    };
     for (let k = 0; k < W.length; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
       const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
-      const w = riverW(river, k, month);
-      if (vis && pv && !(month ? isDry(river, k, w) : w < RIVER_MIN * 0.999)) {
-        const q = Math.log10(Math.max(1, w / 1500));
-        ctx.lineWidth = (0.6 + 0.42 * Math.min(RIVER_BUCKETS - 1, Math.floor(q * 2.2))) * lw;
-        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
+      const a = k > 0 ? Math.round(32 * Math.max(A[k - 1], A[k])) / 32 : 0;
+      if (vis && pv && a > 0) {
+        const w = riverW(river, k, month), dryNow = month ? isDry(river, k, w) : w < RIVER_MIN * 0.999;
+        if (!dryNow || month) {
+          const b = dryNow ? -1 : riverBucket(w);
+          if (b !== pb || a !== pa) { flush(); path = new Path2D(); pb = b; pa = a; }
+          path.moveTo(px, py); path.lineTo(x, y);
+        }
       }
       px = x; py = y; pv = vis;
     }
+    flush();
   }
 }
 
@@ -261,7 +272,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
   const climate = layers.view === 'climate', weather = layers.view === 'weather', tides = layers.view === 'tides';
-  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, climate ? 0.55 : weather || tides ? 0.35 : 0.9, layers.riverMonth);
+  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, layers.air || weather || tides ? 0.35 : climate ? 0.55 : 0.9, layers.riverMonth);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   // The Climate view's Air chart: the winds as streamlines (src/render/streamlines.js).
   if (layers.air) drawStreamlines(ctx, cx, cy, r, camera, layers.air.sets, withAlpha(palette.text, 0.62), Math.sqrt(symbolScale(r)));
@@ -434,17 +445,13 @@ export function link(l, prev) {
 
 /**
  * Pair each new line with its predecessor (same key, nearest middle within
- * ~500 km) and work out their correspondence. `strict` also asks that both
- * ends lie near the old line's ends and the lengths agree within 40% (rivers:
- * otherwise one would morph into another); unpaired lines fade instead.
- * Returns the old lines left unpaired.
+ * ~500 km) and work out their correspondence. Returns the old lines left unpaired.
  */
-export function matchLines(prev, cur, key, strict = false) {
+export function matchLines(prev, cur, key) {
   if (!prev) { for (const l of cur) { l.prev = null; l.corr = null; freshU(l); } return []; }
   const pt = (P, k) => [P[3 * k], P[3 * k + 1], P[3 * k + 2]];
   const mid = P => pt(P, Math.floor(P.length / 6));
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const len = P => { let s = 0; for (let k = 3; k < P.length; k += 3) s += Math.hypot(P[k] - P[k - 3], P[k + 1] - P[k - 2], P[k + 2] - P[k - 1]); return s; };
   const byKey = new Map();
   for (const l of prev) { const k = key(l); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(l); }
   const used = new Set();
@@ -458,12 +465,6 @@ export function matchLines(prev, cur, key, strict = false) {
       if (used.has(c)) continue;
       const d = dot(m, mid(c.P));
       if (d <= best) continue;
-      if (strict) {
-        const a0 = pt(l.P, 0), a1 = pt(l.P, l.P.length / 3 - 1), b0 = pt(c.P, 0), b1 = pt(c.P, c.P.length / 3 - 1), near = Math.cos(0.03);
-        const ends = (dot(a0, b0) > near && dot(a1, b1) > near) || (dot(a0, b1) > near && dot(a1, b0) > near);
-        const r = len(l.P) / (len(c.P) || 1);
-        if (!ends || r < 0.6 || r > 1.6) continue;
-      }
       best = d; bl = c;
     }
     if (bl) { used.add(bl); link(l, bl); } else freshU(l);
