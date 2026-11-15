@@ -17,9 +17,10 @@
 //                    rock toward the summits; the cover lags its climate, so
 //                    after the ice goes bare ground and grass come first
 //   snow, sea ice    a light fill with a hard edge, as a map draws them
-//   phytoplankton    the sea's tint turns a little green where its export
-//                    production is high (src/engine/life.js): quiet in the
-//                    gyres, seen at upwelling coasts and in the cold sea (Relief)
+//   phytoplankton    the sea's tint turns a milky teal where its export
+//                    production is high (src/engine/life.js), as a bloom looks
+//                    from orbit: quiet in the gyres, seen at upwelling coasts
+//                    and in the cold sea (Relief)
 //   lakes            from their water (src/engine/lakes.js), in the sea's tint
 //                    by depth, with a hard shore; eased when they change
 //   salt flats       where a closed lake has dried: a pale crust, hard-edged,
@@ -63,8 +64,8 @@ import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
 
 const SHADER = /* wgsl */ `
-const PLANKTON_HUE = 0.7;     // how far the depth tint's ink turns toward viridian where the sea blooms most
-const PLANKTON_WASH = 0.3;    // and a pale green laid over it there (so shelves, lightly tinted, show it too)
+const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal (verdigris) where the sea blooms most
+const PLANKTON_WASH = 0.3;    // and a pale, milky turquoise laid over it there (blooms scatter light: so shelves, lightly tinted, show it too)
 struct U {
   view0: vec4f, view1: vec4f, view2: vec4f,
   frame: vec4f,      // sx, sy, tNow (rel. to the polarity origin), polarity dT
@@ -388,12 +389,13 @@ fn hair(d: f32, w: f32) -> f32 {
   let d = -e;
   // Depth tint: a square-root curve, so shelves read as water and the abyss as deep. Where
   // phytoplankton grow (the export production, g C m⁻² yr⁻¹, in the zones' slot 14) the water
-  // turns a little green, by log production: nothing in the gyres (~4, the sea's median), half at
+  // turns a milky teal, as a bloom looks from orbit (green toward turquoise, brightened by the
+  // cells' scattering), by log production: nothing in the gyres (~4, the sea's median), half at
   // ~12 (the most productive tenth: upwelling coasts, river mouths, the cold sea), all past 25.
   let bloom = smoothstep(0.7, 1.4, log(max(i.z3.z, 1e-3)) / 2.302585);
-  let seaInk = mix(u.ocean.rgb, u.inkA.rgb, PLANKTON_HUE * bloom);
+  let seaInk = mix(u.ocean.rgb, u.inkD.rgb, PLANKTON_HUE * bloom);
   var sea = mix(u.canvas.rgb, seaInk, u.frame2.y + u.frame2.z * sqrt(clamp(d / 6.0, 0.0, 1.0)));
-  sea = mix(sea, mix(u.canvas.rgb, u.inkA.rgb, 0.45), PLANKTON_WASH * bloom);
+  sea = mix(sea, mix(u.canvas.rgb, mix(u.inkD.rgb, u.ocean.rgb, 0.3), 0.4), PLANKTON_WASH * bloom);
   let w = max(1.5 * ftf, u.frame.w);
   let pbar = (polC(tf + w) - polC(tf - w)) / (2.0 * w);
   sea = mix(sea, u.text.rgb, 0.075 * (0.5 + 0.5 * pbar) * oceanic * (1.0 - cold));

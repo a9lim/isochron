@@ -21,6 +21,7 @@
 // streamlines (src/render/streamlines.js).
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 import { RIVER_MIN } from './rivers.js';
+import { nearest } from '../grid/icosphere.js';
 import { drawChart } from './chart.js';
 import { freshU, inheritU, octaves, marks, dashes } from './along.js';
 import { drawSky } from './sky.js';
@@ -149,6 +150,45 @@ function riverW(river, k, month) {
 
 const riverBucket = w => Math.min(RIVER_BUCKETS - 1, Math.floor(Math.log10(Math.max(1, w / RIVER_MIN)) * 2.2));
 
+/**
+ * The drawn lakes' field (km, signed: water above zero; src/render/surface.js, lakeFields) at
+ * each point of each river (`river.wet`), interpolated linearly over the grid's triangles as the
+ * globe's shader interpolates it, so a river is cut where the drawn shore crosses it: rivers are
+ * traced on cells and the shore is a smoothed field, and the two needn't agree (a river ran on
+ * past the shore, or a stretch of one lay within the lake). Recomputed when rivers or lakes change.
+ */
+export function lakeAlong(grid, rivers, draw) {
+  const pos = grid.pos, off = grid.nbrOff, nbr = grid.nbr;
+  const det = (ax, ay, az, bx, by, bz, cx, cy, cz) => ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+  for (const river of rivers) {
+    const P = river.P, m = P.length / 3, wet = river.wet && river.wet.length === m ? river.wet : (river.wet = new Float32Array(m));
+    let g = -1;
+    for (let k = 0; k < m; k++) {
+      const x = P[3 * k], y = P[3 * k + 1], z = P[3 * k + 2];
+      const i = g = nearest(grid, x, y, z, g), ax = pos[3 * i], ay = pos[3 * i + 1], az = pos[3 * i + 2];
+      let best = -Infinity, val = draw[i];
+      for (let e = off[i], end = off[i + 1]; e < end; e++) {
+        const j = nbr[e], l = nbr[e + 1 < end ? e + 1 : off[i]];
+        const bx = pos[3 * j], by = pos[3 * j + 1], bz = pos[3 * j + 2], cx = pos[3 * l], cy = pos[3 * l + 1], cz = pos[3 * l + 2];
+        const wa = det(x, y, z, bx, by, bz, cx, cy, cz), wb = det(ax, ay, az, x, y, z, cx, cy, cz), wc = det(ax, ay, az, bx, by, bz, x, y, z), s = wa + wb + wc;
+        if (!(Math.abs(s) > 0)) continue;
+        const lo = Math.min(wa, wb, wc) / s;
+        if (lo > best) { best = lo; val = (wa * draw[i] + wb * draw[j] + wc * draw[l]) / s; }
+        if (lo >= 0) break;
+      }
+      wet[k] = val;
+    }
+  }
+}
+
+/** The dry part of a segment whose ends lie at a and b in the lakes' field: [from, to] as fractions along it, or null. */
+function dryPart(a, b) {
+  if (!(a > 0) && !(b > 0)) return [0, 1];
+  if (a > 0 && b > 0) return null;
+  const t = a / (a - b);
+  return a > 0 ? [t, 1] : [0, t];
+}
+
 function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) {
   const lw = Math.sqrt(symbolScale(r));
   const paths = Array.from({ length: RIVER_BUCKETS }, () => new Path2D()), dry = new Path2D();
@@ -162,10 +202,11 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
     for (let k = 0; k < W.length; k++) {
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
       const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
-      if (vis && pv) {
-        const w = riverW(river, k, month);
-        if (month ? isDry(river, k, w) : w < RIVER_MIN * 0.999) { if (month) { dry.moveTo(px, py); dry.lineTo(x, y); } }
-        else { const b = paths[riverBucket(w)]; b.moveTo(px, py); b.lineTo(x, y); }
+      const cut = vis && pv ? (river.wet ? dryPart(river.wet[k - 1], river.wet[k]) : [0, 1]) : null;
+      if (cut) {
+        const w = riverW(river, k, month), x0 = px + cut[0] * (x - px), y0 = py + cut[0] * (y - py), x1 = px + cut[1] * (x - px), y1 = py + cut[1] * (y - py);
+        if (month ? isDry(river, k, w) : w < RIVER_MIN * 0.999) { if (month) { dry.moveTo(x0, y0); dry.lineTo(x1, y1); } }
+        else { const b = paths[riverBucket(w)]; b.moveTo(x0, y0); b.lineTo(x1, y1); }
       }
       px = x; py = y; pv = vis;
     }
@@ -201,12 +242,13 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
       camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
       const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
       const a = k > 0 ? Math.round(32 * Math.max(A[k - 1], A[k])) / 32 : 0;
-      if (vis && pv && a > 0) {
+      const cut = vis && pv && a > 0 ? (river.wet ? dryPart(river.wet[k - 1], river.wet[k]) : [0, 1]) : null;
+      if (cut) {
         const w = riverW(river, k, month), dryNow = month ? isDry(river, k, w) : w < RIVER_MIN * 0.999;
         if (!dryNow || month) {
           const b = dryNow ? -1 : riverBucket(w);
           if (b !== pb || a !== pa) { flush(); path = new Path2D(); pb = b; pa = a; }
-          path.moveTo(px, py); path.lineTo(x, y);
+          path.moveTo(px + cut[0] * (x - px), py + cut[0] * (y - py)); path.lineTo(px + cut[1] * (x - px), py + cut[1] * (y - py));
         }
       }
       px = x; py = y; pv = vis;

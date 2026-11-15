@@ -21,7 +21,7 @@ import { monthName, monthAt, S0, solarLongitude } from './src/engine/orbit.js';
 import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
-import { drawOverlay, placeLine, capOf, capFaces, matchLines, link } from './src/render/overlay.js';
+import { drawOverlay, placeLine, capOf, capFaces, matchLines, link, lakeAlong } from './src/render/overlay.js';
 import { makeStars, ecliptic } from './src/render/sky.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
@@ -228,6 +228,8 @@ function show(m, mode) {
     riversFading = riversGone.length > 0 || rivers.some(r => r.fa0);
     for (const r of rivers) capOf(r);
     for (const r of riversGone) capOf(r);
+    // Cut where the drawn lakes' shores cross them (overlay.js, lakeAlong).
+    if (lakesDrawn) lakeAlong(grid, rivers.concat(riversGone), lakesDrawn.draw);
   }
   if (globe) uploadSurface(m, mode);
   void old;
@@ -300,6 +302,7 @@ let lakesDrawn = null;
 function onLakes(m) {
   lakesDrawn = m;
   if (globe) globe.setLakes(m.draw, m.salt);
+  if (rivers) lakeAlong(grid, rivers.concat(riversGone), m.draw);
   drawDirty = true;
 }
 // The plants' cover as the Relief view draws it (src/engine/life.js), and the land's and the sea's carbon.
