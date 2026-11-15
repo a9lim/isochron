@@ -50,18 +50,19 @@ export const PARAMS = {
   MERGE_TAU: 20,
   K_COLLIDE: 0.03,  // resistance of a collision front, per cell, against convergence
   COLLIDE_TAU: 8,  // Myr
-  K_SLAB: 0.005,  // slab pull per cell of trench (at level 6; × √res elsewhere: see balance)
+  K_SLAB: 0.008,  // slab pull per cell of trench (at level 6; × √res elsewhere: see balance); 0.005 while plates' stray pieces pulled too (resolveFragments)
   FOUNDER_AGE: 140,  // Myr: seafloor this old at a plate's edge, or at its own continent's margin, begins to sink
   INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active (at level 6; per length elsewhere)
   INITIATE_GAP: 20,  // Myr between initiations anywhere on the planet
   K_RIDGE: 6e-4,  // ridge push per unit area and subsidence gradient (at level 6; × res^0.2 elsewhere)
   KEEL: 2,  // extra drag of continental crust
   V_RELAX: 2,  // Myr, how fast ω follows its torque balance
-  V_MAX: 0.0235,  // rad/Myr (15 cm/yr)
+  V_MAX: 0.0314,  // rad/Myr (20 cm/yr: India's, ~60–50 Ma, from memory); a step past STEP_CELLS runs as substeps
   MIN_PLATES: 7,
   MAX_LIVE_PLATES: 16,
   MICROPLATE: 0.004 * 4 * Math.PI,  // a plate smaller than this joins its largest neighbour
   MAX_PLATE_AREA: 0.2 * 4 * Math.PI,
+  STEP_CELLS: 1,  // cells of the grid the fastest plate may move in one step; past it the step runs as substeps
   FRAGMENTS: 0.5,  // Myr of plate time between checks that each plate is one piece (resolveFragments)
   RIFT_TAU: 25,  // Myr, how long a rift's opening torque lasts
   RIFT_SPEED: 0.004,  // rad/Myr per steradian of plate
@@ -275,7 +276,31 @@ export class Tectonics {
     }
   }
 
+  /**
+   * The step finds a world cell's plates among those that held it or a neighbour, so a plate may
+   * move about a cell of the grid in one: past it, crust running ahead of its plate's edge goes
+   * unseen, hidden under the plate it overrides instead of consuming it (two plates closing at
+   * 20 cm/yr each at level 7: 0.99 of the closing consumed at 0.2–0.7 cells a step, 0.97 at 1.1,
+   * 0.77 at 1.8, 0.43 at 3.6). A step whose fastest plate would move more than STEP_CELLS cells
+   * runs as substeps; the dial's planner needn't know.
+   */
+  substeps(dt) {
+    let w = 0;
+    for (const p of this.plates) if (p.alive) w = Math.max(w, Math.hypot(p.w[0], p.w[1], p.w[2]));
+    return Math.max(1, Math.ceil(w * dt / (PARAMS.STEP_CELLS * Math.sqrt(4 * Math.PI / this.grid.n)) - 1e-9));
+  }
+
   step(dt) {
+    const k = this.substeps(dt);
+    for (let s = 0; s < k; s++) this.stepOnce(dt / k);
+  }
+
+  async stepAsync(dt) {
+    const k = this.substeps(dt);
+    for (let s = 0; s < k; s++) await this.stepOnceAsync(dt / k);
+  }
+
+  stepOnce(dt) {
     const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr;
     const t1 = this.t + dt;
     this.rotate(dt);
@@ -433,7 +458,7 @@ export class Tectonics {
    * initiation (the memories are read down first where those need them), and a
    * plate's stray pieces passed on (resolveFragments).
    */
-  async stepAsync(dt) {
+  async stepOnceAsync(dt) {
     const t1 = this.t + dt;
     this.rotate(dt);
     const r = await this.gpu.step(dt, t1);

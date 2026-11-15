@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid, nearest } from '../src/grid/icosphere.js';
-import { Tectonics } from '../src/engine/plates.js';
+import { Tectonics, PARAMS, CM_PER_YR } from '../src/engine/plates.js';
 import { genesis } from '../src/engine/genesis.js';
 import { oceanVolume, solveSeaLevel, subsidence } from '../src/engine/crust.js';
 import { Polarity } from '../src/engine/polarity.js';
@@ -76,6 +76,31 @@ test('two plates under one relative rotation: crust made balances crust consumed
   assert.ok(young > 0 && youngWrong / young < 0.05, `young ${young}, on the closing side ${youngWrong}`);
 });
 
+test('a step past a cell of motion runs as substeps: the closing consumed whatever the step', () => {
+  // Two hemispheres turning opposite ways at the cap; A young, on top where they close.
+  const run = (dt, T) => {
+    const tec = new Tectonics(grid);
+    const A = tec.allocPlate(), B = tec.allocPlate();
+    A.w.set([0, 0, -PARAMS.V_MAX]); B.w.set([0, 0, PARAMS.V_MAX]);
+    for (let i = 0; i < grid.n; i++) {
+      const k = grid.pos[3 * i] > 0 ? 0 : 1, p = tec.plates[k];
+      p.mask[i] = 1; p.h[i] = 7; p.phi[i] = 0; p.tf[i] = k ? -100 : 0;
+      tec.owner[i] = k; tec.ref[i] = i;
+    }
+    tec.water = 0;
+    tec.balance = () => { for (const p of tec.plates) p.area = 1; }; tec.maybeRift = () => {};
+    const k = tec.substeps(dt);
+    for (let t = 0; t < T - 1e-9; t += dt) tec.step(dt);
+    return { k, share: tec.counters.consumed / tec.counters.closed };
+  };
+  const cell = Math.sqrt(4 * Math.PI / grid.n), fine = run(0.25, 8), coarse = run(4, 8);
+  console.log(`  ${(PARAMS.V_MAX * 4 / cell).toFixed(1)} cells a 4 Myr step, run as ${coarse.k}: ${(100 * coarse.share).toFixed(1)}% of the closing consumed, against ${(100 * fine.share).toFixed(1)}% in 0.25 Myr steps`);
+  assert.equal(fine.k, 1);
+  assert.equal(coarse.k, Math.ceil(PARAMS.V_MAX * 4 / (PARAMS.STEP_CELLS * cell)));
+  // At a cell a step a few percent of the closing goes unconsumed; at 3.6 cells a step, without substeps, over half.
+  assert.ok(Math.abs(coarse.share - fine.share) < 0.05 && fine.share > 0.9, 'consumed as closed');
+});
+
 test('sea level holds the water it is given', () => {
   const tec = new Tectonics(grid);
   genesis(tec, 'sea', {});
@@ -117,7 +142,7 @@ test('genesis gives a sane planet that runs', () => {
   const s1 = tec.stats();
   for (let i = 0; i < g6.n; i++) assert.ok(Number.isFinite(tec.elev[i]), `elev ${i}`);
   assert.ok(s1.plates >= 3, `plates ${s1.plates}`);
-  assert.ok(s1.fastest < 16, `fastest ${s1.fastest} cm/yr`);
+  assert.ok(s1.fastest <= PARAMS.V_MAX * CM_PER_YR + 1e-6, `fastest ${s1.fastest} cm/yr`);
   console.log(`  level 6 step: ${ms.toFixed(1)} ms; after 30 Myr: ${s1.plates} plates, land ${(100 * s1.land).toFixed(1)}%, fastest ${s1.fastest.toFixed(1)} cm/yr, ocean age ${s1.meanOceanAge.toFixed(0)} Myr, sea level ${(1000 * (s1.seaLevel - s0.seaLevel)).toFixed(0)} m; ${JSON.stringify(tec.counters)}`);
 });
 
