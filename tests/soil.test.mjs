@@ -118,7 +118,8 @@ test('permafrost under thin snow but not under thick, at the same air temperatur
   soil.equilibrium(f.T, f.P, f.PET, { cold: true });
   const [bare, thin, thick] = [0, 1, 2].map(i => soil.tgMean[i]);
   assert.ok(Math.abs(bare + 2) < 0.02, `bare ground keeps the air's mean: ${bare.toFixed(3)} °C`);
-  assert.ok(thin < -1 && soil.permafrost[1] > 0.9, `thin snow: ground ${thin.toFixed(2)} °C, permafrost ${soil.permafrost[1].toFixed(2)}`);
+  // The share is a logistic over the spread within a cell (PERMA_W), so −1.9 °C is ~87% frozen ground and +1.6 °C ~17%.
+  assert.ok(thin < -1 && soil.permafrost[1] > 0.8, `thin snow: ground ${thin.toFixed(2)} °C, permafrost ${soil.permafrost[1].toFixed(2)}`);
   assert.ok(thick > 0.5 && soil.permafrost[2] < 0.2, `thick snow: ground ${thick.toFixed(2)} °C, permafrost ${soil.permafrost[2].toFixed(2)}`);
 });
 

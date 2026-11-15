@@ -60,7 +60,17 @@
 //                 (the nival offset: ~+1.4 K under a 0.3 m pack, +3.6 K under
 //                 1.3 m, at a mean of −2 °C and a 15 K season). Without snow the
 //                 ground's mean is the air's. Permafrost is where the ground's
-//                 annual mean stays below 0 °C (soft, over 0.5 K). The soil's
+//                 annual mean stays below 0 °C, and its share of a cell is a
+//                 logistic of the cell's mean over PERMA_W = 1 K (synthesis):
+//                 the spread of the ground's mean within a cell (slope, snow
+//                 drifts, peat, water), σ ≈ 1.7 K by the zones' σ/1.7, so the
+//                 share runs from 0.9 to 0.1 over 4.4 K of the cell's mean.
+//                 Earth's zones by that share (continuous over 90%,
+//                 discontinuous 50–90, sporadic 10–50, isolated under 10) hold
+//                 ~47/19/17/17% of its permafrost region (Brown and others'
+//                 map, from memory); 1 K gives the opening planet 43/18/19/20,
+//                 0.5 K gave 63/13/12/13. Nothing reads the share but the
+//                 drawing (the month's frozen ground is its own). The soil's
 //                 surface lies between the air and the store, nearer the store
 //                 under deep snow (the same resistances); frozen there (ramped
 //                 over 1 K) it sheds half the month's rain and melt as quick
@@ -91,7 +101,7 @@ export const SOIL = {
   TAU_G: 4,           // months: groundwater's time constant (synthesis)
   PET_K: 55 / 12,     // PET = PET_K · max(0, T + PET_T0), mm a month (the climate's Budyko PET by the month)
   PET_T0: 4,
-  PERMA_W: 0.5,       // K, the width of permafrost's logistic in the ground's mean
+  PERMA_W: 1.0,       // K, the width of permafrost's logistic in the ground's mean: the spread of the ground's mean within a cell (see above)
   NEWTON: 5,          // iterations a month (monotone from the right: four reach 1e-8 of capacity)
 };
 

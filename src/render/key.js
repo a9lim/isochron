@@ -53,6 +53,23 @@ const GLYPHS = {
     for (const [a, b, d, e] of net) { c.moveTo(x + a, y + b); c.lineTo(x + d, y + e); }
     c.stroke();
   },
+  // Ice-wedge polygons in violet, as the shader's `wedges`: the borders of the frozen cells of a
+  // hexagonal lattice, a whole net at the left and one polygon on its own at the right.
+  permafrost: (c, x, y, P) => {
+    const s = 6.5, R = s / Math.sqrt(3), dy = s * Math.sqrt(3) / 2;
+    const frozen = [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 3]];
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.strokeStyle = rgba(P.inks.violet, 0.7); c.lineWidth = 0.75; c.lineJoin = 'round';
+    c.beginPath();
+    for (const [r, k] of frozen) {
+      const cx = x + k * s + (r % 2) * s / 2, cy = y + 2.5 + r * dy;
+      for (let v = 0; v <= 6; v++) {
+        const a = Math.PI / 2 + v * Math.PI / 3, px = cx + R * Math.cos(a), py = cy + R * Math.sin(a);
+        if (v) c.lineTo(px, py); else c.moveTo(px, py);
+      }
+    }
+    c.stroke(); c.restore();
+  },
   seaice: (c, x, y, P) => { c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.16) : mixHex(P.canvas, P.ocean, 0.05); c.fillRect(x, y, 26, 12); c.strokeStyle = rgba(P.ocean, 0.7); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11); },
   icesheet: (c, x, y, P) => {
     c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.2) : P.canvas; c.fillRect(x, y, 26, 12);
@@ -126,7 +143,7 @@ function vegetation(c, x, y, P, kind) {
 
 const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'], ['volcano', 'Eruption'], ['veil', 'Sulfate veil'], ['river', 'River'],
-    ['lake', 'Lake'], ['salt', 'Salt flat'], ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['icestream', 'Ice stream'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
+    ['lake', 'Lake'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['seaice', 'Sea ice'], ['icesheet', 'Ice sheet'], ['icestream', 'Ice stream'], ['v:forest', 'Forest'], ['v:grass', 'Grass, savanna'], ['v:desert', 'Desert'], ['v:boreal', 'Boreal'], ['v:tundra', 'Tundra']],
   climate: [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['seaice', 'Sea ice'], ['lake', 'Lake'], ['isotherm', 'Isotherm, 5 °C'], ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['dust', 'Dust'], ['volcano', 'Eruption']],
   'weather-pressure': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['hl', 'High, low'], ['rain', 'Rain']],
   'weather-temperature': [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded'], ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C'], ['t:cold', 'Cold'], ['t:warm', 'Warm']],
