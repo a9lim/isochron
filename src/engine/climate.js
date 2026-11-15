@@ -9,8 +9,9 @@
 // the continents' wide seasons come straight out of it. Albedo (snow, sea
 // ice, deserts) depends on the temperature through the year, so the absorbed
 // sunlight is re-evaluated at 24 points of the year from the last solution
-// and its harmonics re-solved: a fixed point, warm-started, which also keeps
-// the ice-albedo feedback's hysteresis. T is the sea-level temperature; the
+// and its harmonics re-solved: a fixed point, warm-started and iterated with
+// Anderson's mixing (`energyBalance`), which also keeps the ice-albedo
+// feedback's hysteresis. The diffusivity falls toward the poles (synthesis). T is the sea-level temperature; the
 // surface is colder by the lapse rate. Solved on the level below the
 // surface's (220 km cells): heat spreads over thousands of km.
 //
@@ -61,9 +62,20 @@ import { Soil, SOIL, potentialEvaporation } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 
 export const CLIMATE = {
-  A: 203.3, B: 2.09,       // OLR = A + B·T (W/m², T in °C), North's fit to Earth (from memory)
-  D: 0.45,                 // heat diffusion, W m⁻² K⁻¹ on the unit sphere (the annual mean)
-  D_SEASON: 0.1,           // for the seasonal harmonics: transport smooths a season's land–sea contrast less
+  A: 205.5, B: 2.09,       // OLR = A + B·T (W/m², T in °C): North's fit to Earth (203.3, from memory); A raised 2.2 W/m² (synthesis) to hold the converged mean near 14 °C under D's transport
+  // Heat diffusion, W m⁻² K⁻¹ on the unit sphere (the annual mean), at the equator; it falls toward
+  // the poles as 1 + D_LAT sin²φ (each edge's weight carries it). Synthesis: a uniform 0.45 was
+  // tuned to the opening's fourth cycle, a transient; converged it left the planet 2–3 K cold, 60°
+  // 5–6 K colder than Earth's and 16–23% of the sea under ice. Uniform D enough for the sea ice
+  // (0.75) made the polar cap a flat −7 °C (Earth's Arctic ~−18, from memory); falling poleward
+  // (the polar air's stable layering carries less heat per kelvin of gradient) it gives 70–80°
+  // at −9 to −14 °C, 60° near 0 and the sea ice at 8–11%: Earth's ~7% (from memory) with
+  // Antarctica's area as sea, as this planet's ocean poles have it.
+  D: 1.0, D_LAT: -0.6,
+  // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: 0.1
+  // left 55–65° continents with summers ~3 K cooler than Earth's (from memory) and D climates at
+  // 15% of land against Earth's ~25%.
+  D_SEASON: 0.085,
   C_OCEAN: 7.9,            // W yr m⁻² K⁻¹: a 60 m mixed layer
   C_LAND: 0.3,
   C_ICE: 1.2,
@@ -92,6 +104,18 @@ export const CLIMATE = {
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
   F_VOLC: 0,               // W/m²: the volcanoes' mean forcing against the opening's (src/engine/volcanoes.js)
+  // The energy balance's fixed point (absorbed sunlight reads the temperature through snow and
+  // sea ice), by Anderson's mixing over the last EBM_DEPTH steps (`energyBalance`): a cycle steps
+  // until a step moves T by less than EBM_TOL (K rms over the year and the globe), at most
+  // EBM_MAX steps warm and EBM_MAX_COLD cold.
+  EBM_TOL: 0.02, EBM_MAX: 2, EBM_MAX_COLD: 6, EBM_DEPTH: 3,
+  // The CPU's moisture: past SWEEPS, sweeps carry on in fours until the last four moved no
+  // cell's column by more than MOIST_TOL of its saturation, at most MOIST_MAX (warm; ×4 cold).
+  MOIST_TOL: 1e-3, MOIST_MAX: 48,
+  // The climate has settled (`stats.settled`, the cycle it did) once two cycles running moved
+  // the mean temperature less than SETTLE_T (K) and rain, global and on land, less than SETTLE_P
+  // of itself; at the latest SETTLE_MAX cycles. The opening's references wait for it.
+  SETTLE_T: 0.02, SETTLE_P: 0.005, SETTLE_MAX: 16,
   // The zones' widths: the year's own spread (src/engine/year.js) where there is one, with these
   // floors in quadrature (the classification's own uncertainty: a cell is 55–220 km of climates);
   // without one, the fixed widths (K, and in log rain).
@@ -204,6 +228,13 @@ export class Climate {
     const cg = this.coarse;
     this.ws = { w: Float64Array.from(cg.ell, (l, t) => l / cg.dist[t]) };
     for (const k of ['rr', 'ri', 'zr', 'zi', 'pr', 'pi', 'qr', 'qi', 'mr', 'mi']) this.ws[k] = new Float64Array(nc);
+    // The energy balance's: each edge's weight carries the diffusivity's shape in latitude,
+    // 1 + D_LAT sin²φ at the edge's middle.
+    this.wsD = { ...this.ws, w: Float64Array.from(this.ws.w) };
+    for (let I = 0; I < nc; I++) for (let t = cg.nbrOff[I], e = cg.nbrOff[I + 1]; t < e; t++) {
+      const z = 0.5 * (cg.pos[3 * I + 2] + cg.pos[3 * cg.nbr[t] + 2]);
+      this.wsD.w[t] *= 1 + CLIMATE.D_LAT * z * z;
+    }
 
     // State: harmonics of the sea-level temperature, coarse (warm start) and fine.
     this.Tc = [new Float64Array(nc).fill(14), new Float64Array(nc), new Float64Array(nc), new Float64Array(nc), new Float64Array(nc)];
@@ -241,7 +272,7 @@ export class Climate {
     this.presPhase = Array.from({ length: NP }, () => new Float32Array(n));   // the template's pressure at each point of the year
     this.itcz = new Float32Array(NP * 36);
     this.zonal = null;
-    this.stats = { meanT: 14, iceLat: 90, cycles: 0, hadley: 30 };
+    this.stats = { meanT: 14, iceLat: 90, cycles: 0, hadley: 30, settled: 0 };
     this.scratch = {
       f6: new Float64Array(n), c5: new Float64Array(nc), c5b: new Float64Array(nc),
       F: [0, 1, 2, 3, 4].map(() => new Float64Array(n)),
@@ -385,7 +416,7 @@ export class Climate {
     // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
     for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }
     const zero = this.scratch.c5b.fill(0);
-    cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.ws, maxIt, tol);
+    cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, maxIt, tol);
     yield;
     for (let k = 1; k <= 2; k++) {
       const om = 2 * Math.PI * k;
@@ -393,7 +424,7 @@ export class Climate {
         dr[I] = A[I] * C.B; di[I] = A[I] * om * cap[I];
         br[I] = A[I] * this.Fc[2 * k - 1][I]; bi[I] = A[I] * this.Fc[2 * k][I];
       }
-      cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.ws, maxIt, tol);
+      cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, maxIt, tol);
       yield;
     }
     for (let k = 0; k < 5; k++) {
@@ -411,6 +442,101 @@ export class Climate {
     this.stats.meanT = sum / (4 * Math.PI);
     const edge = a => Math.asin(Math.max(0, Math.min(1, 1 - a / (2 * Math.PI)))) * 180 / Math.PI;
     this.stats.iceLat = 0.5 * (edge(capN) + edge(capS));
+  }
+
+  /**
+   * The energy balance to its fixed point. Absorbed sunlight reads the temperature (snow, sea
+   * ice, and sea ice's heat capacity), so each pass of `ebm` is one step T ← G(T). Plain steps
+   * converge slowly or not at all: the annual mean's ice–albedo feedback contracts by ~0.5–0.9
+   * a step, and the seasonal harmonics flip (successive changes correlate at about −1: the
+   * sea ice's albedo and heat capacity overshoot), so at one step a cycle the seasons
+   * alternated between two states ~0.4 K rms apart for as long as the climate ran. Anderson's
+   * mixing (standard; Walker and Ni 2011) over the last EBM_DEPTH steps: each step starts from
+   * G(T) less the combination of the last steps' changes in G that best cancels the residual
+   * G(T) − T, in the norm of T's variance over the year and the globe. The memory carries over
+   * from cycle to cycle while the residual is above EBM_TOL (the map changes a little between
+   * cycles, as the cover and the rain move), so a warm cycle takes one step, two while the
+   * climate is moving, and a settled climate plain steps; it restarts when a step grows the
+   * residual (the map is nonlinear at the ice's edges, and a change of forcing moves it).
+   * Cold, from a uniform 14 °C, six steps leave ~0.2 K (three plain steps left ~1.5 K).
+   */
+  *energyBalance() {
+    const C = CLIMATE, cg = this.coarse, nc = cg.n, N = 5 * nc, m = C.EBM_DEPTH;
+    const maxIt = this.warm ? C.EBM_MAX : C.EBM_MAX_COLD;
+    // The norm's weights: area, and each harmonic's share of the year's variance.
+    const ws = this.ebmWs || (this.ebmWs = {
+      w: Float64Array.from({ length: N }, (_, j) => cg.area[j % nc] / (4 * Math.PI) * (j < nc ? 1 : 0.5)),
+      x: new Float64Array(N), g: new Float64Array(N),
+      hg: Array.from({ length: m + 1 }, () => new Float64Array(N)), hf: Array.from({ length: m + 1 }, () => new Float64Array(N)),
+      dF: Array.from({ length: m }, () => new Float64Array(N)), dG: Array.from({ length: m }, () => new Float64Array(N)),
+      hist: 0, last: Infinity,
+    });
+    const { w, x, g, hg, hf } = ws, Tc = this.Tc, f6 = this.scratch.f6;
+    const dot = (a, b) => { let s = 0; for (let j = 0; j < N; j++) s += w[j] * a[j] * b[j]; return s; };
+    // The next start from the memory: x = g − Σ γⱼ ΔGⱼ, γ minimizing |f − Σ γⱼ ΔFⱼ| (normal equations).
+    const mix = () => {
+      const q = ws.hist - 1, f = hf[q];
+      x.set(hg[q]);
+      if (q < 1) return;
+      for (let j = 0; j < q; j++) {
+        const a = ws.dF[j], b = ws.dG[j], F0 = hf[j], F1 = hf[j + 1], G0 = hg[j], G1 = hg[j + 1];
+        for (let i = 0; i < N; i++) { a[i] = F1[i] - F0[i]; b[i] = G1[i] - G0[i]; }
+      }
+      const M = [], r = [];
+      for (let j = 0; j < q; j++) { M.push([]); for (let k = 0; k < q; k++) M[j].push(dot(ws.dF[j], ws.dF[k])); r.push(dot(ws.dF[j], f)); }
+      for (let j = 0; j < q; j++) M[j][j] = M[j][j] * (1 + 1e-6) + 1e-30;
+      for (let c = 0; c < q; c++) for (let i = c + 1; i < q; i++) {
+        const s = M[i][c] / M[c][c];
+        for (let k = c; k < q; k++) M[i][k] -= s * M[c][k];
+        r[i] -= s * r[c];
+      }
+      const gam = new Float64Array(q);
+      for (let i = q - 1; i >= 0; i--) { let s = r[i]; for (let k = i + 1; k < q; k++) s -= M[i][k] * gam[k]; gam[i] = s / M[i][i]; }
+      // The fit's own residual, |f − ΔF γ|² = |f|² − γ·r (for the unreduced r): where the memory
+      // explains less than a fifth of the residual (it was laid down under a map that has since
+      // moved: the orbit, CO₂, the geography) or γ is ill-conditioned, the plain step, and the
+      // memory restarts from it.
+      let fit = 0;
+      for (let j = 0; j < q; j++) fit += gam[j] * dot(ws.dF[j], f);
+      if (!gam.every(v => Math.abs(v) < 20) || fit < 0.2 * dot(f, f)) {
+        hg[0].set(hg[q]); hf[0].set(f); ws.hist = 1;
+        return;
+      }
+      for (let j = 0; j < q; j++) { const b = ws.dG[j], c = gam[j]; for (let i = 0; i < N; i++) x[i] -= c * b[i]; }
+    };
+    const start = () => {
+      for (let k = 0; k < 5; k++) {
+        Tc[k].set(x.subarray(k * nc, (k + 1) * nc));
+        prolong(this.T, Tc[k], f6);
+        for (let i = 0; i < this.grid.n; i++) this.Tf[k][i] = f6[i];
+      }
+    };
+    // The memory's last pair stands for the state now when Tc is still its G (nothing has set the
+    // state since): then start from its mix.
+    if (!this.warm) ws.hist = 0;
+    if (ws.hist > 0) {
+      const G = hg[ws.hist - 1];
+      for (let k = 0; k < 5 && ws.hist > 0; k++) { const t = Tc[k], o = k * nc; for (let I = 0; I < nc; I++) if (t[I] !== G[o + I]) { ws.hist = 0; break; } }
+    }
+    if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
+    for (let it = 0; it < maxIt; it++) {
+      yield* this.ebm();
+      for (let k = 0; k < 5; k++) g.set(Tc[k], k * nc);
+      // Remember (x, G(x)) as the residual f = G(x) − x and G(x), oldest first.
+      if (ws.hist === m + 1) { hg.push(hg.shift()); hf.push(hf.shift()); ws.hist--; }
+      const f = hf[ws.hist];
+      for (let j = 0; j < N; j++) f[j] = g[j] - x[j];
+      hg[ws.hist].set(g);
+      const res = Math.sqrt(dot(f, f));
+      this.stats.ebmSteps = it + 1; this.stats.ebmRes = res;
+      // A step that grew the residual restarts the memory from itself.
+      if (res > 2 * ws.last && ws.hist > 0) { hg[0].set(g); hf[0].set(f); ws.hist = 0; }
+      ws.hist++; ws.last = res;
+      if (res < C.EBM_TOL) { ws.hist = 0; ws.last = Infinity; break; }
+      if (it === maxIt - 1) break;
+      mix(); start();
+      yield;
+    }
   }
 
   /** Winds and rain at one point of the year. */
@@ -564,7 +690,10 @@ export class Climate {
         co[o + 12] = Ai; co[o + 13] = Ai * pmax; co[o + 14] = 0; co[o + 15] = 0;
       }
       yield this.gpu.solve(co, W, this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, ca, cr, pmax);
-    } else for (let s = 0; s < sweeps; s++) {
+    } else for (let s = 0, moved = 0, top = Math.max(sweeps, this.warm ? C.MOIST_MAX : 4 * C.MOIST_MAX); s < top; s++) {
+      // At least `sweeps`; then on, in fours, until the last four moved no column by MOIST_TOL
+      // of its saturation (warm, six sweeps left ~4% of the rain short of the balance the GPU
+      // reaches, and the shortfall closed only over ~10 cycles).
       const ord = this.orders[s & 3];
       for (let k = 0; k < n; k++) {
         const i = ord[k];
@@ -590,9 +719,17 @@ export class Climate {
         if (lam[i] * w + ws / 60 * Math.exp(Math.min(40, ca * (w / ws - cr))) > pmax) {
           w = Math.max(w, (b - Ai * pmax) / Math.max(1e-9, a - Ai * lam[i]));
         }
-        W[i] = Math.max(0, w);
+        w = Math.max(0, w);
+        const dw = Math.abs(w - W[i]) / ws;
+        if (dw > moved) moved = dw;
+        W[i] = w;
       }
-      if (s % 4 === 3) yield;
+      this.stats.sweeps = s + 1;
+      if (s % 4 === 3) {
+        if (s + 1 >= sweeps && moved < C.MOIST_TOL) break;
+        moved = 0;
+        yield;
+      }
     }
     for (let i = 0; i < n; i++) {
       const w = W[i], ws = Ws[i];
@@ -746,8 +883,7 @@ export class Climate {
     this.co2Seen = CLIMATE.CO2;
     this.geography();
     yield;
-    yield* this.ebm();
-    if (!this.warm) { yield* this.ebm(); yield* this.ebm(); }
+    yield* this.energyBalance();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
     // The gyres after the winds they're driven by (before them, the first cycle's saw none).
     if (this.ocean) yield* this.ocean.solve();
@@ -755,7 +891,17 @@ export class Climate {
     yield;
     yield* this.groundYear();
     this.warm = true;
-    this.stats.cycles++;
+    // Settling: two cycles running that moved the mean temperature and rain (global and on
+    // land) less than SETTLE_T and SETTLE_P (the opening's references wait for it).
+    const C = CLIMATE, s = this.stats, q = this.lastMeans;
+    if (q) {
+      s.dT = s.meanT - q.T; s.dP = s.meanP / q.P - 1; s.dPland = s.landP / Math.max(1e-9, q.L) - 1;
+      const near = Math.abs(s.dT) < C.SETTLE_T && Math.abs(s.dP) < C.SETTLE_P && Math.abs(s.dPland) < C.SETTLE_P;
+      this.calm = near ? (this.calm || 0) + 1 : 0;
+    }
+    this.lastMeans = { T: s.meanT, P: s.meanP, L: s.landP };
+    s.cycles++;
+    if (!s.settled && (this.calm >= 2 || s.cycles >= C.SETTLE_MAX)) s.settled = s.cycles;
     this.version++;
   }
 

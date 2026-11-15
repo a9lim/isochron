@@ -9,7 +9,7 @@ const pct = v => (v == null ? '  —' : `${(100 * v).toFixed(1)}%`.padStart(6));
 for (const PgC of (sizes.length ? sizes : ['1000', '5000']).map(Number)) {
   const t0 = performance.now();
   const P = new Planet(seed);
-  for (let k = 0; k < 4; k++) { P.climate.solve(1); P.afterClimate(); }
+  P.settleClimate();   // the opening's closure: until the climate has settled (the sea settles then)
   const fast = 200, climateEvery = 3200;
   const p0 = P.carbon.pco2, tag = P.carbon.startPulse(PgC);
   let since = 0, peak = p0;

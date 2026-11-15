@@ -132,7 +132,7 @@ export class Regolith {
       p.reg[j] = h;
     }
     this.sample();
-    this.settled = !!(this.climate && this.climate.stats.cycles >= 3);
+    this.settled = !!(this.climate && this.climate.stats.settled);
   }
 
   /** The world's view of the frames: thickness, production, softness; the ice's bed. */
@@ -176,10 +176,13 @@ export class Regolith {
    */
   update(years) {
     const t = this.tec, n = this.n, R = REGOLITH, plates = t.plates, owner = t.owner, ref = t.ref, land = this.land;
-    // The opening's layer, once the climate has warmed (its first cycle starts cold).
-    if (!this.settled && this.climate && this.climate.stats.cycles >= 3) {
+    // The opening's layer at its balance with each climate cycle until the climate has settled
+    // (its first cycles are a transient: the cover and the rain feed each other).
+    const cs = this.climate && this.climate.stats;
+    if (!this.settled && cs && cs.cycles > 0 && cs.cycles !== this.initAt) {
       if (!(this.budget.eroded > 0) && R.START < 0) this.init();
-      this.settled = true;
+      this.initAt = cs.cycles;
+      this.settled = !!cs.settled;
     }
     if (this.ice) {
       const G = this.ice.takeGlacial(this.glac), A = this.ice.areaM, keep = 1 - R.OUTWASH, sed = land.sedIn, resid = this.resid;

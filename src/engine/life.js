@@ -15,9 +15,11 @@
 //                     planet cooled 0.8 K more; the ground still sets the
 //                     plants' transpiration, through β. At the
 //                     opening the cover and its carbon sit at their balance
-//                     with each of the first SETTLE cycles (the closure), so
-//                     the land's store is full before weathering's reference
-//                     is taken; after that they relax live.
+//                     with each cycle until the climate has settled (the
+//                     closure: the cover and the rain feed each other, ~10
+//                     cycles from a cold start), so the land's store is full
+//                     before weathering's reference is taken, with the air
+//                     held at the opening's CO₂; after that they relax live.
 //   cover, live       the cover steps from Planet.fast, at most ten times a
 //                     second of the dial and at least a year at a time (it is
 //                     exact at any step, so past τ it is the closure); its
@@ -54,7 +56,8 @@ import { OC } from './oceancarbon.js';
 import { prolong } from '../grid/transfer.js';
 
 export const LIFE = {
-  SETTLE: 4,              // climate cycles: the opening's cover sits at its balance until the climate has settled
+  // The opening's cover sits at its balance with each climate cycle until the climate has settled
+  // (`stats.settled`, src/engine/climate.js), and the sea settles then.
   ICE: 10,                // m: grounded ice past which land carries no cover (the climate's own threshold)
   COLD: 0.15,             // the cold box's share of the sea's area
   COLD_W: 1.5,            // K: the blend across the cold box's edge, for the drawn export
@@ -94,6 +97,8 @@ export class Life {
   /** On the planet's layers: { grid, tec, land, climate, ocean, carbon }. */
   constructor({ grid, tec, land, climate, ocean, carbon }) {
     Object.assign(this, { grid, tec, landscape: land, climate, ocean, carbon });
+    this.closed = false;                   // the opening's closure is done (the climate has settled)
+    if (carbon) carbon.holdOpening = true;   // the air held at the opening's CO₂ until the sea settles
     const n = grid.n;
     this.veg = new Vegetation(n, grid.area);
     this.scratch = {};
@@ -114,8 +119,9 @@ export class Life {
     const c = this.climate, co2 = c.co2Seen || 280;
     this.cycles++;
     this.landMask = coverClimate(this.veg, c, co2, this.scratch);
-    // The opening's closure (the sea settles after it, so nothing it moves is lost).
-    if (this.cycles <= LIFE.SETTLE) this.veg.equilibrate();
+    // The opening's closure, through the cycle the climate settles in (the sea settles after it,
+    // so nothing it moves is lost).
+    if (!this.closed) { this.veg.equilibrate(); this.closed = !!c.stats.settled; }
     c.cover = { ft: this.veg.ft, fg: this.veg.fg };
     this.version++;
     this.seaInputs();
@@ -127,7 +133,7 @@ export class Life {
    * this planet's (its temperatures, shelves and seafloor), with the air held where it is.
    */
   afterMeasure() {
-    if (!this.carbon.settled && this.cycles >= LIFE.SETTLE) { this.carbon.settle(); this.toAir = 0; }
+    if (!this.carbon.settled && this.closed) { this.carbon.settle(); this.toAir = 0; }
   }
 
   /** The fast step: the cover over the banked years, its carbon's trade to the carbon cycle's next step. */
@@ -183,7 +189,7 @@ export class Life {
     const river = this.landscape ? this.landscape.flux.toSea : 0;
     // The references are the opening's, at the end of its closure (where the sea settles);
     // the rivers' once the landscape has stepped.
-    if (!this.ref && this.cycles >= LIFE.SETTLE) this.ref = { up: upS, run: runS, river: 0 };
+    if (!this.ref && this.closed) this.ref = { up: upS, run: runS, river: 0 };
     if (this.ref && !(this.ref.river > 0) && river > 0) this.ref.river = river;
     const R = this.ref || {}, rel = (v, r) => (r > 0 ? v / r : 1);
     const want = Math.min(LIFE.BIO_MAX, Math.max(LIFE.BIO_MIN, LIFE.BIO_RIVERS * rel(river, R.river) + (1 - LIFE.BIO_RIVERS) * rel(upS, R.up)));
@@ -194,7 +200,7 @@ export class Life {
       sstWarm, sstCold, iceFree: cA > 0 ? Math.max(0.05, 1 - iceA / cA) : 1, shelf: shelf * R2,
       hyps: { depth, area: Array.from(hy) }, bio: this.bio, carbW: rel(runS, R.run),
     };
-    if (this.carbon.settled || this.cycles >= LIFE.SETTLE) this.carbon.sea.set(this.seaIn);
+    if (this.carbon.settled || this.closed) this.carbon.sea.set(this.seaIn);
     // The export, drawn: each box's spread over the sea by its supply.
     const s = this.carbon.sea, mol = OC.RCP * s.in.bio, eW = mol / OC.TAU_W * s.P[0], eC = mol / OC.TAU_C * s.P[1];
     const wt = this.scratch.wt || (this.scratch.wt = new Float32Array(2 * n));

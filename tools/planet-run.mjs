@@ -10,7 +10,9 @@ Object.assign(ICE, o.ICE || {}); Object.assign(REGOLITH, o.REGOLITH || {}); Obje
 let t0 = performance.now();
 const P = new Planet(seed);
 console.log(`built in ${(performance.now() - t0).toFixed(0)} ms`);
-P.climate.solve(3); P.afterClimate();
+t0 = performance.now();
+P.settleClimate();   // the opening's closure: until the climate has settled
+console.log(`settled after ${P.climate.stats.settled} cycles (${(performance.now() - t0).toFixed(0)} ms) · T ${P.climate.stats.meanT.toFixed(1)} · CO2 ${P.carbon.pco2.toFixed(0)} · P ${P.climate.stats.meanP.toFixed(0)} mm/yr (land ${P.climate.stats.landP.toFixed(0)})`);
 for (let k = 0; k < +kyr; k += +every) {
   t0 = performance.now();
   P.run(+every * 1000, { fastStep: +fast, climateEvery: Math.max(+fast, 2000) });
