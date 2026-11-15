@@ -30,7 +30,9 @@ for (let s = 1; s <= steps; s++) {
   tp += performance.now() - t0; t0 = performance.now();
   land.step(5e5);
   tl += performance.now() - t0; t0 = performance.now();
-  if (flex) { flex.step(0.5); tec.updateElevation(); }
+  // The flexure every CRUSTFLEX.EVERY Myr, as the planet runs it (Planet.flexDue).
+  const fk = Math.max(1, Math.round(CRUSTFLEX.EVERY / 0.5));
+  if (flex && s % fk === 0) { flex.step(0.5 * fk); tec.updateElevation(); }
   tf += performance.now() - t0;
   if (s % 20 === 0) {
     const st = tec.stats();

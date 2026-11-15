@@ -42,7 +42,7 @@ import { Ground } from './ground.js';
 import { Lakes } from './lakes.js';
 import { Flexure } from './flexure.js';
 import { Regolith } from './regolith.js';
-import { CrustFlex } from './crustflex.js';
+import { CrustFlex, CRUSTFLEX } from './crustflex.js';
 import { Life } from './life.js';
 import { Aeolian } from './aeolian.js';
 
@@ -141,7 +141,22 @@ export class Planet {
     tec.updateElevation();
     this.landBank = (this.landBank || 0) + dt;
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
-    if (this.crustFlex) { this.crustFlex.step(dt / 1e6); tec.updateElevation(); }
+    const flexDt = this.flexDue(dt);
+    if (flexDt) { this.crustFlex.step(flexDt); tec.updateElevation(); }
+  }
+
+  /**
+   * The crust's flexure runs every CRUSTFLEX.EVERY Myr of plate time, on the loads laid down
+   * since it last ran (its correction relaxes over tens of Myr, and a load spread over the
+   * interval relaxes as one laid down evenly through it): the Myr to step it by, or 0.
+   */
+  flexDue(dt) {
+    if (!this.crustFlex) return 0;
+    this.flexBank = (this.flexBank || 0) + dt;
+    if (this.flexBank < CRUSTFLEX.EVERY * 1e6 - 1) return 0;
+    const d = this.flexBank / 1e6;
+    this.flexBank = 0;
+    return d;
   }
 
   /**
@@ -158,8 +173,9 @@ export class Planet {
     CLIMATE.OMEGA = this.moon.Omega;
     this.landBank = (this.landBank || 0) + dt;
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
-    if (this.crustFlex?.gpu) await this.crustFlex.stepAsync(dt / 1e6);
-    else if (this.crustFlex) { this.crustFlex.step(dt / 1e6); tec.updateElevation(); }
+    const flexDt = this.flexDue(dt);
+    if (flexDt && this.crustFlex.gpu) await this.crustFlex.stepAsync(flexDt);
+    else if (flexDt) { this.crustFlex.step(flexDt); tec.updateElevation(); }
   }
 
   /**

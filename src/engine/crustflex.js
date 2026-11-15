@@ -33,7 +33,8 @@
 // needs the slab's bending moment, which no load here carries, so it isn't
 // made. The ice's own load bends the bed by ELRA in ice.js.
 //
-// Solved after each plate step and landscape step (Planet.plateStep): on the
+// Solved every EVERY Myr of plate steps (Planet.flexDue; the loads since the last solve are one
+// load, laid down through the interval, so a lag under 1 Myr is under 2% of TAU_CONT): on the
 // engine's GPU where there is one (src/gpu/flexure.js, eight V-cycles from
 // cold, Tₑ's refresh overlapping the solve), on the CPU headless (to a
 // tolerance, warm). Tₑ is computed once per plate time for this and the ice's
@@ -52,6 +53,7 @@ export const CRUSTFLEX = {
   TAU_CONT: 50,      // Myr: continental loads relax toward Airy over this (speculation)
   TAU_OCEAN: Infinity,
   TE_EVERY: 0.5,     // Myr between refreshes of Tₑ
+  EVERY: 1,          // Myr of plate time between updates (Planet.flexDue): every other step at the dial's top, every tenth at 1 Myr/s
   CYCLES: 8,         // V-cycles a solve on the GPU, cold (each step's load is new, so a warm start gains nothing): 8e-5 of the deflection at level 7, ~2.3 ms (12: 6e-6, 3.3 ms)
   TOL: 1e-4,         // the CPU solve's tolerance on the residual
   C_MAX: 2000,       // m: the most the plate holds a column above or below Airy's (its strength; synthesis)
