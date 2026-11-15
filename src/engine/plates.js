@@ -152,6 +152,9 @@ export class Tectonics {
     this.rng = null;
     this.noise = null;
     this.counters = { made: 0, consumed: 0, collided: 0, merges: 0, rifts: 0, opened: 0, closed: 0 };
+    // What the CPU rewrote outside the step (rare events), for the GPU's mirror (src/gpu/plates.js).
+    this.dirty = { plates: new Set(), owner: false, mem: false };
+    this.gpu = null;
   }
 
   alivePlates() { return this.plates.filter(p => p.alive); }
@@ -210,9 +213,8 @@ export class Tectonics {
     this.counters.closed += close * dt / cell;
   }
 
-  step(dt) {
-    const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr;
-    const t1 = this.t + dt;
+  /** Each plate turned by its ω over dt (exact: the frames move, nothing is resampled). */
+  rotate(dt) {
     const dq = new Float64Array(4);
     for (const p of this.plates) {
       if (!p.alive) continue;
@@ -224,6 +226,12 @@ export class Tectonics {
         quatToMat(p.q, p.R);
       }
     }
+  }
+
+  step(dt) {
+    const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr;
+    const t1 = this.t + dt;
+    this.rotate(dt);
     this.prevOwner.set(this.owner);
     this.prevRef.set(this.ref);
     this.fresh.fill(0);
@@ -347,8 +355,7 @@ export class Tectonics {
 
     const ka = Math.exp(-dt / PARAMS.ARC_TAU), ks = Math.exp(-dt / PARAMS.SLAB_TAU), kc = Math.exp(-dt / PARAMS.COLLIDE_TAU);
     for (let i = 0; i < n; i++) { this.arc[i] *= ka; this.slab[i] *= ks; this.col[i] *= kc; }
-    const km = Math.exp(-dt / PARAMS.MERGE_TAU);
-    for (const [key, v] of this.pairs) { const nv = v * km; if (nv < 0.5) this.pairs.delete(key); else this.pairs.set(key, nv); }
+    this.decayPairs(dt);
 
     this.kinematics(dt);
     this.t = t1;
@@ -368,6 +375,59 @@ export class Tectonics {
    * regularization, not geology), and it moves crust without making or
    * destroying any.
    */
+  /**
+   * The same step with its per-cell work on the GPU (src/gpu/plates.js): the pass
+   * over the cells, relaxation, sampling, the memories' decay, elevation, the sea
+   * level, the kinematics and the balance's sums. What stays here is per plate or
+   * rare: ω from the sums, collision tallies, the water's drift, and merges, rifts
+   * and initiation (the memories are read down first where those need them).
+   */
+  async stepAsync(dt) {
+    const t1 = this.t + dt;
+    this.rotate(dt);
+    const r = await this.gpu.step(dt, t1);
+    const c = this.counters, k = r.counts, np = this.plates.length;
+    c.made += k.made; c.consumed += k.consumed; c.collided += k.collided;
+    c.relaxed = (c.relaxed || 0) + k.relaxed; c.foundered = (c.foundered || 0) + k.foundered;
+    for (let a = 0; a < np; a++) for (let b = a + 1; b < np; b++) {
+      const v = r.pairs[a * MAX_PLATES + b];
+      if (v) { const key = a * MAX_PLATES + b; this.pairs.set(key, (this.pairs.get(key) || 0) + v); }
+    }
+    this.decayPairs(dt);
+    const cell = 4 * Math.PI / this.grid.n;
+    c.opened += r.open * dt / cell; c.closed += r.close * dt / cell;
+    this.t = t1;
+    if (this.water > 0) this.seaLevel = r.sea;
+    this.exchangeWater(dt, r.land);
+    const T = r.T;
+    for (let a = 0; a < np; a++) {
+      const p = this.plates[a];
+      p.area = r.area[a]; p.land = r.plateLand[a];
+      T[3 * a] += p.torqueExt[0]; T[3 * a + 1] += p.torqueExt[1]; T[3 * a + 2] += p.torqueExt[2];
+    }
+    this.solveBalance(r.M, T, dt);
+    // The rare events, on the CPU and in the CPU's order: the memories come down first for those
+    // that rewrite them (a merge relocates slabs and fronts; an initiation hangs a slab).
+    const merge = this.mergeDue();
+    if (merge) { await this.gpu.pullMemory(); this.mergeWelded(); }
+    this.maybeRift();
+    const site = this.initiationSite();
+    if (site) { if (!merge) await this.gpu.pullMemory(); this.initiate(site); }
+  }
+
+  decayPairs(dt) {
+    const km = Math.exp(-dt / PARAMS.MERGE_TAU);
+    for (const [key, v] of this.pairs) { const nv = v * km; if (nv < 0.5) this.pairs.delete(key); else this.pairs.set(key, nv); }
+  }
+
+  /** Whether mergeWelded would merge anything (a microplate, or a welded pair). */
+  mergeDue() {
+    const alive = this.alivePlates();
+    if (alive.length > PARAMS.MIN_PLATES && alive.some(p => p.area < PARAMS.MICROPLATE)) return true;
+    for (const v of this.pairs.values()) if (v >= PARAMS.MERGE_EVENTS / (this.res * this.res)) return true;
+    return false;
+  }
+
   relaxBoundaries() {
     const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner;
     const ks = new Int32Array(8), cs = new Int32Array(8), gs = new Int32Array(8);
@@ -403,12 +463,14 @@ export class Tectonics {
    * subduct, which is thought to buffer sea level (the mechanism is debated).
    * Sea level moves 3 km per unit of land fraction off the target, per τ.
    */
-  exchangeWater(dt) {
+  exchangeWater(dt, land = null) {
     if (!(this.landTarget > 0) || !(PARAMS.WATER_TAU > 0)) return;
-    const g = this.grid, n = g.n, s = this.seaLevel;
-    let land = 0;
-    for (let i = 0; i < n; i++) if (this.elev[i] > s) land += g.area[i];
-    land /= 4 * Math.PI;
+    if (land == null) {
+      const g = this.grid, n = g.n, s = this.seaLevel;
+      land = 0;
+      for (let i = 0; i < n; i++) if (this.elev[i] > s) land += g.area[i];
+      land /= 4 * Math.PI;
+    }
     this.water += (1 - land) * 4 * Math.PI * 3 * (land - this.landTarget) * dt / PARAMS.WATER_TAU;
   }
 
@@ -421,6 +483,9 @@ export class Tectonics {
     }
     if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater), this.seaLevel);
   }
+
+  /** Ridge push and slab pull per unit, scaled with the cell (see balance); src/gpu/plates.js reads them here too. */
+  forceScales() { return { kRidge: PARAMS.K_RIDGE * this.res ** 0.2, kSlab: PARAMS.K_SLAB * Math.sqrt(this.res) }; }
 
   /**
    * ω from slab pull and ridge push against basal drag, per plate.
@@ -439,7 +504,7 @@ export class Tectonics {
   balance(dt) {
     const g = this.grid, n = g.n, pos = g.pos, area = g.area;
     const cellLen = Math.sqrt(4 * Math.PI / n);
-    const kRidge = PARAMS.K_RIDGE * this.res ** 0.2, kSlab = PARAMS.K_SLAB * Math.sqrt(this.res);
+    const { kRidge, kSlab } = this.forceScales();
     const np = this.plates.length;
     const M = new Float64Array(9 * np), T = new Float64Array(3 * np);
     for (let k = 0; k < np; k++) { const p = this.plates[k]; p.area = 0; p.land = 0; T[3 * k] = p.torqueExt[0]; T[3 * k + 1] = p.torqueExt[1]; T[3 * k + 2] = p.torqueExt[2]; }
@@ -513,6 +578,12 @@ export class Tectonics {
       T[3 * a] += tx; T[3 * a + 1] += ty; T[3 * a + 2] += tz;
       T[3 * b] -= tx; T[3 * b + 1] -= ty; T[3 * b + 2] -= tz;
     }
+    this.solveBalance(M, T, dt);
+  }
+
+  /** ω per plate from its drag matrix M (upper triangle, 9 per plate) and torque T, relaxed over V_RELAX. */
+  solveBalance(M, T, dt) {
+    const np = this.plates.length;
     // Symmetric fill and solve.
     const w = new Float64Array(3), mk = new Float64Array(9), tk = new Float64Array(3);
     const a = 1 - Math.exp(-dt / PARAMS.V_RELAX), ke = Math.exp(-dt / PARAMS.RIFT_TAU);
@@ -584,6 +655,7 @@ export class Tectonics {
     for (let c = 0; c < 3; c++) { A.w[c] = (A.w[c] * wa + B.w[c] * wb) / (wa + wb); A.torqueExt[c] += B.torqueExt[c]; }
     B.alive = false;
     this.relocate(b, a);
+    this.dirty.plates.add(a); this.dirty.plates.add(b); this.dirty.owner = this.dirty.mem = true;
     this.counters.merges++;
   }
 
@@ -610,10 +682,15 @@ export class Tectonics {
    * away as a plate of its own and starts to sink under the continent.
    */
   maybeInitiate() {
-    const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr;
-    if (this.t - (this.lastInitiation ?? -1e9) < PARAMS.INITIATE_GAP) return;
-    if (this.alivePlates().length >= PARAMS.MAX_LIVE_PLATES) return;
-    const owner = this.owner, phi = this.phi;
+    const site = this.initiationSite();
+    if (site) this.initiate(site);
+  }
+
+  /** The plate whose old margin qualifies, with the margin's cells; null if none does (or it isn't time). */
+  initiationSite() {
+    const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, phi = this.phi;
+    if (this.t - (this.lastInitiation ?? -1e9) < PARAMS.INITIATE_GAP) return null;
+    if (this.alivePlates().length >= PARAMS.MAX_LIVE_PLATES) return null;
     const margin = new Map();
     for (let i = 0; i < n; i++) {
       if (phi[i] >= CONTINENTAL || this.t - this.tf[i] < PARAMS.FOUNDER_AGE) continue;
@@ -625,7 +702,13 @@ export class Tectonics {
     }
     let bestK = -1, best = null;
     for (const [k, cells] of margin) if (cells.length >= PARAMS.INITIATE_CELLS / this.res && (!best || cells.length > best.length)) { bestK = k; best = cells; }
-    if (bestK < 0) return;
+    return bestK < 0 ? null : { bestK, best };
+  }
+
+  /** The step's initiation in place, if a site qualifies. */
+  initiate(site) {
+    const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, phi = this.phi;
+    const { bestK, best } = site;
     const A = this.plates[bestK];
     const B = this.allocPlate();
     if (!B) return;
@@ -658,6 +741,7 @@ export class Tectonics {
       this.slabDir[3 * i] = dx / r; this.slabDir[3 * i + 1] = dy / r; this.slabDir[3 * i + 2] = dz / r;
     }
     this.lastInitiation = this.t;
+    this.dirty.plates.add(bestK); this.dirty.plates.add(B.index); this.dirty.owner = this.dirty.mem = true;
     this.counters.initiated = (this.counters.initiated || 0) + 1;
   }
 
@@ -728,6 +812,7 @@ export class Tectonics {
       }
     }
     for (let i = 0; i < n; i++) if (this.owner[i] === k && B.mask[this.ref[i]]) this.owner[i] = B.index;
+    this.dirty.plates.add(k); this.dirty.plates.add(B.index); this.dirty.owner = true;
     // Opening: rotate the halves apart about the axis in the rift plane.
     const ax = cy * mz - cz * my, ay = cz * mx - cx * mz, az = cx * my - cy * mx;
     const f = PARAMS.RIFT_SPEED * A.area * 0.5;

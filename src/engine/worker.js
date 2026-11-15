@@ -25,6 +25,8 @@ import { gpuDevice } from '../gpu/device.js';
 import { GpuIce } from '../gpu/ice.js';
 import { GpuMoisture } from '../gpu/moisture.js';
 import { GpuTides } from '../gpu/tides.js';
+import { GpuPlates } from '../gpu/plates.js';
+import { GpuSurface } from '../gpu/surface.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 
@@ -46,6 +48,8 @@ self.onmessage = e => {
     // The engine's own GPU device, for the ice (and the climate's heavy solves).
     gpuDevice().then(device => {
       P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
+      // The plates' step and the drawn surface too (src/gpu/plates.js says what stays here).
+      try { P.tec.gpu = new GpuPlates(device, P.tec); surfaceGpu = new GpuSurface(device, P.grid); } catch (err) { console.warn('[isochron] plates on the GPU:', err.message); }
       // The tide at level 6 at most (its cells nest first in a finer grid), so the Moon recedes alike at every level.
       const tg = P.grid.level > 6 ? buildGrid(6) : P.grid;
       tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };
@@ -68,9 +72,19 @@ function apply(p) {
   if (CARBON.FIXED === 'now') CARBON.FIXED = Math.round(P.carbon.pco2);
 }
 
-function pump() {
+// The plates step on the GPU, so a pump awaits them; one pump at a time. While pumps run back
+// to back the climate takes a slice every 100 ms (a tenth of the thread; it may fill a pump’s
+// wait on the GPU), and runs freely between them.
+let surfaceGpu = null, pumping = false, lastSlice = 0;
+async function pump() {
   scheduled = false;
-  if (!P) return;
+  if (!P || pumping) return;
+  pumping = true;
+  try { await pumpTicks(); } finally { pumping = false; }
+  if (ticks.length) schedule();
+}
+
+async function pumpTicks() {
   // Ticks first, all of them (a slow step coalesces the frames behind it).
   let stepped = 0;
   const t0 = performance.now();
@@ -79,7 +93,7 @@ function pump() {
   while (ticks.length) {
     const m = ticks.shift();
     P.years += m.adv;
-    for (const dt of m.steps) { P.plateStep(dt); stepYears += dt; stepped++; pending = Math.max(pending, 1); }
+    for (const dt of m.steps) { await P.plateStepAsync(dt); stepYears += dt; stepped++; pending = Math.max(pending, 1); }
     lap('plates');
     P.setOrbit(m.window);
     P.fast(m.adv, ICE_MS);
@@ -89,19 +103,18 @@ function pump() {
   }
   const now = performance.now();
   if (stepped) {
-    sendSurface(true, stepped, performance.now() - t0);
+    await sendSurface(true, stepped, performance.now() - t0);
     lap('surface');
   }
   else if (now - lastSeaCheck > 250) {
     // Ice moves the sea; the coast is redrawn when it has moved a few metres.
     lastSeaCheck = now;
-    if (Math.abs(P.tec.seaLevel - seaSent) > 0.004) sendSurface(false);
+    if (Math.abs(P.tec.seaLevel - seaSent) > 0.004) await sendSurface(false);
     lap('sea');
   }
   if (now - lastFast > 100) { sendFast(false); lap('fastMsg'); }
   if ((playing || pending > 0) && !climateRunning) climateLoop();
   solveTides();
-  if (ticks.length) schedule();
 }
 
 // The climate runs alongside: a slice of its cycle at a time, awaiting the GPU's work
@@ -114,6 +127,7 @@ async function climateLoop() {
   const c = P.climate;
   try {
     while (playing || pending > 0) {
+      if (pumping && performance.now() - lastSlice < 10 * CLIMATE_MS) { await nextTask(); continue; }
       if (!c.it) { c.it = c.cycle(); cycleStart = performance.now(); }
       const t0 = performance.now();
       let r;
@@ -123,6 +137,7 @@ async function climateLoop() {
         if (r.value && r.value.then) { await r.value; break; }
       } while (!r.done && performance.now() - t0 < CLIMATE_MS);
       prof.climate = (prof.climate || 0) + performance.now() - tc;
+      lastSlice = performance.now();
       if (r.done) { c.it = null; cycleMs = performance.now() - cycleStart; P.afterClimate(); pending = Math.max(0, pending - 1); sendClimate(); }
       await nextTask();
     }
@@ -146,11 +161,11 @@ function solveTides() {
   }, err => console.warn('[isochron] tides:', err.message)).finally(() => { tides.running = false; });
 }
 
-function sendSurface(fromStep, steps = 0, ms = 0) {
+async function sendSurface(fromStep, steps = 0, ms = 0) {
   // What a step costs, with drawing's share, so the page can plan steps the engine keeps up with.
   if (steps) { stepsDone += steps; msPerStep = 0.7 * msPerStep + 0.3 * ms / steps; }
   const { grid, tec, land, ice } = P, tSend = performance.now();
-  const f = surfaceFields(grid, tec, land, ice);
+  const f = surfaceGpu ? await surfaceGpu.fields(tec, land, ice) : surfaceFields(grid, tec, land, ice);
   seaSent = tec.seaLevel;
   const m = {
     type: 'surface', fromStep, t: tec.t, seaLevel: tec.seaLevel, ...f,

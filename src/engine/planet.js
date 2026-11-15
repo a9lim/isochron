@@ -85,6 +85,22 @@ export class Planet {
     if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
   }
 
+  /**
+   * plateStep with the plates on the GPU (tec.gpu, src/gpu/plates.js, from the engine's worker):
+   * the plumes go first, so the crust they build and their swells go up with the step, whose
+   * elevation and sea level then need no second solve here.
+   */
+  async plateStepAsync(dt) {
+    const tec = this.tec;
+    if (!tec.gpu) return this.plateStep(dt);
+    this.plumes.step(dt / 1e6);
+    await tec.stepAsync(dt / 1e6);
+    this.moon.step(dt);
+    CLIMATE.OMEGA = this.moon.Omega;
+    this.landBank = (this.landBank || 0) + dt;
+    if (this.landBank >= 2.5e5) { this.land.step(this.landBank); this.landBank = 0; }
+  }
+
   /** The fast layers over dt years: carbon, and ice within a time budget. */
   fast(dt, iceMs = 4) {
     this.carbon.step(dt);
