@@ -548,6 +548,7 @@ export class People {
     this.f = new Float32Array(nL); this.pkg = new Int16Array(nL).fill(-1); this.packages = [];
     this.ind = new Float32Array(nL);
     this.Ntot = new Float64Array(nL); this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
+    this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
     this.econ = newEconomy(this.P);
     this.econ.oreRich = this.oreRich;
     this.env = new CachedEnv(this);
@@ -1224,7 +1225,9 @@ export class People {
       const Ne = Math.max(10, P.NE_SHARE * tot), gens = dt / P.T_GEN;
       L.g += P.V_G * P.S_BG * gens * Math.max(0, 1 - Math.pow(Math.max(0, L.g) / P.G_MAX, 4)) + Math.sqrt(P.V_G * gens / Ne) * this.rng.normal();
     }
-    // Gene flow where lineages meet: traits and ancestry mix by the contact (soft species).
+    // Gene flow where lineages meet: ancestry mixes by the contact (soft species), and each side's
+    // advantage in the trait introgresses into the other at the flow's rate (selection keeps the
+    // better alleles that cross; averaging the traits lost them).
     for (let a = 0; a < live.length; a++) for (let b = a + 1; b < live.length; b++) {
       const A = live[a], B = live[b];
       let C = 0;
@@ -1233,7 +1236,7 @@ export class People {
       const ta = A.total || 1, tb = B.total || 1;
       const pa = Math.min(0.5, P.GENE_FLOW * C / ta * dt), pb = Math.min(0.5, P.GENE_FLOW * C / tb * dt);
       const ga = A.g, gb = B.g, aa = new Map(A.anc), ab = new Map(B.anc);
-      A.g = (1 - pa) * ga + pa * gb; B.g = (1 - pb) * gb + pb * ga;
+      A.g = ga + pa * Math.max(0, gb - ga); B.g = gb + pb * Math.max(0, ga - gb);
       const mix = (dst, src, p) => { for (const [k, v] of dst) dst.set(k, v * (1 - p)); for (const [k, v] of src) dst.set(k, (dst.get(k) || 0) + p * v); };
       mix(A.anc, ab, pa); mix(B.anc, aa, pb);
     }
@@ -1343,8 +1346,14 @@ export class People {
   books(pace = 1) {
     const P = this.P, H = this.H, nL = this.nL;
     // Merges: two lineages living on in the same cells (neither excluding the other) for T_MERGE
-    // become one, its traits and ancestry weighted by their numbers (soft species; as a stray
-    // piece of a plate joins the plate it borders).
+    // become one (soft species; as a stray piece of a plate joins the plate it borders). Its
+    // ancestry is weighted by their numbers (genealogy); each cell keeps the higher culture (ideas
+    // are non-rival: the better technique survives the meeting); its trait is the higher (selection
+    // spreads the better side's alleles through the merged people). The union of each side's gains
+    // since the split (beneficial mutations fixed apart, put together by recombination) would be
+    // principled only with the trait's clock scaled by each lineage's numbers: on a clock that runs
+    // alike in every lineage, splits and merges counted one people's gain several times, and the
+    // first tip came 0.4–1.2 Myr early.
     this.mergeSince = this.mergeSince || new Map();
     const alive = this.lineages.filter(L => L.died === null);
     for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++) {
@@ -1360,10 +1369,10 @@ export class People {
       const wb = big.total / (big.total + small.total), ws = 1 - wb;
       for (let c = 0; c < nL; c++) {
         const n = big.N[c] + small.N[c];
-        if (n > 0) big.Z[c] = (big.N[c] * big.Z[c] + small.N[c] * small.Z[c]) / n;
+        if (n > 0) big.Z[c] = big.N[c] > 0 && small.N[c] > 0 ? Math.max(big.Z[c], small.Z[c]) : big.N[c] > 0 ? big.Z[c] : small.Z[c];
         big.N[c] = n; small.N[c] = 0;
       }
-      big.g = wb * big.g + ws * small.g;
+      big.g = Math.max(big.g, small.g);
       const anc = new Map();
       for (const [k, v] of big.anc) anc.set(k, wb * v);
       for (const [k, v] of small.anc) anc.set(k, (anc.get(k) || 0) + ws * v);
@@ -1398,6 +1407,7 @@ export class People {
 
   record(live, dt) {
     const P = this.P, nL = this.nL, E = this.econ, H = this.H;
+    for (let c = 0; c < nL; c++) if (!this.reached[c] && this.Ntot[c] >= P.N_MIN * H.area[c]) this.reached[c] = 1;
     let minds = 0, people = 0, farm = 0, indp = 0, zmax = 0, soilF = 0, farmA = 0;
     for (let c = 0; c < nL; c++) {
       const y = this.Ntot[c] > 0 ? this.Out[c] / this.Ntot[c] : 0;
@@ -1582,7 +1592,8 @@ export class People {
    * farms and solar farms (synthesis). Each use takes the land its footprint density gives (D_URB
    * residents a km² of city; D_FAC, D_DC, D_SOL W/m²), claimed in that order: cities, factories and
    * datacenters first, farms (the model's farmed share) as far as they leave room, then solar farms.
-   * Layout: [people, farms, cities, factories], [datacenters, solar farms, robots, 0].
+   * Layout: [people, farms, cities, factories], [datacenters, solar farms, robots, reached] (reached:
+   * 1 where people have ever lived, the Settlement map's explored land).
    */
   drawn(out = null) {
     const n = this.planet.grid.n, H = this.H, E = this.econ, P = this.P, nL = this.nL;
@@ -1622,7 +1633,7 @@ export class People {
       const farm = take(this.f[c]);
       const sol = take(ss > 0 ? Ws * ws[c] / ss / Am / P.D_SOL : 0);
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
-      out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
+      out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0; out[o + 7] = this.reached[c];
     }
     return out;
   }

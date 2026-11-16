@@ -64,6 +64,7 @@ const els = {
   keyBtn: $('key-btn'), key: $('globe-key'), keyCanvas: $('key-canvas'),
   wxPicker: $('wx-picker'), wxBtns: document.querySelectorAll('#wx-picker .view-btn'),
   clPicker: $('cl-picker'), clBtns: document.querySelectorAll('#cl-picker .view-btn'),
+  pmPicker: $('pm-picker'), pmBtns: document.querySelectorAll('#pm-picker .view-btn'),
   experiments: $('experiments'),
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
@@ -96,6 +97,7 @@ let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
 let clMode = 'zones';               // the Climate view's map: its zones, or the air (winds, dust, the veil)
+let pmMode = 'settlement';          // the People view's map: where people have reached, or their and the robots' density
 // The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
 const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
 let tide = null;
@@ -563,7 +565,7 @@ function setDial(v) { els.dial.value = String(v); syncDial(); }
 
 // ── The view ──
 // ── The key ──
-function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view === 'climate' ? `climate-${clMode}` : view, palette()); }
+function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view === 'climate' ? `climate-${clMode}` : view === 'people' ? `people-${pmMode}` : view, palette()); }
 function setWxMode(m) {
   wxMode = m;
   for (const b of els.wxBtns) b.setAttribute('aria-checked', b.dataset.wx === m ? 'true' : 'false');
@@ -581,6 +583,14 @@ function setClMode(m) {
   caption(true);
 }
 for (const b of els.clBtns) b.addEventListener('click', () => setClMode(b.dataset.cl));
+function setPmMode(m) {
+  pmMode = m;
+  for (const b of els.pmBtns) b.setAttribute('aria-checked', b.dataset.pm === m ? 'true' : 'false');
+  drawTheKey();
+  drawDirty = true;
+  caption(true);
+}
+for (const b of els.pmBtns) b.addEventListener('click', () => setPmMode(b.dataset.pm));
 function setKey(on) {
   els.key.hidden = !on;
   els.keyBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -594,6 +604,7 @@ function setView(v) {
   view = v;
   els.wxPicker.hidden = v !== 'weather';
   els.clPicker.hidden = v !== 'climate';
+  els.pmPicker.hidden = v !== 'people';
   drawTheKey();
   if (v === 'weather') {
     // A weather run under an earlier spin starts again under this one (the Moon's tides lengthen the day).
@@ -1319,7 +1330,7 @@ function tick(now) {
     lap('lines');
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, blend: phi, tides: sf.tides, veil: yf.veil, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0 });
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0 });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
@@ -1370,4 +1381,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, setPmMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; } };

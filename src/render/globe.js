@@ -59,14 +59,17 @@
 // wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
 // at the amphidromic points, at the slowest dials the line of high water
 // sweeping round them, and a stipple where the tide loses its energy.
-// The People view (the People experiment, src/engine/people.js) is a chart's
-// base with the ice sheets: people as a tint in the accent by log density
-// (~0.003 to ~4,000 a km², rural and in cities: People.places), robots at work
-// as a verdigris tint over it; the land's uses on the mosaic's tesserae, each
-// tessera one use by its cell's shares (exclusive): cities a grid of blocks,
-// factories a heavy sienna hatch, datacenters a violet stipple (racks), farms
-// sap parcels each furrowed its own way, solar farms rows of prussian strokes
-// (panels); the sulfate veil as in the Air map.
+// The People view (the People experiment, src/engine/people.js) has two maps.
+// Settlement: the Relief view's land and sea where people have ever lived and
+// grey terra incognita where they haven't, a hairline at the frontier. Density:
+// a chart's base with the ice sheets under people as a tint in the accent by log
+// density (~0.003 to ~4,000 a km², rural and in cities: People.places) and
+// robots at work as a verdigris tint over it. On both, the land's uses on the
+// mosaic's tesserae, each tessera one use by its cell's shares (exclusive), in
+// two patterns of two colours each: blocks for residences (cities in the accent,
+// datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
+// farms in indigo), and factories a heavy sienna hatch; the sulfate veil as in
+// the Air map.
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
@@ -80,7 +83,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
@@ -377,6 +380,7 @@ fn hair(d: f32, w: f32) -> f32 {
   let fice = max(fwidth(iceH), 1.0);
   let flake = max(fwidth(lake), 1e-4);
   let fsalt = max(fwidth(salt), 1e-3);
+  let freach = max(fwidth(i.pq.w), 1e-3);   // the Settlement map's frontier (where people have reached)
   let lat = asin(clamp(wpn.z, -1.0, 1.0));
   let dlat = fwidth(lat);
   let iceSurf = max(e, 0.0) + iceH / 1000.0;
@@ -388,7 +392,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;
+  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7) or its Density map (8)
+  let folkD = u.mode.x > 7.5;
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
   let tA = length(tz);
@@ -565,48 +570,54 @@ fn hair(d: f32, w: f32) -> f32 {
   land = select(land, tland, tides);
   sea = select(sea, tsea, tides);
 
-  // The People view: a chart's base with the ice sheets; the people's and the robots' tints; the
-  // land's uses on the mosaic's tesserae, each tessera one use with its cell's shares (exclusive).
-  var pland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), iceC, sheet);
+  // The People view. Settlement: the Relief view's land and sea where people have ever lived, grey
+  // terra incognita where they haven't, a hairline at the frontier. Density: a chart's base with the
+  // ice sheets under the people's and the robots' tints. Both: the land's uses on the mosaic's
+  // tesserae, each tessera one use by its cell's shares (exclusive), in two patterns, each in two
+  // colours: blocks for residences (people's cities in the accent, AI's datacenters in the robots'
+  // verdigris), parcels for fields (farms in sap, solar farms in indigo), and factories a heavy hatch.
+  let explored = clamp(0.5 + (i.pq.w - 0.5) / freach, 0.0, 1.0);
+  let unknown = mix(mix(u.canvas.rgb, u.text.rgb, select(0.13, 0.12, dark)), iceC, sheet);
+  var pland = select(mix(unknown, land, explored), mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), iceC, sheet), folkD);
   if (folkV) {
-    // People: the accent by log density, a faint wash wherever anyone lives deepening to the farms'
-    // densities (~0.003 to ~300 a km²), then a step for the cities (~200 to ~4,000 a km²).
-    let plog = log(max(i.pp.x, 1e-9)) / 2.302585;
-    let rural = smoothstep(-3.2, -2.5, plog) * select(0.08 + 0.22 * smoothstep(-2.5, 2.5, plog), 0.05 + 0.16 * smoothstep(-2.5, 2.5, plog), dark);
-    let urban = smoothstep(2.3, 3.6, plog) * select(0.42, 0.55, dark);
-    pland = mix(pland, u.accent.rgb, rural + urban);
-    // Robots at work (worker-equivalents a km², ~1 to ~3,000 by log): verdigris over the people, so a
-    // few million robots near the cities barely show and billions over the land do.
-    let rlog = log(max(i.pq.z, 1e-12)) / 2.302585;
-    pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
+    if (folkD) {
+      // People: the accent by log density, a faint wash wherever anyone lives deepening to the farms'
+      // densities (~0.003 to ~300 a km²), then a step for the cities (~200 to ~4,000 a km²).
+      let plog = log(max(i.pp.x, 1e-9)) / 2.302585;
+      let rural = smoothstep(-3.2, -2.5, plog) * select(0.08 + 0.22 * smoothstep(-2.5, 2.5, plog), 0.05 + 0.16 * smoothstep(-2.5, 2.5, plog), dark);
+      let urban = smoothstep(2.3, 3.6, plog) * select(0.42, 0.55, dark);
+      pland = mix(pland, u.accent.rgb, rural + urban);
+      // Robots at work (worker-equivalents a km², ~1 to ~3,000 by log): verdigris over the people, so a
+      // few million robots near the cities barely show and billions over the land do.
+      let rlog = log(max(i.pq.z, 1e-12)) / 2.302585;
+      pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
+    } else {
+      pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
+    }
     // The land's uses, in order of claim: cities, factories, datacenters, farms, solar farms.
     let c1 = i.pp.z;
     let c2 = c1 + i.pp.w;
     let c3 = c2 + i.pq.x;
     let c4 = c3 + i.pp.y;
     let c5 = c4 + i.pq.y;
-    // Cities: a grid of blocks in the accent, darkened. Factories: a heavy sienna hatch. Datacenters:
-    // violet racks, a fine dense stipple (indigo read as the solar farms' prussian). Farms: sap
-    // parcels, each furrowed its own way. Solar farms:
-    // rows of short prussian strokes (panels).
     let blocks = max(hatch(T, vec2f(1.0, 0.0), 3.4 * u.mode.z, 0.7 * u.mode.z), hatch(T, vec2f(0.0, 1.0), 3.4 * u.mode.z, 0.7 * u.mode.z));
-    let cityInk = select(mix(u.accent.rgb, u.text.rgb, 0.35), mix(u.accent.rgb, u.text.rgb, 0.3), dark);
     let furrowA = 3.14159265 * fract(tess * 97.31);
+    let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
     if (tess < c1) {
-      pland = mix(mix(pland, u.accent.rgb, 0.12), cityInk, 0.75 * blocks);
+      pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (tess < c2) {
       pland = mix(mix(pland, u.inkF.rgb, 0.18), u.inkF.rgb, 0.85 * hatch(T, vec2f(0.7071, 0.7071), 2.8 * u.mode.z, 1.0 * u.mode.z));
     } else if (tess < c3) {
-      pland = mix(mix(pland, u.inkG.rgb, 0.22), u.inkG.rgb, 0.9 * stipple(T, 2.6 * u.mode.z, 0.75 * u.mode.z));
+      pland = mix(mix(pland, u.inkD.rgb, 0.14), mix(u.inkD.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (tess < c4) {
-      pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z));
+      pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
     } else if (tess < c5) {
-      pland = mix(mix(pland, u.ocean.rgb, 0.12), u.ocean.rgb, 0.8 * strokes(T, 3.6 * u.mode.z, 1.1 * u.mode.z));
+      pland = mix(pland, u.inkE.rgb, 0.12 + 0.6 * furrows);
     }
   }
   land = select(land, pland, folkV);
-  sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkV);
-  let chart = weather || tides || air || folkV;
+  sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkD);
+  let chart = weather || tides || air || folkD;
 
   var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), e < 0.0);
 
@@ -824,7 +835,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? 7 : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);
