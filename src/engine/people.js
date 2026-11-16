@@ -1590,8 +1590,9 @@ export class People {
    * city, `places`) and the robots at work per km² (worker-equivalents), the two tints; and the land's
    * uses, each a share of the cell and together at most all of it: cities, factories, datacenters,
    * farms and solar farms (synthesis). Each use takes the land its footprint density gives (D_URB
-   * residents a km² of city; D_FAC, D_DC, D_SOL W/m²), claimed in that order: cities, factories and
-   * datacenters first, farms (the model's farmed share) as far as they leave room, then solar farms.
+   * residents a km² of city; D_FAC, D_DC, D_SOL W/m²), claimed in that order: cities, then factories
+   * and datacenters (packing denser to fit where the room runs out), farms (the model's farmed share)
+   * as far as they leave room, then solar farms.
    * Layout: [people, farms, cities, factories], [datacenters, solar farms, robots, reached] (reached:
    * 1 where people have ever lived, the Settlement map's explored land).
    */
@@ -1628,8 +1629,18 @@ export class People {
       let room = H.alive[c] ? 1 : 0;
       const take = want => { const v = Math.min(Math.max(0, want), room); room -= v; return v; };
       const city = take(S[c] / (A[c] * P.D_URB));
-      const fac = take(Wf * (m[c] + fl * floor) / (1 + fl) / Am / P.D_FAC);
-      const dc = take(sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am / P.D_DC : 0);
+      // Factories and datacenters (W/m² of the cell): each at its footprint density while there is
+      // room; past it they pack denser to fit, to a common density D* (factories, the sparser, first),
+      // so a full cell splits by power. (In order, the factories' 30 W/m² took all the land past the
+      // dial and left datacenters none; shared by what each wanted, ~0.1% of it.)
+      const pf = Wf * (m[c] + fl * floor) / (1 + fl) / Am, pd = sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am : 0;
+      let fac = pf / P.D_FAC, dc = pd / P.D_DC;
+      if (fac + dc > room) {
+        const Ds = room > dc ? pf / (room - dc) : Infinity;   // factories packed to fit beside datacenters at theirs
+        if (Ds <= P.D_DC) fac = room - dc;
+        else { const t = pf + pd; fac = t > 0 ? room * pf / t : 0; dc = t > 0 ? room * pd / t : 0; }
+      }
+      room = Math.max(0, room - fac - dc);
       const farm = take(this.f[c]);
       const sol = take(ss > 0 ? Ws * ws[c] / ss / Am / P.D_SOL : 0);
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
