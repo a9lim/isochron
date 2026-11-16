@@ -105,7 +105,7 @@
 // Units: years, km, people, z in e-folds; output in subsistence-years a year (sy/yr, a person's
 // subsistence a year), capital in sy; energy in W; carbon in Pg C.
 import { NZ } from './climate.js';
-import { miami } from './vegetation.js';
+import { miami, VEG } from './vegetation.js';
 import { regolithStep } from './regolith.js';
 import { stream } from '../rng.js';
 
@@ -145,7 +145,7 @@ export const PEOPLE = {
   V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of culture
   COPY: 2e-3, ACC: 2e-3,           // copying better neighbours, and other lineages in the cell (/yr at z = 0)
   RHO_R: 0.5, S_R_MAX: 1,          // research intensity ∝ y^ρ, capped at a subsistence-year's: a rich people's larger research share is offset by research's falling yield (BETA_R), so Kremer's A holds at Earth's 1960 (~1.8%/yr of productivity at 3 B; 3 at 3× gave the industrial era ~5–9%/yr at takeoff, and 90–220 Pg C burned by then)
-  Z_BOAT: 0, L_SEA0: 40, L_SEA: 400, HOPS: 6, LONG_HOPS: 40,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA z (km: rafts' first, then boats'); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its nearest other's, to LONG_HOPS)
+  Z_BOAT: 0, L_SEA0: 40, L_SEA: 400, HOPS: 6, LONG_HOPS: 40, K_LONG: 4,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA z (km: rafts' first, then boats'); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its K_LONG nearest others, to LONG_HOPS, then rounds until all are joined)
   S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of culture, × e^{−km/reach}; the founders (synthesis)
   // The trait (speculation: social reach as a clock)
   V_G: 2e-3, T_GEN: 25, S_BG: 0.04, NE_SHARE: 0.1, G_MAX: 9,   // the trait lengthens contact, up to G_MAX (ℓ at L_CMAX)
@@ -191,14 +191,17 @@ export const PEOPLE = {
   F_RUN: 40, E_BOIL: 3.7e27, T_HAB: 12,             // the runaway greenhouse's forcing (W/m²: absorbed past ~282 W/m², Goldblatt and others 2013, from memory); the heat that boils the oceans away (J: 1.4e21 kg from 15 °C, standard); the warming that leaves half the land unlivable (wet bulbs past 35 °C: Sherwood and Huber 2010, ~11–12 K, from memory)
   R_VOL: 1e-3, R_RET: 1e-3, R_MIG: 0.5, W_HAB: 1e4,   // aligned: Earth's people leaving for space a year by choice, and off-world's coming back by choice (× Earth's habitability: half and half where it's whole; a9: "offworlders migrate back to earth too"), and leaving as Earth's habitability fails; W a person off-world (live, the runaway and the warming are the planet's: src/engine/runaway.js)
   // Energy and heat
-  B_EBM: 2.09, SUN_ABS: 1.2e17, F_SUN: 0.05, HEAT_MAX: 11.8,   // B (W m⁻² K⁻¹); absorbed sunlight (W); surface renewables' most; the heat fossil carbon and fusion may add (W/m²)
+  B_EBM: 2.09, HEAT_MAX: 11.8,     // B (W m⁻² K⁻¹); the heat fossil carbon and fusion may add (W/m²)
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
   R_CITY: 3, L_CITY: 100, G_CITY: 1.25, S0_CITY: 1, T_CITY: 100,   // a city's catchment over land (rings of cells, ~330 km at level 6) and its pull's e-fold (km); agglomeration's exponent on its density (>1: the largest win, Zipf's way); the density (per km²) every site starts from; years cities take to follow their catchments
   SITE_COAST: 1.5, SITE_RIVER: 1,  // a port's and a river's pull on a city, against an inland site's
   N_CITY: 0.2, K_NATION: 48, L_NATION: 800, G_NATION: 1.3,   // the country's scale: a share of each place's urban people drawn to the K largest cities within e^{−km/L_NATION}, by their density^G_NATION (capitals and primate cities; 35% at 1.6 ran away to one city of ~680 M)
-  D_URB: 4000, D_FAC: 30, D_DC: 500, D_SOL: 10,     // land each use takes: residents per km² of city; W/m² of factories, of datacenters, of solar farms (from memory: dense cities 2,000–10,000 a km², heavy industry tens of W/m², datacenters hundreds to thousands, solar farms 5–10 W/m²)
+  D_URB: 4000, D_FAC: 30, D_DC: 500, D_SOL: 10,     // land each use takes: residents per km² of city; W/m² of factories, of datacenters, of solar farms at a sunny, dry site (from memory: dense cities 2,000–10,000 a km², heavy industry tens of W/m², datacenters hundreds to thousands, solar farms 5–10 W/m²)
+  SOL_FARM: 0.2, SOL_ROOM: 0.9,    // solar farms' preference for farmland against open land of the same sun (fields are worth more standing); the most of a cell's land they may cover (roads, rock, water)
+  P_STEAM: 270, P_DIM: 30,         // the boiled sea's steam (bar, all of it: src/engine/runaway.js) and the pressure that dims the sunlight at the ground e-fold (the globe's steam wash; synthesis: Venus's ground, under 92 bar, is lit at a few %, from memory)
+  T_WILD: 30,                      // years abandoned fields take to go back to the wild (old fields reforest in decades, from memory)
   T_MACH: 30, MACH_FLOOR: 1e-3,    // years industry's footprint takes to follow its workers; the footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
   // Stepping
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4,
@@ -227,6 +230,8 @@ export function partialG(v) {
 }
 const ex = x => Math.exp(Math.min(x, 300));
 const deg = r => r * 180 / Math.PI;
+/** A solar farm's yield where it stands, against a dry subtropical site's (D_SOL): the sun's height and the sky's clearness (synthesis). */
+const sunAt = (lat, arid) => Math.min(1, Math.cos(lat) * (0.6 + 0.4 * arid) / 0.9);
 
 /**
  * Labour from people Lh and AI's labour-equivalents A when a share β of tasks can be automated
@@ -379,12 +384,12 @@ export function newEconomy(P) {
  * then between fixed capital and compute by their marginal products, capital worn and built exactly
  * for a steady inflow, fossil carbon burned, materials drawn.
  */
-export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0 }, dt, P) {
+export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
   const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND));
   // The robots this step can field: the paid-for bodies, as far as the fleet's ramp has grown.
-  const bmax = Math.max(P.B_SEED, E.Bc || 0) * Math.exp(dt / P.T_ROB);
+  const bmax = Math.max(P.B_SEED, E.Bc || 0) * Math.exp(dt / P.T_ROB), bodyCost = P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300));
   const T0 = labour(Lh, E.Kc, E.Kr, z, 1, P, E.Kq, bmax);
   // Energy: compute's power, materials' for building, output's (its intensity falling with z).
   const eY = P.E_MIN_Y + (P.E_SUB - P.E_MIN_Y) * Math.exp(-(z - P.Z_IND) / P.Z_EFF);
@@ -403,7 +408,10 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   // fossil carbon in the ground.
   const heatB = ending ? P.HEAT_MAX * (1 - sA) + (ending.preserve ? P.HEAT_PRES : P.HEAT_SAC) * sA : P.HEAT_MAX;
   const keepF = ending && ending.preserve ? 1 - sA : 1;
-  const capR = P.F_SUN * P.SUN_ABS, capU = heatB * AREA_M2, capS = P.F_DYSON * P.L_SUN;
+  // Surface solar's ceiling is the land it may stand on (People.solarRoom: D_SOL W/m² where the
+  // sun is best, less as it weakens; by default all Earth's land, 1.49e14 m², standard).
+  const capR = capR0 ?? P.D_SOL * P.SOL_ROOM * 1.49e14, capU = heatB * AREA_M2, capS = P.F_DYSON * P.L_SUN;
+  E.capR = capR;
   const cr = softMin(E.Ke[1] * rr, capR, P.P_SITES), cs = softMin(E.Ke[3] * rs, capS, P.P_SITES);
   const h0 = E.Ke[0] * rf * keepF + E.Ke[2] * ru, hk = h0 > 0 ? softMin(h0, capU, P.P_HEAT) / h0 : 1;
   const cf = E.Ke[0] * rf * keepF * hk, cu = E.Ke[2] * ru * hk;
@@ -444,8 +452,12 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     const Tc = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: 1, q: uq }, P, E.Kq, bmax), xP = P.PHI * Tc.Aprod, aMax = s2 / P.W_R;
     let urMax = 1;
     if (xP > aMax && Tc.bodies > 0) urMax = Math.min(1, aMax > 0 ? xP / Math.pow(Math.pow(xP / aMax, 4) - 1, 0.25) / Tc.bodies : 0);
+    // All the robots run unless fewer running makes measurably more (a part in 10⁶): where energy
+    // binds, output barely moves with them, and the search's pick was rounding (past the dial,
+    // the running share wandered 0.3–1 and the fleet's building with it).
     let best = outAt(urMax), ur = urMax;
-    if (urMax > 0 && outAt(urMax * (1 - 1e-6)).Y > best.Y) {
+    const better = (x, y) => x.Y > y.Y * (1 + 1e-6);
+    if (urMax > 0 && better(outAt(urMax * (1 - 1e-3)), best)) {
       let a = 0, b = urMax;
       const g = (Math.sqrt(5) - 1) / 2;
       let x1 = b - g * (b - a), x2 = a + g * (b - a), f1 = outAt(x1).Y, f2 = outAt(x2).Y;
@@ -453,7 +465,8 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
         if (f1 < f2) { a = x1; x1 = x2; f1 = f2; x2 = a + g * (b - a); f2 = outAt(x2).Y; }
         else { b = x2; x2 = x1; f2 = f1; x1 = b - g * (b - a); f1 = outAt(x1).Y; }
       }
-      ur = 0.5 * (a + b); best = outAt(ur);
+      const opt = outAt(0.5 * (a + b));
+      if (better(opt, best)) { ur = 0.5 * (a + b); best = opt; }
     }
     const { T, Ypot, Eo, Y } = best, run = { c: uc, r: ur, q: uq };
     // What the capital–labour bundle earns of output (its share in the KLE CES, falling to nothing
@@ -479,16 +492,35 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     // includes the capability a bigger run buys: the loop from investment to capability to
     // returns). Research's compute: R&D's share of output, as far as AI can do research (β_c),
     // ahead of the rest.
-    const Iq = Math.min(Math.max(0, I - Ie), P.S_RD * Y * T.bc);
+    // Research's budget buys compute with its power: a unit's power a year at energy's worth beside
+    // its wear (while energy is cheap, under 2% of it). (Without it, past the space solar's ceiling
+    // research's compute settled at about a third of all the power, and output starved.)
+    const Iq = Math.min(Math.max(0, I - Ie), P.S_RD * Y * T.bc / (1 + lamE * P.W_C / P.DELTA_C));
     const Isave = Math.max(0, I - Ie - Iq), YL = T.L > 0 ? (1 - P.ALPHA) * Y / T.L : 0;
-    const MPf = E.Kf > 0 ? P.ALPHA * Y / E.Kf : Infinity;
-    // Machines left idle for want of power earn nothing at the margin.
-    const MPc = YL > 0 && uc >= 1 ? YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, run, P, E.Kq, bmax).L - T.L) / hc : 0;
-    const MPr = YL > 0 && ur >= urMax && urMax >= 1 ? YL * Math.max(0, labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq, bmax).L - T.L) / hr : 0;
+    // At the margin, in output: the capital–labour bundle earns its share sKL of what a unit adds to
+    // the bundle; machines left idle for want of power earn nothing; running, each pays its power at
+    // energy's worth in output (compute W_C a unit, the robots W_R a worker-equivalent they do). (Paid
+    // only once the fleet could all run, a robot's return jumped from nothing to the bottleneck's
+    // worth as power came free, and a step's saving went to robots: below, at most what the ramp fields.)
+    const MPf = E.Kf > 0 ? sKL * P.ALPHA * Y / E.Kf : Infinity;
+    const MPc = YL > 0 && uc >= 1 ? Math.max(0, sKL * YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, run, P, E.Kq, bmax).L - T.L) / hc - lamE * P.W_C) : 0;
+    let MPr = 0;
+    if (YL > 0 && ur >= urMax && urMax >= 1) {
+      const Tr = labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq, bmax);
+      MPr = Math.max(0, (sKL * YL * Math.max(0, Tr.L - T.L) - lamE * P.W_R * Math.max(0, Tr.Ap - T.Ap)) / hr);
+    }
     let wf = 1, wc = 0, wr = 0;
     if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, c = MPr ** 4, t = a + b + c; if (t > 0) { wf = a / t; wc = b / t; wr = c / t; } }
-    const RU = MPf === Infinity ? Infinity : sKL * Math.max(MPf / (P.DELTA_F + P.R_MIN), MPc / (P.DELTA_C + P.R_MIN), MPr / (P.DELTA_R + P.R_MIN)) / emb;
-    const gK = RU === Infinity ? 1 : sig(Math.log(Math.max(RU, 1e-300)) / P.W_INV), Ir = gK * Isave;
+    const RU = MPf === Infinity ? Infinity : Math.max(MPf / (P.DELTA_F + P.R_MIN), MPc / (P.DELTA_C + P.R_MIN), MPr / (P.DELTA_R + P.R_MIN)) / emb;
+    let Ir = (RU === Infinity ? 1 : sig(Math.log(Math.max(RU, 1e-300)) / P.W_INV)) * Isave;
+    const gK = Isave > 0 ? Ir / Isave : 0;
+    // Robots past what the fleet's ramp can field (a step's ramp ahead), or past what AI's physical
+    // work can drive (a quarter over), aren't built: the rest is consumed. (With the ramp alone the
+    // fleet quadrupled in a year's step past the minds that drive it, stood idle and wore down, a
+    // cycle every ~40 years.)
+    const Krmax = Math.min(bmax * Math.exp(dt / P.T_ROB), Math.max(P.B_SEED, 1.25 * P.PHI * T.Aprod)) * bodyCost, ed = Math.exp(-P.DELTA_R * dt);
+    const IrMax = Math.max(0, (Krmax - E.Kr * ed) * P.DELTA_R / (1 - ed)), Irr = (1 - P.S_IT) * Ir * wr;
+    if (Irr > IrMax) { Ir -= (Irr - IrMax) / (1 - P.S_IT); wr = Ir > 0 ? IrMax / ((1 - P.S_IT) * Ir) : 0; const o = wf + wc; if (o > 0) { wf *= (1 - wr) / o; wc *= (1 - wr) / o; } }
     const Iall = Ie + Iq + Ir;
     return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Iq, Ir, wf, wc, wr, Iall };
   };
@@ -505,7 +537,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   const Iq2 = Math.min(If, P.Q_R / (1 - P.Q_R) * Ica), IfNet = If - Iq2;
   const grow = (K, inflow, d) => K * Math.exp(-d * dt) + inflow * (1 - Math.exp(-d * dt)) / d;
   E.Kf = grow(E.Kf, IfNet, P.DELTA_F); E.Kc = grow(E.Kc, Ic, P.DELTA_C); E.Kr = grow(E.Kr, Ir_, P.DELTA_R); E.Kq = grow(E.Kq, Iq + Iq2, P.DELTA_C);
-  E.Bc = Math.min(E.Kr / (P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300))), bmax);   // the fleet fielded, which the ramp grows from
+  E.Bc = Math.min(E.Kr / bodyCost, bmax);   // the fleet fielded, which the ramp grows from
   E.flows = { f: IfNet, c: Ic, r: Ir_, e: Ie, q: Iq + Iq2 };
   E.Ke = E.Ke.map((K, s) => grow(K, Ies[s], P.DELTA_E));
   const burned = Math.min(E.S, Ef * YEAR_S * dt / P.J_PGC);
@@ -585,7 +617,10 @@ export class People {
       D: new Float64Array(nL), coast: new Uint8Array(nL), lat: new Float64Array(nL), lon: new Float64Array(nL),
       elev: new Float64Array(nL), zv: new Float32Array(14 * nL), deg: new Uint8Array(nL), mosaic: new Float64Array(nL),
       alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
+      hot: new Float64Array(nL), sun: new Float64Array(nL),
     };
+    this.sol = new Float64Array(nL);   // the share of each cell under solar farms (People.placeSolar)
+    this.X = { cells: new Int32Array(0), area: new Float64Array(0), sun: new Float64Array(0), sol: new Float64Array(0), mach: new Float64Array(0) };
     const H = this.H;
     for (let c = 0; c < nL; c++) {
       const i = cells[c];
@@ -615,12 +650,17 @@ export class People {
         else slope = Math.max(slope, Math.abs(f.elev[i] - f.elev[j]) / (g.dist[o] * R));
       }
       const acc = f.npp[i] * (fg + P.TREE_EDIBLE * ft);
-      H.b[c] = H.alive[c] ? P.B0 * acc / P.NPP_REF * water * (1 + P.COAST * coast) : 0;
+      // Past the cover's heat limit (an annual mean of 38–46 °C) nothing grows, crops included:
+      // Miami's NPP saturates with warmth rather than failing, so a 1,200 °C cell rated as farmland.
+      const uh = Math.min(1, Math.max(0, (Ta - VEG.T_HOT[0]) / (VEG.T_HOT[1] - VEG.T_HOT[0])));
+      H.hot[c] = uh * uh * (3 - 2 * uh);
+      H.b[c] = H.alive[c] ? P.B0 * acc / P.NPP_REF * water * (1 + P.COAST * coast) * (1 - H.hot[c]) : 0;
       const nppPot = 0.45e-3 * miami(Ta, Pa);
       const arable = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3) * (river ? 1 : Math.min(1, Pa / 400));
-      H.a[c] = H.alive[c] ? P.F0 * nppPot / P.NPP_REF * arable : 0;
+      H.a[c] = H.alive[c] ? P.F0 * nppPot / P.NPP_REF * arable * (1 - H.hot[c]) : 0;
       H.Tc[c] = Tc; H.coast[c] = coast; H.elev[c] = f.elev[i]; H.slope[c] = slope; H.river[c] = river ? 1 : 0;
       H.arid[c] = f.zones[NZ * i + 4] + f.zones[NZ * i + 5];   // BW and BS: where solar farms go first
+      H.sun[c] = sunAt(H.lat[c], H.arid[c]);
       let D = 0, zz = 0;
       for (let k = 0; k < 14; k++) { const p = f.zones[NZ * i + k]; D += dw[k] * p; zz += p * p; }
       H.D[c] = D;
@@ -629,6 +669,23 @@ export class People {
       H.mosaic[c] = H.b[c] * 4 * ft * fg * sig((Tc - P.T_COLD0 - 10) / P.W_COLD);
       H.p0[c] = f.p0 ? f.p0[i] : 1e-4; H.ero[c] = f.ero ? f.ero[i] : 0;
       H.sigY[c] = P.E_RAIN * (f.sigP ? f.sigP[i] : 0) * (river ? P.IRR : 1);
+    }
+    // Land the people's cells don't hold (the opening's ice sheets gone, the seafloor a boiling sea
+    // leaves): no one lives there, but the machines and solar farms may (People.placeSolar, drawn).
+    const xs = [];
+    for (let i = 0; i < g.n; i++) if (this.loc[i] < 0 && f.elev[i] > 0 && f.ice[i] < P.ICE_MAX) xs.push(i);
+    if (xs.length !== this.X.cells.length || xs.some((i, k) => i !== this.X.cells[k])) {
+      const old = new Map(Array.from(this.X.cells, (i, k) => [i, k]));
+      const X = { cells: Int32Array.from(xs), area: new Float64Array(xs.length), sun: new Float64Array(xs.length), sol: new Float64Array(xs.length), mach: new Float64Array(xs.length) };
+      xs.forEach((i, k) => {
+        X.area[k] = g.area[i] * R * R;
+        const o = old.get(i); if (o !== undefined) { X.sol[k] = this.X.sol[o]; X.mach[k] = this.X.mach[o]; }
+      });
+      this.X = X;
+    }
+    for (let k = 0; k < this.X.cells.length; k++) {
+      const i = this.X.cells[k], z = g.pos[3 * i + 2];
+      this.X.sun[k] = sunAt(Math.asin(z), f.zones[NZ * i + 4] + f.zones[NZ * i + 5]);
     }
   }
 
@@ -670,12 +727,54 @@ export class People {
       }
       for (const [d, [hops, L]] of best) if (hops >= 1) { lists[c].push([d, 1, 1, L, hops]); hopEdges++; }
     }
-    // Long crossings: the groups of landmasses those join each reach their nearest other group
-    // across open sea, to LONG_HOPS cells, in rounds until every group within reach is joined
-    // (Borůvka's): a remote island or continent past HOPS has one way in, its shortest.
+    // Long crossings: the groups of landmasses those join reach their nearest others across open
+    // sea, to LONG_HOPS cells: each its K_LONG nearest, then in rounds until every group within
+    // reach is joined (Borůvka's).
     const par = Int32Array.from({ length: nL }, (_, k) => k);
     const root = k => { while (par[k] !== k) k = par[k] = par[par[k]]; return k; };
     for (let c = 0; c < nL; c++) for (const [d] of lists[c]) { const a = root(c), b = root(d); if (a !== b) par[a] = b; }
+    // First, each group's K_LONG nearest other groups across open sea, to LONG_HOPS: more than one
+    // way in, so a landmass whose nearest neighbour is an islet nobody settles isn't cut off behind
+    // it (a9: a 10 M km² continent never reached by takeoff; its one way in was from an islet).
+    {
+      const groups = new Map();
+      for (let c = 0; c < nL; c++) if (this.H.coast[c]) { const k = root(c); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); }
+      const mark = new Int32Array(g.n).fill(-1), from = new Int32Array(g.n), dk = new Float64Array(g.n), add = [];
+      let tag = 0;
+      for (const [k, cs] of groups) {
+        tag++;
+        let front = [];
+        for (const c of cs) { const i = cells[c]; mark[i] = tag; from[i] = c; dk[i] = 0; front.push(i); }
+        const near = new Map();
+        for (let h = 1; h <= P.LONG_HOPS + 1 && front.length && near.size < P.K_LONG; h++) {
+          const next = [];
+          for (const u of front) for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) {
+            const v = g.nbr[o];
+            if (mark[v] === tag) continue;
+            if (pl.elev[v] > 0) {
+              const d = loc[v];
+              if (h > 1 && d >= 0) {
+                const kd = root(d), L = dk[u] + g.dist[o] * R, b = near.get(kd);
+                if (kd !== k && (!b || L < b[2])) near.set(kd, [from[u], d, L, h - 1]);
+              }
+              continue;
+            }
+            if (h > P.LONG_HOPS) continue;
+            mark[v] = tag; from[v] = from[u]; dk[v] = dk[u] + g.dist[o] * R; next.push(v);
+          }
+          front = next;
+        }
+        for (const x of [...near.values()].sort((a, b) => a[2] - b[2]).slice(0, P.K_LONG)) add.push(x);
+      }
+      const have = new Set();
+      for (const [c, d, L, hops] of add) {
+        const key = c < d ? `${c}:${d}` : `${d}:${c}`;
+        if (have.has(key)) continue;
+        have.add(key);
+        lists[c].push([d, 1, 1, L, hops]); lists[d].push([c, 1, 1, L, hops]); hopEdges += 2;
+      }
+      for (const [c, d] of add) { const a = root(c), b = root(d); if (a !== b) par[a] = b; }
+    }
     const stamp = new Int32Array(g.n).fill(-1), orig = new Int32Array(g.n);
     let round = 0;
     for (;;) {
@@ -1053,6 +1152,60 @@ export class People {
   // Food (each cell's capacity, shared by its lineages), then the industrial economy over its
   // workers, its goods shared out by industry's share of each cell's workers; emissions to the air
   // and the people's forcing (heat and sulfate) for the planet.
+  /**
+   * The land solar farms may cover (a9: "turning land into energy, so directly competing with
+   * farms"): SOL_ROOM of each living cell people have reached (a preserving AI gives it back with
+   * the fields, `rewild`), and the land the people's cells don't hold; the power it could give at
+   * D_SOL W/m² by each cell's sun (W), surface solar's ceiling in the economy.
+   */
+  solarRoom() {
+    const P = this.P, H = this.H, nL = this.nL, X = this.X, keep = P.SOL_ROOM * (1 - this.rewild);
+    const room = this.solRoom || (this.solRoom = new Float64Array(nL));
+    let cap = 0;
+    for (let c = 0; c < nL; c++) { room[c] = H.alive[c] && this.reached[c] ? keep : 0; cap += room[c] * H.area[c] * 1e6 * P.D_SOL * H.sun[c]; }
+    for (let k = 0; k < X.cells.length; k++) cap += keep * X.area[k] * 1e6 * P.D_SOL * X.sun[k];
+    this.solKeep = keep;
+    // A boiled sea's steam dims the ground (the panels that no longer pay come down: placeSolar
+    // sizes the land by the clear sky's yield).
+    return cap * Math.exp(-P.P_STEAM * this.boiled / P.P_DIM);
+  }
+
+  /**
+   * Solar farms for the power Er, at the clear sky's yield (under a steam sky the panels that
+   * would give nothing come down): the sunniest land first and open land before fields (a field is
+   * worth more standing: SOL_FARM), each cell to its room, a common reach found by bisection; the
+   * fields give way where the panels stand.
+   */
+  placeSolar(Er) {
+    const P = this.P, H = this.H, nL = this.nL, X = this.X, room = this.solRoom, keep = this.solKeep, sol = this.sol, f = this.f;
+    const W1 = P.D_SOL * 1e6;
+    const fill = (lam, write) => {
+      let W = 0;
+      for (let c = 0; c < nL; c++) {
+        const v = room[c] > 0 ? Math.min(room[c], lam * H.sun[c] ** 2 * (1 - (1 - P.SOL_FARM) * f[c])) : 0;
+        if (write) sol[c] = v;
+        W += v * H.area[c] * W1 * H.sun[c];
+      }
+      for (let k = 0; k < X.cells.length; k++) { const v = Math.min(keep, lam * X.sun[k] ** 2); if (write) X.sol[k] = v; W += v * X.area[k] * W1 * X.sun[k]; }
+      return W;
+    };
+    if (!(Er > 0) || !room) { sol.fill(0); X.sol.fill(0); return; }
+    let lo = 0, hi = 1;
+    while (fill(hi, false) < Er && hi < 1e9) { lo = hi; hi *= 4; }
+    for (let k = 0; k < 30; k++) { const m = 0.5 * (lo + hi); if (fill(m, false) < Er) lo = m; else hi = m; }
+    fill(hi, true);
+    for (let c = 0; c < nL; c++) if (f[c] > 1 - sol[c]) f[c] = 1 - sol[c];
+  }
+
+  /** Solar farms' share of the living land. */
+  solarShare() {
+    const H = this.H, X = this.X;
+    let a = 0, A = 0;
+    for (let c = 0; c < this.nL; c++) if (H.alive[c]) { a += this.sol[c] * H.area[c]; A += H.area[c]; }
+    for (let k = 0; k < X.cells.length; k++) { a += X.sol[k] * X.area[k]; A += X.area[k]; }
+    return A > 0 ? a / A : 0;
+  }
+
   economy(live, dt) {
     const P = this.P, nL = this.nL, Out = this.Out, Ntot = this.Ntot, ind = this.ind, zc = this.zcell();
     Out.fill(0);
@@ -1086,7 +1239,8 @@ export class People {
       const Efood = P.W_FOOD * want + P.W_HAB * this.space;
       // Preserved: CO₂ drawn back toward CO2_0 as AI comes to run things.
       const cdr = end && end.preserve ? sA * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR : 0, Ecdr = cdr * P.J_CDR / YEAR_S;
-      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA }, dt, P);
+      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA, capR: this.solarRoom() }, dt, P);
+      this.placeSolar(E.Er);
       const gF = Efood > 0 ? E.EfoodGot / Efood : 1;
       for (let c = 0; c < nL; c++) Ks[c] = gF * wantC[c];
       this.space *= gF + (1 - gF) * Math.exp(-dt);   // off-world, short of power, fewer live
@@ -1259,14 +1413,16 @@ export class People {
       pkg[c] = q; f[c] = 0.01 * this.suit(q, c) + 1e-4;
       this.event('farming', `farming begins (package ${q}) at ${deg(H.lat[c]).toFixed(0)}°, ${deg(H.lon[c]).toFixed(0)}° in ${this.packages[q].zone} (z ${zc[c].toFixed(2)})`);
     }
-    // Spread and growth within cells.
-    const f0 = Float32Array.from(f), p0 = Int16Array.from(pkg);
+    // Spread and growth within cells. Fields no one works go back to the wild over T_WILD (they
+    // had stood as they were: the fields outlasted the sea after Earth emptied).
+    const f0 = Float32Array.from(f), p0 = Int16Array.from(pkg), wild = Math.exp(-dt / P.T_WILD);
     for (let c = 0; c < nL; c++) {
-      if (!(Ntot[c] > 0)) continue;
+      if (!(Ntot[c] > 0)) { if (f[c] > 0) f[c] *= wild; continue; }
       if (p0[c] >= 0) {
         // Logistic toward the package's suitability here, exactly (the live planet's climate moves
-        // the suitability, so the share can sit above it and fall back).
-        const s = this.suit(p0[c], c) * (1 - this.rewild), e = Math.exp(Math.min(50, P.R_ADOPT * dt));
+        // the suitability, so the share can sit above it and fall back), none past the heat limit,
+        // and none under the solar farms.
+        const s = Math.min(this.suit(p0[c], c) * (1 - this.rewild) * (1 - H.hot[c]), 1 - this.sol[c]), e = Math.exp(Math.min(50, P.R_ADOPT * dt));
         f[c] = s > 1e-9 ? s * f0[c] * e / (s + f0[c] * (e - 1)) : f0[c] / e;
       }
       const know = sig((zc[c] - (P.Z_FARM - 0.5)) / 0.25);
@@ -1280,7 +1436,7 @@ export class People {
       }
       if (bestQ >= 0) {
         if (p0[c] < 0 || this.suit(bestQ, c) > this.suit(p0[c], c)) pkg[c] = bestQ;
-        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c), f[c] + P.C_FARM * know * bestIn * dt));
+        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c) * (1 - H.hot[c]), 1 - this.sol[c], f[c] + P.C_FARM * know * bestIn * dt));
       }
     }
   }
@@ -1442,7 +1598,7 @@ export class People {
       once('robots', E.Ap > P.PHI * E.Lh && E.Lh > 0, () => `robots' work passes people's physical work (β_p ${E.betaP.toFixed(2)}, ${E.bodies.toExponential(2)} bodies)`);
       once('compute', E.AAI > E.Lh && E.Lh > 0, () => `AI's labour passes people's (β ${E.beta.toFixed(2)}, ${(people / 1e9).toFixed(2)} billion people)`);
       once('fusion', E.Eu > E.Er && E.Eu > 1e11, () => `fusion passes renewables (${(E.Eu / 1e12).toFixed(0)} TW)`);
-      once('sun', E.Er >= 0.9 * P.F_SUN * P.SUN_ABS, () => `surface renewables at their ceiling (${(P.F_SUN * P.SUN_ABS / 1e12).toFixed(0)} TW)`);
+      once('sun', E.capR > 0 && E.Er >= 0.5 * E.capR, () => `solar farms on half the land they may cover (${(E.Er / 1e12).toFixed(0)} TW, ${(100 * this.solarShare()).toFixed(0)}% of the land)`);
       once('cap', E.Eu + E.Ef >= 0.9 * E.capU, () => `fossil carbon and fusion near Earth's heat budget (${(E.capU / AREA_M2).toFixed(1)} W/m², ${(E.capU / AREA_M2 / P.B_EBM).toFixed(1)} K before feedbacks)`);
       once('space', E.Es > E.Ef + E.Er + E.Eu && E.Es > 1e11, () => `off-world energy passes Earth's (${(E.Es / 1e12).toFixed(0)} TW)`);
       once('disempowered', this.dis > 0.5, () => `people hold less than half the control (${(earth / 1e9).toFixed(2)} billion people)`);
@@ -1490,9 +1646,11 @@ export class People {
   /** The write-back on the people's grid (src/engine/peoplelink.js): each cell's farmed share and tillage's erosion (mm/yr). */
   writeBack(out = null) {
     const n = this.planet.grid.n;
-    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n) };
-    out.f.fill(0); out.Ef.fill(0);
-    for (let c = 0; c < this.nL; c++) { const i = this.cells[c]; out.f[i] = this.f[c]; out.Ef[i] = this.Ef[c]; }
+    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n), s: new Float32Array(n) };
+    out.f.fill(0); out.Ef.fill(0); out.s.fill(0);
+    for (let c = 0; c < this.nL; c++) { const i = this.cells[c]; out.f[i] = this.f[c]; out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c]; }
+    const X = this.X;
+    for (let k = 0; k < X.cells.length; k++) out.s[X.cells[k]] = X.sol[k];
     return out;
   }
 
@@ -1602,49 +1760,68 @@ export class People {
     this.places();
     const S = this.city, u = this.uShare, m = this.mach, A = H.area;
     // The machines on Earth: the world's by Earth's share of the energy.
-    let Wf = 0, Wd = 0, Rb = 0, Ws = 0;
+    let Wf = 0, Wd = 0, Rb = 0;
     if (E.on) {
       const earth = E.Ef + E.Er + E.Eu, sE = earth > 0 ? earth / (earth + (E.Es || 0)) : 0, run = E.run || { c: 1, r: 1, q: 1 };
       Wf = Math.max(0, (E.sup || 0) + (E.EfoodGot || 0) + (E.EcdrGot || 0) - (E.Ecomp || 0)) * sE;
       Wd = P.W_C * (E.Kc * run.c + E.Kq * run.q) * sE;
       Rb = (E.Ap || 0) * sE;   // the robots' physical work in worker-equivalents (the bodies the AI drives: idle bodies past it aren't at work)
-      Ws = E.Er || 0;          // surface renewables, all on Earth
     }
     // Weights: the footprint, toward the cities for datacenters and onto the farms for robots, and a
-    // floor on all living land; solar farms on sunny, dry, unfarmed land.
-    let Aal = 0, sd = 0, sr = 0, sf = 0, ss = 0;
-    for (let c = 0; c < nL; c++) if (H.alive[c]) { Aal += A[c]; sf += this.f[c] * A[c]; }
-    const wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL)), ws = this.wsb || (this.wsb = new Float64Array(nL));
+    // floor on the machines' land: living land people have reached, and land the people's cells don't
+    // hold (a9: factories had stood on a continent no one had reached). Solar farms are the model's
+    // (People.placeSolar).
+    const X = this.X, nX = X.cells.length;
+    let Aal = 0, sd = 0, sr = 0, sf = 0;
+    for (let c = 0; c < nL; c++) if (H.alive[c] && this.reached[c]) { Aal += A[c]; sf += this.f[c] * A[c]; }
+    for (let k = 0; k < nX; k++) Aal += X.area[k];
+    const wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
       const people = (1 - u[c]) * this.Ntot[c] + S[c];
       wd[c] = m[c] * (1 + 4 * S[c] / Math.max(people, 1)); sd += wd[c];
       wr[c] = m[c] + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0); sr += wr[c];
-      ws[c] = H.alive[c] ? A[c] * Math.cos(H.lat[c]) ** 2 * (0.15 + H.arid[c]) * (1 - this.f[c]) : 0; ss += ws[c];
     }
-    const fl = P.MACH_FLOOR;
-    for (let c = 0; c < nL; c++) {
-      const i = this.cells[c], o = 8 * i, Am = A[c] * 1e6, floor = H.alive[c] ? A[c] / Aal : 0;
-      const people = (1 - u[c]) * this.Ntot[c] + S[c];
-      // Each use's land, in order of claim.
-      let room = H.alive[c] ? 1 : 0;
-      const take = want => { const v = Math.min(Math.max(0, want), room); room -= v; return v; };
-      const city = take(S[c] / (A[c] * P.D_URB));
-      // Factories and datacenters (W/m² of the cell): each at its footprint density while there is
-      // room; past it they pack denser to fit, to a common density D* (factories, the sparser, first),
-      // so a full cell splits by power. (In order, the factories' 30 W/m² took all the land past the
-      // dial and left datacenters none; shared by what each wanted, ~0.1% of it.)
-      const pf = Wf * (m[c] + fl * floor) / (1 + fl) / Am, pd = sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am : 0;
+    // The floor: MACH_FLOOR of the machines spread evenly over their land, or as much as they'd need
+    // of all of it at their densities (a spent Earth's heat budget, ~500 PW, is more than factories
+    // at 30 W/m² could cover the planet with, the seafloor a boiled sea leaves included).
+    const fl = Math.max(P.MACH_FLOOR, Math.min(1, (Wf / P.D_FAC + Wd / P.D_DC) / Math.max(1, Aal * 1e6)));
+    // Factories and datacenters (W/m² of the cell): each at its footprint density while there is
+    // room; past it they pack denser to fit, to a common density D* (factories, the sparser, first),
+    // so a full cell splits by power. (In order, the factories' 30 W/m² took all the land past the
+    // dial and left datacenters none; shared by what each wanted, ~0.1% of it.)
+    const pack = (pf, pd, room) => {
       let fac = pf / P.D_FAC, dc = pd / P.D_DC;
       if (fac + dc > room) {
         const Ds = room > dc ? pf / (room - dc) : Infinity;   // factories packed to fit beside datacenters at theirs
         if (Ds <= P.D_DC) fac = room - dc;
         else { const t = pf + pd; fac = t > 0 ? room * pf / t : 0; dc = t > 0 ? room * pd / t : 0; }
       }
+      return [fac, dc];
+    };
+    for (let k = 0; k < nX; k++) {   // land the people's cells don't hold: machines and solar farms
+      const o = 8 * X.cells[k], Am = X.area[k] * 1e6, floor = Aal > 0 ? X.area[k] / Aal : 0;
+      const sol = X.sol[k], [fac, dc] = pack(Wf * fl * floor / (1 + fl) / Am, Wd * fl * floor / (1 + fl) / Am, Math.max(0, 1 - sol));
+      out[o + 3] = fac; out[o + 4] = dc; out[o + 5] = sol;
+      out[o + 6] = sr > 0 ? Rb * fl * floor / (1 + fl) / X.area[k] : 0; out[o + 7] = fac + dc + sol > 1e-3 ? 1 : 0;
+    }
+    for (let c = 0; c < nL; c++) {
+      const i = this.cells[c], o = 8 * i, Am = A[c] * 1e6, floor = H.alive[c] && this.reached[c] && Aal > 0 ? A[c] / Aal : 0;
+      const people = (1 - u[c]) * this.Ntot[c] + S[c];
+      // Each use's land, in order of claim.
+      let room = H.alive[c] ? 1 : 0;
+      const take = want => { const v = Math.min(Math.max(0, want), room); room -= v; return v; };
+      const city = take(S[c] / (A[c] * P.D_URB));
+      // Solar farms are the model's land (the fields gave way to them there); factories and
+      // datacenters fit in what the city and the panels leave, and the fields take the rest
+      // (factories crowding out fields past the dial: a9, "a feature not a bug").
+      const sol = take(this.sol[c]);
+      const pf = Wf * (m[c] + fl * floor) / (1 + fl) / Am, pd = sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am : 0;
+      const [fac, dc] = pack(pf, pd, room);
       room = Math.max(0, room - fac - dc);
       const farm = take(this.f[c]);
-      const sol = take(ss > 0 ? Ws * ws[c] / ss / Am / P.D_SOL : 0);
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
-      out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0; out[o + 7] = this.reached[c];
+      out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
+      out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been
     }
     return out;
   }

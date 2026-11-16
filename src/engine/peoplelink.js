@@ -94,21 +94,23 @@ export class PeopleLink {
     this.P = P; this.T = T;
     const n = P.grid.n;
     this.u = new Float32Array(n);                 // the farmed share of each engine cell
+    this.us = new Float32Array(n);                // the share under solar farms
     this.ef = new Float32Array(n);                // tillage's erosion, mm/yr
     this.sEq0 = Float64Array.from(P.life.veg.sEq);
     this.carbon = 0; this.F = 0;
-    this.stats = { pulsed: 0, farmed: 0 };
+    this.stats = { pulsed: 0, farmed: 0, solar: 0 };
     this.tmp = T ? new Float64Array(n) : null;
     // The cover's tree balance as each climate cycle sets it, before people's land use scales it.
     P.life.onCover = () => { this.sEq0.set(P.life.veg.sEq); this.landUse(); };
   }
 
-  /** The people's write-back on their grid: farmed share and tillage (mm/yr) a cell, carbon (Pg C) since the last, forcing (W/m²). */
-  receive({ f, Ef, carbon = 0, F = 0 }) {
+  /** The people's write-back on their grid: farmed share, tillage (mm/yr) and solar farms' share a cell, carbon (Pg C) since the last, forcing (W/m²). */
+  receive({ f, Ef, s, carbon = 0, F = 0 }) {
     const put = (a, out) => {
       if (!this.T) { out.set(a.subarray(0, out.length)); return; }
       prolong(this.T, a, this.tmp); out.set(this.tmp);
     };
+    if (s) put(s, this.us);
     if (f) { put(f, this.u); this.landUse(); }
     if (Ef) put(Ef, this.ef);
     this.carbon += carbon;
@@ -130,22 +132,22 @@ export class PeopleLink {
     for (let i = 0; i < ef.length; i++) if (ef[i] > 0) ero[i] -= ef[i];
   }
 
-  /** The farmed shares on the cover: the tree balance scaled, the trees clipped to it. */
+  /** The farmed shares and solar farms on the cover: the tree balance scaled, the trees clipped to it. */
   landUse() {
-    const veg = this.P.life.veg, u = this.u, s0 = this.sEq0, n = u.length;
-    let a = 0, A = 0;
+    const veg = this.P.life.veg, u = this.u, us = this.us, s0 = this.sEq0, n = u.length;
+    let a = 0, A = 0, so = 0;
     const area = this.P.grid.area;
     for (let i = 0; i < n; i++) {
-      if (!(s0[i] > 0) && !(u[i] > 0)) continue;
-      const x = Math.min(1, Math.max(0, u[i]));
+      if (!(s0[i] > 0) && !(u[i] > 0) && !(us[i] > 0)) continue;
+      const x = Math.min(1, Math.max(0, u[i] + us[i]));
       veg.sEq[i] = s0[i] * (1 - x);
       if (x > 0 && veg.share[i] > veg.sEq[i]) {
         veg.share[i] = veg.sEq[i];
         veg.ft[i] = veg.veg[i] * veg.share[i]; veg.fg[i] = veg.veg[i] - veg.ft[i];
       }
-      if (veg.veg[i] > 0) { a += area[i] * x; A += area[i]; }
+      if (veg.veg[i] > 0) { a += area[i] * Math.max(0, u[i]); so += area[i] * Math.max(0, us[i]); A += area[i]; }
     }
-    this.stats.farmed = A > 0 ? a / A : 0;
+    this.stats.farmed = A > 0 ? a / A : 0; this.stats.solar = A > 0 ? so / A : 0;
   }
 
   /** Off: the cover's balance restored, no forcing, nothing banked. */

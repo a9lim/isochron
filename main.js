@@ -936,6 +936,8 @@ function peopleCaption(name) {
   if (!F.industry) parts.push(`${m.lineages} ${m.lineages === 1 ? 'lineage' : 'lineages'}`);
   const farmed = people.link ? people.link.farmed : 0;
   if (m.packages > 0) parts.push(`farms ${(100 * farmed).toFixed(farmed < 0.1 ? 1 : 0)}% of land`);
+  const solar = people.link ? people.link.solar || 0 : 0;
+  if (solar >= 0.005) parts.push(`solar ${(100 * solar).toFixed(solar < 0.1 ? 1 : 0)}%`);
   if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
   if (h.energy > 1e10) parts.push(watts(h.energy), `CO₂ ${Math.round(carbon.pco2)} ppm`);
   if (F.present) parts.push(`AI ${Math.round(100 * m.sA)}% of the work`);

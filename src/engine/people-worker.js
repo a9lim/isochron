@@ -103,7 +103,7 @@ function post(force) {
   if (force || now - lastBack > 100) {
     lastBack = now;
     const wb = people.writeBack(), F = people.forcing.heat + people.forcing.aer;
-    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, carbon: env.bank, F }, [wb.f.buffer, wb.Ef.buffer]);
+    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, carbon: env.bank, F }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer]);
     env.bank = 0;
   }
   // To the page: the clock, the record's last row, the events.
