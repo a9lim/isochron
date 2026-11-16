@@ -329,7 +329,7 @@ export function drawOrbit(canvas, orbit, nowKyr, pal) {
 // flux against a typical size. A layer that isn't stepping (the weather outside its view, the
 // year and its volcanoes outrun) has no value, and it and its arrows are left out. The mantle's
 // CO₂ and sulfate are the red. The tide's arrows carry the spin it slows. With people, the
-// figure is their economy (ECONOMY), the planet's layers they touch at its edge.
+// figure is their economy (src/render/economy.js), the planet's layers they touch at its edge.
 export const PLANET = {
   orbit: [0.86, 0.06, 'Orbit'], weather: [0.14, 0.06, 'Weather'], tides: [0.5, 0.06, 'Tides'],
   ocean: [0.12, 0.27, 'Ocean'], climate: [0.5, 0.2, 'Climate'], zones: [0.88, 0.27, 'Zones'],
@@ -338,13 +338,6 @@ export const PLANET = {
   lakes: [0.3, 0.63, 'Lakes'], landscape: [0.52, 0.66, 'Landscape'], seaC: [0.86, 0.75, 'Sea carbon'],
   regolith: [0.3, 0.8, 'Regolith'], volcanoes: [0.66, 0.82, 'Volcanoes'],
   sea: [0.1, 0.9, 'Sea level'], plates: [0.48, 0.94, 'Plates'], plumes: [0.86, 0.93, 'Plumes'],
-};
-export const ECONOMY = {
-  sea: [0.1, 0.06, 'Sea'], climate: [0.32, 0.06, 'Climate'], air: [0.62, 0.06, 'Air'], space: [0.88, 0.08, 'Space'],
-  land: [0.1, 0.22, 'Land'], fossil: [0.52, 0.24, 'Fossil'], energy: [0.86, 0.31, 'Energy'],
-  people: [0.38, 0.37, 'People'], farms: [0.12, 0.44, 'Farms'], ores: [0.9, 0.44, 'Ores'],
-  output: [0.6, 0.54, 'Output'], capital: [0.88, 0.56, 'Capital'], culture: [0.12, 0.66, 'Culture'],
-  robots: [0.84, 0.7, 'Robots'], ai: [0.56, 0.8, 'AI'], minds: [0.28, 0.84, 'Minds'], compute: [0.84, 0.88, 'Compute'],
 };
 
 export function drawModel(canvas, s, pal) {
@@ -359,7 +352,8 @@ export function drawModel(canvas, s, pal) {
     let tw = Math.max(ctx.measureText(N[k][2]).width, 30);
     ctx.font = `10.5px ${FONT}`;
     tw = Math.max(tw, ctx.measureText(s.values[k]).width);
-    return { k, x, y, box: [x - tw / 2 - 3, y - 10, x + tw / 2 + 3, y + 17] };
+    const cx = Math.min(Math.max(x, tw / 2 + 3), w - tw / 2 - 3);   // kept within the figure
+    return { k, x: cx, y, box: [cx - tw / 2 - 3, y - 10, cx + tw / 2 + 3, y + 17] };
   });
   const boxOf = Object.fromEntries(nodes.map(n => [n.k, n.box]));
   // Where a line from (ox, oy) inside a box toward (px, py) leaves it, 3 px out.
