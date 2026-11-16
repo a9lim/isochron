@@ -125,6 +125,7 @@ function post(force) {
       ending: people.ending, flags: { ...people.flags }, dialAt: people.dialAt ?? null,
       forcing: { ...people.forcing }, space: people.space, boiled: people.boiled, hE: people.hE, dis: people.dis,
       Es: E.Es || 0, sA: E.sA || 0, sun: people.P.L_SUN, msPerStep, emitted: people.emitted, removed: people.removed, exp: rep,
+      city: people.city ? people.city.reduce((a, b) => Math.max(a, b), 0) : 0,
     });
   }
   // Fig. 8 (the hyperbola and the lineages), once a second: ~5 ms of fitting on a thinned record.

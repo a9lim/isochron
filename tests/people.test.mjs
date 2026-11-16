@@ -230,3 +230,38 @@ test('food and CO₂ capture are powered before output; off-world energy heats n
   const Es = industrialStep(fresh(), { ...x, ending: { aligned: false, preserve: false }, sA: 1 }, 0.01, P);
   assert.ok(Es.capU > 50 * P.HEAT_MAX * AREA, `sacrificed: Earth's budget opens (${(Es.capU / AREA).toFixed(0)} W/m²)`);
 });
+
+test('a sea wider than HOPS is crossed by the long crossings, and a voyage settles the far shore', () => {
+  // Level 4 (~480 km cells): land poleward of 35°, a sea ~8,000 km wide between (past HOPS's 6 cells).
+  const f = uniformPlanet(4), g = f.grid;
+  for (let i = 0; i < f.n; i++) if (Math.abs(g.pos[3 * i + 2]) < Math.sin(35 * Math.PI / 180)) f.elev[i] = -3;
+  const p = new People(f, { ...quiet, Z_BOAT: 0, A_INV: 0, D0: 3e3, D_Z: 0 });
+  const north = c => g.pos[3 * p.cells[c] + 2] > 0;
+  let long = 0;
+  for (let e = 0; e < p.F.m; e++) if (p.F.hop[e] > p.P.HOPS && north(p.F.a[e]) !== north(p.F.b[e])) long++;
+  assert.ok(long >= 1, 'a long crossing joins the caps');
+  assert.equal(p.components(() => true, 1e9).count, 1, 'one body across it at any reach');
+  // The north settled at capacity with boats far beyond the gap: the south is reached only by a
+  // voyage (the flux runs only between settled coasts), and then fills.
+  const L = p.newLineage(null, 0, 0);
+  for (let c = 0; c < p.nL; c++) L.Z[c] = 20;
+  p.capacity(L);
+  for (let c = 0; c < p.nL; c++) if (north(c)) L.N[c] = L.K[c];
+  const south = () => { let s = 0; for (let c = 0; c < p.nL; c++) if (!north(c)) s += L.N[c]; return s; };
+  assert.equal(south(), 0);
+  runFixed(p, 20, 2000);
+  assert.ok(south() > 1e3, `the south settled (${south().toFixed(0)} people)`);
+});
+
+test('the cities keep the people: the drawn people sum to the model\'s', () => {
+  const p = new People(uniformPlanet(4), { ...quiet });
+  const L = p.newLineage(null, 0, 0);
+  p.capacity(L);
+  for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; p.f[c] = 0.3; p.ind[c] = c % 3 === 0 ? 1 : 0; }
+  const out = p.drawn(), g = p.planet.grid;
+  let model = 0, drawn = 0, urban = 0;
+  for (let c = 0; c < p.nL; c++) { model += p.Ntot[c]; drawn += out[8 * p.cells[c]] * p.H.area[c]; urban += p.city[c]; }
+  assert.ok(Math.abs(drawn / model - 1) < 1e-9, `drawn ${drawn.toExponential(4)} against ${model.toExponential(4)}`);
+  assert.ok(urban > 0.2 * model && urban < 0.8 * model, `urban share ${(urban / model).toFixed(2)}`);
+  void g;
+});

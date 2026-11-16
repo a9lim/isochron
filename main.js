@@ -363,7 +363,7 @@ function skyFrame() {
   return {
     tides: { m: [Math.cos(m2) + rho * Math.cos(s2), Math.sin(m2) + rho * Math.sin(s2)], hw: [Math.cos(m2), Math.sin(m2)], amp: tide ? amp : 0, now },
     sky: { stars, theta: skyClock.thetaShown, sun, sunAlpha: 1 - smooth(-0.6, -0.2, lr), moon: mo, moonAlpha: 1 - smooth(-1.75, -1.3, lr), moonDist: moon.a,
-      swarm: people.msg ? people.msg.Es / people.msg.sun : 0 },
+      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: people.msg && people.msg.Es > 0 ? (Math.log10(people.msg.Es) - 11) / 10 : 0 },
   };
 }
 function uploadSurface(m, mode) {
@@ -921,6 +921,7 @@ function peopleCaption(name) {
   if (!F.industry) parts.push(`${m.lineages} ${m.lineages === 1 ? 'lineage' : 'lineages'}`);
   const farmed = people.link ? people.link.farmed : 0;
   if (m.packages > 0) parts.push(`farms ${(100 * farmed).toFixed(farmed < 0.1 ? 1 : 0)}% of land`);
+  if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
   if (h.energy > 1e10) parts.push(`${(h.energy / 1e12).toPrecision(2)} TW`, `CO₂ ${Math.round(carbon.pco2)} ppm`);
   if (F.present) parts.push(`AI ${Math.round(100 * m.sA)}% of the work`);
   if (m.ending) parts.push(`${m.ending.aligned ? 'aligned' : 'misaligned'}, Earth ${m.ending.preserve ? 'kept' : 'spent'}`);

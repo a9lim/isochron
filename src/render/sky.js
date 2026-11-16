@@ -14,6 +14,9 @@
 //           industry off-world): graphite points on seeded orbits, as many as
 //           the share of the Sun's output they take (to a tenth), the disc
 //           dimmed by it
+//   base    the people's city on the Moon: ochre lights spreading from one
+//           site on its near side (north up, by the planet's pole), as far as
+//           off-world power has grown on a log scale (100 GW to 10²¹ W)
 // Each shows only where the dial resolves its motion: the sky turns at the
 // slowest dials and holds still above; the Moon and the Sun fade out when a
 // month or a year would pass in under a few seconds.
@@ -39,6 +42,18 @@ const SUN_R = 6.957e8, AU = 1.496e11, MOON_R = 1.7374e6, BIG = 5;
 // The swarm's collectors: seeded orbits about the Sun (radius in the disc's, and phase), the first
 // ones drawn as the share taken grows (by its square root, so the first percent shows).
 const SWARM = (() => { const r = stream('swarm', 'orbits'), a = new Float32Array(3 * 900); for (let k = 0; k < 900; k++) { a[3 * k] = 1.25 + 1.6 * r.uniform() ** 0.7; a[3 * k + 1] = 2 * Math.PI * r.uniform(); a[3 * k + 2] = 0.25 + 0.75 * r.uniform(); } return a; })();
+
+// The Moon's city: seeded points about one site on the near side (in the disc's units, north up),
+// nearest first, so the first lit are the site's and the city spreads outward.
+const BASE = (() => {
+  const r = stream('moon', 'base'), pts = [];
+  for (let k = 0; k < 420; k++) {
+    const rr = 0.62 * Math.sqrt(r.uniform()) * (0.75 + 0.25 * r.uniform()), a = 2 * Math.PI * r.uniform();
+    const x = 0.28 + rr * Math.cos(a), y = -0.38 + 0.85 * rr * Math.sin(a);
+    if (x * x + y * y < 0.88) pts.push([x, y, rr, 0.35 + 0.65 * r.uniform()]);
+  }
+  return pts.sort((a, b) => a[2] - b[2]);
+})();
 
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
 
@@ -111,6 +126,18 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       ctx.restore();
       ctx.strokeStyle = rgba(ink, 0.55); ctx.lineWidth = 0.8;
       ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.stroke();
+      // The city: its lights, as many as off-world power has grown (north up, along the pole's direction on screen).
+      const nB = Math.round(BASE.length * Math.min(1, Math.max(0, sky.moonbase || 0)) ** 1.3);
+      if (nB) {
+        const up = project(m[0], m[1], m[2] + 0.02), ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2;
+        const ny = [Math.cos(ua), Math.sin(ua)], nx = [-ny[1], ny[0]];   // screen directions of the Moon's north and east
+        ctx.fillStyle = pal.inks.ochre;
+        for (let k = 0; k < nB; k++) {
+          const [bx, by, , b] = BASE[k];
+          ctx.globalAlpha = sky.moonAlpha * (0.45 + 0.55 * b);
+          ctx.beginPath(); ctx.arc(p[0] + R * (bx * nx[0] + by * ny[0]), p[1] + R * (bx * nx[1] + by * ny[1]), Math.max(0.4, 0.022 * R), 0, 2 * Math.PI); ctx.fill();
+        }
+      }
       ctx.globalAlpha = 1;
     }
   }

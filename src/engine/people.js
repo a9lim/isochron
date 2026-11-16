@@ -33,7 +33,11 @@
 //             the lower; standard). Spread down the gradient of crowding N/K rather than density
 //             (toward the ideal free distribution: Fretwell and Lucas, from memory), which on even
 //             capacity is Fisher–KPP (standard: a front at ~2√(rD), less Bramson's delay), with
-//             slope, the sea's width and the capacity's zero as barriers.
+//             slope and the capacity's zero as barriers. The sea is crossed by voyages: an empty
+//             shore is settled by a founding party, an event whose chance falls as e^{−km/reach}
+//             (rafts from the start, boats with culture; `voyages`), the flux only between coasts
+//             both settled; every crossing to 6 sea cells, past that each group of landmasses its
+//             nearest other's (`graph`).
 //   food      K = area × cold limit(z) × [(1 − f) b P_F(z) e^{K_G g} + f a s P_A(z) Y_soil CO₂]:
 //             foraging's base density b from the accessible NPP, water and the coast, its
 //             productivity P_F capped at CAP_F (the wild food, a flow); farming's a from the crops'
@@ -90,6 +94,8 @@
 //             forcing at none and farms return. Misaligned, humans' control and their births follow
 //             AI's share of the work down; aligned, people leave for space as Earth fails or by
 //             choice. Food is bought with energy for those the land can't feed (speculation all).
+//   places    drawn only (`places`): farmers' and industry's urban shares in cities that grow
+//             by their sites and their size, and industry's machines on its workers' footprint.
 //   lineages  a lineage whose range stays broken into isolated pieces for T_SPLIT splits; gene flow
 //             where lineages meet mixes their traits and ancestry, and two that keep sharing most of
 //             the smaller's range for T_MERGE become one (soft species, synthesis). The first
@@ -108,7 +114,7 @@ export const PEOPLE = {
   B0: 0.03, NPP_REF: 0.4,          // foragers per km² at NPP_REF kg C m⁻² yr⁻¹ of accessible NPP (Binford's order, from memory)
   TREE_EDIBLE: 0.4,                // trees' NPP's share a forager reaches, against grass's
   COAST: 0.5, P_DRY: 250, Q_RIVER: 200, ICE_MAX: 10,   // the coast's bonus; rain (mm) below which water limits; a river (m³/s); ice (m)
-  T_COLD0: 2, K_COLD: 5, W_COLD: 3, // coldest month (°C) a culture of z holds: T_COLD0 − K_COLD z, over W_COLD
+  T_COLD0: 2, K_COLD: 12, W_COLD: 3, // coldest month (°C) a culture of z holds: T_COLD0 − K_COLD z, over W_COLD (−10 °C at the tip, −22 °C at z 2: the Upper Palaeolithic on the mammoth steppe and in Beringia before farming, from memory)
   CAP_F: 8,                        // foraging's ceiling on the base density
   F0: 2.5, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
   R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of culture
@@ -139,7 +145,8 @@ export const PEOPLE = {
   V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of culture
   COPY: 2e-3, ACC: 2e-3,           // copying better neighbours, and other lineages in the cell (/yr at z = 0)
   RHO_R: 0.5, S_R_MAX: 1,          // research intensity ∝ y^ρ, capped at a subsistence-year's: a rich people's larger research share is offset by research's falling yield (BETA_R), so Kremer's A holds at Earth's 1960 (~1.8%/yr of productivity at 3 B; 3 at 3× gave the industrial era ~5–9%/yr at takeoff, and 90–220 Pg C burned by then)
-  Z_BOAT: 1.5, L_SEA: 300, HOPS: 6, // sea crossings: the reach (km per unit z past Z_BOAT); cells of sea a crossing spans at most
+  Z_BOAT: 0, L_SEA0: 40, L_SEA: 400, HOPS: 6, LONG_HOPS: 40,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA z (km: rafts' first, then boats'); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its nearest other's, to LONG_HOPS)
+  S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of culture, × e^{−km/reach}; the founders (synthesis)
   // The trait (speculation: social reach as a clock)
   V_G: 2e-3, T_GEN: 25, S_BG: 0.04, NE_SHARE: 0.1, G_MAX: 9,   // the trait lengthens contact, up to G_MAX (ℓ at L_CMAX)
   K_G: 0.1,                        // … and raises foraging's yield, e^{K_G g} (cooking, hunting: speculation)
@@ -185,6 +192,11 @@ export const PEOPLE = {
   // Energy and heat
   B_EBM: 2.09, SUN_ABS: 1.2e17, F_SUN: 0.05, HEAT_MAX: 11.8,   // B (W m⁻² K⁻¹); absorbed sunlight (W); surface renewables' most; the heat fossil carbon and fusion may add (W/m²)
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
+  // Where people and machines are (drawn only: `places`; synthesis)
+  U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
+  R_CITY: 3, L_CITY: 100, G_CITY: 1.25, S0_CITY: 1, T_CITY: 100,   // a city's catchment over land (rings of cells, ~330 km at level 6) and its pull's e-fold (km); agglomeration's exponent on its density (>1: the largest win, Zipf's way); the density (per km²) every site starts from; years cities take to follow their catchments
+  SITE_COAST: 1.5, SITE_RIVER: 1,  // a port's and a river's pull on a city, against an inland site's
+  T_MACH: 30, MACH_FLOOR: 1e-3,    // years industry's footprint takes to follow its workers; the footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
   // Stepping
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4,
   DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
@@ -495,7 +507,7 @@ export class People {
   constructor(planet, params = {}) {
     this.P = { ...PEOPLE, ...params };
     this.planet = planet;
-    this.rng = stream(planet.seed, 'people');
+    this.rng = stream(planet.seed, 'people'); this.seaRng = stream(planet.seed, 'people:sea');
     this.t = 0; this.events = []; this.history = []; this.lineages = []; this.nextId = 0;
     this.index(); this.rates(planet); this.graph(); this.fossilMap(); this.oreMap();
     const nL = this.nL;
@@ -540,7 +552,7 @@ export class People {
       area: new Float64Array(nL), b: new Float64Array(nL), a: new Float64Array(nL), Tc: new Float64Array(nL),
       D: new Float64Array(nL), coast: new Uint8Array(nL), lat: new Float64Array(nL), lon: new Float64Array(nL),
       elev: new Float64Array(nL), zv: new Float32Array(14 * nL), deg: new Uint8Array(nL), mosaic: new Float64Array(nL),
-      alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL),
+      alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), river: new Uint8Array(nL),
     };
     const H = this.H;
     for (let c = 0; c < nL; c++) {
@@ -575,7 +587,7 @@ export class People {
       const nppPot = 0.45e-3 * miami(Ta, Pa);
       const arable = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3) * (river ? 1 : Math.min(1, Pa / 400));
       H.a[c] = H.alive[c] ? P.F0 * nppPot / P.NPP_REF * arable : 0;
-      H.Tc[c] = Tc; H.coast[c] = coast; H.elev[c] = f.elev[i]; H.slope[c] = slope;
+      H.Tc[c] = Tc; H.coast[c] = coast; H.elev[c] = f.elev[i]; H.slope[c] = slope; H.river[c] = river ? 1 : 0;
       let D = 0, zz = 0;
       for (let k = 0; k < 14; k++) { const p = f.zones[NZ * i + k]; D += dw[k] * p; zz += p * p; }
       H.D[c] = D;
@@ -624,6 +636,50 @@ export class People {
         front = next;
       }
       for (const [d, [hops, L]] of best) if (hops >= 1) { lists[c].push([d, 1, 1, L, hops]); hopEdges++; }
+    }
+    // Long crossings: the groups of landmasses those join each reach their nearest other group
+    // across open sea, to LONG_HOPS cells, in rounds until every group within reach is joined
+    // (Borůvka's): a remote island or continent past HOPS has one way in, its shortest.
+    const par = Int32Array.from({ length: nL }, (_, k) => k);
+    const root = k => { while (par[k] !== k) k = par[k] = par[par[k]]; return k; };
+    for (let c = 0; c < nL; c++) for (const [d] of lists[c]) { const a = root(c), b = root(d); if (a !== b) par[a] = b; }
+    const stamp = new Int32Array(g.n).fill(-1), orig = new Int32Array(g.n);
+    let round = 0;
+    for (;;) {
+      const coasts = new Map();
+      for (let c = 0; c < nL; c++) if (this.H.coast[c]) { const k = root(c); if (!coasts.has(k)) coasts.set(k, []); coasts.get(k).push(c); }
+      if (coasts.size < 2) break;
+      const found = [];
+      for (const [k, cs] of coasts) {
+        const tag = round * nL + k;   // unique per group and round
+        let front = [];
+        for (const c of cs) { const i = cells[c]; stamp[i] = tag; orig[i] = c; dkm[i] = 0; front.push(i); }
+        let hit = null;
+        for (let h = 1; h <= P.LONG_HOPS + 1 && front.length && !hit; h++) {
+          const next = [];
+          for (const u of front) for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) {
+            const v = g.nbr[o];
+            if (stamp[v] === tag) continue;
+            if (pl.elev[v] > 0) {
+              const d = loc[v];
+              if (h > 1 && d >= 0 && root(d) !== k) { const L = dkm[u] + g.dist[o] * R; if (!hit || L < hit[2]) hit = [orig[u], d, L, h - 1]; }
+              continue;
+            }
+            if (h > P.LONG_HOPS) continue;
+            stamp[v] = tag; orig[v] = orig[u]; dkm[v] = dkm[u] + g.dist[o] * R; next.push(v);
+          }
+          front = next;
+        }
+        if (hit) found.push(hit);
+      }
+      round++;
+      let joined = 0;
+      for (const [c, d, L, hops] of found) {
+        if (root(c) === root(d)) continue;
+        par[root(c)] = root(d); joined++;
+        lists[c].push([d, 1, 1, L, hops]); lists[d].push([c, 1, 1, L, hops]); hopEdges += 2;
+      }
+      if (!joined) break;
     }
     const off = new Int32Array(nL + 1);
     for (let c = 0; c < nL; c++) off[c + 1] = off[c] + lists[c].length;
@@ -794,7 +850,7 @@ export class People {
   reachL(gz) { const P = this.P; return softMin(P.L_C0 * Math.exp(Math.min(Math.max(0, gz) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4); }
-  seaReach(z) { const P = this.P; return z > P.Z_BOAT ? P.L_SEA * (z - P.Z_BOAT) : 0; }
+  seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * Math.max(0, z) : 0; }
 
   step(dtWanted) {
     const P = this.P, nL = this.nL, live = this.lineages.filter(L => L.died === null);
@@ -840,7 +896,7 @@ export class People {
     lap('growth');
     if (this.debug) this.check('growth', live);
     // Spread: Fisher–KPP, culture carried with the migrants (upwind).
-    for (const L of live) this.diffuse(L, dt);
+    for (const L of live) { this.diffuse(L, dt); this.voyages(L, dt); }
     if (this.debug) this.check('spread', live);
     lap('spread');
     Ntot.fill(0);
@@ -900,6 +956,7 @@ export class People {
     // weights alike, so the explicit step's bound holds.
     const u = this.dens || (this.dens = new Float64Array(nL)), kd = this.kden || (this.kden = new Float64Array(nL)), K = L.K;
     const Dc = this.dcell || (this.dcell = new Float64Array(nL)), D0 = this.Dz(0);
+    const nmin = this.nmin || (this.nmin = H.area.map(a => this.P.N_MIN * a));
     for (let c = 0; c < nL; c++) kd[c] = L.K2[c] / H.area[c];
     for (let s = 0; s < nsub; s++) {
       dN.fill(0); dZ.fill(0);
@@ -913,7 +970,12 @@ export class People {
         const kc = kd[c], kk = kd[d], rho = kc > 0 && kk > 0 ? 2 * kc * kk / (kc + kk) : 0;
         if (!(rho > 0)) continue;
         let k;
-        if (F.hop[e]) { const r = this.seaReach(0.5 * (Z[c] + Z[d])); if (!(r > 0)) continue; k = Math.sqrt(Dc[c] * Dc[d]) * Math.exp(-F.k[e] / r); }
+        // Across the sea, only between coasts both settled: a crossing to an empty shore is a voyage (`voyages`).
+        if (F.hop[e]) {
+          if (!(N[c] >= nmin[c] && N[d] >= nmin[d])) continue;
+          const r = this.seaReach(0.5 * (Z[c] + Z[d])); if (!(r > 0)) continue;
+          k = Math.sqrt(Dc[c] * Dc[d]) * Math.exp(-F.k[e] / r);
+        }
         else k = Math.sqrt(Dc[c] * Dc[d]) * F.k[e];
         const flux = kScale * k * rho * (ud - uc) * h;    // people from d to c
         const zc = flux > 0 ? Z[d] : Z[c];
@@ -926,6 +988,29 @@ export class People {
         if (Nn > 1e-6) Z[c] = Math.max(0, zz / Nn); else Nn = 0;
         N[c] = Nn;
       }
+    }
+  }
+
+  // Voyages (synthesis): an empty shore across the sea is settled by a founding party, an event
+  // whose rate a year is S_SEA × the departure's crowding × culture's pace (e^{z/Z_V}) × e^{−km/reach}
+  // per crossing. Spread across the sea (`diffuse`) is a flux only between settled coasts, so the
+  // distance counts: a continuous flux, however faint, seeded every shore at once as soon as boats
+  // reached it at all, and the people grow from a millionth of a person.
+  voyages(L, dt) {
+    const P = this.P, F = this.F, N = L.N, Z = L.Z, K = L.K2, nmin = this.nmin, r = this.seaRng;
+    if (!nmin) return;
+    const hops = this.hopList || (this.hopList = Int32Array.from({ length: F.m }, (_, e) => e).filter(e => F.hop[e]));
+    for (const e of hops) {
+      const a = F.a[e], b = F.b[e], sa = N[a] >= nmin[a], sb = N[b] >= nmin[b];
+      if (sa === sb) continue;
+      const c = sa ? a : b, d = sa ? b : a;
+      if (!(K[d] > P.FOUNDERS)) continue;
+      const reach = this.seaReach(Z[c]);
+      if (!(reach > 0)) continue;
+      const h = P.S_SEA * this.speed(Z[c]) / P.V0 * Math.min(1, N[c] / Math.max(K[c], 1e-9)) * Math.exp(-F.k[e] / reach);
+      if (r.uniform() > 1 - Math.exp(-h * dt)) continue;
+      const n = Math.min(P.FOUNDERS, 0.1 * N[c]);
+      Z[d] = (N[d] * Z[d] + n * Z[c]) / (N[d] + n); N[d] += n; N[c] -= n;
     }
   }
 
@@ -1152,7 +1237,7 @@ export class People {
       for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
         if (p0[d] < 0 || f0[d] <= f0[c]) continue;
-        const v = (E.hop[o] ? 0.3 : E.slope[o]) * (f0[d] - f0[c]) * this.suit(p0[d], c);
+        const v = (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * (f0[d] - f0[c]) * this.suit(p0[d], c);
         if (v > bestIn) { bestIn = v; bestQ = p0[d]; }
       }
       if (bestQ >= 0) {
@@ -1213,7 +1298,7 @@ export class People {
       const know = sig((zc[c] - (P.Z_IND - 1)) / 0.25);
       if (know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 : 1) * (i0[d] - i0[c]) * this.speed(zc[c]) / P.V0;
+        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * this.speed(zc[c]) / P.V0;
       }
       ind[c] = Math.min(1, i0[c] + v * dt);
     }
@@ -1375,22 +1460,115 @@ export class People {
   }
 
   /**
-   * What the People view draws, four values a cell of the people's grid: people per km², the
-   * farmed share, the energy used on Earth there (W/m², the world's by each cell's share of the
-   * goods), and industry's share of its workers.
+   * Where the people and the machines are (synthesis; drawn only, so the model's dynamics and its
+   * calibration don't see it). Cities: each cell's urban share u (U_AG once it farms, rising to U_IND
+   * with industry) lives in the cities its catchment reaches over land (R_CITY rings), each city
+   * drawing on a source as its site (ports, rivers) × its density^G_CITY × e^{−km/L_CITY}. With
+   * G_CITY > 1 the largest grow at the others' expense (agglomeration; standard in spirit, Zipf's
+   * law the outcome), and cities follow their catchments over T_CITY, so they persist where they
+   * began. A cell's drawn people are its rural ones and its city's. Industry's footprint follows its
+   * workers (the drawn people × industry's share) over T_MACH while Earth has people, and holds when
+   * it has none; factories, datacenters and the robots at work are the world's on Earth (its share
+   * of the energy) spread over it: datacenters toward the cities, robots onto the farms too.
+   */
+  places() {
+    const P = this.P, H = this.H, nL = this.nL, E = this.E, g = this.planet.grid;
+    if (!this.ring) {
+      // Each cell's catchment: its land cells within R_CITY rings, each with e^{−km/L_CITY}.
+      const off = new Int32Array(nL + 1), idx = [], w = [], mark = new Int32Array(nL).fill(-1);
+      const pos = c => { const i = this.cells[c]; return [g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2]]; };
+      for (let c = 0; c < nL; c++) {
+        const p = pos(c);
+        let front = [c]; mark[c] = c;
+        for (let r = 0; r <= P.R_CITY && front.length; r++) {
+          const next = [];
+          for (const d of front) {
+            const q = pos(d), km = R * Math.acos(Math.min(1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2]));
+            idx.push(d); w.push(Math.exp(-km / P.L_CITY));
+            if (r < P.R_CITY) for (let o = E.off[d]; o < E.off[d + 1]; o++) { const k = E.nb[o]; if (!E.hop[o] && mark[k] !== c) { mark[k] = c; next.push(k); } }
+          }
+          front = next;
+        }
+        off[c + 1] = idx.length;
+      }
+      this.ring = { off, idx: Int32Array.from(idx), w: Float32Array.from(w) };
+      this.site = Float64Array.from(H.coast, (co, c) => 1 + P.SITE_COAST * co + P.SITE_RIVER * H.river[c]);
+      this.city = new Float64Array(nL); this.uShare = new Float64Array(nL); this.mach = new Float64Array(nL);
+      this.tPlaces = null;
+    }
+    const { off, idx, w } = this.ring, S = this.city, u = this.uShare, site = this.site, Ntot = this.Ntot, A = H.area;
+    const dt = this.tPlaces === null ? Infinity : Math.max(0, this.t - this.tPlaces);
+    this.tPlaces = this.t;
+    const Wt = this.wbuf || (this.wbuf = new Float64Array(nL)), tgt = this.tbuf || (this.tbuf = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) {
+      u[c] = H.alive[c] ? Math.min(1, (this.f[c] > 0 ? P.U_AG : 0) + (P.U_IND - P.U_AG) * this.ind[c]) : 0;
+      Wt[c] = H.alive[c] ? site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_CITY) : 0;
+    }
+    tgt.fill(0);
+    for (let d = 0; d < nL; d++) {
+      const U = u[d] * Ntot[d];
+      if (!(U > 0)) continue;
+      let Z = 0;
+      for (let k = off[d]; k < off[d + 1]; k++) Z += Wt[idx[k]] * w[k];
+      if (!(Z > 0)) { tgt[d] += U; continue; }
+      for (let k = off[d]; k < off[d + 1]; k++) tgt[idx[k]] += U * Wt[idx[k]] * w[k] / Z;
+    }
+    const a = dt === Infinity ? 0 : Math.exp(-dt / P.T_CITY);
+    for (let c = 0; c < nL; c++) S[c] = tgt[c] + (S[c] - tgt[c]) * a;
+    // Industry's footprint: its workers' share of the drawn people, while there are people to work.
+    if (this.people > 1e6) {
+      let s = 0;
+      for (let c = 0; c < nL; c++) { tgt[c] = ((1 - u[c]) * Ntot[c] + S[c]) * this.ind[c]; s += tgt[c]; }
+      if (s > 0) {
+        const am = dt === Infinity ? 0 : Math.exp(-dt / P.T_MACH);
+        for (let c = 0; c < nL; c++) this.mach[c] = tgt[c] / s + (this.mach[c] - tgt[c] / s) * am;
+      }
+    }
+  }
+
+  /**
+   * What the People view draws, eight values a cell of the people's grid: people per km² (rural and
+   * city, `places`), the farmed share, factories' and datacenters' power (W/m²), the robots at work
+   * per km², and industry's share of the workers (two spare).
    */
   drawn(out = null) {
-    const n = this.planet.grid.n, H = this.H, E = this.econ;
-    out = out || new Float32Array(4 * n); out.fill(0);
-    const energy = E.on ? E.Ef + E.Er + E.Eu : 0;
-    let gs = 0;
-    for (let c = 0; c < this.nL; c++) gs += this.goods[c];
-    for (let c = 0; c < this.nL; c++) {
-      const i = this.cells[c], A = H.area[c], o = 4 * i;
-      out[o] = this.Ntot[c] / A; out[o + 1] = this.f[c];
-      out[o + 2] = gs > 0 ? energy * this.goods[c] / gs / (A * 1e6) : 0; out[o + 3] = this.ind[c];
+    const n = this.planet.grid.n, H = this.H, E = this.econ, P = this.P, nL = this.nL;
+    out = out || new Float32Array(8 * n); out.fill(0);
+    this.places();
+    const S = this.city, u = this.uShare, m = this.mach, A = H.area;
+    // The machines on Earth: the world's by Earth's share of the energy.
+    let Wf = 0, Wd = 0, Rb = 0;
+    if (E.on) {
+      const earth = E.Ef + E.Er + E.Eu, sE = earth > 0 ? earth / (earth + (E.Es || 0)) : 0, run = E.run || { c: 1, r: 1, q: 1 };
+      Wf = Math.max(0, (E.sup || 0) + (E.EfoodGot || 0) + (E.EcdrGot || 0) - (E.Ecomp || 0)) * sE;
+      Wd = P.W_C * (E.Kc * run.c + E.Kq * run.q) * sE;
+      Rb = (E.Ap || 0) * sE;   // the robots' physical work in worker-equivalents (the bodies the AI drives: idle bodies past it aren't at work)
+    }
+    // Weights: the footprint, toward the cities for datacenters and onto the farms for robots, and a floor on all living land.
+    let Aal = 0, sd = 0, sr = 0, sf = 0;
+    for (let c = 0; c < nL; c++) if (H.alive[c]) { Aal += A[c]; sf += this.f[c] * A[c]; }
+    const wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) {
+      const people = (1 - u[c]) * this.Ntot[c] + S[c];
+      wd[c] = m[c] * (1 + 4 * S[c] / Math.max(people, 1)); sd += wd[c];
+      wr[c] = m[c] + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0); sr += wr[c];
+    }
+    const fl = P.MACH_FLOOR;
+    for (let c = 0; c < nL; c++) {
+      const i = this.cells[c], o = 8 * i, Am = A[c] * 1e6, floor = H.alive[c] ? A[c] / Aal : 0;
+      out[o] = ((1 - u[c]) * this.Ntot[c] + S[c]) / A[c]; out[o + 1] = this.f[c];
+      out[o + 2] = Wf * (m[c] + fl * floor) / (1 + fl) / Am;
+      out[o + 3] = sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am : 0;
+      out[o + 4] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
+      out[o + 5] = this.ind[c];
     }
     return out;
+  }
+
+  /** The largest cities (people), as `places` last left them. */
+  cities(k = 3) {
+    if (!this.city) return [];
+    return Array.from(this.city.keys()).sort((a, b) => this.city[b] - this.city[a]).slice(0, k).map(c => ({ c, people: this.city[c], lat: this.H.lat[c], lon: this.H.lon[c] }));
   }
 
   /** Run until `stop` says so. */
