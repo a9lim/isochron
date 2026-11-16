@@ -31,7 +31,7 @@ import { makeStars, ecliptic } from './src/render/sky.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
-import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
+import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel, ECONOMY } from './src/render/figures.js';
 import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
@@ -621,7 +621,7 @@ for (const b of els.views) b.addEventListener('click', () => setView(b.dataset.v
 const PEOPLE_EXPS = ['people', 'dispersal', 'kremer', 'axes', 'budget', 'takeoff', 'radiator'];
 const peopleExp = () => PEOPLE_EXPS.includes(query.get('exp'));
 for (const b of els.views) if (b.dataset.view === 'people') b.hidden = !peopleExp();
-for (const b of document.querySelectorAll('.margin-tabs .tab-btn')) if (b.dataset.tab === 'people') b.hidden = !peopleExp();
+$('fig-people-wrap').hidden = !peopleExp();   // Fig. 8, under the model
 
 // ── Experiments: each one knob, a measured number in the caption ──
 const BASE = { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX };
@@ -936,7 +936,7 @@ function peopleCaption(name) {
   const farmed = people.link ? people.link.farmed : 0;
   if (m.packages > 0) parts.push(`farms ${(100 * farmed).toFixed(farmed < 0.1 ? 1 : 0)}% of land`);
   if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
-  if (h.energy > 1e10) parts.push(`${(h.energy / 1e12).toPrecision(2)} TW`, `CO₂ ${Math.round(carbon.pco2)} ppm`);
+  if (h.energy > 1e10) parts.push(watts(h.energy), `CO₂ ${Math.round(carbon.pco2)} ppm`);
   if (F.present) parts.push(`AI ${Math.round(100 * m.sA)}% of the work`);
   if (m.ending) parts.push(`${m.ending.aligned ? 'aligned' : 'misaligned'}, Earth ${m.ending.preserve ? 'kept' : 'spent'}`);
   if (runaway && runaway.boiled > 0.001) parts.push(`oceans ${Math.round(100 * runaway.boiled)}% boiled`);
@@ -944,7 +944,7 @@ function peopleCaption(name) {
   return parts.join(' · ');
 }
 
-// ── Fig. 7: the model, with its live fluxes ──
+// ── Fig. 7: the model, with its live fluxes (a layer that isn't stepping has no value, and is left out) ──
 function modelSnapshot() {
   const cs = climate.stats, z = climate.zonal, cf = carbon.flux, st = tec.stats();
   const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare, rain = 0, ground = { wet: 0, beta: 0, live: 0 }, lakes = { n: 0, area: 0, inflow: 0 } } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
@@ -961,24 +961,21 @@ function modelSnapshot() {
   const reg = P.regolith;
   // Dust (src/engine/aeolian.js), as of the climate's last cycle.
   const D = climate.dust, Tg = v => `${Math.round(v)} Tg/yr`;
-  // The people (the People experiment): their numbers, farms' share of land, fossil carbon burned (Pg C/yr at 4e19 J a Pg), forcing.
-  const pm = people.msg, farmed = people.link ? people.link.farmed : 0, fossil = pm && pm.last ? pm.last.Ef * 3.156e7 / 4e19 : 0, pF = pm ? pm.forcing.heat + pm.forcing.aer : 0;
   const r = year.rates || { arcs: 0.1, hot: 0, flood: 0 }, Wm = v => { const a = Math.abs(v), t = a.toFixed(a < 0.1 ? 2 : 1); return `${+t === 0 ? '' : v > 0 ? '+' : '−'}${t} W/m²`; };
   return {
     values: {
       climate: `${cs.meanT.toFixed(1)} °C`, carbon: `${Math.round(carbon.pco2)} ppm`, ice: `${(ice.stats.volume / 1e15).toFixed(1)} M km³`,
       sea: `${sea > 0 ? '+' : sea < 0 ? '−' : ''}${Math.abs(sea)} m`, plates: `${st.plates} plates`, plumes: `${plumes.hot.length} hotspots`,
-      ocean: `${P.ocean.stats.maxSv.toFixed(0)} Sv`, weather: wx && wx.started && chart ? `${chart.lows.length} lows` : 'idle',
+      ocean: `${P.ocean.stats.maxSv.toFixed(0)} Sv`, weather: view === 'weather' && wxLive > 0 && chart ? `${chart.lows.length} lows` : null,
       orbit: `tilt ${(P.orbit.at(P.years / 1000).obliquity * 180 / Math.PI).toFixed(1)}°`,
       landscape: `${land.flux.eroded.toFixed(1)} km³/yr`, zones: `B ${Math.round(100 * bShare / (la || 1))}%`,
-      tides: tide ? `${(moon.P / 1e12).toFixed(1)} TW` : '—',
-      year: year.live > 0 ? `${yearMean >= 0 ? '+' : '−'}${Math.abs(yearMean).toFixed(2)} K` : `±${year.sigma.toFixed(1)} K`,
-      volcanoes: `τ ${year.aod.toFixed(3)}`,
+      tides: tide ? `${(moon.P / 1e12).toFixed(1)} TW` : null,
+      year: year.live > 0 ? `${yearMean >= 0 ? '+' : '−'}${Math.abs(yearMean).toFixed(2)} K` : null,
+      volcanoes: year.live > 0 ? `τ ${year.aod.toFixed(3)}` : null,
       ground: `soil ${Math.round(100 * ground.wet)}%`, lakes: `${Math.round(lakes.area / 1e3)}k km²`,
       veg: `${Math.round(100 * L.trees)}% trees`, seaC: `CCD ${(seaC.ccd / 1000).toFixed(1)} km`,
-      regolith: reg ? `${reg.mean.toFixed(1)} m` : '—',
-      dust: climate.dust ? Tg(climate.dust.emission) : '—',
-      people: pm && pm.last ? headcount(pm.last.earth) : null,
+      regolith: reg ? `${reg.mean.toFixed(1)} m` : null,
+      dust: climate.dust ? Tg(climate.dust.emission) : null,
     },
     edges: [
       // The basins set the tide; the tide slows the spin, which the climate, the gyres and the weather turn with.
@@ -992,9 +989,9 @@ function modelSnapshot() {
       { from: 'ocean', to: 'climate', w: (sstHi - sstLo) / 12, label: `±${Math.round(Math.max(-sstLo, sstHi))} K` },
       { from: 'climate', to: 'zones', w: 0.5 },
       { from: 'zones', to: 'climate', w: bShare / (la || 1) / 0.6, label: 'albedo' },
-      { from: 'climate', to: 'ice', w: snow / 1e9 / 4000, label: `${Math.round(snow / 1e9)} km³/yr` },
-      { from: 'ice', to: 'climate', w: iceArea / 1e12 / 20, label: 'albedo' },
-      { from: 'ice', to: 'sea', w: ice.stats.seaLevel / 100, label: `−${Math.round(ice.stats.seaLevel)} m` },
+      { from: 'climate', to: 'ice', w: snow / 1e9 / 4000, label: `${Math.round(snow / 1e9)} km³/yr`, on: snow > 0 },
+      { from: 'ice', to: 'climate', w: iceArea / 1e12 / 20, label: 'albedo', on: iceArea > 0 },
+      { from: 'ice', to: 'sea', w: ice.stats.seaLevel / 100, label: `−${Math.round(ice.stats.seaLevel)} m`, on: ice.stats.seaLevel > 0.5 },
       // The ground: rain in, evaporation (its efficiency) and runoff out; the lakes from its runoff, in the landscape's basins behind the ice's dams.
       { from: 'climate', to: 'ground', w: rain / (la || 1) / 1.5, label: `${Math.round(1000 * rain / (la || 1))} mm/yr`, bend: 0.35 },
       { from: 'ground', to: 'climate', w: ground.beta, label: `β ${ground.beta.toFixed(2)}`, bend: 0.35 },
@@ -1002,13 +999,13 @@ function modelSnapshot() {
       { from: 'ground', to: 'landscape', w: run / (la || 1) / 0.5, label: `${Math.round(1000 * run / (la || 1))} mm/yr`, bend: -0.05 },
       { from: 'ground', to: 'lakes', w: lakes.inflow / 1500, label: `${Math.round(lakes.inflow)} km³/yr`, bend: 0.05 },
       { from: 'landscape', to: 'lakes', w: 0.25, label: 'basins', bend: 0.1 },
-      { from: 'ice', to: 'lakes', w: iceArea > 0 ? 0.25 : 0.05, label: 'dams', bend: -0.1 },
+      { from: 'ice', to: 'lakes', w: 0.25, label: 'dams', bend: -0.1, on: iceArea > 0 },
       { from: 'lakes', to: 'climate', w: lakes.area / 1e6, label: 'open water', bend: -0.25 },
       { from: 'landscape', to: 'sea', w: land.flux.toSea / 6, label: `${land.flux.toSea.toFixed(1)} km³/yr`, bend: 0.08 },
       { from: 'climate', to: 'carbon', w: cf.weather / 0.2, label: `${fmt(cf.weather, 3)} Pg/yr` },
       { from: 'carbon', to: 'climate', w: Math.abs(forcing) / 6, label: `${forcing >= 0 ? '+' : '−'}${Math.abs(forcing).toFixed(1)} W/m²` },
       { from: 'plates', to: 'carbon', w: cf.out / 0.2, label: `${fmt(cf.out - cf.lip, 3)} Pg/yr`, red: true },
-      { from: 'plumes', to: 'carbon', w: cf.lip / 0.5, label: cf.lip > 0.001 ? `${fmt(cf.lip, 3)} Pg/yr` : '', red: true, bend: 0 },
+      { from: 'plumes', to: 'carbon', w: cf.lip / 0.5, label: `${fmt(cf.lip || 0, 3)} Pg/yr`, red: true, bend: 0, on: cf.lip > 0.001 },
       { from: 'plates', to: 'landscape', w: hiLand / 6, label: `${hiLand.toFixed(1)} km`, bend: 0 },
       { from: 'plates', to: 'sea', w: 60 / Math.max(20, st.meanOceanAge), label: `${Math.round(st.meanOceanAge)} Myr` },
       { from: 'plumes', to: 'plates', w: 0.3, bend: 0 },
@@ -1034,43 +1031,114 @@ function modelSnapshot() {
         : { from: 'seaC', to: 'carbon', w: -gas / 0.5, label: Pg(-gas).replace('+', ''), bend: 0.12 },
       { from: 'ocean', to: 'seaC', w: (cf.export || 0) / 5, label: `export ${(cf.export || 0).toFixed(1)} Pg/yr`, bend: -0.25 },
       { from: 'sea', to: 'seaC', w: (L.shelf || 0) / 30, label: 'shelves', bend: -0.2 },
-      { from: 'landscape', to: 'seaC', w: L.bio / 2, label: `${L.bio.toFixed(2)}×`, bend: -0.1 },
+      { from: 'landscape', to: 'seaC', w: (L.bio ?? 1) / 2, label: `${(L.bio ?? 1).toFixed(2)}×`, bend: -0.1 },
       { from: 'plates', to: 'seaC', w: (cf.arc || 0) / 0.1, bend: 0.1 },
       // The regolith: the ice strips it and lays till, the rivers strip it; it softens the ice's bed, holds the
       // soil's water and feeds weathering fresh rock. The ice's outwash is the rivers' sediment; loads bend the crust.
       ...(reg ? [
-        { from: 'ice', to: 'regolith', w: reg.glacial / 0.1, label: `${reg.glacial.toFixed(2)} mm/yr`, bend: 0.15 },
-        { from: 'regolith', to: 'ice', w: reg.iceBed, label: `bed ${reg.iceBed.toFixed(2)}`, bend: 0.15 },
+        { from: 'ice', to: 'regolith', w: reg.glacial / 0.1, label: `${reg.glacial.toFixed(2)} mm/yr`, bend: 0.15, on: reg.glacial > 0.005 },
+        { from: 'regolith', to: 'ice', w: reg.iceBed, label: `bed ${reg.iceBed.toFixed(2)}`, bend: 0.15, on: iceArea > 0 },
         { from: 'landscape', to: 'regolith', w: 0.2, bend: -0.1 },
         { from: 'regolith', to: 'ground', w: (P.agg?.cap || 0) / 300, label: `${Math.round(P.agg?.cap || 0)} mm`, bend: -0.2 },
         { from: 'regolith', to: 'carbon', w: (P.agg?.supply || 0) / 1.5, label: `supply ${(P.agg?.supply || 0).toFixed(2)}`, bend: 0.1 },
-        { from: 'ice', to: 'landscape', w: (land.flux.outwash || 0) / 0.5, label: land.flux.outwash > 0.005 ? `${land.flux.outwash.toFixed(2)} km³/yr` : '', bend: -0.15 },
+        { from: 'ice', to: 'landscape', w: (land.flux.outwash || 0) / 0.5, label: `${(land.flux.outwash || 0).toFixed(2)} km³/yr`, bend: -0.15, on: land.flux.outwash > 0.005 },
       ] : []),
       ...(P.flex ? [{ from: 'landscape', to: 'plates', w: P.flex.rms / 300, label: `±${Math.round(P.flex.rms)} m`, bend: -0.25 }] : []),
-      { from: 'ice', to: 'plates', w: ice.stats.area > 0 ? 0.3 : 0.05, label: 'bed', bend: 0.25 },
+      { from: 'ice', to: 'plates', w: 0.3, label: 'bed', bend: 0.25, on: ice.stats.area > 0 },
       // Dust: lifted by the climate's winds from bare, dry ground (the cover), dry lake beds and the ice's outwash;
       // it scatters sunlight, darkens snow and ice (faster melt), brings the cold sea iron and settles as loess.
       ...(D ? [
         { from: 'climate', to: 'dust', w: D.emission / 3000, label: 'wind', bend: 0.05 },
         { from: 'veg', to: 'dust', w: D.fromBare / 2000, label: D.fromBare >= 1 ? Tg(D.fromBare) : '', bend: 0.1 },
-        { from: 'lakes', to: 'dust', w: D.fromSalt / 100, label: D.fromSalt >= 1 ? Tg(D.fromSalt) : '', bend: -0.15 },
-        { from: 'ice', to: 'dust', w: D.fromOutwash / 100, label: D.fromOutwash >= 1 ? Tg(D.fromOutwash) : '', bend: 0.1 },
+        { from: 'lakes', to: 'dust', w: D.fromSalt / 100, label: Tg(D.fromSalt), bend: -0.15, on: D.fromSalt >= 1 },
+        { from: 'ice', to: 'dust', w: D.fromOutwash / 100, label: Tg(D.fromOutwash), bend: 0.1, on: D.fromOutwash >= 1 },
         { from: 'dust', to: 'climate', w: Math.abs(D.forcing) / 0.2, label: Wm(D.forcing), bend: 0.05 },
-        { from: 'dust', to: 'ice', w: (D.dark || 0) / 0.01, label: D.dark >= 5e-4 ? `α −${D.dark.toFixed(3)}` : '', bend: -0.1 },
+        { from: 'dust', to: 'ice', w: (D.dark || 0) / 0.01, label: `α −${(D.dark || 0).toFixed(3)}`, bend: -0.1, on: D.dark >= 5e-4 },
         { from: 'dust', to: 'seaC', w: Math.abs((D.iron || 1) - 1) / 0.3 + 0.1, label: `iron ${(D.iron || 1).toFixed(2)}×`, bend: -0.1 },
-        { from: 'dust', to: 'regolith', w: (D.loess || 0) / 1000, label: D.loess >= 1 ? `loess ${Tg(D.loess)}` : '', bend: 0.1 },
-      ] : []),
-      // The people (the People experiment): fed by the plants' land, writing back its farms, tillage,
-      // carbon and forcing (src/engine/peoplelink.js), and the sea they boil past the runaway.
-      ...(pm && pm.last ? [
-        { from: 'veg', to: 'people', w: 0.3, label: 'food', bend: 0.15 },
-        { from: 'people', to: 'veg', w: farmed / 0.1, label: farmed > 1e-4 ? `farms ${(100 * farmed).toFixed(farmed < 0.1 ? 1 : 0)}%` : '', bend: 0.15 },
-        { from: 'people', to: 'carbon', w: fossil / 10, label: fossil > 1e-3 ? `+${fossil.toFixed(fossil < 1 ? 2 : 1)} Pg/yr` : '', bend: 0.1 },
-        { from: 'people', to: 'climate', w: Math.abs(pF) / 2, label: Math.abs(pF) > 0.005 ? Wm(pF) : '', bend: -0.2 },
-        { from: 'people', to: 'regolith', w: farmed / 0.1, label: 'tillage', bend: 0.1 },
+        { from: 'dust', to: 'regolith', w: (D.loess || 0) / 1000, label: `loess ${Tg(D.loess || 0)}`, bend: 0.1, on: D.loess >= 1 },
       ] : []),
       // The runaway (src/engine/runaway.js): past the outgoing longwave's limit, the climate boils the sea.
       ...(runaway && runaway.boiled > 0 ? [{ from: 'climate', to: 'sea', w: runaway.boiled, label: `${Math.round(100 * runaway.boiled)}% boiled`, bend: 0.2 }] : []),
+    ],
+  };
+}
+
+// ── Fig. 7 with people: their economy, the planet's layers they touch at its edge (src/engine/people.js) ──
+// Each part appears with the era that brings it (farms, industry's capital, energy, fossil carbon
+// and ores, AI's compute and robots, space); an arrow out of output is the share of it invested there.
+const peopleModel = () => !!(people.msg && people.msg.last && !(experiment.id === 'budget' && people.released));
+const g2 = v => (v >= 99.5 ? Math.round(v).toLocaleString('en') : v.toPrecision(2));
+const sci = v => { const k = Math.floor(Math.log10(v)); return `${(v / 10 ** k).toFixed(1)} × 10${String(k).split('').map(c => '⁰¹²³⁴⁵⁶⁷⁸⁹'[c]).join('')}`; };
+const watts = v => (v >= 1e18 ? `${sci(v)} W` : v >= 1e15 ? `${g2(v / 1e15)} PW` : v >= 1e12 ? `${g2(v / 1e12)} TW` : v >= 1e9 ? `${g2(v / 1e9)} GW` : `${Math.round(v / 1e6)} MW`);
+function economySnapshot() {
+  const m = people.msg, h = m.last, F = m.flags, E = m.econ, L = life || { npp: 0 };
+  const { rain = 0, la = 1 } = P.agg || {};
+  const n = v => (v >= 1e15 ? sci(v) : v >= 1e12 ? `${g2(v / 1e12)} trillion` : headcount(v)), W = watts;
+  const pc = v => `${v < 0.095 ? (100 * v).toFixed(1) : Math.round(100 * v)}%`;
+  const Wm = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(Math.abs(v) < 0.1 ? 2 : 1)} W/m²`;
+  const farmed = people.link ? people.link.farmed : 0, farms = m.packages > 0, ind = !!(F.industry && E);
+  const earthE = h.Ef + h.Er + h.Eu, allE = earthE + h.Es, Y = h.Y || 0, fl = E ? E.flows : {};
+  const ai = ind && h.AI >= 1e6, bots = ai && E.bodies >= 1e3, work = bots && h.Ap >= 1e3, space = ind && (h.space >= 1e3 || h.Es >= 1e9);
+  const forcing = 5.35 * Math.log(carbon.pco2 / CARBON.PCO2_0), pF = m.forcing.heat + m.forcing.aer, fossil = h.Ef * 3.156e7 / 4e19;
+  const sA = m.sA || 0, cog = ai ? sA : 0;
+  return {
+    nodes: ECONOMY,
+    values: {
+      climate: `${climate.stats.meanT.toFixed(1)} °C`, land: `NPP ${Math.round(L.npp)} Pg/yr`,
+      people: n(h.earth), minds: n(h.minds), culture: `z ${h.zmax.toFixed(2)}`,
+      farms: farms ? `${pc(farmed)} of land` : null,
+      sea: runaway && runaway.boiled > 0 ? `${Math.round(100 * runaway.boiled)}% boiled` : null,
+      air: ind ? `${Math.round(carbon.pco2)} ppm` : null,
+      output: ind ? (h.earth >= 1e3 ? `income ${h.O / h.earth >= 1e6 ? sci(h.O / h.earth) : g2(h.O / h.earth)}×` : `${sci(Y)} sy/yr`) : null,
+      capital: ind && Y > 0 ? `K/Y ${(h.Kf / Y).toFixed(1)}` : null,
+      energy: ind ? W(allE) : null, fossil: ind ? `${Math.round(h.fossil)} Pg C left` : null,
+      ores: ind ? `grade ${E.grade.toFixed(2)}` : null,
+      ai: ai ? n(h.AI) : null, compute: ai ? W(E.Wc) : null, robots: bots ? (work ? n(h.Ap) : `${n(E.bodies)} idle`) : null,
+      space: space ? (h.space >= 1e3 ? n(h.space) : W(h.Es)) : null,
+    },
+    edges: [
+      // Kremer's loop: the land feeds people, people make minds, minds ideas, ideas raise what the land carries.
+      { from: 'climate', to: 'land', w: rain / la / 1.5, label: `${Math.round(1000 * rain / la)} mm/yr`, bend: 0 },
+      { from: 'land', to: 'people', w: 0.25 + 0.5 * (1 - h.farm), label: 'forage', bend: -0.1 },
+      { from: 'people', to: 'minds', w: 0.45, bend: -0.12 },
+      { from: 'minds', to: 'culture', w: 0.5, label: 'ideas', bend: -0.1 },
+      { from: 'culture', to: 'people', w: 0.4, bend: -0.1 },
+      // Farming: the fields take land (and strip its soil), yield by the soil, feed people.
+      { from: 'farms', to: 'people', w: 0.25 + 0.5 * h.farm, label: 'harvest', bend: 0.1 },
+      { from: 'farms', to: 'land', w: farmed / 0.1, label: 'tillage', bend: 0.25 },
+      { from: 'land', to: 'farms', w: h.soil / 4, label: `soil ${h.soil.toFixed(1)} m`, bend: 0.25 },
+      { from: 'culture', to: 'farms', w: 0.3, bend: 0.1 },
+      // Industry: output from capital, people's work and energy; invested back by return.
+      { from: 'people', to: 'output', w: 0.8 * (1 - cog), label: ai ? pc(1 - sA) : '', bend: 0.1 },
+      { from: 'capital', to: 'output', w: 0.4, bend: 0.12 },
+      { from: 'energy', to: 'output', w: 0.5, bend: 0.12 },
+      { from: 'culture', to: 'output', w: 0.3, bend: 0.15 },
+      { from: 'ores', to: 'capital', w: 0.25, label: 'materials', bend: 0 },
+      { from: 'output', to: 'people', w: 0.3, label: 'goods', bend: 0.1 },
+      { from: 'output', to: 'capital', w: (fl.f || 0) / Y / 0.15, label: Y > 0 ? pc((fl.f || 0) / Y) : '', bend: 0.12 },
+      { from: 'output', to: 'energy', w: (fl.e || 0) / Y / 0.08, label: Y > 0 ? pc((fl.e || 0) / Y) : '', bend: 0.12 },
+      { from: 'fossil', to: 'energy', w: allE > 0 ? h.Ef / allE : 0, label: W(h.Ef), bend: 0.1, on: h.Ef > 1e8 },
+      { from: 'fossil', to: 'air', w: fossil / 10, label: `+${fossil.toFixed(fossil < 1 ? 2 : 1)} Pg/yr`, red: true, bend: 0, on: fossil > 1e-3 },
+      { from: 'energy', to: 'air', w: E ? E.cdr / Math.max(1, allE) * 5 : 0, label: 'capture', bend: 0.15, on: !!E && E.cdr > 1e9 },
+      { from: 'air', to: 'climate', w: Math.abs(forcing) / 6, label: Wm(forcing), bend: 0 },
+      { from: 'energy', to: 'climate', w: Math.abs(pF) / 2, label: Wm(pF), bend: -0.15, on: Math.abs(pF) > 0.005 },
+      { from: 'energy', to: 'people', w: E ? E.food / Math.max(1, allE) * 3 : 0, label: 'food', bend: -0.15, on: !!E && E.food > 1e9 },
+      // AI: compute does work (cognitive, and physical where there are bodies), and research.
+      { from: 'output', to: 'compute', w: (((fl.c || 0) + (fl.q || 0)) / Y) / 0.08, label: Y > 0 ? pc(((fl.c || 0) + (fl.q || 0)) / Y) : '', bend: -0.12 },
+      { from: 'energy', to: 'compute', w: E ? E.Wc / Math.max(1, allE) * 3 : 0, label: E ? W(E.Wc) : '', bend: 0.1 },
+      { from: 'compute', to: 'ai', w: 0.5, bend: 0.1 },
+      { from: 'ai', to: 'output', w: 0.8 * cog, label: pc(sA), bend: 0.1 },
+      { from: 'ai', to: 'minds', w: h.minds > 0 && E ? Math.min(1, 3 * E.Ar / h.minds) : 0, label: 'research', bend: 0.1 },
+      { from: 'output', to: 'robots', w: ((fl.r || 0) / Y) / 0.05, label: Y > 0 ? pc((fl.r || 0) / Y) : '', bend: -0.12 },
+      { from: 'ai', to: 'robots', w: 0.3, bend: -0.1, on: work },
+      { from: 'robots', to: 'output', w: h.Ap / Math.max(1, h.Ap + 0.5 * (E ? E.Lh : 0)), bend: -0.12, on: work },
+      // Space: its sunlight's power, and the people who go.
+      { from: 'space', to: 'energy', w: allE > 0 ? h.Es / allE : 0, label: W(h.Es), bend: 0, on: h.Es >= 1e9 },
+      { from: 'people', to: 'space', w: 0.3, label: 'leave', bend: -0.1, on: h.space >= 1e3 },
+      // Misaligned, control passes to AI with its share of the work.
+      { from: 'ai', to: 'people', w: m.dis || 0, label: `control ${pc(m.dis || 0)}`, red: true, bend: -0.2, on: (m.dis || 0) > 0.01 },
+      // Past the runaway the climate boils the sea.
+      { from: 'climate', to: 'sea', w: runaway ? runaway.boiled : 0, label: 'boils', bend: 0 },
     ],
   };
 }
@@ -1113,9 +1181,17 @@ function figures(force) {
     els.capHyps.textContent = `Hypsometry · land ${Math.round(100 * la / (4 * Math.PI))}% · mean height ${(lh / la).toFixed(2)} km · mean depth ${(sd / sa).toFixed(1)} km`;
   }
   if (visible(els.figModel)) {
-    drawModel(els.figModel, modelSnapshot(), pal);
-    const cf = carbon.flux;
-    els.capModel.textContent = `The model · outgassing ${cf.out.toFixed(3)} and weathering ${cf.weather.toFixed(3)} Pg C/yr · erosion ${land.flux.eroded.toFixed(1)} km³/yr`;
+    if (peopleModel()) {
+      drawModel(els.figModel, economySnapshot(), pal);
+      const m = people.msg, h = m.last, E = m.econ, Y = h.Y || 0;
+      els.capModel.textContent = m.flags.industry && E && Y > 0
+        ? `The economy · investing ${Math.round(100 * (E.flows.f + E.flows.c + E.flows.r + E.flows.e + E.flows.q) / Y)}% of output · ${watts(h.Ef + h.Er + h.Eu + h.Es)} · ${Math.round(100 * h.Ef / Math.max(1, h.Ef + h.Er + h.Eu + h.Es))}% fossil`
+        : `The people · ${headcount(h.minds)} minds · culture z ${h.zmax.toFixed(2)}`;
+    } else {
+      drawModel(els.figModel, modelSnapshot(), pal);
+      const cf = carbon.flux;
+      els.capModel.textContent = `The model · outgassing ${cf.out.toFixed(3)} and weathering ${cf.weather.toFixed(3)} Pg C/yr · erosion ${land.flux.eroded.toFixed(1)} km³/yr`;
+    }
   }
   if (visible(els.figPeople)) {
     const fg = people.fig;
@@ -1220,13 +1296,13 @@ window.addEventListener('DOMContentLoaded', () => {
         'seafloor is made at the ridges and recorded in magnetic stripes, sinks at the trenches, and continents collide and rift. ' +
         'Rivers cut the mountains and carry them to the sea. The climate follows the geography and the orbit: seasons, winds, rain, ice sheets, ' +
         'and a carbon cycle in which volcanoes supply CO₂ and the weathering of rock takes it back. ' +
-        'In the People experiment, people spread over it from the first hominins, farm, industrialize and build minds of their own, and the planet answers.',
+        'In the People scenario, people spread over it from the first hominins, farm, industrialize and build minds of their own, and the planet answers.',
       controls: [
         { label: 'Turn the globe', value: 'Drag' },
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
         { label: 'Rate', value: 'The dial, or [ and ]' },
-        { label: 'View', value: 'Relief, Climate, Weather, Tides, or People in its experiment; or 1 to 5' },
-        { label: 'Experiments', value: 'The margin; each has one knob' },
+        { label: 'View', value: 'Relief, Climate, Weather, Tides, or People in its scenario; or 1 to 5' },
+        { label: 'Scenarios', value: 'The margin; each has one knob' },
       ],
       shortcuts,
       repo: 'https://github.com/a9lim/a9lim.github.io',
@@ -1381,4 +1457,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, setPmMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, setPmMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; } };

@@ -151,7 +151,7 @@ body.sim-body { background: var(--bg-canvas); }
 .fig-strip { height: 58px; }
 .fig-record { height: 330px; }
 .fig-orbit { height: 230px; }
-.fig-model { height: 440px; }
+.fig-model { height: 600px; }
 .fig-people { height: 400px; }
 
 /* ───── Experiments: one knob each ───── */
