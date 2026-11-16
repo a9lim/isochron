@@ -127,9 +127,10 @@ function post(force) {
       Es: E.Es || 0, sA: E.sA || 0, sun: people.P.L_SUN, msPerStep, emitted: people.emitted, removed: people.removed, exp: rep,
       city: people.city ? people.city.reduce((a, b) => Math.max(a, b), 0) : 0,
       // Fig. 7's economy: investment by stock (sy/yr), people's work, the bodies, the ores' grade,
-      // the power to food and to capture, AI's research minds, compute's and the working robots' power.
+      // the power to food and to capture (and the carbon it takes back, Pg C/yr), AI's research minds,
+      // compute's and the working robots' power.
       econ: E.on && E.flows ? { flows: { ...E.flows }, Lh: E.Lh, bodies: E.bodies, grade: E.grade, food: E.EfoodGot || 0, cdr: E.EcdrGot || 0,
-        Ar: E.AIr, Wc: people.P.W_C * (E.Kc + E.Kq), Wr: people.P.W_R * E.Ap } : null,
+        Ar: E.AIr, Wc: people.P.W_C * (E.Kc + E.Kq), Wr: people.P.W_R * E.Ap, cdrPg: (E.EcdrGot || 0) * 3.15576e7 / people.P.J_CDR } : null,
     });
   }
   // Fig. 8 (the hyperbola and the lineages), once a second: ~5 ms of fitting on a thinned record.

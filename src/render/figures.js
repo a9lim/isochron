@@ -371,6 +371,17 @@ export function drawModel(canvas, s, pal) {
   const labels = [];
   for (const e of live) {
     const A = boxOf[e.from], B = boxOf[e.to];
+    if (e.from === e.to) {   // a stock its own flow keeps (capital, output kept): a loop on the roomier side
+      const wgt = Math.max(0, Math.min(1, e.w)), ink = e.red ? pal.accent : pal.text, cy = (A[1] + A[3]) / 2;
+      const sd = A[2] + 44 < w ? 1 : -1, x0 = sd > 0 ? A[2] + 3 : A[0] - 3, r = 27 * sd;
+      ctx.strokeStyle = alpha(ink, 0.25 + 0.6 * wgt); ctx.lineWidth = 0.6 + 2.6 * wgt;
+      ctx.beginPath(); ctx.moveTo(x0, cy - 5); ctx.bezierCurveTo(x0 + r, cy - 21, x0 + r, cy + 21, x0, cy + 5); ctx.stroke();
+      const hl = Math.hypot(r, 16), hx = -r / hl, hy = -16 / hl, hs = 4 + 2 * wgt;
+      ctx.fillStyle = alpha(ink, 0.35 + 0.6 * wgt);
+      ctx.beginPath(); ctx.moveTo(x0, cy + 5); ctx.lineTo(x0 - hx * hs - hy * hs * 0.55, cy + 5 - hy * hs + hx * hs * 0.55); ctx.lineTo(x0 - hx * hs + hy * hs * 0.55, cy + 5 - hy * hs - hx * hs * 0.55); ctx.closePath(); ctx.fill();
+      if (e.label) { ctx.font = `italic 10px ${FONT}`; const tw = ctx.measureText(e.label).width; labels.push({ text: e.label, x: x0 + 0.78 * r + sd * (tw / 2 + 4), y: cy, red: e.red, w: 2 }); }
+      continue;
+    }
     const ax = (A[0] + A[2]) / 2, ay = (A[1] + A[3]) / 2, bx = (B[0] + B[2]) / 2, by = (B[1] + B[3]) / 2;
     // A coupling both ways is one curve (the first-named way's) in two lanes, each 3.5 px to its side.
     const back = byPair.get(`${e.to}>${e.from}`), first = !back || e.from < e.to, c = first ? e : back;

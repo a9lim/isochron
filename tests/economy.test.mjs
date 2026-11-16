@@ -30,18 +30,20 @@ test('the hominins: Kremer\'s loop alone', () => {
   assert.match(economyCaption(report(row())), /^The people/);
 });
 
-test('industry brings output, capital, energy, fossil carbon, ores and the air; AI brings compute; a starved fleet idles', () => {
+test('industry brings output (capital its loop), energy and the air; AI brings compute; a starved fleet idles', () => {
   const ind = report(row({ Y: 1e10, Kf: 3e10, Ef: 2e11, farm: 0.6 }), { packages: 2, flags: { industry: true }, econ: econ() });
   let fig = economyOf({ m: ind, ...planet });
   check(fig);
-  for (const k of ['output', 'capital', 'energy', 'fossil', 'ores', 'air', 'farms']) assert.notEqual(fig.values[k], null, k);
-  for (const k of ['compute', 'robots', 'solar', 'fusion', 'space', 'sea']) assert.equal(fig.values[k], null, k);
-  assert.match(economyCaption(ind), /^The economy · investing 16% of output · 200 GW · 100% fossil$/);
+  for (const k of ['output', 'energy', 'air', 'farms']) assert.notEqual(fig.values[k], null, k);
+  for (const k of ['compute', 'robots', 'space', 'sea']) assert.equal(fig.values[k], null, k);
+  const on = (a, b) => fig.edges.some(e => e.from === a && e.to === b && e.on !== false);
+  assert.ok(on('output', 'output') && on('land', 'energy') && on('land', 'output') && on('energy', 'air'), 'capital kept, the land\'s fossil carbon and ores, carbon burned');
+  assert.match(economyCaption(ind), /^The economy · investing 16% of output · 200 GW: fossil 100%$/);
   const idle = report(row({ Y: 1e14, Kf: 1e14, Ef: 2e13, Er: 5e12, AI: 1e12, Ap: 0.05 }), { packages: 2, sA: 0.4, flags: { industry: true }, econ: econ({ bodies: 8e6, Ar: 1e11 }) });
   fig = economyOf({ m: idle, ...planet });
   check(fig);
   assert.match(fig.values.robots, /idle$/);
-  assert.notEqual(fig.values.solar, null);
+  assert.match(economyCaption(idle), /: fossil 80%, solar 20%$/);
   const live = e => e.on !== false;
   assert.ok(!fig.edges.some(e => live(e) && (e.from === 'robots' || e.to === 'robots') && e.from !== 'output' && e.from !== 'culture'), 'an idle fleet works nothing and draws no power');
 });

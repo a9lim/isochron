@@ -6,15 +6,19 @@
 // the work, `sA`), and drives the robots' bodies, which work beside people. Culture is the
 // economy's one technology: what the land and the fields carry, output's productivity, energy's
 // intensity and its sources' returns, compute's efficiency (hardware and algorithms), a body's cost.
-// The sources are nodes (fossil carbon, surface solar, fusion, space); waste heat (fossil carbon's
-// and fusion's) goes straight to the climate, sulfate (coal's, and a preserving AI's) through the air.
+// The land holds the economy's endowments: its plants, fossil carbon and ores (the fossil and ore
+// maps), and the sunlight surface solar is capped by. Every energy source is plant built from
+// output (output → energy, the share invested); the land gives fossil carbon's and solar's power,
+// space its sunlight's, and fusion needs nothing but the plant. Fixed capital is output kept, a
+// loop on output (the share reinvested). Burning sends carbon (net of what capture takes back) and
+// coal's sulfate into the air; waste heat (fossil carbon's and fusion's) goes straight to the climate.
 
 export const ECONOMY = {
-  sea: [0.08, 0.04, 'Sea'], climate: [0.3, 0.04, 'Climate'], air: [0.56, 0.04, 'Air'], space: [0.88, 0.04, 'Space'],
-  land: [0.1, 0.2, 'Land'], fossil: [0.42, 0.22, 'Fossil'], solar: [0.66, 0.17, 'Solar'], fusion: [0.91, 0.21, 'Fusion'],
-  farms: [0.12, 0.42, 'Farms'], people: [0.33, 0.36, 'People'], energy: [0.8, 0.35, 'Energy'],
-  culture: [0.38, 0.6, 'Culture'], output: [0.6, 0.52, 'Output'], capital: [0.9, 0.5, 'Capital'], ores: [0.91, 0.66, 'Ores'],
-  minds: [0.16, 0.8, 'Minds'], compute: [0.6, 0.84, 'Compute'], robots: [0.88, 0.82, 'Robots'],
+  sea: [0.08, 0.04, 'Sea'], climate: [0.32, 0.04, 'Climate'], air: [0.6, 0.04, 'Air'], space: [0.88, 0.04, 'Space'],
+  land: [0.12, 0.21, 'Land'], energy: [0.8, 0.3, 'Energy'],
+  people: [0.3, 0.43, 'People'], farms: [0.1, 0.5, 'Farms'],
+  output: [0.6, 0.55, 'Output'], culture: [0.34, 0.64, 'Culture'],
+  minds: [0.14, 0.84, 'Minds'], compute: [0.58, 0.86, 'Compute'], robots: [0.88, 0.76, 'Robots'],
 };
 
 const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
@@ -37,8 +41,8 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   const allE = h.Ef + h.Er + h.Eu + h.Es, Y = h.Y || 0, fl = E ? E.flows : {}, sA = m.sA || 0, dis = m.dis || 0;
   const ai = ind && h.AI >= 1e6, bots = ai && E.bodies >= 1e3, work = bots && h.Ap >= 1e3;
   const co2F = 5.35 * Math.log(pco2 / pco20), airF = co2F + m.forcing.aer, heat = m.forcing.heat || 0;
-  const fossil = h.Ef * 3.156e7 / 4e19, share = v => (allE > 0 ? v / allE : 0), inv = k => (Y > 0 ? (fl[k] || 0) / Y : 0);
-  const income = h.O / Math.max(h.earth, 1);
+  const net = h.Ef * 3.15576e7 / 4e19 - (E ? E.cdrPg || 0 : 0), share = v => (allE > 0 ? v / allE : 0), inv = k => (Y > 0 ? (fl[k] || 0) / Y : 0);
+  const income = h.O / Math.max(h.earth, 1), ground = h.Ef + h.Er;
   return {
     values: {
       climate: `${meanT.toFixed(1)} °C`, land: `NPP ${Math.round(npp)} Pg/yr`,
@@ -47,10 +51,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       sea: boiled > 0 ? `${Math.round(100 * boiled)}% boiled` : null,
       air: ind ? `${Math.round(pco2)} ppm` : null,
       output: ind ? (h.earth >= 1e3 ? `income ${income >= 1e6 ? sci(income) : g2(income)}×` : `${sci(Y)} sy/yr`) : null,
-      capital: ind && Y > 0 ? `K/Y ${(h.Kf / Y).toFixed(1)}` : null,
-      ores: ind ? `grade ${E.grade.toFixed(2)}` : null,
-      energy: ind ? watts(allE) : null, fossil: ind ? `${Math.round(h.fossil)} Pg C left` : null,
-      solar: ind && h.Er >= 1e9 ? watts(h.Er) : null, fusion: ind && h.Eu >= 1e9 ? watts(h.Eu) : null,
+      energy: ind ? watts(allE) : null,
       space: ind && (h.Es >= 1e9 || h.space >= 1e3) ? (h.Es >= 1e9 ? watts(h.Es) : count(h.space)) : null,
       compute: ai ? count(h.AI) : null,
       robots: bots ? (work ? count(h.Ap) : `${count(E.bodies)} idle`) : null,
@@ -68,33 +69,31 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'land', to: 'farms', w: h.soil / 4, label: `soil ${h.soil.toFixed(1)} m`, bend: 0.25 },
       { from: 'culture', to: 'farms', w: 0.3, bend: -0.1 },
       { from: 'air', to: 'land', w: Math.min(1, Math.max(0, co2F) / 4), label: 'CO₂', bend: 0.1, on: ind && co2F > 0.05 },
-      // Industry: output from capital, the work and energy, at culture's productivity; invested back by return.
+      // Industry: output from capital (output kept), the work and energy, at culture's productivity,
+      // with the land's ores; invested back by return.
+      { from: 'output', to: 'output', w: inv('f') / 0.15, label: pc(inv('f')), on: ind && inv('f') >= 5e-4 },
       { from: 'people', to: 'output', w: 0.8 * (ai ? 1 - sA : 1), label: ai ? pc(1 - sA) : '', bend: 0.1 },
       { from: 'compute', to: 'output', w: 0.8 * sA, label: pc(sA), bend: 0.1 },
       { from: 'robots', to: 'output', w: h.Ap / Math.max(1, h.Ap + 0.5 * (E ? E.Lh : 0)), bend: 0.1, on: work },
-      { from: 'capital', to: 'output', w: 0.4, bend: 0.12 },
       { from: 'energy', to: 'output', w: 0.5, bend: 0.12 },
       { from: 'culture', to: 'output', w: 0.3, bend: 0.1 },
-      { from: 'ores', to: 'output', w: 0.2 + 0.6 * (1 - (E ? E.grade : 1)), label: 'materials', bend: 0.1 },
+      { from: 'land', to: 'output', w: 0.2 + 0.6 * (1 - (E ? E.grade : 1)), label: `ores ${E ? E.grade.toFixed(2) : ''}`, bend: -0.12, on: ind },
       { from: 'output', to: 'people', w: 0.3, label: 'goods', bend: 0.1 },
-      { from: 'output', to: 'capital', w: inv('f') / 0.15, label: pc(inv('f')), bend: 0.12, on: inv('f') >= 5e-4 },
       { from: 'output', to: 'energy', w: inv('e') / 0.08, label: pc(inv('e')), bend: 0.12, on: inv('e') >= 5e-4 },
       { from: 'output', to: 'compute', w: (inv('c') + inv('q')) / 0.08, label: pc(inv('c') + inv('q')), bend: 0.12, on: inv('c') + inv('q') >= 5e-4 },
       { from: 'output', to: 'robots', w: inv('r') / 0.05, label: pc(inv('r')), bend: 0.12, on: inv('r') >= 5e-4 },
-      // Energy: its sources, its intensity and the sources' returns rising with culture; power to the machines.
-      { from: 'fossil', to: 'energy', w: share(h.Ef), label: watts(h.Ef), bend: 0.05, on: h.Ef > 1e8 },
-      { from: 'solar', to: 'energy', w: share(h.Er), label: watts(h.Er), bend: 0 },
-      { from: 'fusion', to: 'energy', w: share(h.Eu), label: watts(h.Eu), bend: 0 },
-      { from: 'space', to: 'energy', w: share(h.Es), label: watts(h.Es), bend: 0.1, on: h.Es >= 1e9 },
+      // Energy: the land's fossil carbon and sunlight, space's sunlight (fusion is plant alone); its
+      // intensity and the sources' returns rising with culture; power to the machines and to food.
+      { from: 'land', to: 'energy', w: share(ground), label: watts(ground), bend: -0.08, on: ground > 1e8 },
+      { from: 'space', to: 'energy', w: share(h.Es), label: watts(h.Es), bend: 0, on: h.Es >= 1e9 },
       { from: 'culture', to: 'energy', w: 0.3, bend: -0.1 },
       { from: 'energy', to: 'compute', w: E ? 3 * share(E.Wc) : 0, label: E ? watts(E.Wc) : '', bend: -0.15 },
       { from: 'energy', to: 'robots', w: E ? 3 * share(E.Wr) : 0, label: E ? watts(E.Wr) : '', bend: -0.1, on: work },
       { from: 'energy', to: 'people', w: E ? 3 * share(E.food) : 0, label: 'food', bend: -0.1, on: !!E && E.food > 1e9 },
-      // The air and the climate: fossil carbon burned (and coal's sulfate), carbon captured; the air's
-      // forcing (CO₂, coal's sulfate, and a preserving AI's sprayed sulfate, which costs nothing here
-      // and so has no source); waste heat straight to the climate.
-      { from: 'fossil', to: 'air', w: fossil / 10, label: `+${fossil.toFixed(fossil < 1 ? 2 : 1)} Pg/yr`, red: true, bend: 0, on: fossil > 1e-3 },
-      { from: 'energy', to: 'air', w: E ? 5 * share(E.cdr) : 0, label: 'capture', bend: 0.1, on: !!E && E.cdr > 1e9 },
+      // The air and the climate: carbon burned, net of capture (and coal's sulfate); the air's forcing
+      // (CO₂, coal's sulfate, and a preserving AI's sprayed sulfate, which costs nothing here and so
+      // has no source); waste heat straight to the climate.
+      { from: 'energy', to: 'air', w: Math.abs(net) / 10, label: `${net >= 0 ? '+' : '−'}${Math.abs(net).toFixed(Math.abs(net) < 1 ? 2 : 1)} Pg/yr`, red: net > 0, bend: 0.05, on: Math.abs(net) > 1e-3 },
       { from: 'air', to: 'climate', w: Math.abs(airF) / 6, label: Wm(airF), bend: 0, on: ind },
       { from: 'energy', to: 'climate', w: heat / 2, label: `heat ${Wm(heat)}`, bend: 0, on: heat > 0.005 },
       // AI: compute thinks and works; its efficiency rises with culture; it drives the robots' bodies, cheaper with culture.
@@ -111,10 +110,11 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   };
 }
 
-/** Fig. 7's caption with people: the shares invested, the power and fossil carbon's share; before industry, the minds and culture. */
+/** Fig. 7's caption with people: the share invested, the power and its sources; before industry, the minds and culture. */
 export function economyCaption(m) {
   const h = m.last, E = m.econ, Y = h.Y || 0;
   if (!(m.flags.industry && E && Y > 0)) return `The people · ${count(h.minds)} minds · culture z ${h.zmax.toFixed(2)}`;
   const f = E.flows, all = h.Ef + h.Er + h.Eu + h.Es;
-  return `The economy · investing ${Math.round(100 * (f.f + f.c + f.r + f.e + f.q) / Y)}% of output · ${watts(all)} · ${Math.round(100 * h.Ef / Math.max(1, all))}% fossil`;
+  const mix = [['fossil', h.Ef], ['solar', h.Er], ['fusion', h.Eu], ['space', h.Es]].filter(([, v]) => v / all >= 0.005).map(([k, v]) => `${k} ${Math.round(100 * v / all)}%`);
+  return `The economy · investing ${Math.round(100 * (f.f + f.c + f.r + f.e + f.q) / Y)}% of output · ${watts(all)}: ${mix.join(', ')}`;
 }
