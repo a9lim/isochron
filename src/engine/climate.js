@@ -121,6 +121,7 @@ export const CLIMATE = {
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
   F_VOLC: 0,               // W/m²: the volcanoes' mean forcing against the opening's (src/engine/volcanoes.js)
+  F_PEOPLE: 0,             // W/m²: the people's waste heat and sulfate (src/engine/peoplelink.js; CO₂'s comes with the carbon)
   // The energy balance's fixed point (absorbed sunlight reads the temperature through snow and
   // sea ice), by Anderson's mixing over the last EBM_DEPTH steps (`energyBalance`): a cycle steps
   // until a step moves T by less than EBM_TOL (K rms over the year and the globe), at most
@@ -376,12 +377,14 @@ export class Climate {
   /** Snapshot of the geography the climate sees. */
   geography() {
     const tec = this.tec, n = this.grid.n, s = tec.seaLevel, H = this.ice ? this.ice.H : null;
+    // Heights from the air's datum (where the sea stood, if it has boiled away: src/engine/plates.js).
+    const dz = s - (tec.airDatum ? tec.airDatum() : s);
     for (let i = 0; i < n; i++) {
       // Grounded ice counts as land, its surface as the height; floating ice (a marine front's
       // partly filled cell, src/engine/ice.js) is sea.
       const e = tec.elev[i] - s, h = H ? H[i] / 1000 : 0, grounded = h > 0 && (e > 0 || h * ICE.RHO_I > -e * ICE.RHO_W);
       this.landMask[i] = e > 0 || grounded ? 1 : 0;
-      this.elevPos[i] = e > 0 || grounded ? Math.max(0, e + h) : 0;
+      this.elevPos[i] = e > 0 || grounded ? Math.max(0, e + h + dz) : 0;
     }
     // The soil's capacity: land, but not under grounded ice (the ice owns its water).
     const cap = this.soilCap || (this.soilCap = new Float32Array(n));
@@ -569,7 +572,7 @@ export class Climate {
     restrict(this.T, Cf, cap);
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);
-    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC;
+    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE;
     const sv = C.EBM_CG, tol = this.warm ? sv[0] : sv[2], maxIt = this.warm ? sv[1] : sv[3];
     // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
     for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }

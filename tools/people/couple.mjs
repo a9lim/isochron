@@ -1,21 +1,10 @@
-// The write-back (docs/PLAN.md, Roadmap 2.0, v1): a live Planet stepped beside the people, from the
-// first farming origin on. Nothing in src/ changes; the coupler goes through the planet's own
-// inputs:
-//   emissions   fossil carbon burned goes to `carbon.pulse` at the next planet step: the sea's
-//               chemistry takes it from there (OceanCarbon, the Pulse's physics).
-//   land use    each farmed share scales the cover's tree equilibrium (its base, as the last climate
-//               cycle set it) and clips its trees at once; the cover's own carbon (wood to litter to
-//               soil to the air), albedo and evaporation do the rest.
-//   soil        tillage's erosion (mm/yr) is added to the landscape's erosion field around each fast
-//               step, so the regolith's exact step strips it (and with it the soil's water); the
-//               people read the regolith back.
-//   forcing     waste heat and sulfate (W/m²) are added to CLIMATE.F_VOLC around each climate cycle
-//               the coupler drives; CO₂'s own forcing comes with the carbon.
-// After each cycle the people re-read the climate, the cover, the soil, the sea level and the ice.
-// The planet steps at most every PLANET_DT years of the people's clock (and at least a year), its
-// climate every CLIMATE_MAX years or sooner when the forcing, CO₂ or land use has moved.
-import { CLIMATE } from '../../src/engine/climate.js';
-import { fieldsOf } from './planet.mjs';
+// The people beside a live Planet, headless (docs/PLAN.md, Roadmap 2.0): the planet stepped on the
+// people's clock from the first farming origin on, the write-back through its own inputs as the
+// page does it (src/engine/peoplelink.js: emissions, land use, tillage, heat and sulfate). After
+// each climate cycle the people re-read the climate, the cover, the soil, the sea level and the
+// ice. The planet steps at most every PLANET_DT years of the people's clock (and at least a
+// year), its climate every CLIMATE_MAX years or sooner when the forcing, CO₂ or land use has moved.
+import { fieldsOf, PeopleLink } from '../../src/engine/peoplelink.js';
 
 export const COUPLE = {
   PLANET_DT: 50, PLANET_MIN: 1,      // years: the planet's step at most, at least
@@ -29,9 +18,9 @@ export class Live {
     // The regolith re-makes its opening layer once more after the climate settles; let it do so
     // before any tillage is added (inside the first fast step it would take tillage as its balance).
     P.regolith.advance(0);
+    this.link = new PeopleLink(P);
     this.f = fieldsOf(P);
     this.bank = 0; this.carbonBank = 0; this.plateBank = 0; this.since = 0;
-    this.sEq0 = Float64Array.from(P.life.veg.sEq);
     this.last = { F: 0, co2: P.carbon.pco2, farm: 0 };
     this.stats = { steps: 0, cycles: 0, msFast: 0, msClimate: 0, pulsed: 0 };
     people.env = this;
@@ -42,7 +31,7 @@ export class Live {
   // The people's environment.
   co2() { return this.P.carbon.pco2; }
   emit(PgC) { this.carbonBank += PgC; }
-  soil() {}   // tillage's erosion (people.Ef) goes in at the planet's next fast step
+  soil() {}   // tillage's erosion goes in at the planet's next fast step
 
   /** After each step of the people: the planet steps when enough time has banked. */
   advance(dt) {
@@ -52,61 +41,42 @@ export class Live {
   }
 
   step(h) {
-    const P = this.P, p = this.p, cells = p.cells, ero = P.land.erosion, t0 = performance.now();
+    const P = this.P, p = this.p, t0 = performance.now();
     P.years += h; this.plateBank += h;
     while (this.plateBank >= 5e5) { P.plateStep(5e5); this.plateBank -= 5e5; }
     P.setOrbit(0);
-    // Emissions less what's drawn back (never more than the air's excess over a 100 ppm floor).
-    if (this.carbonBank !== 0) {
-      const x = Math.max(this.carbonBank, -Math.max(0, P.carbon.pco2 - 100) * 2.12);
-      P.carbon.pulse(x); this.stats.pulsed += x; this.carbonBank = 0;
-    }
-    for (let c = 0; c < p.nL; c++) if (p.Ef[c] > 0) ero[cells[c]] += p.Ef[c];
+    // The people's forcing, up to F_LIVE_MAX (past it the runaway is the people's to count).
+    const F = Math.min(p.forcing.heat + p.forcing.aer, p.P.F_LIVE_MAX);
+    this.link.receive({ ...p.writeBack(), carbon: this.carbonBank, F, boiled: p.boiled });
+    this.carbonBank = 0;
+    this.link.beforeFast();
     try { P.fast(h, 1e9, 10 * h); }
     catch (e) {
       const sea = P.carbon.sea;
       console.error(`the planet failed a ${h.toFixed(2)}-yr step at the people's ${this.p.t.toFixed(0)} yr: ${e.message}\n  sea inputs ${JSON.stringify(sea.in)}\n  air ${P.carbon.pco2} · land flux ${P.carbon.landFlux} · life ${JSON.stringify(P.life.stats)} · cycles ${this.stats.cycles} · last ${JSON.stringify(this.last)}`);
       throw e;
     }
-    for (let c = 0; c < p.nL; c++) if (p.Ef[c] > 0) ero[cells[c]] -= p.Ef[c];
-    this.landUse();
-    for (let c = 0; c < p.nL; c++) p.soil[c] = P.regolith.h[cells[c]];
+    this.link.afterFast();
+    this.stats.pulsed = this.link.stats.pulsed;
+    for (let c = 0; c < p.nL; c++) p.soil[c] = P.regolith.h[p.cells[c]];
     this.stats.steps++; this.stats.msFast += performance.now() - t0;
     // A climate cycle when due.
     this.since += h;
-    // The planet's climate is given the forcing up to F_LIVE_MAX (past it, the runaway is the people's to count).
-    const F = Math.min(p.forcing.heat + p.forcing.aer, p.P.F_LIVE_MAX), farm = this.farmShare(), L = this.last;
+    const farm = this.farmShare(), L = this.last;
     const moved = Math.abs(F - L.F) > COUPLE.D_F || Math.abs(P.carbon.pco2 - L.co2) > COUPLE.D_CO2 || Math.abs(farm - L.farm) > COUPLE.D_FARM;
     if (this.since >= COUPLE.CLIMATE_MAX || (this.since >= COUPLE.CLIMATE_MIN && moved)) this.cycle(F, farm);
   }
 
   cycle(F, farm) {
-    const P = this.P, p = this.p, t0 = performance.now(), f0 = CLIMATE.F_VOLC;
-    CLIMATE.F_VOLC = f0 + F;
+    const P = this.P, p = this.p, t0 = performance.now();
     P.climate.solve(1);
-    P.afterClimate();
-    CLIMATE.F_VOLC = f0;
-    this.sEq0.set(P.life.veg.sEq);
-    this.landUse();
+    P.afterClimate();          // the cover's new balance, scaled by the farmed shares (Life.onCover)
     fieldsOf(P, this.f);
     p.rates(this.f);
     this.since = 0;
     this.last = { F, co2: P.carbon.pco2, farm };
     this.stats.cycles++; this.stats.msClimate += performance.now() - t0;
     if (this.onCycle) this.onCycle(this);
-  }
-
-  /** The farmed shares on the cover: the tree equilibrium scaled, the trees clipped to it. */
-  landUse() {
-    const veg = this.P.life.veg, p = this.p, cells = p.cells;
-    for (let c = 0; c < p.nL; c++) {
-      const i = cells[c], u = Math.min(1, Math.max(0, p.f[c]));
-      veg.sEq[i] = this.sEq0[i] * (1 - u);
-      if (u > 0 && veg.share[i] > veg.sEq[i]) {
-        veg.share[i] = veg.sEq[i];
-        veg.ft[i] = veg.veg[i] * veg.share[i]; veg.fg[i] = veg.veg[i] - veg.ft[i];
-      }
-    }
   }
 
   farmShare() {

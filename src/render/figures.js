@@ -337,6 +337,7 @@ const NODES = {
   ground: [0.3, 0.42, 'Ground'], lakes: [0.31, 0.66, 'Lakes'],
   regolith: [0.34, 0.77, 'Regolith'], veg: [0.66, 0.35, 'Vegetation'], seaC: [0.87, 0.7, 'Sea carbon'],
   dust: [0.5, 0.44, 'Dust'],
+  people: [0.67, 0.63, 'People'],   // the People experiment's only
 };
 
 export function drawModel(canvas, s, pal) {
@@ -371,6 +372,7 @@ export function drawModel(canvas, s, pal) {
     }
   }
   for (const k of Object.keys(NODES)) {
+    if (k === 'people' && !s.values.people) continue;
     const [x, y] = P(k);
     ctx.font = `13px ${FONT}`;
     const tw = Math.max(ctx.measureText(NODES[k][2]).width, 40);

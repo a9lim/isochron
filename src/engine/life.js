@@ -129,6 +129,8 @@ export class Life {
     const c = this.climate, co2 = c.co2Seen || 280;
     this.cycles++;
     this.landMask = coverClimate(this.veg, c, co2, this.scratch);
+    // People's land use, on the cover's new balance (src/engine/peoplelink.js).
+    if (this.onCover) this.onCover();
     yield;
     // The opening's closure, through the cycle the climate settles in (the sea settles after it,
     // so nothing it moves is lost).
@@ -162,6 +164,9 @@ export class Life {
 
   /** The sea's inputs from the climate, the gyres, the seafloor and the rivers. */
   seaInputs() {
+    // A sea boiling away (the People experiment's runaway, src/engine/peoplelink.js) keeps the inputs
+    // it had: the boxes are the sea as it was (measured off its remnant, they fail the implicit step).
+    if (this.tec.boiled > 0 && this.seaIn) return;
     const c = this.climate, g = this.grid, n = g.n, tec = this.tec, o = this.ocean;
     const sstA = o ? o.fine.sst : null, T0 = c.Tf[0], L = c.landMask;
     // SSTs: a histogram by 0.1 K for the coldest share.

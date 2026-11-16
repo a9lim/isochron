@@ -1,41 +1,16 @@
-// The planet's fields for the people prototype (docs/PLAN.md, Roadmap 2.0). `fieldsOf(P)` reads
-// them off a live Planet (the write-back re-reads them after each climate cycle,
-// tools/people/couple.mjs); `planetFields(seed, level)` builds the opening, settles its climate
-// and caches its fields in tools/people/.cache/ (ignored), so iterating on the people costs
-// nothing on the planet's side.
-//
-// Per cell, as Float32: the relief above sea level (km), the grounded ice (m), the twelve months'
-// surface temperature (°C) and rain (mm), the cover's trees and grass, the vegetation's NPP (kg C
-// per m² of vegetation a year), the zones' probabilities (NZ a cell), the ground's runoff (m/yr),
-// the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K), a
-// year's spread of log rain, the regolith (m), its production at bare rock (m/yr) and the rivers'
-// erosion (mm/yr).
+// The planet's fields for the people, cached (docs/PLAN.md, Roadmap 2.0): `planetFields(seed, level)`
+// builds the opening, settles its climate and caches its fields (src/engine/peoplelink.js,
+// `fieldsOf`) in tools/people/.cache/ (ignored), so iterating on the people costs nothing on the
+// planet's side.
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { buildGrid } from '../../src/grid/icosphere.js';
-import { NZ } from '../../src/engine/climate.js';
+import { FIELDS, fieldsOf } from '../../src/engine/peoplelink.js';
 
+export { fieldsOf };
 const CACHE = join(dirname(fileURLToPath(import.meta.url)), '.cache');
-const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigP: 1, reg: 1, p0: 1, ero: 1 };
 const VERSION = 3;
-
-/** The fields of a live Planet, into `f` (made if absent). */
-export function fieldsOf(P, f = null) {
-  const n = P.grid.n, c = P.climate, tec = P.tec, s = tec.seaLevel;
-  if (!f) { f = { seed: P.seed, grid: P.grid, n }; for (const [name, w] of Object.entries(FIELDS)) f[name] = new Float32Array(w * n); }
-  for (let i = 0; i < n; i++) f.elev[i] = tec.elev[i] - s;
-  f.ice.set(P.ice.H); f.T12.set(c.T12); f.P12.set(c.P12);
-  f.ft.set(P.life.veg.ft); f.fg.set(P.life.veg.fg); f.npp.set(P.life.veg.pi);
-  f.zones.set(c.zones); f.runoff.set(c.runoff); f.discharge.set(P.land.discharge);
-  f.lake.set(c.lakeWet); f.perma.set(c.soil.permafrost); f.sigT.set(P.year.spreadFine().T);
-  // A year's spread of log rain (the year model's, the anomaly's memory kept): the harvests' weather.
-  for (let i = 0; i < n; i++) { let map = 0; for (let m = 0; m < 12; m++) map += c.P12[12 * i + m]; f.sigP[i] = map > 1 ? P.year.annualRainSpread(i, map) : 0; }
-  f.reg.set(P.regolith.h);
-  for (let i = 0; i < n; i++) { f.p0[i] = P.regolith.p0(i); f.ero[i] = P.land.erosion[i] || 0; }
-  f.co2 = P.carbon.pco2; f.meanT = c.stats.meanT; f.settled = c.stats.settled;
-  return f;
-}
 
 export async function planetFields(seed = 'earthlike', level = 6, { log = () => {} } = {}) {
   const file = join(CACHE, `${seed}-l${level}-v${VERSION}.bin`), grid = buildGrid(level), n = grid.n;

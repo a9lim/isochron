@@ -93,6 +93,9 @@ export class Carbon {
 
   /** Weathering's map, from the climate's latest state. */
   measure() {
+    // A sea boiling away (the People experiment's runaway) keeps the map it had: drawn on the seafloor
+    // left dry, weathering would draw the air down as no sea-built cycle could (src/engine/peoplelink.js).
+    if (this.boiling && this.wF > 0) return;
     const c = this.climate, g = c.grid, n = g.n, L = c.landMask, erosion = this.land ? this.land.erosion : null;
     const ice = c.ice ? c.ice.H : null, cover = c.cover;
     // Fresh rock's supply: the regolith's production where there is one (src/engine/regolith.js: at
@@ -152,7 +155,7 @@ export class Carbon {
     // opening's goes in here: the arcs' total is then the mantle's own plus the ledger's.
     this.sea.step(dtYears, {
       outgas: this.mantle() + (OC.ARC_IN_V ? this.sea.arc0 / OC.PG : 0), lip, orgBurial: burial, oxid,
-      wRel: this.wF0 > 0 ? this.wF / this.wF0 : 1, wCO2: this.wCO2, land: this.landFlux, subduct: this.subduction,
+      wRel: this.wF0 > 0 ? this.wF / this.wF0 : 1, wCO2: this.wCO2, land: this.boiling ? 0 : this.landFlux, subduct: this.subduction,
     });
     this.landFlux = 0;
     if (this.tag) this.tag.step(this, dtYears);

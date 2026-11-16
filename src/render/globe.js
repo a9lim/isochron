@@ -59,6 +59,12 @@
 // wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
 // at the amphidromic points, at the slowest dials the line of high water
 // sweeping round them, and a stipple where the tide loses its energy.
+// The People view (the People experiment, src/engine/people.js) is a chart's
+// base with the ice sheets: farms as a parcel hatch (the mosaic's tesserae,
+// each farmed with the cell's farmed share and furrowed its own way, in sap),
+// people as a graphite stipple whose density is theirs (by log density, from
+// ~0.001 to ~1,000 a km²), darker where they use more energy, and in the dark
+// theme lit by it (W/m²: the night's lights); the sulfate veil as in the Air map.
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
@@ -72,7 +78,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
@@ -84,6 +90,7 @@ struct U {
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
 @group(0) @binding(2) var<storage, read> cover: array<vec4f>;   // the cover's eight colour weights a vertex
+@group(0) @binding(3) var<storage, read> folk: array<vec4f>;    // the people: per km², the farmed share, energy used (W/m²), industry's share
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -101,6 +108,7 @@ struct VOut {
   @location(11) td: vec4f,
   @location(12) lw: vec4f,
   @location(13) cv: vec4f,   // the cover's colour (premultiplied) and its weight
+  @location(14) pp: vec4f,   // the people (folk)
 };
 
 fn toView(p: vec3f) -> vec3f {
@@ -131,6 +139,7 @@ fn toView(p: vec3f) -> vec3f {
   o.lw = lw;
   // The cover's colour: its classes (src/engine/vegetation.js, COLOURS) in the biomes' colours,
   // rock as the summits' (linear in the weights, so blending here is blending the weights).
+  o.pp = folk[vi];
   let c0 = cover[2u * vi];
   let c1 = cover[2u * vi + 1u];
   let rock = mix(u.canvas.rgb, u.land.rgb, 0.5);
@@ -373,7 +382,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxTemp = u.mode.x > 2.5 && u.mode.x < 3.5;
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
-  let air = u.mode.x > 5.5;
+  let air = u.mode.x > 5.5 && u.mode.x < 6.5;
+  let folkV = u.mode.x > 6.5;
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
   let tA = length(tz);
@@ -549,7 +559,22 @@ fn hair(d: f32, w: f32) -> f32 {
   let tland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
   land = select(land, tland, tides);
   sea = select(sea, tsea, tides);
-  let chart = weather || tides || air;
+
+  // The People view: a chart's base with the ice sheets, farms' parcel hatch, people's stipple.
+  let pd = log(max(i.pp.x, 1e-9)) / 2.302585;
+  let pDots = stipple(T, mix(22.0, 3.0, smoothstep(-3.0, 3.0, pd)) * u.mode.z, 0.8 * u.mode.z) * smoothstep(-3.6, -2.8, pd);
+  let furrowA = 3.14159265 * fract(tess * 97.31);
+  let furrow = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
+  let farmed = select(0.0, 1.0, tess < i.pp.y);
+  let lit = smoothstep(-2.5, 1.0, log(max(i.pp.z, 1e-9)) / 2.302585);
+  let graphite = mix(u.canvas.rgb, u.text.rgb, 0.58);
+  let dotInk = select(mix(graphite, u.text.rgb, lit), mix(graphite, mix(u.inkB.rgb, u.text.rgb, 0.5), lit), dark);
+  var pland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), iceC, sheet);
+  pland = mix(pland, u.inkC.rgb, farmed * (0.1 + 0.55 * furrow));
+  pland = mix(pland, dotInk, 0.9 * pDots);
+  land = select(land, pland, folkV);
+  sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkV);
+  let chart = weather || tides || air || folkV;
 
   var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), e < 0.0);
 
@@ -557,11 +582,11 @@ fn hair(d: f32, w: f32) -> f32 {
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
   // The sulfate veil (Air): graphite hatching along the circles of latitude (the veil lies in bands),
   // denser where its optical depth is (16 px apart at 0.02, 4 px at 1, by log optical depth).
-  if (air) {
+  if (air || folkV) {
     let aod = veilAt(wpn.z);
     let va = smoothstep(-1.7, 0.0, log(max(aod, 1e-4)) / 2.302585);
     let vh = hatch1(vec2f(lat, 0.0), dlat, vec2f(1.0, 0.0), octave(mix(16.0, 4.0, va) * u.mode.z), 0.55 * u.mode.z);
-    c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.3), 0.5 * vh * smoothstep(0.01, 0.04, aod));
+    c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.3), select(0.5, 0.28, folkV) * vh * smoothstep(0.01, 0.04, aod));   // lighter over the people
   }
   return vec4f(c, 1.0);
 }
@@ -599,6 +624,9 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const tideBuf = device.createBuffer({ size: nm * 32, usage: VS });
   // The cover's eight colour weights a vertex, read by the vertex shader from storage (a ninth vertex buffer is past the limit).
   const coverBuf = storage(device, nm * 32);
+  // The people's four values a vertex (the People experiment), refined from their grid (src/engine/people-worker.js).
+  const folkBuf = storage(device, nm * 16);
+  let folkS = null, folkRef = null;
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
   const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 32, tideBuf), coverS = S(n * 32, coverBuf);
@@ -643,7 +671,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   function rebind() {
     bind = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }],
+      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }, { binding: 3, resource: { buffer: folkBuf } }],
     });
   }
 
@@ -727,6 +755,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     get lakesEasing() { return performance.now() - lakeAt < LAKE_EASE; },
     /** Per cell: the plants' cover as eight colour weights (src/engine/vegetation.js, COLOURS; zero off its land). */
     setCover(w) { device.queue.writeBuffer(coverS, 0, w); refine(coverS, coverBuf, 2); },
+    /** Per cell of the people's grid `pg`: people per km², the farmed share, energy used (W/m²), industry's share. */
+    setPeople(d, pg) {
+      if (pg === mesh) { device.queue.writeBuffer(folkBuf, 0, d); return; }
+      if (!folkS) { folkS = storage(device, pg.n * 16); folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg); }
+      device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 1);
+    },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
     refiner,
@@ -755,7 +789,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? 7 : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

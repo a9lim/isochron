@@ -1,7 +1,7 @@
 // The people prototype, headless (docs/PLAN.md, Roadmap 2.0; the model is tools/people/model.mjs):
 // the first hominins placed on a settled planet, run until AFTER years past the dial (the ending,
 // drawn at early takeoff, playing out), or tMax. "The dial runs out" (the minds doubling
-// in under a day) is an event. It prints the events as they happen and a line at each doubling of
+// in under a day) is the model's event (src/engine/people.js). It prints the events as they happen and a line at each doubling of
 // the people, then the hyperbola's fit and the follow dial's wall-clock.
 // usage: node tools/people-run.mjs [seed] [tMax yr] [overrides json for PEOPLE]
 //   env: AFTER=yr past the dial to run the ending (300); LEVEL=n (6); LIVE=1 a live Planet from the first farming origin on (tools/people/couple.mjs:
@@ -9,7 +9,7 @@
 //        history as JSON; default the cache)
 import { writeFileSync } from 'node:fs';
 import { planetFields } from './people/planet.mjs';
-import { People } from './people/model.mjs';
+import { People } from '../src/engine/people.js';
 import { fitHyperbola, followDial, fmtYears } from './people/fit.mjs';
 
 const [seed = 'earthlike', tMaxArg = '5e6', ov = '{}'] = process.argv.slice(2);
@@ -30,7 +30,7 @@ console.log(`land cells ${pp.nL} · sea crossings ${pp.hopEdges} · cell spacing
 pp.onEvent = (t, kind, text) => console.log(`${fmtYears(t).padStart(12)}  ${kind.padEnd(10)} ${text}`);
 pp.seed();
 let lastPeople = 0, lastT = 0, lastY = 0;
-const DAY = 1 / 365.25, g3 = x => x.toPrecision(3);
+const g3 = x => x.toPrecision(3);
 pp.run({
   tMax: +tMaxArg,
   onStep(p) {
@@ -55,10 +55,7 @@ pp.run({
     const h = p.history, n = h.length;
     if (!p.lineages.some(L => L.died === null) && !(p.space >= 1)) { p.event('end', 'no one is left'); return true; }
     if (n < 3) return false;
-    // The minds' growth over the last few steps (one step's blip isn't the dial).
-    const k = Math.max(0, n - 6), g = Math.log(h[n - 1].minds / h[k].minds) / Math.max(h[n - 1].t - h[k].t, 1e-12);
-    if (g > 0 && Math.log(2) / g < DAY && !p.flags.dial) { p.flags.dial = true; p.dialAt = p.t; p.dtCap = 1; p.event('dial', 'the minds double in under a day: the dial runs out'); }
-    // The ending plays out over AFTER years past the dial (a year a step at most, so its slow parts resolve).
+    // The ending plays out over AFTER years past the dial (the model finds the dial, People.record).
     if (p.flags.dial && p.t - p.dialAt > AFTER) {
       const b = h[n - 1], e = p.ending || { code: '-' };
       p.event('end', `${AFTER} years past the dial (ending ${e.code}): ${g3(b.earth / 1e9)} billion people on Earth, ${g3(b.space / 1e9)} off-world; minds ${g3(b.minds)}; energy ${g3(b.energy / 1e12)} TW (off-world ${g3(b.Es / 1e12)}); Earth's heat ${b.heat.toFixed(2)} W/m², forcing ${b.Ft.toFixed(1)} W/m², CO₂ ${b.co2.toFixed(0)} ppm, habitability ${b.hE.toFixed(2)}, the oceans ${(100 * b.boiled).toFixed(0)}% boiled; humans' control ${(100 * (1 - b.dis)).toFixed(0)}%`);

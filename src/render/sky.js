@@ -10,6 +10,10 @@
 //           which its distance sets), lit on the side facing the Sun; drawn
 //           at its true size against the Sun's (×5 both, to be read), so a nearer Moon
 //           looks larger
+//   swarm   the people's collectors round the Sun (the People experiment's
+//           industry off-world): graphite points on seeded orbits, as many as
+//           the share of the Sun's output they take (to a tenth), the disc
+//           dimmed by it
 // Each shows only where the dial resolves its motion: the sky turns at the
 // slowest dials and holds still above; the Moon and the Sun fade out when a
 // month or a year would pass in under a few seconds.
@@ -32,6 +36,9 @@ export function ecliptic(lam, eps) {
 }
 
 const SUN_R = 6.957e8, AU = 1.496e11, MOON_R = 1.7374e6, BIG = 5;
+// The swarm's collectors: seeded orbits about the Sun (radius in the disc's, and phase), the first
+// ones drawn as the share taken grows (by its square root, so the first percent shows).
+const SWARM = (() => { const r = stream('swarm', 'orbits'), a = new Float32Array(3 * 900); for (let k = 0; k < 900; k++) { a[3 * k] = 1.25 + 1.6 * r.uniform() ** 0.7; a[3 * k + 1] = 2 * Math.PI * r.uniform(); a[3 * k + 2] = 0.25 + 0.75 * r.uniform(); } return a; })();
 
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
 
@@ -60,13 +67,23 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
     ctx.fillStyle = rgba(ink, (pal.dark ? 0.25 : 0.18) + (pal.dark ? 0.55 : 0.4) * b);
     ctx.beginPath(); ctx.arc(p[0], p[1], 0.45 + 1.1 * b, 0, 2 * Math.PI); ctx.fill();
   }
-  // The Sun: a disc in ochre.
+  // The Sun: a disc in ochre, dimmed by the swarm's share; the swarm's collectors on their orbits.
   if (sky.sun && sky.sunAlpha > 0.01) {
     const p = project(...sky.sun);
     if (p) {
-      ctx.globalAlpha = sky.sunAlpha;
+      const R = Math.max(4, BIG * f * SUN_R / AU), sw = Math.min(0.1, sky.swarm || 0);
+      ctx.globalAlpha = sky.sunAlpha * (1 - sw);
       ctx.fillStyle = pal.inks.ochre;
-      ctx.beginPath(); ctx.arc(p[0], p[1], Math.max(4, BIG * f * SUN_R / AU), 0, 2 * Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.fill();
+      const nSw = sw > 1e-9 ? Math.round(900 * Math.sqrt(sw / 0.1)) : 0;
+      if (nSw) {
+        ctx.globalAlpha = sky.sunAlpha;
+        ctx.fillStyle = rgba(ink, pal.dark ? 0.7 : 0.6);
+        for (let k = 0; k < nSw; k++) {
+          const rr = SWARM[3 * k] * R, a = SWARM[3 * k + 1];
+          ctx.beginPath(); ctx.arc(p[0] + rr * Math.cos(a), p[1] + rr * SWARM[3 * k + 2] * Math.sin(a), 0.6, 0, 2 * Math.PI); ctx.fill();
+        }
+      }
       ctx.globalAlpha = 1;
     }
   }

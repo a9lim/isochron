@@ -313,14 +313,14 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
-  const climate = layers.view === 'climate', weather = layers.view === 'weather', tides = layers.view === 'tides';
-  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, layers.air || weather || tides ? 0.35 : climate ? 0.55 : 0.9, layers.riverMonth);
+  const climate = layers.view === 'climate', weather = layers.view === 'weather', tides = layers.view === 'tides', folk = layers.view === 'people';
+  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, layers.air || weather || tides || folk ? 0.35 : climate ? 0.55 : 0.9, layers.riverMonth);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   // The Climate view's Air chart: the winds as streamlines (src/render/streamlines.js).
   if (layers.air) drawStreamlines(ctx, cx, cy, r, camera, layers.air.sets, withAlpha(palette.text, 0.62), Math.sqrt(symbolScale(r)));
-  if (!climate && !tides && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
-  if (!tides && layers.eruptions && layers.eruptions.length) drawEruptions(ctx, cx, cy, r, camera, layers.eruptions, palette);
-  const lines = climate || tides ? null : layers.boundaries;
+  if (!climate && !tides && !folk && layers.plumes) drawPlumes(ctx, cx, cy, r, camera, layers.plumes, palette);
+  if (!tides && !folk && layers.eruptions && layers.eruptions.length) drawEruptions(ctx, cx, cy, r, camera, layers.eruptions, palette);
+  const lines = climate || tides || folk ? null : layers.boundaries;
   if (!lines) return;
   const sc = symbolScale(r), lw = Math.sqrt(sc);
   // Gaps in px at scale 1 (along.js scales them); sizes in px.

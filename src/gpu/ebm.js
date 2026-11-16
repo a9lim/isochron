@@ -544,7 +544,7 @@ export class GpuEnergyBalance {
   constants(climate) {
     const P = CLIMATE, q = this.device.queue, lv = this.H.levels;
     lv.forEach((_, k) => q.writeBuffer(this.Lu[k], 0, this.lvBuf(k)));
-    q.writeBuffer(this.Uc, 0, this.lvBuf(this.ci, 0, [P.A, P.B, P.SUB_K, 5.35 * Math.log(P.CO2 / P.CO2_REF) + P.F_VOLC]));
+    q.writeBuffer(this.Uc, 0, this.lvBuf(this.ci, 0, [P.A, P.B, P.SUB_K, 5.35 * Math.log(P.CO2 / P.CO2_REF) + P.F_VOLC + P.F_PEOPLE]));
     const fu = new ArrayBuffer(32 + 16 * NS), u = new Uint32Array(fu), ff = new Float32Array(fu);
     u[0] = this.n; u[1] = this.N; u[2] = this.offTop;
     ff[4] = P.B + P.SUB_K; ff[5] = P.C_LAND; ff[6] = P.C_OCEAN; ff[7] = P.C_ICE;

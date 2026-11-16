@@ -311,6 +311,8 @@ export class Ice {
     const c = this.climate, g = this.grid, n = g.n;
     const mph = c.monthPhases || (c.monthPhases = Array.from({ length: 12 }, (_, m) => monthPhaseLocal(m)));
     const L = ICE.LAPSE, sig = ICE.SIGMA;
+    // Heights for the lapse rate from the air's datum (where the sea stood, if it has boiled away), in m.
+    const dz = this.tec.airDatum ? (this.tec.seaLevel - this.tec.airDatum()) * 1000 : 0;
     for (let i = 0; i < n; i++) {
       const b = this.bed(i), H = this.H[i];
       let tm = 0;
@@ -318,7 +320,7 @@ export class Ice {
       this.Ts0[i] = tm / 12;
       const grounded = b > 0 || H * ICE.RHO_I > -b * ICE.RHO_W;
       if (!grounded) { this.M[i] = 0; this.melt[i] = 0; continue; }
-      const sKm = Math.max(0, b + H) / 1000;
+      const sKm = Math.max(0, b + H + dz) / 1000;
       let acc = 0, pdd = 0;
       for (let m = 0; m < 12; m++) {
         const T = c.tAt(i, mph[m]) - L * sKm;

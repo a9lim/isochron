@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES } from '../tools/people/model.mjs';
+import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES } from '../src/engine/people.js';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */

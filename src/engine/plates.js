@@ -195,6 +195,8 @@ export class Tectonics {
     this.flexc = null;                       // km: the flexure's correction to the elevation, the frames' cf sampled (src/engine/crustflex.js)
     this.swell = null;                       // km: hotspot swells (src/engine/plumes.js)
     this.iceWater = 0;                       // water held as ice (km·sr)
+    this.boiled = 0;                         // the share of the sea boiled away (the people's runaway: src/engine/peoplelink.js)
+    this.datum = 0;                          // where the sea would stand unboiled: the air's datum for heights (`airDatum`)
     this.grad = new Float64Array(3 * n);
     this.rng = null;
     this.noise = null;
@@ -572,8 +574,19 @@ export class Tectonics {
       this.subs[i] = this.phi[i] < CONTINENTAL ? subsidence(age) : 0;
       this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
     }
-    if (this.water > 0) this.seaLevel = solveSeaLevel(this.grid, this.elev, Math.max(0.1 * this.water, this.water - this.iceWater), this.seaLevel);
+    if (this.water > 0) {
+      this.seaLevel = solveSeaLevel(this.grid, this.elev, this.seaWater(), this.seaLevel);
+      this.datum = this.boiled > 0 ? solveSeaLevel(this.grid, this.elev, this.seaWater(0), this.datum || this.seaLevel) : this.seaLevel;
+    }
   }
+  /** The sea's water (km·sr): less what the ice holds (at most nine tenths), less what has boiled away. */
+  seaWater(boiled = this.boiled) { return Math.max(1e-3 * this.water, Math.max(0.1 * this.water, this.water - this.iceWater) * (1 - boiled)); }
+  /**
+   * The air's datum for heights (km): the sea level, or where the sea would stand had none of it
+   * boiled away. The air doesn't drain with the sea, so the climate's lapse rate and the ice's
+   * mass balance measure from here; the coast is where the sea stands.
+   */
+  airDatum() { return this.boiled > 0 ? Math.max(this.seaLevel, this.datum) : this.seaLevel; }
 
   /** Ridge push and slab pull per unit, scaled with the cell (see balance); src/gpu/plates.js reads them here too. */
   forceScales() { return { kRidge: PARAMS.K_RIDGE * this.res ** 0.2, kSlab: PARAMS.K_SLAB * Math.sqrt(this.res) }; }

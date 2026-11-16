@@ -240,7 +240,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }`;
 // Snow where the month is below freezing at the ice's surface, melt by positive degree days.
 const MB = HEAD + /* wgsl */`
-struct Mu { ph: array<vec4f, 12>, lapse: f32, sigma: f32, ddfSnow: f32, ddfIce: f32 };
+struct Mu { ph: array<vec4f, 12>, lapse: f32, sigma: f32, ddfSnow: f32, ddfIce: f32, dz: f32 };   // dz: the air's datum below the sea's surface (m), src/engine/plates.js
 @group(0) @binding(1) var<uniform> Q: Mu;
 @group(0) @binding(2) var<storage, read> clim: array<vec4f>;
 @group(0) @binding(3) var<storage, read> ba: array<vec4f>;
@@ -266,7 +266,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   for (var m = 0u; m < 12u; m++) { let c = Q.ph[m]; tm += T0.x + T0.y * c.x - T0.z * c.y + T0.w * c.z - T1.x * c.w; }
   tm = tm / 12.0;
   if (!(b > 0.0 || h * U.rhoI > -b * U.rhoW)) { M[i] = 0.0; Mx[i] = vec4f(0.0, tm, 0.0, 0.0); return; }
-  let sKm = max(0.0, b + h) / 1000.0;
+  let sKm = max(0.0, b + h + Q.dz) / 1000.0;
   var acc = 0.0;
   var pdd = 0.0;
   for (var m = 0u; m < 12u; m++) {
@@ -318,7 +318,7 @@ export class GpuIce {
     for (let i = 0; i < n; i++) amin = Math.min(amin, ice.areaM[i]);
     this.amin = amin;
     this.U = uniform(device, this.params());
-    const mq = new Float32Array(52);
+    const mq = new Float32Array(56);
     MONTH_MID.forEach((mid, m) => {
       const tau = ((mid - 78.5) / 365.2422 + 1) % 1, c = Math.cos(2 * Math.PI * tau), s = Math.sin(2 * Math.PI * tau);
       mq.set([c, s, c * c - s * s, 2 * s * c], 4 * m);
@@ -388,6 +388,8 @@ export class GpuIce {
       const a = this.bedArr;
       for (let i = 0; i < n; i++) { const o = 4 * i; a[o] = (tec.elev[i] - tec.seaLevel) * 1000; a[o + 1] = ice.areaM[i]; a[o + 2] = ice.Cb[i]; a[o + 3] = ice.geo[i]; }
       this.device.queue.writeBuffer(this.ba, 0, a);
+      const dz = tec.airDatum ? (tec.seaLevel - tec.airDatum()) * 1000 : 0;
+      if (dz !== this.dz) { this.dz = dz; this.device.queue.writeBuffer(this.Q, 52 * 4, new Float32Array([dz])); }
     }
     if (c.version !== this.mbVersion) {
       this.mbVersion = c.version;

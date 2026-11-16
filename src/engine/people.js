@@ -1,7 +1,9 @@
-// People, from the first hominins to the takeoff: the headless prototype of Roadmap 2.0
-// (docs/PLAN.md, with v1's design and the log of runs). It reads a planet's fields
-// (./planet.mjs): held fixed on the cached opening, or re-read from a live Planet that it writes
-// back to (./couple.mjs). Marks as in the plan: standard, synthesis, speculation.
+// People, from the first hominins to the takeoff and the ending (Roadmap 2.0: docs/PLAN.md, with
+// v1's design and the log of runs). It reads a planet's fields (src/engine/peoplelink.js,
+// `fieldsOf`): held fixed on a cached opening (tools/people/planet.mjs), or re-read from a live
+// Planet after each climate cycle and written back to it through the planet's own inputs (the
+// page: src/engine/people-worker.js beside the engine's worker; headless: tools/people/couple.mjs).
+// Marks as in the plan: standard, synthesis, speculation.
 //
 // One loop (Kremer's, standard; Kremer 1993, from memory): minds make ideas, ideas raise what the
 // land carries, and what it carries makes minds. v1 splits the factors where a split brings its own
@@ -93,10 +95,10 @@
 //
 // Units: years, km, people, z in e-folds; output in subsistence-years a year (sy/yr, a person's
 // subsistence a year), capital in sy; energy in W; carbon in Pg C.
-import { NZ } from '../../src/engine/climate.js';
-import { miami } from '../../src/engine/vegetation.js';
-import { regolithStep } from '../../src/engine/regolith.js';
-import { stream } from '../../src/rng.js';
+import { NZ } from './climate.js';
+import { miami } from './vegetation.js';
+import { regolithStep } from './regolith.js';
+import { stream } from '../rng.js';
 
 export const PEOPLE = {
   // Habitat (synthesis)
@@ -178,6 +180,8 @@ export const PEOPLE = {
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Stepping
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4,
+  DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
+  T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
   Z_SAT: 30,                       // culture past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
 };
 const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
@@ -743,11 +747,12 @@ export class People {
     const lw = this.lw || (this.lw = new Float64Array(64));
     this.gMax = live.reduce((g, L) => Math.max(g, L.g), 0); this.famine = 0;
     const bf = this.ending && !this.ending.aligned ? 1 - this.dis : 1;   // misaligned: births fall with humans' control (no floor)
+    const nl = live.length;
     for (let c = 0; c < nL; c++) {
       const Nt = Ntot[c];
-      if (!(Nt > 1e-6)) { for (const L of live) L.N[c] = 0; continue; }
-      let inv = 0;
-      for (const L of live) if (L.N[c] > 0) inv += L.N[c] / Nt / Math.max(L.K[c], 1e-12);
+      if (!(Nt > 1e-6)) { for (let k = 0; k < nl; k++) live[k].N[c] = 0; continue; }
+      let inv = 0, one = -1, many = 0;
+      for (let k = 0; k < nl; k++) { const L = live[k]; if (L.N[c] > 0) { inv += L.N[c] / Nt / Math.max(L.K[c], 1e-12); one = k; many++; } }
       const Kh = 1 / inv;
       // The harvests' spread here: rain-fed farmers bear it whole, foragers half (they move), trade
       // pools it once industry comes; granaries hold up to a share of a year.
@@ -756,12 +761,14 @@ export class People {
       const st = P.S_MAX * fc * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE));
       const { N: Nn, crowd, famine } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf);
       this.famine += famine * Nt;
+      // One lineage here (the common case) takes the whole; several share by their crowding.
+      if (many === 1) { live[one].N[c] = Nn > 1e-6 ? Nn : 0; continue; }
       const Nbar = 0.5 * (Nt + Nn);
       let mx = -Infinity;
-      live.forEach((L, k) => { lw[k] = L.N[c] > 0 ? Math.log(L.N[c]) - crowd * Nbar * dt / Math.max(L.K[c], 1e-12) : -Infinity; if (lw[k] > mx) mx = lw[k]; });
+      for (let k = 0; k < nl; k++) { const L = live[k]; lw[k] = L.N[c] > 0 ? Math.log(L.N[c]) - crowd * Nbar * dt / Math.max(L.K[c], 1e-12) : -Infinity; if (lw[k] > mx) mx = lw[k]; }
       let sw = 0;
-      live.forEach((L, k) => { lw[k] = lw[k] === -Infinity ? 0 : Math.exp(lw[k] - mx); sw += lw[k]; });
-      live.forEach((L, k) => { const v = Nn * lw[k] / sw; L.N[c] = v > 1e-6 ? v : 0; });
+      for (let k = 0; k < nl; k++) { lw[k] = lw[k] === -Infinity ? 0 : Math.exp(lw[k] - mx); sw += lw[k]; }
+      for (let k = 0; k < nl; k++) { const v = Nn * lw[k] / sw; live[k].N[c] = v > 1e-6 ? v : 0; }
     }
     lap('growth');
     if (this.debug) this.check('growth', live);
@@ -825,19 +832,22 @@ export class People {
     // K here is the capacity at the lineage's best culture (K2: migrants carry it), for crowding and
     // weights alike, so the explicit step's bound holds.
     const u = this.dens || (this.dens = new Float64Array(nL)), kd = this.kden || (this.kden = new Float64Array(nL)), K = L.K;
+    const Dc = this.dcell || (this.dcell = new Float64Array(nL)), D0 = this.Dz(0);
     for (let c = 0; c < nL; c++) kd[c] = L.K2[c] / H.area[c];
     for (let s = 0; s < nsub; s++) {
       dN.fill(0); dZ.fill(0);
-      for (let c = 0; c < nL; c++) u[c] = L.K2[c] > 1e-12 ? N[c] / L.K2[c] : 0;
+      // Each cell's dispersal at its own culture; an edge's is the geometric mean of its ends' (the
+      // law at the ends' mean culture wherever it is exponential in z, below its cap: a root a
+      // edge in place of the law's exponential and powers).
+      for (let c = 0; c < nL; c++) { u[c] = L.K2[c] > 1e-12 ? N[c] / L.K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
       for (let e = 0; e < F.m; e++) {
         const c = F.a[e], d = F.b[e], uc = u[c], ud = u[d];
         if (uc === ud) continue;
         const kc = kd[c], kk = kd[d], rho = kc > 0 && kk > 0 ? 2 * kc * kk / (kc + kk) : 0;
         if (!(rho > 0)) continue;
-        const ze = 0.5 * (Z[c] + Z[d]);
         let k;
-        if (F.hop[e]) { const r = this.seaReach(ze); if (!(r > 0)) continue; k = this.Dz(ze) * Math.exp(-F.k[e] / r); }
-        else k = this.Dz(ze) * F.k[e];
+        if (F.hop[e]) { const r = this.seaReach(0.5 * (Z[c] + Z[d])); if (!(r > 0)) continue; k = Math.sqrt(Dc[c] * Dc[d]) * Math.exp(-F.k[e] / r); }
+        else k = Math.sqrt(Dc[c] * Dc[d]) * F.k[e];
         const flux = kScale * k * rho * (ud - uc) * h;    // people from d to c
         const zc = flux > 0 ? Z[d] : Z[c];
         dN[c] += flux; dN[d] -= flux; dZ[c] += flux * zc; dZ[d] -= flux * zc;
@@ -1190,7 +1200,7 @@ export class People {
       L.total = tot; L.zbar = tot > 0 ? zs / tot : 0; L.zmax = zm; L.peak = Math.max(L.peak, tot);
       zmax = Math.max(zmax, zm);
       if (L.tipped === null && L.zbar > 1) {
-        L.tipped = this.t;
+        L.tipped = this.t; this.flags.tipped = true;
         let best = 0; for (let c = 0; c < nL; c++) if (L.N[c] > 0 && L.Z[c] > L.Z[best]) best = c;
         this.event('tip', `lineage ${L.id} tips: mean culture past 1 (g ${L.g.toFixed(2)}, ${tot.toFixed(0)} people, frontier at ${deg(this.H.lat[best]).toFixed(0)}°, ${deg(this.H.lon[best]).toFixed(0)}°)`);
       }
@@ -1222,23 +1232,78 @@ export class People {
     once('exodus', this.space > earth && this.space > 1e6, () => `more people off-world than on Earth (${(this.space / 1e9).toFixed(2)} billion)`);
     once('emptied', F.present && earth < 1e4, () => `Earth is empty of people (${(this.space / 1e9).toFixed(2)} billion off-world)`);
     once('extinct', F.present && people < 1e4, () => `the last people die`);
-    this.history.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
+    const h = this.history;
+    h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
       Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
       energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
       soil: farmA > 0 ? soilF / farmA : 0, famine: earth > 0 ? this.famine / earth : 0, lineages: live.length });
+    // The dial runs out where the minds double in under a day over the last few steps (one step's
+    // blip isn't it); for T_FINE years after, a step is at most a year, so the ending resolves.
+    const n = h.length;
+    if (!F.dial && n >= 3) {
+      const k = Math.max(0, n - 6), g = Math.log(h[n - 1].minds / h[k].minds) / Math.max(h[n - 1].t - h[k].t, 1e-12);
+      if (g > 0 && Math.log(2) / g < 1 / 365.25) { F.dial = true; this.dialAt = this.t; this.dtCap = 1; this.event('dial', 'the minds double in under a day: the dial runs out'); }
+    }
+    if (F.dial && this.dtCap && this.t - this.dialAt > P.T_FINE) this.dtCap = null;
   }
 
-  /** Run until `stop` says so; dt from the culture's pace and the minds' doubling. */
+  /** The next step: from the culture's pace and the minds' doubling, at most twice the last. */
+  nextDt() {
+    const P = this.P, h = this.history, n = h.length;
+    let grow = 0;
+    if (n >= 2 && h[n - 1].minds > 0 && h[n - 2].minds > 0) grow = Math.log(h[n - 1].minds / h[n - 2].minds) / h[n - 1].dt;
+    const last = n ? h[n - 1].dt : P.DT_MAX / 2;
+    return Math.max(P.DT_MIN, Math.min(this.flags.tipped ? P.DT_MAX : P.DT_EARLY, P.DZ_MAX / Math.max(this.lastRate, 1e-12), grow > 0 ? 0.05 / grow : Infinity, 2 * last, this.dtCap || Infinity));
+  }
+
+  /**
+   * The follow dial's rate of change (/yr): the fastest e-folding, growing or shrinking, over the
+   * last 20 steps among the minds and, from early takeoff, the energy and the people on Earth and
+   * off it (what the ending moves). Below a thousand people or a GW a quantity is out of it.
+   */
+  pace() {
+    const h = this.history, n = h.length;
+    if (n < 2) return 0;
+    const a = h[Math.max(0, n - 21)], b = h[n - 1], dt = b.t - a.t;
+    if (!(dt > 0)) return 0;
+    const keys = this.flags.present ? [['minds', 1e3], ['energy', 1e9], ['earth', 1e3], ['space', 1e3]] : [['minds', 0]];
+    let g = 0;
+    for (const [k, lo] of keys) if (a[k] > lo && b[k] > lo) g = Math.max(g, Math.abs(Math.log(b[k] / a[k])) / dt);
+    return g;
+  }
+
+  /** The write-back on the people's grid (src/engine/peoplelink.js): each cell's farmed share and tillage's erosion (mm/yr). */
+  writeBack(out = null) {
+    const n = this.planet.grid.n;
+    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n) };
+    out.f.fill(0); out.Ef.fill(0);
+    for (let c = 0; c < this.nL; c++) { const i = this.cells[c]; out.f[i] = this.f[c]; out.Ef[i] = this.Ef[c]; }
+    return out;
+  }
+
+  /**
+   * What the People view draws, four values a cell of the people's grid: people per km², the
+   * farmed share, the energy used on Earth there (W/m², the world's by each cell's share of the
+   * goods), and industry's share of its workers.
+   */
+  drawn(out = null) {
+    const n = this.planet.grid.n, H = this.H, E = this.econ;
+    out = out || new Float32Array(4 * n); out.fill(0);
+    const energy = E.on ? E.Ef + E.Er + E.Eu : 0;
+    let gs = 0;
+    for (let c = 0; c < this.nL; c++) gs += this.goods[c];
+    for (let c = 0; c < this.nL; c++) {
+      const i = this.cells[c], A = H.area[c], o = 4 * i;
+      out[o] = this.Ntot[c] / A; out[o + 1] = this.f[c];
+      out[o + 2] = gs > 0 ? energy * this.goods[c] / gs / (A * 1e6) : 0; out[o + 3] = this.ind[c];
+    }
+    return out;
+  }
+
+  /** Run until `stop` says so. */
   run({ tMax = 5e6, stop = () => false, onStep = null } = {}) {
-    const P = this.P;
-    let dt = P.DT_MAX;
     while (this.t < tMax) {
-      const h = this.history, n = h.length;
-      let grow = 0;
-      if (n >= 2 && h[n - 1].minds > 0 && h[n - 2].minds > 0) grow = Math.log(h[n - 1].minds / h[n - 2].minds) / h[n - 1].dt;
-      dt = Math.min(P.DT_MAX, P.DZ_MAX / Math.max(this.lastRate, 1e-12), grow > 0 ? 0.05 / grow : Infinity, 2 * dt, this.dtCap || Infinity);
-      dt = Math.max(dt, P.DT_MIN);
-      this.step(dt);
+      this.step(this.nextDt());
       if (onStep) onStep(this);
       if (stop(this)) break;
     }

@@ -94,6 +94,37 @@ const GLYPHS = {
   current: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 1; c.beginPath(); c.ellipse(x + 13, y + 6, 11, 4.5, 0, 0, 7); c.stroke(); },
   // Export production: short viridian strokes on a staggered lattice, as the shader's `dashes`.
   export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; c.lineCap = 'round'; for (let b = 0; b < 3; b++) for (let a = 0; a < 4; a++) { const cx = x + 3.5 + a * 6.4 + (b % 2) * 3.2; line(c, cx - 1.5, y + 2 + b * 4, cx + 1.5, y + 2 + b * 4); } c.lineCap = 'butt'; },
+  // People: graphite dots on the stipple's lattice, sparse to dense (their density, by log).
+  folk: (c, x, y, P) => {
+    c.fillStyle = mixHex(P.canvas, P.text, 0.58);
+    for (let a = 0.8, k = 0; a < 26; k++) {
+      const g = 5.6 - 3.4 * a / 26;
+      for (let b = (k % 2) * g / 2 + 0.8; b < 12; b += g) { c.beginPath(); c.arc(x + a, y + b, 0.8, 0, 7); c.fill(); }
+      a += 0.866 * g;
+    }
+  },
+  // Energy used: the dots darker (or, in the dark theme, lit) where more is used.
+  lit: (c, x, y, P) => {
+    for (let a = 0; a < 6; a++) for (let b = 0; b < 3; b++) {
+      const t = a / 5, lo = mixHex(P.canvas, P.text, 0.58);
+      c.fillStyle = P.dark ? (t > 0.5 ? mixHex(P.inks.ochre, P.text, 0.5) : lo) : (t > 0.5 ? P.text : lo);
+      c.globalAlpha = 0.35 + 0.65 * Math.abs(t - 0.5) * 2;
+      c.beginPath(); c.arc(x + 2.5 + a * 4.2 + (b % 2) * 2.1, y + 2 + b * 3.8, 0.85, 0, 7); c.fill();
+    }
+    c.globalAlpha = 1;
+  },
+  // Farms: parcels, each furrowed its own way, in sap.
+  farm: (c, x, y, P) => {
+    const parcels = [[x, y, 9, 6, 0.6], [x + 9, y, 9, 6, -0.5], [x + 18, y, 8, 6, 1.4], [x, y + 6, 12, 6, 0.1], [x + 12, y + 6, 14, 6, 2.2]];
+    for (const [px, py, w, h, a] of parcels) {
+      c.save(); c.beginPath(); c.rect(px, py, w, h); c.clip();
+      c.fillStyle = rgba(P.inks.sap, 0.1); c.fillRect(px, py, w, h);
+      c.strokeStyle = rgba(P.inks.sap, 0.65); c.lineWidth = 0.75;
+      const dx = Math.cos(a), dy = Math.sin(a);
+      c.beginPath(); for (let t = -16; t <= 16; t += 3.6) { const cx = px + w / 2 - dy * t, cy = py + h / 2 + dx * t; c.moveTo(cx - 20 * dx, cy - 20 * dy); c.lineTo(cx + 20 * dx, cy + 20 * dy); } c.stroke();
+      c.restore();
+    }
+  },
   // Dust: ochre dots on a staggered lattice, as the shader's `stipple`.
   dust: (c, x, y, P) => { c.fillStyle = rgba(P.inks.ochre, 0.8); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
   cold: (c, x, y, P) => front(c, x, y, P.inks.prussian, 'tri'),
@@ -153,6 +184,7 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
+  people: [['folk', 'People'], ['lit', 'Energy used'], ['farm', 'Farms'], ['veil', 'Sulfate veil'], ['icesheet', 'Ice sheet'], ['river', 'River']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

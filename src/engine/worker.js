@@ -25,6 +25,12 @@
 //   cover     when the plants' cover has changed, at most twice a second: the
 //             Relief view's eight colour weights a cell (src/engine/life.js)
 //
+// In the People experiment the page hands this thread a port to the people's own
+// (src/engine/people-worker.js): their fields go to it after each climate cycle and
+// the air and regolith a few times a second; their write-back (farmed shares,
+// tillage, carbon, forcing) comes from it and goes into the planet's own inputs
+// around each fast step (src/engine/peoplelink.js).
+//
 // The ground's live state is stepped on this thread's GPU device (src/gpu/
 // soil.js) and read back ~10 times a second: the lakes' runoff, the climate's
 // evaporation, and the rivers' month.
@@ -54,6 +60,7 @@ import { GpuPlates } from '../gpu/plates.js';
 import { GpuSurface } from '../gpu/surface.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
+import { PeopleLink, fieldsOf, soilOf, peopleLevel } from './peoplelink.js';
 
 // The climate's slice (ms), and while it hasn't settled (the opening's ~10 cycles) the gap between its
 // slices while the plates pump, in slices: 10 after (a tenth of a busy thread), 3 before (a quarter).
@@ -106,7 +113,8 @@ self.onmessage = e => {
     sendSurface(false);
     sendLakes();
     sendFast(true);
-  } else if (m.type === 'tick') ticks.push(m);
+  } else if (m.type === 'people') startPeople(m.port);
+  else if (m.type === 'tick') ticks.push(m);
   else if (m.type === 'params') { apply(m.params); pending = Math.max(pending, 2); }
   else if (m.type === 'play') playing = m.playing;
   else if (m.type === 'climate') pending = Math.max(pending, m.cycles);
@@ -158,7 +166,9 @@ async function pumpTicks() {
     for (const dt of m.steps) { await P.plateStepAsync(dt); stepYears += dt; stepped++; pending = Math.max(pending, 1); }
     lap('plates');
     P.setOrbit(m.window);
+    if (people) people.link.beforeFast();
     P.fast(m.adv, ICE_MS, m.rate ?? m.window / 2);
+    if (people) people.link.afterFast();
     lap('fast');
     if (m.adv > 0) samples.push(P.years, ...P.sample());
     lap('sample');
@@ -221,6 +231,7 @@ async function climateLoop() {
         c.it = null; cycleMs = performance.now() - cycleStart; pending = Math.max(0, pending - 1);
         const ts = performance.now();
         sendClimate();
+        sendPeopleFields();
         prof.sendClimate = (prof.sendClimate || 0) + performance.now() - ts;
       }
       await nextTask();
@@ -375,8 +386,34 @@ function drawnFlow(ice) {
   return v;
 }
 
+// The people (the People experiment): their link into the planet, and the transfer to their grid.
+let people = null;
+function startPeople(port) {
+  const level = peopleLevel(P.grid.level), T = level < P.grid.level ? makeTransfer(P.grid, buildGrid(level)) : null;
+  people = { port, T, link: new PeopleLink(P, T), sentVersion: -1, lastAir: 0, soil: new Float32Array(T ? T.coarse.n : P.grid.n) };
+  port.onmessage = e => { if (e.data.type === 'writeback') people.link.receive(e.data); };
+  sendPeopleFields();
+}
+/** The planet's fields on the people's grid, once a climate cycle has run and after each. */
+function sendPeopleFields() {
+  if (!people || P.climate.stats.cycles < 1 || P.climate.version === people.sentVersion) return;
+  people.sentVersion = P.climate.version;
+  const t0 = performance.now(), f = fieldsOf(P, null, people.T), tr = [];
+  people.fieldsMs = performance.now() - t0;
+  for (const v of Object.values(f)) if (ArrayBuffer.isView(v)) tr.push(v.buffer);
+  delete f.grid;
+  people.port.postMessage({ type: 'fields', f }, tr);
+}
+function sendPeopleAir() {
+  if (!people || performance.now() - people.lastAir < 250) return;
+  people.lastAir = performance.now();
+  const soil = soilOf(P, new Float32Array(people.soil.length), people.T);
+  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil }, [soil.buffer]);
+}
+
 function sendFast(first) {
   lastFast = performance.now();
+  sendPeopleAir();
   const { grid, tec, land, climate, ice, carbon, plumes, ocean } = P;
   // The live ground's last twelve months and this month's runoff, read back for the next message.
   if (P.ground.live && P.ground.gpu) P.ground.readBack(monthAt(((P.years % 1) + 1) % 1).i, P.years).catch(err => console.warn('[isochron] ground:', err.message));
@@ -386,6 +423,7 @@ function sendFast(first) {
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out),
       sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 }, pulse: carbon.tag ? carbon.tag.info : null },
     life: { ...P.life.stats },
+    people: people ? { ...people.link.stats, F: people.link.F, fieldsMs: people.fieldsMs || 0 } : null,
     landFlux: { ...land.flux },
     regolith: { ...P.regolith.stats, ...P.regolith.budget }, flex: P.crustFlex ? { ...P.crustFlex.stats } : null,
     moon: { a: P.moon.a, Omega: P.moon.Omega, omega: P.moon.omega, P: P.moon.P, day: P.moon.day },

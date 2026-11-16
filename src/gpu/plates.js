@@ -890,7 +890,7 @@ export class GpuPlates {
     f.set([tec.t, t1, dt, res, Math.sqrt(4 * Math.PI / n), Pm.CLOSING, Pm.COLLIDE_FRAC, Pm.ARC_DH * res,
       Pm.ARC_DPHI * res, Pm.SLAB_MAX, ex(Pm.ARC_TAU), ex(Pm.SLAB_TAU),
       ex(Pm.COLLIDE_TAU), fs.kRidge, fs.kSlab, Pm.KEEL,
-      Pm.K_COLLIDE, Pm.FOUNDER_AGE, Math.max(0.1 * tec.water, tec.water - tec.iceWater), tec.seaLevel], 4);
+      Pm.K_COLLIDE, Pm.FOUNDER_AGE, tec.seaWater(), tec.seaLevel], 4);
     u[24] = SEG; u[26] = this.S;
     for (let k = 0; k < MAXP; k++) {
       const o = 28 + 16 * k, p = plates[k];
