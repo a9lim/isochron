@@ -182,6 +182,9 @@ test('births and deaths: zero growth at the food capacity before industry, the f
   const e = rate(0), m = rate(6), l = rate(30);
   assert.ok(m.d < 0.6 * e.d && m.b > 0.9 * e.b, `at y_g 6 mortality has fallen (d ${m.d.toFixed(4)} against ${e.d.toFixed(4)}) and fertility not yet (b ${m.b.toFixed(4)})`);
   assert.ok(m.g > e.g + 0.005 && l.g < m.g - 0.01, `growth rises then falls: ${e.g.toFixed(4)}, ${m.g.toFixed(4)}, ${l.g.toFixed(4)}`);
+  // Rich, in the long run: replacement (neither growing nor dying out).
+  const rich = g(1, 1e9, 1e6);
+  assert.ok(Math.abs(rich) < 2e-4, `a rich population, far from its food capacity, is stationary: ${rich.toExponential(2)}/yr`);
   // Exact over a long step: the fed side's logistic settles at its equilibrium (r/a).
   const r = demography(1e5, 1e6, 0, 5000, P);
   assert.ok(Math.abs(r.N / 1e6 - 1) < 1e-6, `settled at the food capacity: ${r.N}`);

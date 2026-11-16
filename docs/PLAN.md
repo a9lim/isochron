@@ -644,7 +644,7 @@ Both sides of the food capacity are logistics, solved exactly; an oracle checks 
 - early takeoff now 162–187 years after industry (more people, faster culture: a little ahead of Earth's ~245), with 3.3–3.4 B people and ~2.9 TW (0.85 kW a person, against Earth's 2.4: output a person is now the short one);
 - fossil carbon burned 4,090–4,670 Pg C, peak CO₂ 2,000–2,300 ppm; the live planet ends at 26.0 °C and 1,765 ppm.
 
-**v1.2, in progress (2026-11-15).** a9's asks: soft forms instead of hard caps, output per person, food stores, then capability from effective compute and robotics.
+**v1.2 (2026-11-15).** a9's asks: soft forms instead of hard caps, output per person, food stores, then capability from effective compute and robotics.
 - **Soft forms, chosen by what each cap stands for** (`softMin`, p the sharpness):
   - sums over uneven units are harmonic: surface renewables' sites (p = 1); research intensity, dispersal, contact length and the food lift (p = 4);
   - thresholds are logistic hazards: industry's ignition, the farming and industry spread gates;
@@ -677,19 +677,43 @@ Both sides of the food capacity are logistics, solved exactly; an oracle checks 
   - R&D's share S_RD 3% of output × β_c;
   - plus research's share Q_R 0.4 of AI's compute (labs train and research beside deploying);
   - it runs AI's research minds and adds to the training runs.
-- **First reading on effective compute** (earthlike, before Q_R): β_c crosses the FLOP gap in ~30 years from early takeoff (0.08 → 0.98) and β_p reaches 0.85; output grows ×280 in ~32 years (doubling every ~4 years by the end). Research minds stayed flat until research compute was tied to AI's. The run with Q_R is in flight; its trace answers whether the ideas now go hyperbolic too.
+- **First reading on effective compute** (earthlike, before Q_R): β_c crosses the FLOP gap in ~30 years from early takeoff (0.08 → 0.98) and β_p reaches 0.85; output grows ×280 in ~32 years (doubling every ~4 years by the end). Research minds stayed flat until research compute was tied to AI's (v1.3 has the run with it).
 - **Run ends:**
   - both task groups' β ≥ 0.95 with minds and output flat for 20 years;
   - or a century past the dial;
   - or 3 kyr after industry with no takeoff.
 - Oracles: 13 pass, including the soft forms, the partial expectation, the energy CES and the famine closure.
 
+**v1.3 (2026-11-15): the takeoff's shape, and its aftermath.** a9: "why are takeoffs slow? i'd expect something more like hyperbolic."
+- **The first dial was an artifact.** Materials' energy was charged on the last step's investment, ahead of output. A large step's building took the next step's energy, output fell to nothing, and the step after flipped back; the minds flipped with it, which read as doubling in under a day. Building's materials now come out of the step's own investment: output's energy per unit is e_Y + e_m M_K s, with s the step's investment share solved as the one fixed point (the share realized falls as the share charged rises: bisection). The dial's test takes the minds' growth over the last five steps.
+- **The hyperbola**, with research compute tied to AI's (Q_R), alike on three seeds and live. AI's research minds pass people's ~35 years after early takeoff; from there ideas raise compute's efficiency and compute makes ideas (dz/dt ∝ K_q χ(z), χ ∝ e^z, finite-time). The minds' doubling time falls from 100–800 years 30–40 years before the dial to ~8 at 10, ~2.4 at 5, 0.8 at 2, 0.4 at 1 and 0.14 at 0.3 years before: within a factor ~2 of t* − t. The ideas reach the guard Z_SAT within days of the dial. Fit from the first tip: the minds' exponent 1.9–2.4, the people's 0.92–1.0.
+
+  | seed | early takeoff (yr after industry; people; sy a person) | AI's labour passes people's | the dial (after early takeoff; energy) | the end |
+  |---|---|---|---|---|
+  | earthlike | 193; 3.5 B; 22 | +25 yr | +39 yr; 9,100 TW | +34 yr after the dial: 3.3 B, 8 × 10¹⁴ sy/yr, 10,800 TW, CO₂ 2,370 ppm |
+  | b | 273; 3.3 B; 24 | +25 yr | +40 yr; 9,100 TW | +35 yr: 3.0 B, 9 × 10¹⁴, 10,800 TW, 2,370 ppm |
+  | c | 343; 2.5 B; 26 | +31 yr | +50 yr; 9,200 TW | +119 yr (the century's cap): 1.9 B, 2–11 × 10¹⁴ (cycling, below), 10,600 TW, 1,780 ppm |
+  | earthlike, live | 196; 3.3 B; 23 | +26 yr | +42 yr; 9,300 TW | +39 yr: 0.27 B, 6 × 10¹⁴, 10,800 TW, 2,430 ppm, the planet at 26.3 °C |
+
+- **Machines run as far as they pay for their power.** Compute and robots had drawn power first; once bodies were cheap (cost e-fold per 2 of z), robots took the power output needed and output fell while they ran. Now research's compute is powered first (its budget pays), then production's compute (the brains, ~W_C/χ a worker-equivalent), then the robots at the running share that makes the most output (golden section within what the power allows). Idle machines earn nothing at the margin. Where energy binds, robots stand idle.
+- **Materials: Lasky's rule, bounded at Skinner's barrier.** Materials' energy had risen as e^{X/X_SCALE} without bound, so once the rich ores were drawn the building took all the energy and the economy decayed to nothing. Now the grade falls arithmetically as the tonnage drawn rises geometrically (Lasky's rule, from memory) from X_SCALE to G_B = 0.3 of the first grade at the rich ores' end, energy ∝ 1/grade, then ×SKINNER in common rock (×33 in all; the lumped number speculation).
+- **Investment where its return covers its cost.** A fixed 25% saving had built capital that couldn't be powered and energy capital at the sites' vanishing margins, each carrying its materials' energy. Each part of investment now passes a smooth switch in log(return/cost), W_INV 0.1: capital's return is its marginal product × the capital–labour bundle's share in the KLE CES (s_KL, falling to nothing where energy binds), energy's is λ_E (output a W at the margin) × its margin's W a sy; the cost is wear + R_MIN 3% (a real rate, from memory), × 1 + e_m M_K λ_E for the materials' energy. The rest is consumed. Before the takeoff the switches stay open (returns 2–30× their cost).
+- **Replacement in the long run:** births' floor B_MIN = M_MIN D_LO + AGE (0.975%), so a rich population neither grows nor dies out (0.8% had a rich world shrinking e-fold every ~570 years, extinct within ~10 kyr of the dial). Earth's rich countries sit below replacement now; heritable fertility would bring it back over generations (speculation). An oracle checks it.
+- **The aftermath:**
+  - every source sits at its ceiling: the sun's 6,000 TW and the radiator's 11.8 W/m², ~10,800 TW;
+  - all 5,000 Pg C of fossil carbon is burned within ~5 years of the dial. It shares the radiator's budget with fusion, it is the cheaper of the two, and nothing prices its carbon. CO₂ reaches ~2,400 ppm;
+  - output is ~10¹⁵ sy/yr, ×10⁴ early takeoff's, energy-bound (at 0.0004–0.002% of what its factors could make);
+  - robots stand idle and production's compute decays, since nothing pays to power them;
+  - 2–3.3 B people remain.
+- **Live: the people don't outlive the radiator.** The planet warms from 13.5 °C to 15.9 °C by the dial, then to 26.3 °C (CO₂ 2,430 ppm, 11.5 W/m² of heat). Land's food capacity on the hot planet falls ~60%, and the people are crowded down to it: from 2.7 to 0.5 billion within a year of the climate's jump, 0.27 B by the end (famine counts only the harvests' spread, so it reads 0). The model has no food bought with energy apart from the land's lift. At 10⁴ TW, controlled-environment or synthetic food at ~1–10 kW a person would feed them many times over (speculation). It is open, with the ending.
+- **Open: the saturated world.** Past the guard, TFP is e²³ and any sliver of capital saturates the energy. Fixed capital and production's compute decay until capital's return revives and its switch reopens: on seed c within the century, output cycles ×5–7 on a ~40-year beat (energy and heat steady); past ~1 kyr the energy capital cycles too. This lies beyond the arc's end. A ceiling on TFP (output per joule is bounded), or ending the arc at the dial, would settle it.
+- Oracles: 13 pass.
+
 Next, in order:
-1. **The effective-compute takeoff's shape** (the Q_R run), then the three seeds and live.
-2. **The heat budget as a cost** (cooling or heat stress), if a9 wants the radiator as a result.
+1. **The ending** (a9). Food bought with energy, and the heat budget as a cost (compute's cooling, or crops' heat stress), decide whether the people outlive their radiator. Then: whether the arc ends at the dial, at the ceilings, or leaves (Z_SPACE).
+2. **The saturated world's cycles** (a ceiling on TFP), if the arc runs past the dial.
 3. **Soil within a cell** (the regolith's relief at sub-grid scale) and **the ore map** (arcs, flood basalts, laterites).
-4. **The ending** (a9).
-5. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds.
+4. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds.
 
 ## Open decisions
 

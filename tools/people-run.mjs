@@ -55,7 +55,8 @@ pp.run({
     const h = p.history, n = h.length;
     if (!p.lineages.some(L => L.died === null)) { p.event('end', 'no one is left'); return true; }
     if (n < 3) return false;
-    const g = Math.log(h[n - 1].minds / h[n - 2].minds) / h[n - 1].dt;
+    // The minds' growth over the last few steps (one step's blip isn't the dial).
+    const k = Math.max(0, n - 6), g = Math.log(h[n - 1].minds / h[k].minds) / Math.max(h[n - 1].t - h[k].t, 1e-12);
     if (g > 0 && Math.log(2) / g < DAY && !p.flags.dial) { p.flags.dial = true; p.dialAt = p.t; p.event('dial', 'the minds double in under a day: the dial runs out'); }
     // The arc on the dial is over a century after the dial runs out: stop there at the latest.
     if (p.flags.dial && p.t - p.dialAt > 100) { const b = h[n - 1]; p.event('end', `a century past the dial's floor: minds ${g3(b.minds)} (AI ${g3(b.AI)}), energy ${g3(b.energy / 1e12)} TW, output at ${(100 * b.avail).toPrecision(2)}% of its factors', heat ${b.heat.toFixed(2)} W/m²`); return true; }

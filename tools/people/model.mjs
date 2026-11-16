@@ -113,10 +113,10 @@ export const PEOPLE = {
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.008, Y_B: 15, K_B: 4,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B)
+  B_PRE: 0.035, B_MIN: 0.00975, Y_B: 15, K_B: 4,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B); the floor is replacement, the long-run deaths M_MIN·D_LO + AGE, so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2,           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
-  AGE: 0.006, Y_AGE: 30,           // aging: crude deaths + AGE (1 − e^{−y_g/Y_AGE}) (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory), so long-run growth falls just below none
+  AGE: 0.006, Y_AGE: 30,           // aging: crude deaths + AGE (1 − e^{−y_g/Y_AGE}) (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   // Ideas
   THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
@@ -145,7 +145,8 @@ export const PEOPLE = {
   R_EF0: 1000, R_ER0: 1500, R_EU0: 1000,            // W per sy of energy capital: fossil (full stock, × √ of what's left), renewables and fusion when mature (solar near parity with fossil at Earth's present, from memory)
   Z_REN: 11.5, W_REN: 0.5, Z_FUS: 12.5, W_FUS: 0.5, // where renewables and fusion come of age: fossil carbon is still the cheaper delivered energy at the takeoff's start (Z_AI), as on Earth now (a9)
   MARGIN: 0.05, T_BUILD: 5, F_IE: 0.6,              // energy capacity's margin; years to close a shortfall; energy's most of investment
-  M_K: 1, E_M0: 30, X_SCALE: 2e13, X_CRUST: 1e14, SKINNER: 10,   // materials per sy invested; their energy (W per unit a year), rising e-fold per X_SCALE drawn, ×SKINNER past the crust's rich ores
+  M_K: 1, E_M0: 30, X_SCALE: 2e13, X_CRUST: 1e14, G_B: 0.3, SKINNER: 10,   // materials per sy invested; their energy (W per unit a year) at the first grades, rising as 1/grade while the grade falls arithmetically as the tonnage drawn rises geometrically (Lasky's rule, from memory), from X_SCALE to G_B of the first grade at the end of the crust's rich ores (X_CRUST), then ×SKINNER (common rock past Skinner's barrier; the lumped number speculation)
+  R_MIN: 0.03, W_INV: 0.1,                          // the return beyond wear that investment must clear (a real interest rate, from memory); the switch's width in log return over cost
   Z_SPACE: Infinity, E_SPACE: 100,                  // an off-world backstop on materials' energy (asteroids): off until the ending is chosen
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
   // AI (speculation): capability from effective compute, labour from compute, bodies from robots
@@ -280,20 +281,22 @@ function groupCES(Gc, Gp, phi, sigma) {
 
 /**
  * Production's labour from people Lh, production's compute Kc and robots Kr at culture z, with
- * compute's power met at `aiOn`; research's compute Kq runs AI's research minds, and both stocks
- * make the largest training runs (capability). Of production's AI labour-equivalents Kc χ(z) aiOn,
- * physical work only as far as there are bodies (soft-min with the robots), the remainder
- * cognitive; each task group by `taskLabor` (people split by the groups' shares), the groups by
- * `groupCES`.
+ * the machines running at the shares `run` ({c, r, q}: production's compute, the robots,
+ * research's compute; a number for all three); research's compute Kq runs AI's research minds,
+ * and both stocks make the largest training runs (capability). Of production's AI
+ * labour-equivalents Kc χ(z) run.c, physical work only as far as there are running bodies
+ * (soft-min with the robots), the remainder cognitive; each task group by `taskLabor` (people
+ * split by the groups' shares), the groups by `groupCES`.
  */
-export function labour(Lh, Kc, Kr, z, aiOn, P, Kq = 0) {
+export function labour(Lh, Kc, Kr, z, run, P, Kq = 0) {
+  const uc = typeof run === 'number' ? run : run.c, ur = typeof run === 'number' ? run : run.r, uq = typeof run === 'number' ? run : run.q;
   const chiRaw = P.X_AI * ex(P.THETA_AI * (z - P.Z_AI)), chi = chiRaw / (1 + chiRaw / P.X_MAX);
   const { bc, bp, x } = capability(Kc + Kq, z, P);
-  const Ar = Kq * chi * aiOn, Aprod = Kc * chi * aiOn, A = Ar + Aprod;
+  const Ar = Kq * chi * uq, Aprod = Kc * chi * uc, A = Ar + Aprod;
   const cost = P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300)), bodies = Kr / cost;
-  const Ap = softMin(P.PHI * Aprod, bodies, 4), Ac = Aprod - Ap;
+  const Ap = softMin(P.PHI * Aprod, ur * bodies, 4), Ac = Aprod - Ap;
   const Gc = taskLabor((1 - P.PHI) * Lh, Ac, bc, P.SIGMA).L, Gp = taskLabor(P.PHI * Lh, Ap, bp, P.SIGMA).L;
-  return { L: groupCES(Gc, Gp, P.PHI, P.SIGMA_G), A, Ar, Ap, Ac, bc, bp, x, chi, bodies, Gc, Gp };
+  return { L: groupCES(Gc, Gp, P.PHI, P.SIGMA_G), A, Ar, Ap, Ac, Aprod, bc, bp, x, chi, bodies, Gc, Gp };
 }
 
 /** A fresh industrial economy (before industry: off). */
@@ -316,53 +319,105 @@ export function industrialStep(E, { Lh, z }, dt, P) {
   // Energy: compute's power, materials' for building, output's (its intensity falling with z).
   const eY = P.E_MIN_Y + (P.E_SUB - P.E_MIN_Y) * Math.exp(-(z - P.Z_IND) / P.Z_EFF);
   // Ores' grades fall smoothly past the crust's rich ones (Skinner's barrier as a gap in the grades' distribution).
-  let em = P.E_M0 * ex(E.X / P.X_SCALE) * (1 + (P.SKINNER - 1) * sig((E.X - P.X_CRUST) / (0.25 * P.X_CRUST)));
+  const grade = 1 - (1 - P.G_B) * Math.log10(1 + softMin(E.X, P.X_CRUST, 4) / P.X_SCALE) / Math.log10(1 + P.X_CRUST / P.X_SCALE);
+  let em = P.E_M0 / grade * (1 + (P.SKINNER - 1) * sig((E.X - P.X_CRUST) / (0.25 * P.X_CRUST)));
   if (z > P.Z_SPACE) em = Math.min(em, P.E_SPACE);
-  const Emat = em * P.M_K * E.I, Ecomp = P.W_C * (E.Kc + E.Kq) + P.W_R * T0.Ap;   // compute's power, and the working robots'
+  const Ecomp = P.W_C * (E.Kc + E.Kq) + P.W_R * T0.Ap;   // compute's power, and the working robots', at full running
   // Capacities: surface renewables approach their ceiling as the best sites fill (harmonic);
   // fossil carbon and fusion share the radiator's heat budget (sharp: a choice, the ending's).
-  // Dispatch renewables, then fusion, then fossil carbon, against what's wanted at full power
-  // (compute and materials, and the output the factors could make).
   const capR = P.F_SUN * P.SUN_ABS, capU = P.HEAT_MAX * AREA_M2;
   const cr = softMin(E.Ke[1] * rr, capR, P.P_SITES), h0 = E.Ke[0] * rf + E.Ke[2] * ru, hk = h0 > 0 ? softMin(h0, capU, P.P_HEAT) / h0 : 1;
   const cf = E.Ke[0] * rf * hk, cu = E.Ke[2] * ru * hk;
-  const Yfull = A * Math.pow(Math.max(E.Kf, 0), P.ALPHA) * Math.pow(T0.L, 1 - P.ALPHA);
-  const need = eY * Yfull + Emat + Ecomp;
-  // Fossil carbon and fusion share the radiator's ceiling (surface renewables don't add heat).
-  const Er = Math.min(cr, need), Eu = Math.min(cu, need - Er), Ef = Math.min(cf, Math.max(0, need - Er - Eu));
-  const sup = Er + Eu + Ef;
-  // The energy, in order: compute first (it runs on power alone), then materials, then output.
-  const Ec = Math.min(Ecomp, sup), Em = Math.min(Emat, sup - Ec), Eo = sup - Ec - Em;
-  const aiOn = Ecomp > 0 ? Ec / Ecomp : 1, T = labour(Lh, E.Kc, E.Kr, z, aiOn, P, E.Kq);
-  const Ypot = A * Math.pow(Math.max(E.Kf, 0), P.ALPHA) * Math.pow(T.L, 1 - P.ALPHA);
-  // Energy against the capital–labour bundle: a CES of low elasticity, normalized so the output
-  // the factors could make is what full energy gives (standard KLE nesting); σ_E → 0 is Leontief.
-  const Y = Ypot > 0 ? Ypot * energyCES(Eo / (eY * Ypot), P.SIGMA_E, P.W_E) : 0, avail = Ypot > 0 ? Y / Ypot : 1;
-  // Investment: energy first (wear, and the shortfall closed over T_BUILD, to the best returns
-  // among sources with room), the rest by marginal products.
-  const I = P.SAVE * Y;
+  const Kf3 = A * Math.pow(Math.max(E.Kf, 0), P.ALPHA), Yfull = Kf3 * Math.pow(T0.L, 1 - P.ALPHA);
   // Returns at the margin: a renewable's falls as the sites fill, the heat budget's as it's spent.
   const mR = Math.pow(1 + Math.pow(E.Ke[1] * rr / capR, P.P_SITES), -1 - 1 / P.P_SITES), mH = h0 > 0 ? Math.pow(1 + Math.pow(h0 / capU, P.P_HEAT), -1 - 1 / P.P_HEAT) : 1;
-  const rets = [rf * mH, rr * mR, ru * mH], w = rets.map(r => r ** 4), ws = w[0] + w[1] + w[2];
-  const gap = Math.max(0, need * (1 + P.MARGIN) - (cf + cr + cu));
-  let Ie = 0, Ies = [0, 0, 0];
-  if (ws > 0) {
-    const rbar = (w[0] * rets[0] + w[1] * rets[1] + w[2] * rets[2]) / ws;
-    Ie = Math.min(P.F_IE * I, P.DELTA_E * (E.Ke[0] + E.Ke[1] + E.Ke[2]) + gap / (rbar * P.T_BUILD));
-    Ies = w.map(v => Ie * v / ws);
+  const rets = [rf * mH, rr * mR, ru * mH], wts = rets.map(r => r ** 4), ws = wts[0] + wts[1] + wts[2];
+  const rbar = ws > 0 ? (wts[0] * rets[0] + wts[1] * rets[1] + wts[2] * rets[2]) / ws : 0;
+  const rho = (P.SIGMA_E - 1) / P.SIGMA_E, hc = Math.max(1e-3 * E.Kc, 1), hr = Math.max(1e-3 * E.Kr, 1);
+
+  // The step at an investment share s: building takes materials, and their energy, in the step's
+  // own investment, so it is part of output's energy per unit (eY + em M_K s). The share realized
+  // falls as the share charged rises (dearer output, energy's worth at the margin down, fewer
+  // investments clearing their cost), so the step's share is the one fixed point, by bisection.
+  // (Charged on the last step's investment, a large step's building took the next step's energy
+  // and output flipped step to step.)
+  const plan = s => {
+    const eYM = eY + em * P.M_K * s, need = eYM * Yfull + Ecomp;
+    // Dispatch renewables, then fusion, then fossil carbon, against what's wanted at full power
+    // (fossil carbon and fusion share the radiator's ceiling; surface renewables add no heat).
+    const Er = Math.min(cr, need), Eu = Math.min(cu, need - Er), Ef = Math.min(cf, Math.max(0, need - Er - Eu)), sup = Er + Eu + Ef;
+    // The power, in order: research's compute (its budget pays for it), production's compute (the
+    // brains, cheap per worker-equivalent), then the robots only as far as their work pays for the
+    // power it takes from output (the running share that makes the most output); the rest is
+    // output's and its building's. Energy against the capital–labour bundle is a CES of low
+    // elasticity, normalized so the output the factors could make is what full energy gives
+    // (standard KLE nesting); σ_E → 0 is Leontief.
+    const Eq = P.W_C * E.Kq, uq = Eq > 0 ? Math.min(1, sup / Eq) : 1, s1 = sup - uq * Eq;
+    const Epc = P.W_C * E.Kc, uc = Epc > 0 ? Math.min(1, s1 / Epc) : 1, s2 = Math.max(0, s1 - uc * Epc);
+    const outAt = ur => {
+      const T = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: ur, q: uq }, P, E.Kq), Ypot = Kf3 * Math.pow(T.L, 1 - P.ALPHA), Eo = Math.max(0, s2 - P.W_R * T.Ap);
+      return { T, Ypot, Eo, Y: Ypot > 0 ? Ypot * energyCES(Eo / (eYM * Ypot), P.SIGMA_E, P.W_E) : 0 };
+    };
+    // The robots' share their power allows (W_R Ap ≤ s2, inverting the soft-min), then the best within it.
+    const Tc = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: 1, q: uq }, P, E.Kq), xP = P.PHI * Tc.Aprod, aMax = s2 / P.W_R;
+    let urMax = 1;
+    if (xP > aMax && Tc.bodies > 0) urMax = Math.min(1, aMax > 0 ? xP / Math.pow(Math.pow(xP / aMax, 4) - 1, 0.25) / Tc.bodies : 0);
+    let best = outAt(urMax), ur = urMax;
+    if (urMax > 0 && outAt(urMax * (1 - 1e-6)).Y > best.Y) {
+      let a = 0, b = urMax;
+      const g = (Math.sqrt(5) - 1) / 2;
+      let x1 = b - g * (b - a), x2 = a + g * (b - a), f1 = outAt(x1).Y, f2 = outAt(x2).Y;
+      for (let k = 0; k < 40; k++) {
+        if (f1 < f2) { a = x1; x1 = x2; f1 = f2; x2 = a + g * (b - a); f2 = outAt(x2).Y; }
+        else { b = x2; x2 = x1; f2 = f1; x1 = b - g * (b - a); f1 = outAt(x1).Y; }
+      }
+      ur = 0.5 * (a + b); best = outAt(ur);
+    }
+    const { T, Ypot, Eo, Y } = best, run = { c: uc, r: ur, q: uq };
+    // What the capital–labour bundle earns of output (its share in the KLE CES, falling to nothing
+    // where energy binds), and energy's worth at the margin (sy/yr of output a W); capital's
+    // materials carry their energy, so a unit of capital costs 1 + em M_K λ_E.
+    const q = Ypot > 0 ? Eo / (eYM * Ypot) : 0;
+    const sKL = q > 0 ? (1 - P.W_E) / (1 - P.W_E + P.W_E * Math.exp(Math.min(rho * Math.log(q), 700))) : 0;
+    const lamE = (q > 0 ? energyCES(q, P.SIGMA_E, P.W_E) / q : Math.pow(P.W_E, 1 / rho)) * (1 - sKL) / eYM, emb = 1 + em * P.M_K * lamE;
+    // Investment: of the saving SAVE·Y, energy first (wear, and the shortfall closed over T_BUILD,
+    // to the best returns among sources with room), research's compute, then fixed capital,
+    // compute and robots by their marginal products. Each part only as far as its return covers
+    // its cost (wear, R_MIN, and its materials' energy; a smooth switch in log return over cost,
+    // so each stock settles where its margin's return meets its cost): the rest is consumed.
+    // Where energy binds, capital that can't be powered earns nothing and isn't built.
+    const I = P.SAVE * Y, gap = Math.max(0, need * (1 + P.MARGIN) - (cf + cr + cu));
+    let Ie = 0, gE = 0;
+    if (ws > 0) {
+      gE = sig(Math.log(Math.max(lamE * rbar / ((P.DELTA_E + P.R_MIN) * emb), 1e-300)) / P.W_INV);
+      Ie = gE * Math.min(P.F_IE * I, P.DELTA_E * (E.Ke[0] + E.Ke[1] + E.Ke[2]) + gap / (rbar * P.T_BUILD));
+    }
+    // The rest: ordinary computing's share to compute, the remainder among fixed capital, compute
+    // and robots by their marginal products (each by a small difference in labour, so compute's
+    // includes the capability a bigger run buys: the loop from investment to capability to
+    // returns). Research's compute: R&D's share of output, as far as AI can do research (β_c),
+    // ahead of the rest.
+    const Iq = Math.min(Math.max(0, I - Ie), P.S_RD * Y * T.bc);
+    const Isave = Math.max(0, I - Ie - Iq), YL = T.L > 0 ? (1 - P.ALPHA) * Y / T.L : 0;
+    const MPf = E.Kf > 0 ? P.ALPHA * Y / E.Kf : Infinity;
+    // Machines left idle for want of power earn nothing at the margin.
+    const MPc = YL > 0 && uc >= 1 ? YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, run, P, E.Kq).L - T.L) / hc : 0;
+    const MPr = YL > 0 && ur >= urMax && urMax >= 1 ? YL * Math.max(0, labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq).L - T.L) / hr : 0;
+    let wf = 1, wc = 0, wr = 0;
+    if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, c = MPr ** 4, t = a + b + c; if (t > 0) { wf = a / t; wc = b / t; wr = c / t; } }
+    const RU = MPf === Infinity ? Infinity : sKL * Math.max(MPf / (P.DELTA_F + P.R_MIN), MPc / (P.DELTA_C + P.R_MIN), MPr / (P.DELTA_R + P.R_MIN)) / emb;
+    const gK = RU === Infinity ? 1 : sig(Math.log(Math.max(RU, 1e-300)) / P.W_INV), Ir = gK * Isave;
+    const Iall = Ie + Iq + Ir;
+    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Eu, Ef, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Iq, Ir, wf, wc, wr, Iall };
+  };
+  let st = plan(E.sInv ?? P.SAVE);
+  if (Math.abs(st.sReal - st.s) > 1e-5) {
+    let a = 0, b = P.SAVE;
+    for (let k = 0; k < 24; k++) { const m = 0.5 * (a + b), x = plan(m); if (x.sReal > m) a = m; else b = m; }
+    st = plan(0.5 * (a + b));
   }
-  // The rest: ordinary computing's share to compute, the remainder among fixed capital, compute
-  // and robots by their marginal products (each by a small difference in labour, so compute's
-  // includes the capability a bigger run buys: the loop from investment to capability to returns).
-  // Research's compute: R&D's share of output, as far as AI can do research (β_c), ahead of the rest.
-  const Iq = Math.min(Math.max(0, I - Ie), P.S_RD * Y * T.bc);
-  const Ir = Math.max(0, I - Ie - Iq), YL = T.L > 0 ? (1 - P.ALPHA) * Y / T.L : 0;
-  const hc = Math.max(1e-3 * E.Kc, 1), hr = Math.max(1e-3 * E.Kr, 1);
-  const MPf = E.Kf > 0 ? P.ALPHA * Y / E.Kf : Infinity;
-  const MPc = YL > 0 ? YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, aiOn, P, E.Kq).L - T.L) / hc : 0;
-  const MPr = YL > 0 ? YL * Math.max(0, labour(Lh, E.Kc, E.Kr + hr, z, aiOn, P, E.Kq).L - T.L) / hr : 0;
-  let wf = 1, wc = 0, wr = 0;
-  if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, c = MPr ** 4, t = a + b + c; if (t > 0) { wf = a / t; wc = b / t; wr = c / t; } }
+  const { Y, Ypot, Eo, T, run, Er, Eu, Ef, sup, need, Ie, Iq, Ir, wf, wc, wr } = st, avail = Ypot > 0 ? Y / Ypot : 1;
+  const Ies = ws > 0 ? wts.map(v => Ie * v / ws) : [0, 0, 0];
   const Ica = (1 - P.S_IT) * Ir * wc, Ic = P.S_IT * Ir + Ica, Ir_ = (1 - P.S_IT) * Ir * wr, If = (1 - P.S_IT) * Ir * wf;
   // Labs keep research's share of AI's compute: for each unit deployed, Q_R/(1 − Q_R) for training and research.
   const Iq2 = Math.min(If, P.Q_R / (1 - P.Q_R) * Ica), IfNet = If - Iq2;
@@ -371,9 +426,11 @@ export function industrialStep(E, { Lh, z }, dt, P) {
   E.flows = { f: IfNet, c: Ic, r: Ir_, e: Ie, q: Iq + Iq2 };
   E.Ke = E.Ke.map((K, s) => grow(K, Ies[s], P.DELTA_E));
   const burned = Math.min(E.S, Ef * YEAR_S * dt / P.J_PGC);
-  E.S -= burned; E.X += P.M_K * I * dt; E.I = I;
+  const Iall = st.Iall, Emat = em * P.M_K * Iall;
+  E.S -= burned; E.X += P.M_K * Iall * dt; E.I = Iall; E.sInv = st.s;
   E.sup = sup;
-  Object.assign(E, { Y, Ypot, avail, A, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, Ecomp, burned, Lh, z, eY, em, wc, wr });
+  Object.assign(E, { Y, Ypot, avail, A, run, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, eY, em, wc, wr,
+    sKL: st.sKL, lamE: st.lamE, gK: st.gK, gE: st.gE, grade, sReal: st.sReal });
   E.heat = (Ef + Eu) / AREA_M2;
   E.aer = dt > 0 ? -P.AER * (burned / dt) * Math.exp(-Math.max(0, z - P.Z_IND) / P.Z_SCRUB) : 0;
   return E;
