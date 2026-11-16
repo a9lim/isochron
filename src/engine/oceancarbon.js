@@ -257,6 +257,8 @@ export class OceanCarbon {
     this.Mw = OC.WARM * this.area * OC.H_WARM * OC.RHO;
     this.Mc = OC.COLD * this.area * OC.H_COLD * OC.RHO;
     this.Md = this.mass - this.Mw - this.Mc;
+    this.M0 = [this.Mw, this.Mc, this.Md];
+    this.left = 1;                    // the share of the sea's water still liquid (the runaway: `boilTo`)
     this.ppmMol = OC.PPM * OC.PG;
     this.in = {
       outgas: CARBON.V0,       // Pg C/yr from below: carbon.js's V less the provinces
@@ -272,6 +274,7 @@ export class OceanCarbon {
       iron: 1,                 // the cold box's uptake by the iron dust brings, against the opening's (src/engine/aeolian.js)
       subduct: OC.SUBDUCT,     // per yr, share of the seafloor consumed
       iceFree: 1,              // the cold box's open water, for gas exchange
+      wet: 1,                  // liquid water on land, for weathering (a runaway planet's surface is dry: src/engine/runaway.js)
       hyps: null,              // { depth: m, area: any unit }, the seafloor below the shelves
     };
     this.I = new Float64Array(7);     // mol: air C; DIC warm, cold, deep; ALK warm, cold, deep
@@ -338,7 +341,7 @@ export class OceanCarbon {
     }
     return {
       k, tDeep, T: OC.OVERTURN * SV * OC.RHO, Mcd: OC.MIX_CD * SV * OC.RHO, Mwd: OC.MIX_WD * SV * OC.RHO,
-      areaW: OC.WARM * this.area, areaC: OC.COLD * this.area * s.iceFree,
+      areaW: OC.WARM * this.area * this.left, areaC: OC.COLD * this.area * s.iceFree * this.left,
     };
   }
 
@@ -370,8 +373,8 @@ export class OceanCarbon {
     const gw = OC.KGAS * x.areaW * (p - cw.pco2), gc = OC.KGAS * x.areaC * (p - cc.pco2);
     let Fsil = 0, Fcw = 0, shelf = 0, deep = 0, perm = 0, src = 0, orgB = 0;
     if (!this.closed) {
-      Fsil = OC.PG * CARBON.V0 * s.wRel * Math.exp(CARBON.SENS * Math.log2(p / s.wCO2) / CARBON.TE) * Math.pow(p / CARBON.PCO2_0, CARBON.CO2_EXP);
-      Fcw = OC.PG * OC.CARBW * CARBON.V0 * s.carbW * Math.pow(p / this.p0, OC.CW_EXP);
+      Fsil = OC.PG * CARBON.V0 * s.wRel * s.wet * Math.exp(CARBON.SENS * Math.log2(p / s.wCO2) / CARBON.TE) * Math.pow(p / CARBON.PCO2_0, CARBON.CO2_EXP);
+      Fcw = OC.PG * OC.CARBW * CARBON.V0 * s.carbW * s.wet * Math.pow(p / this.p0, OC.CW_EXP);
       shelf = this.kShelf * (s.shelf / this.shelf0) * shelfRate(k[0].Ca * cw.co3 / k[0].Ksp);
       const b = x.rain, h = x.h, Cco3 = k[2].Ca * cd.co3, n = this.zb.length;
       for (let i = 0; i < n; i++) {
@@ -513,6 +516,28 @@ export class OceanCarbon {
   }
 
   /** A pulse of carbon into the air (Pg C). */
+  /**
+   * The sea boiled down to a share r of its water (the runaway, src/engine/runaway.js; synthesis):
+   * the boiled water's dissolved carbon degasses to the air, its alkalinity and phosphate stay
+   * behind as salts, and the boxes and their gas exchange shrink with it, so what's left keeps its
+   * chemistry. The steam raining back is fresh water. The last hundredth stays (a sea of no mass
+   * can't be solved).
+   */
+  boilTo(r) {
+    r = Math.min(1, Math.max(0.01, r));
+    const k = r / this.left;
+    if (Math.abs(k - 1) < 1e-9) return;
+    if (k < 1) {
+      const out = (1 - k) * (this.I[1] + this.I[2] + this.I[3]);
+      this.I[0] += out; this.cum.source += out;
+      for (let j = 1; j < 7; j++) this.I[j] *= k;
+      for (let j = 0; j < 3; j++) this.P[j] *= k;
+      this.pco2 = this.I[0] / this.ppmMol;
+    }
+    this.left = r;
+    [this.Mw, this.Mc, this.Md] = this.M0.map(m => m * r);
+  }
+
   pulse(PgC) {
     this.I[0] += PgC * OC.PG;
     this.cum.source += PgC * OC.PG;

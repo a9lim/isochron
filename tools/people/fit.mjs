@@ -10,35 +10,7 @@ export function fmtYears(y) {
   return `${s}${(a * 8766).toPrecision(3)} h`;
 }
 
-/**
- * y = C/(t* − t)^p fitted to the history's `key` from `from` on, weighted evenly in log(t* − t)
- * (each step by dt/(t* − t)), over t* from just past the end out to the span again; with the
- * exponential's R² on the same weights for comparison.
- */
-export function fitHyperbola(h, from, key) {
-  const pts = h.filter(x => x.t >= from && x[key] > 0);
-  if (pts.length < 10) return null;
-  const tEnd = pts.at(-1).t, span = tEnd - pts[0].t;
-  const reg = (xs, ys, ws) => {
-    let W = 0, mx = 0, my = 0;
-    for (let k = 0; k < xs.length; k++) { W += ws[k]; mx += ws[k] * xs[k]; my += ws[k] * ys[k]; }
-    mx /= W; my /= W;
-    let sxx = 0, sxy = 0, syy = 0;
-    for (let k = 0; k < xs.length; k++) { const dx = xs[k] - mx, dy = ys[k] - my; sxx += ws[k] * dx * dx; sxy += ws[k] * dx * dy; syy += ws[k] * dy * dy; }
-    const b = sxy / sxx;
-    return { b, a: my - b * mx, r2: 1 - (syy - b * sxy) / syy };
-  };
-  let best = null;
-  for (let k = 0; k <= 400; k++) {
-    const tStar = tEnd + span * Math.pow(10, -8 + 8 * k / 400);
-    const xs = pts.map(x => Math.log(tStar - x.t)), ys = pts.map(x => Math.log(x[key])), ws = pts.map(x => x.dt / (tStar - x.t));
-    const r = reg(xs, ys, ws);
-    if (!best || r.r2 > best.r2) best = { tStar, p: -r.b, r2: r.r2, ws };
-  }
-  const e = reg(pts.map(x => x.t), pts.map(x => Math.log(x[key])), best.ws);
-  best.r2exp = e.r2; delete best.ws;
-  return best;
-}
+export { fitHyperbola } from '../../src/engine/peoplefit.js';
 
 /**
  * The dial set so a doubling of the minds takes `secs` seconds, within the dial's range

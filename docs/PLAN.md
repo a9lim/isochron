@@ -537,7 +537,7 @@ Agents, polities, war, named cultures, tech trees and ages (they turn fields int
 
 ### Open for a9
 
-- The endpoint is decided (Decisions, the ending: four by chance). Open: the draw's odds (even on each axis by default); how the People view reads (v2.0); and the planet's own runaway state (its climate holds to F_LIVE_MAX). (A kept Earth now keeps half its people: v2.0, Both ways.)
+- The endpoint is decided (Decisions, the ending: four by chance). Open: the draw's odds (even on each axis by default); how the People view and Fig. 8 read; the v2.1 calibration of the industrial era (research's falling yield and AI's refitted efficiencies). (A kept Earth now keeps half its people: v2.0, Both ways; the runaway is the planet's own: v2.1.)
 
 ### The prototype
 
@@ -765,12 +765,40 @@ Both sides of the food capacity are logistics, solved exactly; an oracle checks 
 - **Both ways** (a9, after v2.0: "offworlders migrate back to earth too"). The off-world come back at 0.1% a year by choice as well, in proportion to Earth's habitability (`R_RET`); the exchange is stepped exactly as two states (off-world relaxes to a/(a + b) of everyone over 1/(a + b)), the returning spread over Earth's cells as its people are. A kept Earth (2b) settles at half its people: headless (earthlike, 2b forced) 2.90 B on Earth and 0.88 off-world at +300 years, 1.92 and 1.51 at +900, 1.61 and 1.68 at +1,900, off-world ahead by 4–13% after (Earth's crowding, below; the exodus event fires at +1,700 on a hair's margin). 2a is as it was: Earth's failing habitability takes the return with it (Earth empty at +26, 4.02 B off-world). The total drifts down ~0.012% a year: Earth's births sit at replacement and its crowding, at the room bought (a twentieth of its capacity), costs 0.025% a year, while the off-world are neither born nor die.
 - **A steady step past the fine stretch.** The headless runs stopped at +300 years. Run on, the step doubled to 500 years and the economy oscillated, energy collapsing and recovering a step apart and the people reaching tens of billions (the committed v2.0 as well: 63 B by +3,000). From early takeoff a step is now at most 10 years (`DT_ECON`; at 50 it still ran away): 2b to +6,000 years holds energy at 3.5–3.8 × 10¹³ TW. On the page the steps were already short (the follow dial's owed years), but a hand-set fast dial would have let them grow.
 
-Next, in order:
-1. **The planet's runaway** (its climate past 30 W/m², a dry planet's climate once the sea has boiled) and the people's side of it.
-2. **A figure of the people** (people and minds on log time to t*, the events marked; the spindle diagram of the lineages) in the margin.
-3. **The industrial era's weight** (energy and carbon at early takeoff against Earth's), and the people's numbers through it.
-4. **Soil within a cell** and **the ore map**.
-5. **The experiments' numbers** from runs (Carbon budget, Long Anthropocene, Kremer's continents, Axes, Dispersal), then surveys across seeds and their draws.
+Next was, in order: the planet's runaway; a figure of the people; the industrial era's weight; soil within a cell and the ore map; the experiments' numbers. All five are v2.1.
+
+**v2.1 (2026-11-16): the five, built.** a9: "particularly 1, 3, and 4 -- but all 5 sound great... let's build em".
+- **The planet's runaway** (`src/engine/runaway.js`; AGENTS.md, "How the runaway works"). The energy balance's OLR saturates toward the Simpson–Nakajima limit (~282 W/m², Goldblatt and others 2013, from memory) along a parabola from a 25 °C mean, entered as a uniform forcing (`CLIMATE.F_OLR`, zero below the knee, so the opening is untouched). Past the limit the excess boils the sea on the planet's own books, the surface following the steam (Clausius–Clapeyron to the critical point, then to ~1,500 K), and the steam rains back if the forcing falls. `F_LIVE_MAX` is gone: the people's forcing goes in whole, and live they read the planet's boiled share and warming. The boiled water's carbon degasses (`OceanCarbon.boilTo`), weathering stops on ground past ~100 °C, the plants' cover fails past a 38–46 °C annual mean, and a pale wash over the globe reads the steam's pressure. Headless (level 5): +20 W/m² settles at 25.5 °C, +35 at 36 °C, +45 at the limit; +1,000 boils ~4% a decade, 184 °C at 11 bar, 265 °C at 56 bar. On the page (1a): 36% boiled at +93 years, all of it by ~+240, 1,226 °C under 270 bar. (The first page run's CO₂ fell to 15 ppm on the dry planet, weathering's frozen map and the sea's boxes still drawing it down: hence the degassing and the dry weathering.)
+- **Fig. 8** (`src/engine/peoplefit.js`, `drawPeople`; its own margin tab in the People experiments): people (solid) and minds (dashed) on log scales against log₁₀(t* − t), t* the minds' hyperbola fitted from the first tip to the dial (the people's where the minds' fit is poor), the fit dotted over its window, the first tip, farming, industry, early takeoff and the dial ruled through; below, the lineages as spindles on the same axis, log-thick with their numbers, splits and merges ruled. The people's thread fits a thinned record once a second (~5 ms). `fitHyperbola` moved from tools/people/fit.mjs (which re-exports it).
+- **The industrial era's weight.** At early takeoff the model had 3–4 B people, 7–18 TW, 87–144 Pg C burned and ~290–320 ppm. Industry's first ~250 years crawled (output under half a subsistence-year a person), then everything came in the last ~100: culture grew 0.06–0.09 a year at takeoff (productivity 5–9%/yr; Earth's ~1–2%), because research intensity (up to 3× a person's minds, `S_R_MAX`) tripled Kremer's rate, and capital stayed at 1.5× output. Lowering industrial productivity's elasticity alone (`THETA_I`) made it worse (0.8: 4.5 TW, 72 Pg C). What fixed it: research intensity capped at a subsistence-year's (`S_R_MAX` 1; Kremer's A then gives Earth's 1960 rate at 3 B), people's research yielding less past industry's culture (`BETA_R` 0.25, ideas getting harder to find: Bloom and others 2020, from memory; on all research it stretched early takeoff to the dial from 5.6 to 10–12 years, so AI's minds keep their full yield), `THETA_I` 0.85, energy intensity falling more slowly (`Z_EFF` 2.7 → 5.5: ~100 W per sy/yr at takeoff), and industry's breeding carrying crops beyond their climates (`BREED` 0.5). Culture's slower growth at takeoff (0.035 against 0.056 a year) slowed AI's algorithms with it, so `THETA_C` and `THETA_AI` went 25 → 40, restoring the measured pace: early takeoff to the dial 5.7–7.8 years (5.6 before). At early takeoff (2b forced):
+
+  | | earthlike | b | c | Earth now, from memory |
+  |---|---|---|---|---|
+  | after industry | 243 yr | 365 yr | 350 yr | ~245 yr |
+  | people | 8.9 B | 9.2 B | 8.6 B | ~8 B |
+  | energy | 25 TW | 28 TW | 24 TW | ~19 TW |
+  | carbon burned | 409 Pg C | 564 Pg C | 370 Pg C | ~500 Pg C |
+  | CO₂ (cached planet) | 450 ppm | 511 ppm | 433 ppm | ~420 ppm |
+  | goods a person | 27 sy | 29 sy | 27 sy | ~20–25 sy |
+  | K/Y | 2.2 | 2.4 | 2.2 | ~3–4 |
+
+  The endings at +300 years (earthlike): 1a everyone dead and the oceans gone; 1b 0.59 B people with no control; 2a 8.8 B off-world; 2b 6.4 B on Earth and 1.9 B off-world, CO₂ back to 281 ppm, 628 Pg C burned in all. Capital is still under Earth's (s/(g + δ) at ~6%/yr of growth).
+- **Soil within a cell** (`fieldSoil`; synthesis on a catena): the land ranked best first, its soil's depth and its slope each exponentially distributed about the cell's mean, farmers taking the best share f first. The fields hold h̄ (1 − ln f) less a deficit of their own; their tillage is ∝ (1 − f) ln(1 − f) + f, little while they keep to the bottoms and all of it as they climb the hills; the deficit grows at the fields' rate × (1 − f) and refills over 2 kyr.
+- **The ore map** (`oreMap`; synthesis on standard associations, from memory): porphyry metals over arcs (`tec.arc`), iron in the planet's older crust (felsic, past the land's median age: genesis dates the continents, so the ages are this planet's), placers where rivers cut relief, each against its land mean, lognormal per cell as the coal. Industry starts where coal and ore are both within reach (half the land's mean reach of ore, softly; ~54% of land cells pass), and the world's rich ores are the map's against the default planet's (b 0.97, c 0.98). The cached planets carry the geology (cache v4: arc, felsic fraction, crust age).
+- **The experiments** (`src/engine/peopleexp.js`, measured on the people's thread, the number first in the caption):
+  - **Dispersal** (knob: dispersal, km²/yr): the first hominins' front, where they pass half the land's capacity, as a cap's radius, against Fisher's 2√(rD) on even ground. On the page (earthlike): 0.29 km/yr against 0.57: relief, deserts and cold halve it (the oracle on a uniform planet holds within 7%). The dial holds at 1 kyr/s for the spread, then follows the people.
+  - **Kremer's continents** (knob: culture's loss, Tasmania's): each landmass's mean culture against its balance A M/λ.
+  - **Axes** (knob: how tightly crops keep to their climate, `W_PKG`): the first package's spread east–west and north–south.
+  - **Carbon budget** (knob: the fossil carbon; AI held out of reach, `X20` 99): carbon burned, peak CO₂, the share in the air 1, 10 and 100 kyr after the emissions peak, against the Pulse's theory for the same carbon (the engine computes it on its sea when the burning ends).
+  - **Takeoff** (knob: the tasks' elasticity, how far AI substitutes for people): early takeoff to the dial, and the minds' t* with a seeded bootstrap's 5–95% interval.
+  - **Radiator** (knob: the sacrificed heat budget, ending 1a forced): the waste heat, the forcing and the planet's warming against F/B, and the runaway when it comes.
+  - **Long Anthropocene** isn't built: it wants ice ages that swing, and methane.
+
+Next:
+1. **The off-world's numbers**: off-world people born and dying as Earth's (now they are neither, so the total drifts down ~0.012%/yr in 2b's long run).
+2. **Capital's weight** (K/Y 2.2–2.4 against Earth's 3–4: wear at ~4%/yr, or the growth rate).
+3. **A runaway's end** (the carbonates baked out into a CO₂ atmosphere, as Venus's): out of the carbon cycle's range now.
+4. **Surveys** across seeds and the endings' draws, and the experiments' numbers on each.
 
 ## Open decisions
 

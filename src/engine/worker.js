@@ -43,6 +43,7 @@ import { PLUMES } from './plumes.js';
 import { VOLC } from './volcanoes.js';
 import { Year, YEAR } from './year.js';
 import { monthAt } from './orbit.js';
+import { pulseTheory } from './pulse.js';
 import { accumulatePass } from './landscape.js';
 import { NZ } from './climate.js';
 import { surfaceFields, lakeFields } from '../render/surface.js';
@@ -391,7 +392,11 @@ let people = null;
 function startPeople(port) {
   const level = peopleLevel(P.grid.level), T = level < P.grid.level ? makeTransfer(P.grid, buildGrid(level)) : null;
   people = { port, T, link: new PeopleLink(P, T), sentVersion: -1, lastAir: 0, soil: new Float32Array(T ? T.coarse.n : P.grid.n) };
-  port.onmessage = e => { if (e.data.type === 'writeback') people.link.receive(e.data); };
+  port.onmessage = e => {
+    if (e.data.type === 'writeback') people.link.receive(e.data);
+    // The Carbon budget's theory: the Pulse's shares for the carbon burned, on the sea as it is now.
+    else if (e.data.type === 'theory') port.postMessage({ type: 'theory', ...pulseTheory(P.carbon.sea, e.data.PgC) });
+  };
   sendPeopleFields();
 }
 /** The planet's fields on the people's grid, once a climate cycle has run and after each. */
@@ -408,7 +413,7 @@ function sendPeopleAir() {
   if (!people || performance.now() - people.lastAir < 250) return;
   people.lastAir = performance.now();
   const soil = soilOf(P, new Float32Array(people.soil.length), people.T);
-  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil }, [soil.buffer]);
+  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil, boiled: P.runaway.b, meanT: P.climate.stats.meanT }, [soil.buffer]);
 }
 
 function sendFast(first) {
@@ -422,7 +427,7 @@ function sendFast(first) {
     iceH: Float32Array.from(ice.H), iceVel: drawnFlow(ice), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out),
       sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 }, pulse: carbon.tag ? carbon.tag.info : null },
-    life: { ...P.life.stats },
+    life: { ...P.life.stats }, runaway: P.runaway.stats(),
     people: people ? { ...people.link.stats, F: people.link.F, fieldsMs: people.fieldsMs || 0 } : null,
     landFlux: { ...land.flux },
     regolith: { ...P.regolith.stats, ...P.regolith.budget }, flex: P.crustFlex ? { ...P.crustFlex.stats } : null,

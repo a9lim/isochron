@@ -122,6 +122,7 @@ export const CLIMATE = {
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
   F_VOLC: 0,               // W/m²: the volcanoes' mean forcing against the opening's (src/engine/volcanoes.js)
   F_PEOPLE: 0,             // W/m²: the people's waste heat and sulfate (src/engine/peoplelink.js; CO₂'s comes with the carbon)
+  F_OLR: 0,                // W/m², uniform: the outgoing longwave's departure from A + BT as it saturates, and the steam's (src/engine/runaway.js; set before each step)
   // The energy balance's fixed point (absorbed sunlight reads the temperature through snow and
   // sea ice), by Anderson's mixing over the last EBM_DEPTH steps (`energyBalance`): a cycle steps
   // until a step moves T by less than EBM_TOL (K rms over the year and the globe), at most
@@ -538,6 +539,28 @@ export class Climate {
     }
   }
 
+  /** The forcing outside the sunlight: CO₂, the volcanoes' mean, the people's (W/m²). */
+  externalForcing() { const C = CLIMATE; return 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE; }
+
+  /**
+   * Before each energy-balance step: the outgoing longwave's departure from A + BT as it
+   * saturates, or the steam's (src/engine/runaway.js), from the last step's mean absorbed
+   * sunlight. Zero below the curve's knee, and with no runaway attached (headless climate alone).
+   */
+  olrCorrection() {
+    const C = CLIMATE;
+    C.F_OLR = this.runaway && this.absMean !== undefined ? this.runaway.correction(this.absMean, this.externalForcing(), C.A, C.B) : 0;
+    this.forcingUsed = this.externalForcing() + C.F_OLR;
+  }
+
+  /** After each step: its mean absorbed sunlight, from the annual mean's global balance, A + B T̄ = Ā + the forcing (the transport sums to nothing). */
+  olrMeasure() {
+    const C = CLIMATE, a = this.coarse.area, T = this.Tc[0];
+    let s = 0, w = 0;
+    for (let I = 0; I < a.length; I++) { s += a[I] * T[I]; w += a[I]; }
+    this.absMean = C.A + C.B * s / w - this.forcingUsed;
+  }
+
   /** The energy balance: absorbed sunlight from the last state, then the five harmonic solves. */
   *ebm() {
     const C = CLIMATE, g = this.grid, n = g.n, cg = this.coarse, nc = cg.n;
@@ -572,7 +595,7 @@ export class Climate {
     restrict(this.T, Cf, cap);
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);
-    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE;
+    const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE + C.F_OLR;
     const sv = C.EBM_CG, tol = this.warm ? sv[0] : sv[2], maxIt = this.warm ? sv[1] : sv[3];
     // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
     for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }
@@ -695,7 +718,9 @@ export class Climate {
     }
     if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
     for (let it = 0; it < maxIt; it++) {
+      this.olrCorrection();
       if (gpu) yield gpu.step(Tc, this.warm); else yield* this.ebm();
+      this.olrMeasure();
       for (let k = 0; k < 5; k++) g.set(Tc[k], k * nc);
       // Remember (x, G(x)) as the residual f = G(x) − x and G(x), oldest first.
       if (ws.hist === m + 1) { hg.push(hg.shift()); hf.push(hf.shift()); ws.hist--; }

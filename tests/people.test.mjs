@@ -149,7 +149,7 @@ test('fixed capital settles at the Solow balance, K/Y = s/δ', () => {
   }
   assert.ok(E.wc < 1e-3 && E.wr < 1e-3, `next to no AI compute or robots well below Z_AI (${E.wc.toExponential(2)}, ${E.wr.toExponential(2)})`);
   assert.ok(Math.abs(E.Kf * P.DELTA_F / If - 1) < 0.02, `K δ ${(E.Kf * P.DELTA_F).toExponential(3)} against what's saved for it ${If.toExponential(3)}`);
-  const A = P.A_I0 * Math.exp(P.THETA * (x.z - P.Z_IND)), sf = If / E.Y;
+  const A = P.A_I0 * Math.exp(P.THETA_I * (x.z - P.Z_IND)), sf = If / E.Y;
   const Kstar = Math.pow(sf * A / P.DELTA_F, 1 / (1 - P.ALPHA)) * x.Lh;
   assert.ok(Math.abs(E.Kf / Kstar - 1) < 0.02, `K ${E.Kf.toExponential(3)} against (s A/δ)^{1/(1−α)} L ${Kstar.toExponential(3)}`);
   assert.ok(E.avail > 0.999, `energy meets demand (${E.avail})`);

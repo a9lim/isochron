@@ -41,7 +41,9 @@
 //             memory) until industry's energy lifts it; f the farmed share, s the package's
 //             suitability, Y_soil = 1 − e^{−h/H_YIELD} the soil's yield, CO₂'s fertilization.
 //   soil      a renewable stock: the regolith h, made by Heimsath's production and stripped by the
-//             rivers and by tillage, E_TILL f (slope/S_REF) e^{−(z − Z_FARM)/Z_CONS} (10–100× the
+//             rivers and by tillage; within a cell the land is ranked (deep, flat bottoms first),
+//             so the fields hold h̄ (1 − ln f) less a deficit of their own, and their tillage is
+//             E_TILL ((1 − f) ln(1 − f) + f)(s̄/S_REF) e^{−(z − Z_FARM)/Z_CONS} (10–100× the
 //             geological rate on slopes, Montgomery 2007, from memory; conservation with culture,
 //             synthesis), stepped exactly (`regolithStep`): held here on the cached planet, the
 //             planet's own regolith when live.
@@ -53,8 +55,9 @@
 //             (z ≥ Z_FARM) and have domesticates (the zones' seasonally dry climates: after Blumler
 //             via Diamond, from memory); packages spread by contact, slowed by the climate's
 //             distance from where they began.
-//   industry  starts where z passes Z_IND near coal (the fossil map seeded on the opening's lowland
-//             basins and shelves, a9, 2026-11-15), then spreads by contact. One world economy
+//   industry  starts where z passes Z_IND near coal and ore (the fossil map seeded on the opening's
+//             lowland basins and shelves, a9, 2026-11-15; the ore map on its arcs, old crust and
+//             cut relief, `oreMap`), then spreads by contact. One world economy
 //             (`industrialStep`): Y = A(z) K^α L^{1−α} (standard forms; α ⅓, saving ¼), held to the
 //             energy it gets (a CES of low elasticity against the capital–labour bundle, the
 //             intensity falling with z); fixed capital (δ 5%/yr), energy capital for fossil carbon
@@ -120,6 +123,7 @@ export const PEOPLE = {
   // Soil (a renewable stock)
   H_YIELD: 0.3,                    // m: the yield's e-folding in soil depth (topsoil)
   E_TILL: 1, S_REF: 0.005, Z_CONS: 2,   // mm/yr of tillage's erosion at slope S_REF, falling e-fold per Z_CONS of culture past Z_FARM
+  T_REFILL: 2000,                  // yr: the soil's production refilling the fields' deficit (~0.1 mm/yr near the surface, Heimsath's, from memory)
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
@@ -130,10 +134,11 @@ export const PEOPLE = {
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   // Ideas
   THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
+  BETA_R: 0.25,                    // ideas get harder to find past industry's culture: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
   L_C0: 50, Z_L: 1.5, L_CMAX: 2e4,  // contact length (km) at g + z = 0, ×e per Z_L, at most
   V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of culture
   COPY: 2e-3, ACC: 2e-3,           // copying better neighbours, and other lineages in the cell (/yr at z = 0)
-  RHO_R: 0.5, S_R_MAX: 3,          // research intensity ∝ y^ρ, capped
+  RHO_R: 0.5, S_R_MAX: 1,          // research intensity ∝ y^ρ, capped at a subsistence-year's: a rich people's larger research share is offset by research's falling yield (BETA_R), so Kremer's A holds at Earth's 1960 (~1.8%/yr of productivity at 3 B; 3 at 3× gave the industrial era ~5–9%/yr at takeoff, and 90–220 Pg C burned by then)
   Z_BOAT: 1.5, L_SEA: 300, HOPS: 6, // sea crossings: the reach (km per unit z past Z_BOAT); cells of sea a crossing spans at most
   // The trait (speculation: social reach as a clock)
   V_G: 2e-3, T_GEN: 25, S_BG: 0.04, NE_SHARE: 0.1, G_MAX: 9,   // the trait lengthens contact, up to G_MAX (ℓ at L_CMAX)
@@ -143,14 +148,16 @@ export const PEOPLE = {
   MERGE: 0.5, T_MERGE: 50e3,       // lineages sharing this much of the smaller's range for T_MERGE become one
   // Farming
   Z_FARM: 3, W_FARM: 0.25, H_FARM: 2e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, W_PKG: 2,
+  BREED: 0.5,                      // industry's breeding: the suitability's exponent × (1 − BREED × industry's share)
   DOMESTIC: { Af: 0.1, Am: 0.2, Aw: 0.5, As: 0.5, BS: 0.5, Cf: 0.3, Cs: 1, Cw: 0.7, Df: 0.1, Ds: 0.2, Dw: 0.2 },
   // Industry: where it starts and how it spreads
   Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
+  ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
   // The industrial economy (standard forms; Earth's values from memory)
-  A_I0: 0.7, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), capital's share, saving, workers' share
+  A_I0: 0.7, THETA_I: 0.85, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), ×e^{THETA_I} per unit of culture past it, capital's share, saving, workers' share
   DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
-  E_SUB: 200, Z_EFF: 2.7, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~80 at Earth's present), falling toward E_MIN_Y e-fold per Z_EFF
+  E_SUB: 200, Z_EFF: 5.5, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~100 at the takeoff, as Earth's ~19 TW over ~8 B × ~22 sy now), falling toward E_MIN_Y e-fold per Z_EFF
   SIGMA_E: 0.3, W_E: 0.07,                          // energy against the capital–labour bundle: elasticity (standard estimates ~0.1–0.6) and energy's cost share (~6–8% of world output); both from memory
   R_EF0: 1000, R_ER0: 1500, R_EU0: 1000,            // W per sy of energy capital: fossil (full stock, × √ of what's left), renewables and fusion when mature (solar near parity with fossil at Earth's present, from memory)
   Z_REN: 11.5, W_REN: 0.5, Z_FUS: 12.5, W_FUS: 0.5, // where renewables and fusion come of age: fossil carbon is still the cheaper delivered energy at the takeoff's start (Z_AI), as on Earth now (a9)
@@ -160,10 +167,10 @@ export const PEOPLE = {
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
   // AI (speculation): capability from effective compute, labour from compute, bodies from robots
   Z_AI: 10.35, B_MAX: 1, SIGMA: 0.5,                // culture where AI's efficiencies are referenced (early takeoff lands near it, at Earth's ~20–25 sy a person); the automatable share's most; the tasks' elasticity
-  X20: 8.7, THETA_C: 25, FLOP_GAP: 4,               // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr
+  X20: 8.7, THETA_C: 40, FLOP_GAP: 4,               // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr
   GAP_P: 1.5, PHI: 0.5, SIGMA_G: 0.5,               // physical tasks need GAP_P orders more (Moravec, speculation); their share of production's tasks (~half, from memory); cognitive against physical, elasticity
   S_IT: 0.05,                                       // ordinary computing's share of investment past energy (compute exists before AI pays)
-  X_AI: 1e-3, THETA_AI: 25, X_MAX: 1e4, W_C: 12,  // labour-equivalents per sy of compute at Z_AI, ×e per 1/θ_AI (the same algorithms and hardware: inference's cost at a fixed capability falls ~10×/yr or faster, from memory), at most; its power (W/sy)
+  X_AI: 1e-3, THETA_AI: 40, X_MAX: 1e4, W_C: 12,  // labour-equivalents per sy of compute at Z_AI, ×e per 1/θ_AI (the same algorithms and hardware: inference's cost at a fixed capability falls ~10×/yr or faster, from memory), at most; its power (W/sy)
   S_RD: 0.03, Q_R: 0.4,                             // research's share of output (Earth's R&D ~2.5% of GDP, from memory), spent on compute as far as AI can do research (β_c); and research's share of AI's compute (training and research against deployment, speculation)
   C_R0: 50, Z_RC: 2, DELTA_R: 0.1, W_R: 400,        // a robot's body: sy at Z_AI (a humanoid's ~$25k, from memory), cheaper e-fold per Z_RC; wear /yr; its power (W)
   // Food bought with energy, space, and the endings (speculation; docs/PLAN.md, v1.4)
@@ -174,7 +181,7 @@ export const PEOPLE = {
   HEAT_SAC: 1000, HEAT_PRES: 0.1,                   // Earth's heat budget (W/m²) as AI comes to run things: sacrificed (Earth a radiator at ~385 K: the oceans boil) or preserved (heavy industry off-world)
   T_CDR: 30, J_CDR: 2.2e19,                         // preserved: CO₂ drawn back to CO2_0 over T_CDR years at J_CDR J a Pg C (direct air capture, ~6 GJ a t CO₂, from memory), sulfate holding the forcing at none meanwhile
   F_RUN: 40, E_BOIL: 3.7e27, T_HAB: 12,             // the runaway greenhouse's forcing (W/m²: absorbed past ~282 W/m², Goldblatt and others 2013, from memory); the heat that boils the oceans away (J: 1.4e21 kg from 15 °C, standard); the warming that leaves half the land unlivable (wet bulbs past 35 °C: Sherwood and Huber 2010, ~11–12 K, from memory)
-  R_VOL: 1e-3, R_RET: 1e-3, R_MIG: 0.5, W_HAB: 1e4, F_LIVE_MAX: 30,   // aligned: Earth's people leaving for space a year by choice, and off-world's coming back by choice (× Earth's habitability: half and half where it's whole; a9: "offworlders migrate back to earth too"), and leaving as Earth's habitability fails; W a person off-world; the most forcing the live planet's climate is given (past it the runaway is the people's to count)
+  R_VOL: 1e-3, R_RET: 1e-3, R_MIG: 0.5, W_HAB: 1e4,   // aligned: Earth's people leaving for space a year by choice, and off-world's coming back by choice (× Earth's habitability: half and half where it's whole; a9: "offworlders migrate back to earth too"), and leaving as Earth's habitability fails; W a person off-world (live, the runaway and the warming are the planet's: src/engine/runaway.js)
   // Energy and heat
   B_EBM: 2.09, SUN_ABS: 1.2e17, F_SUN: 0.05, HEAT_MAX: 11.8,   // B (W m⁻² K⁻¹); absorbed sunlight (W); surface renewables' most; the heat fossil carbon and fusion may add (W/m²)
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
@@ -335,13 +342,14 @@ export function newEconomy(P) {
 export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0 }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
-  const A = P.A_I0 * ex(P.THETA * (z - P.Z_IND));
+  const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND));
   const T0 = labour(Lh, E.Kc, E.Kr, z, 1, P, E.Kq);
   // Energy: compute's power, materials' for building, output's (its intensity falling with z).
   const eY = P.E_MIN_Y + (P.E_SUB - P.E_MIN_Y) * Math.exp(-(z - P.Z_IND) / P.Z_EFF);
   // Ores' grades fall smoothly past the crust's rich ones (Skinner's barrier as a gap in the grades' distribution).
-  const grade = 1 - (1 - P.G_B) * Math.log10(1 + softMin(E.X, P.X_CRUST, 4) / P.X_SCALE) / Math.log10(1 + P.X_CRUST / P.X_SCALE);
-  let em = P.E_M0 / grade * (1 + (P.SKINNER - 1) * sig((E.X - P.X_CRUST) / (0.25 * P.X_CRUST)));
+  const XC = P.X_CRUST * (E.oreRich ?? 1);   // this planet's rich ores (the ore map's richness)
+  const grade = 1 - (1 - P.G_B) * Math.log10(1 + softMin(E.X, XC, 4) / P.X_SCALE) / Math.log10(1 + XC / P.X_SCALE);
+  let em = P.E_M0 / grade * (1 + (P.SKINNER - 1) * sig((E.X - XC) / (0.25 * XC)));
   // Off-world industry: space solar (no heat on Earth), and materials from asteroids.
   const aS = sig((z - P.Z_SPACE) / P.W_SPACE), rs = P.R_ES0 * aS;
   em = em * (1 - aS) + Math.min(em, P.E_SPACE) * aS;
@@ -489,15 +497,16 @@ export class People {
     this.planet = planet;
     this.rng = stream(planet.seed, 'people');
     this.t = 0; this.events = []; this.history = []; this.lineages = []; this.nextId = 0;
-    this.index(); this.rates(planet); this.graph(); this.fossilMap();
+    this.index(); this.rates(planet); this.graph(); this.fossilMap(); this.oreMap();
     const nL = this.nL;
-    this.soil = new Float64Array(nL);
+    this.soil = new Float64Array(nL); this.dField = new Float64Array(nL);   // the regolith's mean (m); the fields' deficit past it (m)
     for (let c = 0; c < nL; c++) this.soil[c] = planet.reg ? planet.reg[this.cells[c]] : 1;
     this.Ef = new Float64Array(nL);
     this.f = new Float32Array(nL); this.pkg = new Int16Array(nL).fill(-1); this.packages = [];
     this.ind = new Float32Array(nL);
     this.Ntot = new Float64Array(nL); this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
     this.econ = newEconomy(this.P);
+    this.econ.oreRich = this.oreRich;
     this.env = new CachedEnv(this);
     this.flags = {}; this.co2 = this.P.CO2_0; this.O = 0; this.people = 0; this.lastRate = 0; this.emitted = 0;
     this.forcing = { heat: 0, aer: 0, geo: 0 };
@@ -657,6 +666,53 @@ export class People {
     }
   }
 
+  // The ores (synthesis on standard associations, from memory): porphyry metals over arcs, iron
+  // in old continental crust (the cratons' banded iron), placers where rivers cut relief. Each
+  // setting is taken against its mean over the land, the three weighted alike, and each cell's
+  // share is lognormal about its weight, as the coal's. Ore within reach is its resolvent, as the
+  // coal's: industry starts where coal and ore meet (Coalbrookdale's), and the world's rich ores
+  // (X_CRUST) are this planet's against the default planet's, per area of land (`oreRich`).
+  oreMap() {
+    const P = this.P, pl = this.planet, H = this.H, { nL, cells, E } = this, r = stream(pl.seed, 'people:ore');
+    const parts = [new Float64Array(nL), new Float64Array(nL), new Float64Array(nL)], mean = [0, 0, 0];
+    let A = 0;
+    // Old crust: older than the land's median, full at its 90th percentile (genesis dates the
+    // continents, so the ages are this planet's own; Earth's banded iron is its oldest crust's).
+    const ages = pl.age ? Array.from(cells, i => pl.age[i]).sort((a, b) => a - b) : [0, 1];
+    const a50 = ages[Math.floor(0.5 * ages.length)], a90 = ages[Math.floor(0.9 * ages.length)];
+    for (let c = 0; c < nL; c++) {
+      const i = cells[c], a = H.area[c];
+      parts[0][c] = pl.arc ? Math.min(3, pl.arc[i]) : 0;
+      parts[1][c] = pl.phi && pl.age ? pl.phi[i] * Math.min(1, Math.max(0, (pl.age[i] - a50) / Math.max(1, a90 - a50))) : 0;
+      parts[2][c] = Math.sqrt(Math.max(0, pl.discharge[i])) * H.slope[c];
+      for (let k = 0; k < 3; k++) mean[k] += a * parts[k][c];
+      A += a;
+    }
+    const dens = this.ore = new Float64Array(nL);
+    let s = 0;
+    for (let c = 0; c < nL; c++) {
+      let w = 0;
+      for (let k = 0; k < 3; k++) if (mean[k] > 0) w += parts[k][c] / (mean[k] / A) / 3;
+      dens[c] = w * Math.exp(1.2 * r.normal() - 0.72);   // the lognormal's mean is 1
+      s += H.area[c] * dens[c];
+    }
+    // Richness: each setting's mean over the land against the default planet's, averaged.
+    this.oreMeans = mean.map(m => m / A);
+    this.oreRich = this.oreMeans.reduce((a, m, k) => a + m / P.ORE_REF[k], 0) / 3;
+    const k = A / Math.max(s, 1e-30);
+    for (let c = 0; c < nL; c++) dens[c] *= k;
+    const reach = this.oreReach = Float64Array.from(dens);
+    for (let it = 0; it < 40; it++) for (let c = 0; c < nL; c++) {
+      let acc = dens[c];
+      for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) acc += 0.85 / this.H.deg[c] * reach[E.nb[o]];
+      reach[c] = acc;
+    }
+    // Within reach against the land's mean reach, so ORE_MIN is a share of it.
+    let rm = 0; for (let c = 0; c < nL; c++) rm += H.area[c] * reach[c];
+    rm /= A;
+    for (let c = 0; c < nL; c++) reach[c] /= rm;
+  }
+
   // ---- Lineages ---------------------------------------------------------------------------
   newLineage(parent, born, g) {
     const nL = this.nL, id = this.nextId++;
@@ -687,7 +743,14 @@ export class People {
 
   // ---- The step ---------------------------------------------------------------------------
   coldOK(c, z) { const P = this.P; return sig((this.H.Tc[c] - (P.T_COLD0 - P.K_COLD * z)) / P.W_COLD); }
-  soilYield(c) { return 1 - Math.exp(-this.soil[c] / this.P.H_YIELD); }
+  /**
+   * Soil within a cell (synthesis on a catena): the land ranked best first, its soil's depth and
+   * its slope each exponentially distributed about the cell's mean (deep and flat in the bottoms,
+   * thin and steep on the hills), farmers taking the best share f first. The fields' mean depth is
+   * then h̄ (1 − ln f), less what tillage has taken from the fields beyond the cell's mean (`dField`).
+   */
+  fieldSoil(c) { return Math.max(0, this.soil[c] * (1 - Math.log(Math.max(this.f[c], 0.02))) - this.dField[c]); }
+  soilYield(c) { return 1 - Math.exp(-this.fieldSoil(c) / this.P.H_YIELD); }
   capacity(L) {
     const P = this.P, H = this.H, nL = this.nL, f = this.f, ind = this.ind, eg = Math.exp(P.K_G * L.g);
     // K at each cell's own culture, and K2 at the lineage's best (what its migrants could make of a
@@ -723,7 +786,10 @@ export class People {
     if (q < 0) return 0;
     const o = this.packages[q].zv, zv = this.H.zv; let s = 0;
     for (let k = 0; k < 14; k++) s += o[k] * zv[14 * c + k];
-    return Math.pow(Math.max(0, s), this.P.W_PKG);
+    // Industry's breeding and inputs carry crops into climates their ancestors didn't know (maize's
+    // and wheat's ranges now, from memory): the climate's distance counts less where industry is.
+    const ind = this.ind ? this.ind[c] : 0;
+    return Math.pow(Math.max(0, s), this.P.W_PKG * (1 - this.P.BREED * ind));
   }
   reachL(gz) { const P = this.P; return softMin(P.L_C0 * Math.exp(Math.min(Math.max(0, gz) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
@@ -933,11 +999,13 @@ export class People {
       }
     }
     // The runaway greenhouse and the oceans; Earth's habitability (on the cached planet its climate's
-    // warming, F/B; live, only the forcing past what the planet's own climate is given).
+    // warming, F/B; live, the planet's own warming since the people began).
     const Fc = 5.35 * Math.log(Math.max(this.co2, 1) / P.CO2_0), Fh = this.forcing.heat + this.forcing.aer, Ft = Fc + Fh;
     this.Ft = Ft;
-    if (Ft > P.F_RUN) this.boiled = Math.min(1, this.boiled + (Ft - P.F_RUN) * AREA_M2 * YEAR_S * dt / P.E_BOIL);
-    const dT = (this.env.live ? Math.max(0, Fh - P.F_LIVE_MAX) : Math.max(0, Ft)) / P.B_EBM;
+    // Live, the sea's boiled share and the warming are the planet's (src/engine/runaway.js); on the cached planet, the people's own count.
+    if (this.env.live) this.boiled = this.env.boiled || 0;
+    else if (Ft > P.F_RUN) this.boiled = Math.min(1, this.boiled + (Ft - P.F_RUN) * AREA_M2 * YEAR_S * dt / P.E_BOIL);
+    const dT = this.env.live ? Math.max(0, this.env.dT || 0) : Math.max(0, Ft) / P.B_EBM;
     this.hE = (1 - this.boiled) / (1 + Math.pow(dT / P.T_HAB, 4));
     this.O = food + (E.on ? E.Y : 0); this.food = food; this.people = people;
   }
@@ -975,7 +1043,9 @@ export class People {
       let ring = m[c];
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
       const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];
-      const Mh = body > 0 ? body * (1 - Math.exp(-loc / body)) : 0;
+      // People's research yields less past industry's culture (ideas get harder to find); AI's
+      // own progress is its measured pace (THETA_C), so its minds join at full yield.
+      const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-P.BETA_R * Math.max(0, Z[c] - P.Z_IND));
       M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
     }
     // Culture: ideas in, losses out, exact over the step; copying better neighbours and others.
@@ -1096,7 +1166,22 @@ export class People {
   // culture; the soil stepped by the planet (cached: here; live: the planet's regolith).
   soilStep(dt) {
     const P = this.P, H = this.H, nL = this.nL, zc = this.zc, Ef = this.Ef;
-    for (let c = 0; c < nL; c++) Ef[c] = this.f[c] > 0 ? P.E_TILL * this.f[c] * H.slope[c] / P.S_REF * Math.exp(-Math.max(0, zc[c] - P.Z_FARM) / P.Z_CONS) : 0;
+    // The fields' mean slope is the flattest share f's, s̄ ((1 − f) ln(1 − f) + f)/f, so the cell's
+    // tillage is ∝ (1 − f) ln(1 − f) + f: little while the fields keep to the bottoms, all of it
+    // as they climb the hills. The fields lose it alone, so their deficit past the cell's mean grows
+    // at the fields' rate × (1 − f) and is refilled by the soil's production over T_REFILL; fields
+    // newly broken bring no deficit, and fields let go take theirs with them.
+    const dF = this.dField, fP = this.fPrev || (this.fPrev = new Float32Array(nL)), eR = Math.exp(-dt / P.T_REFILL);
+    for (let c = 0; c < nL; c++) {
+      const f = this.f[c];
+      if (!(f > 0)) { Ef[c] = 0; dF[c] *= eR; fP[c] = 0; continue; }
+      const g = f < 1 ? (1 - f) * Math.log(1 - f) + f : 1;
+      Ef[c] = P.E_TILL * H.slope[c] * g / P.S_REF * Math.exp(-Math.max(0, zc[c] - P.Z_FARM) / P.Z_CONS);
+      if (f > fP[c] && fP[c] > 0) dF[c] *= fP[c] / f;
+      const q = 1e-3 * Ef[c] / f * (1 - f);
+      dF[c] = dF[c] * eR + q * P.T_REFILL * (1 - eR);
+      fP[c] = f;
+    }
     this.env.soil(dt, Ef);
   }
 
@@ -1106,17 +1191,17 @@ export class People {
       // A hazard where culture, farming and coal all suffice (each a logistic, not a gate).
       for (let c = 0; c < nL; c++) {
         if (!(this.Ntot[c] > 0) || zc[c] < P.Z_IND - 1) continue;
-        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig((this.f[c] - 0.2) / 0.05) * sig(this.coalReach[c] - P.COAL_MIN);
+        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig((this.f[c] - 0.2) / 0.05) * sig(this.coalReach[c] - P.COAL_MIN) * sig((this.oreReach[c] - P.ORE_MIN) / 0.15);
         if (this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
         ind[c] = 0.01; this.flags.industry = true;
         // The first works: fixed capital at its Solow balance for the cell's workers, and the
         // fossil capacity to run it.
-        const ec = this.econ, Lh = P.LFP * this.Ntot[c] * ind[c], A = P.A_I0 * ex(P.THETA * (zc[c] - P.Z_IND));
+        const ec = this.econ, Lh = P.LFP * this.Ntot[c] * ind[c], A = P.A_I0 * ex(P.THETA_I * (zc[c] - P.Z_IND));
         ec.on = true;
         ec.Kf = Math.pow(P.SAVE * A / P.DELTA_F, 1 / (1 - P.ALPHA)) * Lh;
         const Y = A * Math.pow(ec.Kf, P.ALPHA) * Math.pow(Lh, 1 - P.ALPHA);
         ec.Ke[0] = 1.2 * P.E_SUB * Y / P.R_EF0;
-        this.event('industry', `industry begins at ${deg(this.H.lat[c]).toFixed(0)}°, ${deg(this.H.lon[c]).toFixed(0)}° (z ${zc[c].toFixed(2)}, coal within reach ${this.coalReach[c].toFixed(0)} Pg C)`);
+        this.event('industry', `industry begins at ${deg(this.H.lat[c]).toFixed(0)}°, ${deg(this.H.lon[c]).toFixed(0)}° (z ${zc[c].toFixed(2)}, coal within reach ${this.coalReach[c].toFixed(0)} Pg C, ore ${this.oreReach[c].toFixed(1)}× the land's)`);
         break;
       }
       return;
@@ -1198,13 +1283,14 @@ export class People {
       const y = this.Ntot[c] > 0 ? this.Out[c] / this.Ntot[c] : 0;
       minds += softMin(Math.pow(Math.max(y, 1e-3), P.RHO_R), P.S_R_MAX, 4) * this.Ntot[c];
       people += this.Ntot[c]; farm += this.Ntot[c] * this.f[c]; indp += this.Ntot[c] * this.ind[c];
-      if (this.f[c] > 0) { const a = H.area[c] * this.f[c]; soilF += a * this.soil[c]; farmA += a; }
+      if (this.f[c] > 0) { const a = H.area[c] * this.f[c]; soilF += a * this.fieldSoil(c); farmA += a; }
     }
     if (E.on) minds += E.AIr;
     for (const L of live) {
       let tot = 0, zs = 0, zm = 0;
       for (let c = 0; c < nL; c++) if (L.N[c] > 0) { tot += L.N[c]; zs += L.N[c] * L.Z[c]; zm = Math.max(zm, L.Z[c]); }
       L.total = tot; L.zbar = tot > 0 ? zs / tot : 0; L.zmax = zm; L.peak = Math.max(L.peak, tot);
+      (L.ht || (L.ht = [])).push(this.t); (L.hn || (L.hn = [])).push(tot);   // its numbers through time (Fig. 8's spindles)
       zmax = Math.max(zmax, zm);
       if (L.tipped === null && L.zbar > 1) {
         L.tipped = this.t; this.flags.tipped = true;
@@ -1234,7 +1320,7 @@ export class People {
       F.peakCO2 = Math.max(F.peakCO2 || 0, this.co2);
       once('restored', F.peakCO2 > 350 && this.co2 < 300, () => `CO₂ drawn back below 300 ppm (${this.removed.toFixed(0)} Pg C taken back)`);
     }
-    once('runaway', this.Ft > P.F_RUN, () => `the runaway greenhouse: forcing ${this.Ft.toFixed(0)} W/m² (the oceans begin to boil away)`);
+    once('runaway', this.env.live ? this.boiled > 0 : this.Ft > P.F_RUN, () => `the runaway greenhouse: forcing ${this.Ft.toFixed(0)} W/m² (the oceans begin to boil away)`);
     once('boiled', this.boiled > 0.99, () => `the oceans are gone`);
     once('exodus', this.space > earth && this.space > 1e6, () => `more people off-world than on Earth (${(this.space / 1e9).toFixed(2)} billion)`);
     once('emptied', F.present && earth < 1e4, () => `Earth is empty of people (${(this.space / 1e9).toFixed(2)} billion off-world)`);

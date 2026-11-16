@@ -28,6 +28,7 @@ import { buildGrid } from '../grid/icosphere.js';
 import { Tectonics } from './plates.js';
 import { Landscape } from './landscape.js';
 import { Climate, CLIMATE } from './climate.js';
+import { Runaway } from './runaway.js';
 import { Ice } from './ice.js';
 import { Carbon, CARBON } from './carbon.js';
 import { Plumes } from './plumes.js';
@@ -87,6 +88,9 @@ export class Planet {
     this.ocean = new Ocean(this.climate, this.climate.coarse);
     this.climate.ocean = this.ocean;
     this.carbon = new Carbon(this.tec, this.land, this.climate, this.plumes);
+    // The runaway greenhouse: the outgoing longwave's limit, and the sea boiled past it (src/engine/runaway.js).
+    this.runaway = new Runaway(this.tec);
+    this.climate.runaway = this.runaway;
     // Minimal life: the plants' cover and its carbon, and the sea's inputs (src/engine/life.js).
     this.life = new Life(this);
     this.orbit = new OrbitCycles(seed);
@@ -184,6 +188,7 @@ export class Planet {
    * tenth of a second of the dial.
    */
   fast(dt, iceMs = 4, rate = 10 * dt) {
+    this.runaway.step(dt, this.carbon);
     this.life.fast(dt, rate);
     this.carbon.step(dt);
     CLIMATE.CO2 = this.carbon.pco2;

@@ -9,14 +9,9 @@
 //               litter to soil to the air), albedo and evaporation do the rest
 //   soil        tillage's erosion (mm/yr) is added to the landscape's erosion field around each
 //               fast step, so the regolith's exact step strips it; the people read the regolith back
-//   forcing     waste heat and sulfate (W/m²) as CLIMATE.F_PEOPLE in the energy balance, up to
-//               F_LIVE_MAX (past it the runaway is the people's to count); CO₂'s comes with the carbon
-//   the sea     past the runaway the people count the oceans boiling away (People.boiled), and the
-//               sea's water goes with them (Tectonics.boiled: the sea level re-solved on what's left);
-//               the carbon cycle, built on a sea, then keeps the sea it had (its boxes' inputs,
-//               src/engine/life.js) and drops the land's exchange and weathering's new map
-//               (Carbon.boiling: the seafloor left dry would grow forest at 30 °C and draw the air
-//               down to nothing); burned carbon still goes to the air
+//   forcing     waste heat and sulfate (W/m²) as CLIMATE.F_PEOPLE in the energy balance, whatever
+//               it is: past the limit the planet's own runaway boils the sea (src/engine/runaway.js),
+//               and the people read back how much has boiled and how warm the planet is (`air`)
 // The people run on a grid no finer than level 6 (their constants are fitted there, and a finer
 // grid would cost four times as much a step); on a finer engine the fields are restricted to it
 // and the write-back prolonged from it (src/grid/transfer.js).
@@ -24,7 +19,7 @@ import { NZ, CLIMATE } from './climate.js';
 import { restrict, prolong } from '../grid/transfer.js';
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigP: 1, reg: 1, p0: 1, ero: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigP: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1 };
 /** The people's grid's level on an engine of `level`. */
 export const peopleLevel = level => Math.min(6, level);
 
@@ -52,6 +47,7 @@ export function fieldsOf(P, f = null, T = null) {
     runoff: i => c.runoff[i], discharge: i => P.land.discharge[i], lake: i => c.lakeWet[i], perma: i => c.soil.permafrost[i],
     sigT: i => sigT[i], sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
     reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
+    arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
   };
   const wide = { T12: [c.T12, 12], P12: [c.P12, 12], zones: [c.zones, NZ] };
   if (!T) {
@@ -108,7 +104,7 @@ export class PeopleLink {
   }
 
   /** The people's write-back on their grid: farmed share and tillage (mm/yr) a cell, carbon (Pg C) since the last, forcing (W/m²). */
-  receive({ f, Ef, carbon = 0, F = 0, boiled = 0 }) {
+  receive({ f, Ef, carbon = 0, F = 0 }) {
     const put = (a, out) => {
       if (!this.T) { out.set(a.subarray(0, out.length)); return; }
       prolong(this.T, a, this.tmp); out.set(this.tmp);
@@ -117,23 +113,17 @@ export class PeopleLink {
     if (Ef) put(Ef, this.ef);
     this.carbon += carbon;
     this.F = F; CLIMATE.F_PEOPLE = F;
-    this.P.tec.boiled = Math.min(0.999, Math.max(0, boiled));
   }
 
   /** Before the planet's fast step: the banked carbon into the air (drawn down no lower than 100 ppm), tillage into the erosion field. */
   beforeFast() {
     const P = this.P;
-    P.carbon.boiling = P.tec.boiled > 0;
     if (this.carbon !== 0) {
       const x = Math.max(this.carbon, -Math.max(0, P.carbon.pco2 - 100) * 2.12);
       P.carbon.pulse(x); this.stats.pulsed += x; this.carbon = 0;
     }
     const ero = P.land.erosion, ef = this.ef;
     for (let i = 0; i < ef.length; i++) if (ef[i] > 0) ero[i] += ef[i];
-    // The sea re-solved when a thousandth of it has boiled away since, or the plates have stepped
-    // under a boiled sea (the air's datum is the CPU's to solve).
-    const T = P.tec;
-    if (Math.abs(T.boiled - (this.boiledSolved || 0)) > 1e-3 || (T.boiled > 0 && T.t !== this.boiledT)) { T.updateElevation(); this.boiledSolved = T.boiled; this.boiledT = T.t; }
   }
   afterFast() {
     const ero = this.P.land.erosion, ef = this.ef;
@@ -164,7 +154,5 @@ export class PeopleLink {
     veg.sEq.set(this.sEq0);
     this.P.life.onCover = null;
     CLIMATE.F_PEOPLE = 0;
-    this.P.tec.boiled = 0;
-    this.P.carbon.boiling = false;
   }
 }

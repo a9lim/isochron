@@ -65,6 +65,7 @@ export const VEG = {
   P0: 28, B2: 1.67e-4,              // VECODE's P₀ (mm/yr), and P_min's rise with warmth (fitted)
   A_DES: 1.93e-4, B_DES: -2.1e-4,   // v̂ = 1 − 1/(1 + A_DES (P − P_min)² e^{B_DES x}) (fitted)
   G_COLD: 150,                      // degree-days: the cold limit of any cover (synthesis)
+  T_HOT: [38, 46],                  // °C, annual mean: the heat limit of any cover, full to none (synthesis: the hottest biomes' annual means are ~30 °C, and leaves fail past ~45–50 °C, from memory; on a runaway planet)
   TAU_TREE: 200, TAU_GRASS: 3,      // yr: cover's relaxation
   SIGMA: 4,                         // K: days' spread about a month's mean, for degree-days
   // Carbon
@@ -219,8 +220,9 @@ export class Vegetation {
       this.kS[i] = 1 / Math.min(V.TAU_SOIL_MAX, V.TAU_SOIL * Math.exp(lq * (V.T_SOIL - T)));
       if (!land[i]) { this.vEq[i] = 0; this.sEq[i] = 0; this.pi[i] = 0; continue; }
       equilibrium(gdd[i], precip[i], soil ? soil[i] : -1, eq);
-      this.vEq[i] = eq[1]; this.sEq[i] = eq[1] > 0 ? eq[0] / eq[1] : 0;
-      this.pi[i] = npp(T, precip[i], co2);
+      const u = Math.min(1, Math.max(0, (T - V.T_HOT[0]) / (V.T_HOT[1] - V.T_HOT[0]))), hot = 1 - u * u * (3 - 2 * u);
+      this.vEq[i] = hot * eq[1]; this.sEq[i] = eq[1] > 0 ? eq[0] / eq[1] : 0;
+      this.pi[i] = hot * npp(T, precip[i], co2);
     }
     this.climate = true;
   }

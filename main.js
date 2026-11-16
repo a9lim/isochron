@@ -31,7 +31,7 @@ import { makeStars, ecliptic } from './src/render/sky.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
-import { drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
+import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
 import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
@@ -68,7 +68,7 @@ const els = {
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
-  figModel: $('fig-model'), capModel: $('cap-model'),
+  figModel: $('fig-model'), capModel: $('cap-model'), figPeople: $('fig-people'), capPeople: $('cap-people'),
 };
 
 // ── The planet ──
@@ -267,6 +267,7 @@ function onFast(m) {
   plumes.hot = m.plumes.hot; plumes.lips = m.plumes.lips;
   if (m.agg) P.agg = m.agg;
   if (m.life) life = m.life;
+  if (m.runaway) runaway = m.runaway;
   if (m.people) people.link = m.people;
   if (m.moon) Object.assign(moon, m.moon);
   if (m.prof) engineProf = m.prof;
@@ -316,7 +317,7 @@ function onLakes(m) {
   drawDirty = true;
 }
 // The plants' cover as the Relief view draws it (src/engine/life.js), and the land's and the sea's carbon.
-let coverDrawn = null, life = null;
+let coverDrawn = null, life = null, runaway = null;   // the cover's colour; life's sums; the runaway's steam (src/engine/runaway.js)
 function onCover(m) {
   coverDrawn = m.w;
   if (globe) globe.setCover(m.w);
@@ -605,7 +606,11 @@ function setView(v) {
 }
 for (const b of els.views) b.addEventListener('click', () => setView(b.dataset.view));
 // The People view is there only with people (the People experiment).
-for (const b of els.views) if (b.dataset.view === 'people') b.hidden = query.get('exp') !== 'people';
+// The People experiment and its six (EXPERIMENTS, below, marks them `people`).
+const PEOPLE_EXPS = ['people', 'dispersal', 'kremer', 'axes', 'budget', 'takeoff', 'radiator'];
+const peopleExp = () => PEOPLE_EXPS.includes(query.get('exp'));
+for (const b of els.views) if (b.dataset.view === 'people') b.hidden = !peopleExp();
+for (const b of document.querySelectorAll('.margin-tabs .tab-btn')) if (b.dataset.tab === 'people') b.hidden = !peopleExp();
 
 // ── Experiments: each one knob, a measured number in the caption ──
 const BASE = { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX };
@@ -631,8 +636,28 @@ const EXPERIMENTS = [
     knob: { label: 'Carbon', min: Math.log10(500), max: 4, step: 0.01, value: Math.log10(2000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => { pulse.PgC = 10 ** v; } } },
   // The first hominins on the settled planet, to the takeoff and an ending drawn by chance; the
   // dial follows the doubling time (the knob: seconds a doubling) until it is taken.
-  { id: 'people', name: 'People', dial: 5, view: 'people',
+  { id: 'people', name: 'People', dial: 5, view: 'people', people: true,
     knob: { label: 'Doubling', min: 1, max: 10, step: 0.5, value: 3, fmt: v => `${(+v).toFixed(1).replace(/\.0$/, '')} s`, apply: v => { follow.secs = +v; follow.on = true; follow.v = null; } } },
+  // The people's experiments (src/engine/peopleexp.js): each the People experiment with one knob
+  // and its number against a theory in the caption. The dial follows the people, except where noted.
+  // The first hominins' front against Fisher's 2√(rD); the dial held at 1 kyr/s for the spread.
+  { id: 'dispersal', name: 'Dispersal', dial: 3, view: 'people', people: true, setup: () => { follow.on = false; },
+    knob: { label: 'Dispersal', min: 0, max: 1.5, step: 0.05, value: Math.log10(4), fmt: v => `${(10 ** v).toFixed(1)} km²/yr`, apply: v => peopleParams({ D0: 10 ** v }) } },
+  // Each landmass's culture against its balance A M/λ (Kremer's natural experiment).
+  { id: 'kremer', name: 'Kremer’s continents', dial: 5, view: 'people', people: true,
+    knob: { label: 'Loss', min: -6, max: -4, step: 0.05, value: -5, fmt: v => `${(100 * (1 - Math.exp(-(10 ** v) * 1e4))).toFixed(v < -5.5 ? 1 : 0)}% in 10 kyr`, apply: v => peopleParams({ LAMBDA: 10 ** v }) } },
+  // Farming's spread east–west against north–south (Diamond's axes); the knob, how tightly crops keep to their climate.
+  { id: 'axes', name: 'Axes', dial: 5, view: 'people', people: true,
+    knob: { label: 'Crops’ climate', min: 0.5, max: 4, step: 0.1, value: 2, fmt: v => `${(+v).toFixed(1)}×`, apply: v => peopleParams({ W_PKG: +v }) } },
+  // AI never comes: the carbon burned, its peak and what stays in the air, against the Pulse's theory.
+  { id: 'budget', name: 'Carbon budget', dial: 5, view: 'people', people: true, setup: () => peopleParams({ X20: 99 }),
+    knob: { label: 'Fossil carbon', min: 3, max: 4, step: 0.01, value: Math.log10(5000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => peopleParams({ FOSSIL: 10 ** v }) } },
+  // Early takeoff to the dial, and the singularity's interval; the knob, how far AI substitutes for people.
+  { id: 'takeoff', name: 'Takeoff', dial: 5, view: 'people', people: true,
+    knob: { label: 'Substitution', min: 0.2, max: 2, step: 0.05, value: 0.5, fmt: v => `σ ${(+v).toFixed(2)}`, apply: v => peopleParams({ SIGMA: +v }) } },
+  // Earth spent as the machines' radiator (1a): the warming against F/B, and the runaway past the limit.
+  { id: 'radiator', name: 'Radiator', dial: 5, view: 'climate', people: true, setup: () => peopleParams({ ENDING: '1a' }),
+    knob: { label: 'Heat budget', min: 0, max: 3, step: 0.05, value: 3, fmt: v => `${Math.round(10 ** v).toLocaleString('en')} W/m²`, apply: v => peopleParams({ HEAT_SAC: 10 ** v }) } },
 ];
 // The Pulse experiment's pulse: its size (Pg C) and a count, so the engine pulses once per size set.
 const pulse = { PgC: 2000, id: 0 };
@@ -648,19 +673,25 @@ let experiment = EXPERIMENTS[0];
 // drawn fields, the years sent since that report, and the follow dial: the rate at which a
 // doubling (or halving) of what moves fastest takes `secs` seconds (People.pace), within the
 // dial's range and what the people keep up with, eased; the dial taken by hand ends it.
-const people = { worker: null, msg: null, sent: 0, events: [], link: null, grid: null };
+const people = { worker: null, msg: null, sent: 0, events: [], link: null, grid: null, params: {} };
+/** The people's parameters (the experiments' knobs): kept for their thread's start, and sent live. */
+function peopleParams(p) { Object.assign(people.params, p); if (people.worker) people.worker.postMessage({ type: 'params', params: p }); }
 const PEOPLE_LEVEL = Math.min(6, LEVEL);
 function startPeople() {
   const w = people.worker = new Worker(new URL('./src/engine/people-worker.js', import.meta.url), { type: 'module' });
   const ch = new MessageChannel();
-  const params = {};
+  const params = { ...people.params, EXP: experiment.id };
   if (query.get('ending')) params.ENDING = query.get('ending');
   w.postMessage({ type: 'init', level: PEOPLE_LEVEL, port: ch.port2, params }, [ch.port2]);
   engine.postMessage({ type: 'people', port: ch.port1 }, [ch.port1]);
   people.grid = PEOPLE_LEVEL === LEVEL ? grid : buildGrid(PEOPLE_LEVEL);
   w.onmessage = e => {
     const m = e.data;
-    if (m.type === 'people') { people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true; }
+    if (m.type === 'people') {
+      // Dispersal holds the dial for the spread; once the front is measured the dial follows the people again.
+      if (experiment.id === 'dispersal' && m.exp && m.exp.done && !people.released) { people.released = true; follow.on = true; follow.v = null; }
+      people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true; }
+    else if (m.type === 'figure') { people.fig = m.fig; figuresDirty = true; }
     else if (m.type === 'drawn') { people.drawn = m.d; if (globe) globe.setPeople(m.d, people.grid); drawDirty = true; }
   };
   w.onerror = e => console.warn('[isochron] people:', e.message);
@@ -810,6 +841,7 @@ function caption(force) {
   if (view === 'people') { setCaption(peopleCaption(name), true); return; }
   // The experiment's measured number.
   const cs = climate.stats;
+  if (experiment.people && experiment.id !== 'people' && people.msg && people.msg.exp) parts.push(people.msg.exp.text);
   if (experiment.id === 'snowball' && cs.cycles > 0) parts.push(`ice line ${Math.round(cs.iceLat)}°`);
   if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${(ice.stats.volume / 1e15).toFixed(1)} M km³`, p ? `period ${p} kyr` : 'period —'); }
   if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.balance)} ppm`);
@@ -846,6 +878,7 @@ function caption(force) {
     const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
     parts.push(`mean ${cs.meanT.toFixed(1)} °C`);
+    if (runaway && runaway.boiled > 1e-4) parts.push(`steam ${runaway.steam.toPrecision(2)} bar`);
     if (experiment.id !== 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`);
     parts.push(`rain ${Math.round(cs.meanP || 0)} mm/yr`);
     if (experiment.id !== 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
@@ -853,6 +886,7 @@ function caption(force) {
   } else {
     const s = tec.stats();
     parts.push(`${s.plates} plates`, `land ${Math.round(100 * s.land)}%`, `sea level ${signed(Math.round((s.seaLevel - P.seaLevel0) * 1000), 'm')}`);
+    if (runaway && runaway.boiled > 1e-4) parts.push(`${Math.round(100 * runaway.boiled)}% of the sea in the air`);
     if (experiment.id !== 'iceages') parts.push(`ice ${Math.round(ice.stats.seaLevel)} m`);
     parts.push(`fastest ${s.fastest.toFixed(1)} cm/yr`, `seafloor ${Math.round(s.meanOceanAge)} Myr`, polarity.at(tec.t) > 0 ? 'field normal' : 'field reversed');
   }
@@ -876,6 +910,7 @@ function peopleCaption(name) {
   if (!m || !m.last) return [...parts, formatTime(P.years), 'waiting for the climate'].join(' · ');
   const h = m.last, F = m.flags;
   parts[0] = `${name}, ${m.era}`;
+  if (m.exp && m.exp.text && experiment.id !== 'people') parts.push(m.exp.text);   // the experiment's number first
   parts.push(`year ${Math.floor(m.t).toLocaleString('en')}`);
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   parts.push(`${headcount(h.earth)} people`);
@@ -886,7 +921,7 @@ function peopleCaption(name) {
   if (h.energy > 1e10) parts.push(`${(h.energy / 1e12).toPrecision(2)} TW`, `CO₂ ${Math.round(carbon.pco2)} ppm`);
   if (F.present) parts.push(`AI ${Math.round(100 * m.sA)}% of the work`);
   if (m.ending) parts.push(`${m.ending.aligned ? 'aligned' : 'misaligned'}, Earth ${m.ending.preserve ? 'kept' : 'spent'}`);
-  if (m.boiled > 0.001) parts.push(`oceans ${Math.round(100 * m.boiled)}% boiled`);
+  if (runaway && runaway.boiled > 0.001) parts.push(`oceans ${Math.round(100 * runaway.boiled)}% boiled`);
   if (m.pace > 0) parts.push(`doubling ${span(Math.LN2 / m.pace)}`);
   return parts.join(' · ');
 }
@@ -1015,8 +1050,9 @@ function modelSnapshot() {
         { from: 'people', to: 'carbon', w: fossil / 10, label: fossil > 1e-3 ? `+${fossil.toFixed(fossil < 1 ? 2 : 1)} Pg/yr` : '', bend: 0.1 },
         { from: 'people', to: 'climate', w: Math.abs(pF) / 2, label: Math.abs(pF) > 0.005 ? Wm(pF) : '', bend: -0.2 },
         { from: 'people', to: 'regolith', w: farmed / 0.1, label: 'tillage', bend: 0.1 },
-        ...(pm.boiled > 0 ? [{ from: 'people', to: 'sea', w: pm.boiled, label: `${Math.round(100 * pm.boiled)}% boiled`, bend: 0.2 }] : []),
       ] : []),
+      // The runaway (src/engine/runaway.js): past the outgoing longwave's limit, the climate boils the sea.
+      ...(runaway && runaway.boiled > 0 ? [{ from: 'climate', to: 'sea', w: runaway.boiled, label: `${Math.round(100 * runaway.boiled)}% boiled`, bend: 0.2 }] : []),
     ],
   };
 }
@@ -1062,6 +1098,14 @@ function figures(force) {
     drawModel(els.figModel, modelSnapshot(), pal);
     const cf = carbon.flux;
     els.capModel.textContent = `The model · outgassing ${cf.out.toFixed(3)} and weathering ${cf.weather.toFixed(3)} Pg C/yr · erosion ${land.flux.eroded.toFixed(1)} km³/yr`;
+  }
+  if (visible(els.figPeople)) {
+    const fg = people.fig;
+    drawPeople(els.figPeople, fg, pal);
+    const fit = fg && fg.fit, n = people.msg ? people.msg.lineages : 0;
+    const left = fg ? fg.tStar - fg.now : 0;
+    els.capPeople.textContent = !fg ? 'The people' : `The people · t* ${left > 0 ? `in ${span(left)}` : `${span(-left)} ago`}` +
+      (fit ? ` · ${fg.which === 'minds' ? "minds'" : "people's"} exponent ${fit.p.toFixed(2)}, R² ${fit.r2.toFixed(2)} (an exponential's ${fit.r2exp.toFixed(2)})` : '') + ` · ${n} ${n === 1 ? 'lineage' : 'lineages'}`;
   }
   if (visible(els.figPol)) {
     drawPolarity(els.figPol, polarity, tec.t, pal);
@@ -1268,7 +1312,7 @@ function tick(now) {
     lap('lines');
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, blend: phi, tides: sf.tides, veil: yf.veil });
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, blend: phi, tides: sf.tides, veil: yf.veil, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0 });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
@@ -1296,7 +1340,7 @@ engine.onerror = e => console.warn('[isochron] engine:', e.message);
 if (query.get('exp')) setExperiment(query.get('exp'));
 engine.postMessage({ type: 'init', seed, level: LEVEL, params: params() });
 engineStarted = true;
-if (experiment.id === 'people') { startPeople(); setView('people'); }
+if (experiment.people) { startPeople(); setView(experiment.view); }
 engine.postMessage({ type: 'play', playing });
 
 gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
@@ -1319,4 +1363,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; } };

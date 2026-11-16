@@ -109,7 +109,7 @@ export class Regolith {
   p0(i) {
     const R = REGOLITH, c = this.climate;
     if (!c || !(c.stats && c.stats.cycles > 0)) return R.P0 * 1e-3;
-    const run = Math.max(0, c.runoff[i]), T = c.Tf[0][i] - 6.5 * c.elevPos[i];
+    const run = Math.max(0, c.runoff[i]), T = Math.min(45, c.Tf[0][i] - 6.5 * c.elevPos[i]);   // no faster past a hot wet tropic's (a runaway planet's surface is dry)
     return R.P0 * 1e-3 * Math.pow(run / R.RUNOFF0, R.RUNOFF_EXP) * Math.exp((T - R.T0) / R.TE);
   }
 

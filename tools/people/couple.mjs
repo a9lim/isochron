@@ -19,6 +19,7 @@ export class Live {
     // before any tillage is added (inside the first fast step it would take tillage as its balance).
     P.regolith.advance(0);
     this.link = new PeopleLink(P);
+    this.T0 = P.climate.stats.meanT;
     this.f = fieldsOf(P);
     this.bank = 0; this.carbonBank = 0; this.plateBank = 0; this.since = 0;
     this.last = { F: 0, co2: P.carbon.pco2, farm: 0 };
@@ -28,8 +29,10 @@ export class Live {
     for (let c = 0; c < people.nL; c++) people.soil[c] = P.regolith.h[people.cells[c]];
   }
 
-  // The people's environment.
+  // The people's environment: the planet's CO₂, its sea's boiled share, its warming since the people began.
   co2() { return this.P.carbon.pco2; }
+  get boiled() { return this.P.runaway.b; }
+  get dT() { return this.P.climate.stats.meanT - this.T0; }
   emit(PgC) { this.carbonBank += PgC; }
   soil() {}   // tillage's erosion goes in at the planet's next fast step
 
@@ -45,9 +48,9 @@ export class Live {
     P.years += h; this.plateBank += h;
     while (this.plateBank >= 5e5) { P.plateStep(5e5); this.plateBank -= 5e5; }
     P.setOrbit(0);
-    // The people's forcing, up to F_LIVE_MAX (past it the runaway is the people's to count).
-    const F = Math.min(p.forcing.heat + p.forcing.aer, p.P.F_LIVE_MAX);
-    this.link.receive({ ...p.writeBack(), carbon: this.carbonBank, F, boiled: p.boiled });
+    // The people's forcing, whatever it is (past the limit the planet's runaway boils the sea: src/engine/runaway.js).
+    const F = p.forcing.heat + p.forcing.aer;
+    this.link.receive({ ...p.writeBack(), carbon: this.carbonBank, F });
     this.carbonBank = 0;
     this.link.beforeFast();
     try { P.fast(h, 1e9, 10 * h); }

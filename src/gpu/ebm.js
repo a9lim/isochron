@@ -544,7 +544,7 @@ export class GpuEnergyBalance {
   constants(climate) {
     const P = CLIMATE, q = this.device.queue, lv = this.H.levels;
     lv.forEach((_, k) => q.writeBuffer(this.Lu[k], 0, this.lvBuf(k)));
-    q.writeBuffer(this.Uc, 0, this.lvBuf(this.ci, 0, [P.A, P.B, P.SUB_K, 5.35 * Math.log(P.CO2 / P.CO2_REF) + P.F_VOLC + P.F_PEOPLE]));
+    this.writeForcing();
     const fu = new ArrayBuffer(32 + 16 * NS), u = new Uint32Array(fu), ff = new Float32Array(fu);
     u[0] = this.n; u[1] = this.N; u[2] = this.offTop;
     ff[4] = P.B + P.SUB_K; ff[5] = P.C_LAND; ff[6] = P.C_OCEAN; ff[7] = P.C_ICE;
@@ -598,8 +598,17 @@ export class GpuEnergyBalance {
     this.device.queue.submit([this.encode([this.fineList]).finish()]);
   }
 
+  /** The forcing outside the sunlight (CO₂, volcanoes, people, the OLR's departure: src/engine/runaway.js), when it has changed. */
+  writeForcing() {
+    const P = CLIMATE, f = 5.35 * Math.log(P.CO2 / P.CO2_REF) + P.F_VOLC + P.F_PEOPLE + P.F_OLR;
+    if (f === this.lastForcing) return;
+    this.lastForcing = f;
+    this.device.queue.writeBuffer(this.Uc, 0, this.lvBuf(this.ci, 0, [P.A, P.B, P.SUB_K, f]));
+  }
+
   /** One step T ← G(T) (forcing, restriction, the solves, the fine temperature); resolves once G's coarse harmonics are in Tc. */
   async step(Tc, warm = true) {
+    this.writeForcing();
     const lists = [this.stepList];
     for (let c = 0, m = warm ? EBM_GPU.CYCLES : EBM_GPU.CYCLES_COLD; c < m; c++) lists.push(this.cycleList);
     lists.push(this.fineList);
