@@ -422,7 +422,7 @@ export function drawPeople(canvas, fig, pal) {
     ctx.strokeStyle = alpha(pal.text, 0.14);
     ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, top - 4); ctx.lineTo(Math.round(x) + 0.5, bBot); ctx.stroke();
     row = x - prev < 46 ? 1 - row : 0; prev = x;
-    label(ctx, EVENT_NAMES[e.kind] || e.kind, x, 6 + 11 * row, pal.muted, 'center', 10.5, true);
+    label(ctx, EVENT_NAMES[e.kind] || e.kind, x, 6 + 11 * row, pal.muted, x > right - 24 ? 'right' : x < left + 24 ? 'left' : 'center', 10.5, true);
   }
   // Above: people (solid) and minds (dashed), log₁₀.
   let lo = Infinity, hi = -Infinity;

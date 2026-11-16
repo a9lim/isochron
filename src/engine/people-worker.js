@@ -24,7 +24,7 @@ let grid = null, people = null, port = null, params = {}, owed = 0, lastStep = 0
 let lastPost = 0, lastDrawn = 0, lastBack = 0, lastFig = 0, eventsSent = 0, msPerStep = 5, dtLast = 1;
 let measure = null, theory = null, theoryAsked = false;   // the experiment's number (src/engine/peopleexp.js); the Pulse's theory for the Carbon budget, from the engine
 // The planet's side: its CO₂, how much of the sea has boiled (src/engine/runaway.js), and its warming since the people began.
-const env = { live: true, pco2: 280, bank: 0, boiled: 0, meanT: null, T0: null, get dT() { return this.meanT === null ? 0 : this.meanT - this.T0; },
+const env = { live: true, pco2: 280, bank: 0, boiled: 0, years: 0, meanT: null, T0: null, get dT() { return this.meanT === null ? 0 : this.meanT - this.T0; },
   co2() { return this.pco2; }, emit(PgC) { this.bank += PgC; }, soil() {} };
 
 self.onmessage = e => {
@@ -32,7 +32,7 @@ self.onmessage = e => {
   if (m.type === 'init') {
     grid = buildGrid(m.level); params = m.params || {};
     port = m.port; port.onmessage = onEngine;
-  } else if (m.type === 'tick') { if (people) { owed += m.adv; schedule(0); } }
+  } else if (m.type === 'tick') { if (people && !(measure && measure.freeze)) { owed += m.adv; schedule(0); } }
   else if (m.type === 'params') {
     Object.assign(params, m.params);
     if (!people) return;
@@ -67,7 +67,9 @@ function onEngine(e) {
   } else if (m.type === 'theory') { theory = m;
   } else if (m.type === 'air') {
     env.pco2 = m.co2;
+    if (m.years !== undefined) env.years = m.years;
     if (m.boiled !== undefined) env.boiled = m.boiled;
+    if (people && measure && measure.always) { measure.sample(people, env); if (measure.freeze) post(false); }
     if (m.meanT !== undefined && env.T0 !== null) env.meanT = m.meanT;
     if (people && m.soil) for (let c = 0; c < people.nL; c++) people.soil[c] = m.soil[people.cells[c]];
   }
@@ -77,6 +79,7 @@ function schedule(ms) { if (!timer) timer = setTimeout(() => { timer = 0; pump()
 
 function pump() {
   if (!people) return;
+  if (measure && measure.freeze) { owed = 0; post(false); return; }   // held (the Carbon budget, once the burning is over)
   const t0 = performance.now();
   while (owed > 0 && performance.now() - t0 < BUDGET) {
     const want = people.nextDt();
@@ -112,6 +115,7 @@ function post(force) {
     const cap = 0.8 * 1000 * dtLast / Math.max(0.05, msPerStep), F = people.flags;
     const rep = measure ? measure.report(people, env, theory) : null;
     // The Carbon budget's theory: the Pulse's for the carbon burned, once the burning has ended (the engine has the sea).
+    if (measure && measure.snapshot) { measure.snapshot = false; port.postMessage({ type: 'snapshot' }); }
     if (rep && rep.done && !theoryAsked) { theoryAsked = true; port.postMessage({ type: 'theory', PgC: people.emitted }); }
     const era = F.dial ? 'after the dial' : F.present ? 'takeoff' : F.industry ? 'industry' : people.packages.length ? 'farmers'
       : people.lineages.some(L => L.tipped !== null) ? 'foragers' : 'hominins';

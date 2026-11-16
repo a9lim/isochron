@@ -43,7 +43,7 @@ import { PLUMES } from './plumes.js';
 import { VOLC } from './volcanoes.js';
 import { Year, YEAR } from './year.js';
 import { monthAt } from './orbit.js';
-import { pulseTheory } from './pulse.js';
+import { pulseTheory, cloneSea } from './pulse.js';
 import { accumulatePass } from './landscape.js';
 import { NZ } from './climate.js';
 import { surfaceFields, lakeFields } from '../render/surface.js';
@@ -394,8 +394,10 @@ function startPeople(port) {
   people = { port, T, link: new PeopleLink(P, T), sentVersion: -1, lastAir: 0, soil: new Float32Array(T ? T.coarse.n : P.grid.n) };
   port.onmessage = e => {
     if (e.data.type === 'writeback') people.link.receive(e.data);
-    // The Carbon budget's theory: the Pulse's shares for the carbon burned, on the sea as it is now.
-    else if (e.data.type === 'theory') port.postMessage({ type: 'theory', ...pulseTheory(P.carbon.sea, e.data.PgC) });
+    // The Carbon budget's theory: the Pulse's shares for the carbon burned, on the sea as it was when
+    // the burning began (snapshot), not the sea that has since taken some of it up.
+    else if (e.data.type === 'snapshot') people.seaAt = cloneSea(P.carbon.sea);
+    else if (e.data.type === 'theory') port.postMessage({ type: 'theory', ...pulseTheory(people.seaAt || P.carbon.sea, e.data.PgC) });
   };
   sendPeopleFields();
 }
@@ -413,7 +415,7 @@ function sendPeopleAir() {
   if (!people || performance.now() - people.lastAir < 250) return;
   people.lastAir = performance.now();
   const soil = soilOf(P, new Float32Array(people.soil.length), people.T);
-  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil, boiled: P.runaway.b, meanT: P.climate.stats.meanT }, [soil.buffer]);
+  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil, boiled: P.runaway.b, meanT: P.climate.stats.meanT, years: P.years }, [soil.buffer]);
 }
 
 function sendFast(first) {

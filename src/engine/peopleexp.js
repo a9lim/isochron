@@ -13,7 +13,7 @@ const fit1 = pts => {   // least squares y = a + b x
   return n >= 3 && d > 0 ? (n * sxy - sx * sy) / d : null;
 };
 const sp = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2));
-const yrs = y => (y >= 1e3 ? `${(y / 1e3).toPrecision(2)} kyr` : `${y.toPrecision(2)} yr`);
+const yrs = y => (y >= 1e3 ? `${+(y / 1e3).toPrecision(2)} kyr` : `${+y.toPrecision(2)} yr`);
 
 /**
  * Dispersal: the first hominins' front, where their numbers pass half the land's capacity, as a
@@ -55,11 +55,12 @@ class Dispersal {
 class Kremer {
   sample() {}
   report(p) {
-    // The natural experiment is the pre-industrial world's: held from the moment industry begins.
-    if (p.flags.industry && this.held) return this.held;
+    // The natural experiment is the foragers' (culture near its balance): held once farming begins,
+    // whose culture runs far ahead of any balance.
+    if (this.held) return this.held;
     const r = this.measure(p);
-    if (p.flags.industry) this.held = { ...r, text: `${r.text}, as industry began` };
-    return this.held || r;
+    if (p.packages.length) this.held = { ...r, text: `${r.text}, as farming began` };
+    return r;
   }
   measure(p) {
     const P = p.P, H = p.H, live = p.lineages.filter(L => L.died === null);
@@ -116,30 +117,37 @@ class Axes {
 }
 
 /**
- * Carbon budget: AI never comes (X20 held out of reach), so the people burn what they burn; the
+ * Carbon budget: AI never comes (B_MAX 0: no task can be automated), so the people burn what they burn; the
  * carbon emitted, its peak CO₂, and the share of it still in the air 1, 10 and 100 kyr after the
  * emissions peak, against the Pulse's theory (the closed sea, the compensated sea, then
- * weathering: src/engine/pulse.js) for the same carbon, which the page asks the engine for.
+ * weathering: src/engine/pulse.js) for the same carbon, which the engine computes on its sea. Once
+ * the burning is over the people are held where they stand, so the planet runs on to 100 kyr.
  */
 class Budget {
-  constructor() { this.peakRate = 0; this.tPeak = null; this.at = {}; this.peakCO2 = 0; }
+  constructor() { this.peakRate = 0; this.yPeak = null; this.at = {}; this.peakCO2 = 0; this.always = true; this.freeze = false; }
   sample(p, env) {
     const h = p.history, x = h[h.length - 1];
     if (!x) return;
-    const rate = p.econ && p.econ.burned > 0 && x.dt > 0 ? p.econ.burned / x.dt : 0;
-    this.rate = rate;
-    if (rate > this.peakRate) { this.peakRate = rate; this.tPeak = p.t; }
-    if (!this.started && rate > 0) { this.started = true; this.co2Pre = env.pco2; }
+    if (!this.freeze) {
+      const rate = p.econ && p.econ.burned > 0 && x.dt > 0 ? p.econ.burned / x.dt : 0;
+      this.rate = rate;
+      if (rate > this.peakRate) { this.peakRate = rate; this.yPeak = env.years; }
+      if (!this.started && rate > 0) { this.started = true; this.co2Pre = env.pco2; this.snapshot = true; }   // the worker asks the engine to keep the sea as it is
+      // The burning over: the people held where they stand (their thread stops stepping), so the
+      // planet runs on to 100 kyr on its own clock.
+      if (this.yPeak !== null && p.emitted > 1 && rate < 0.05 * this.peakRate && x.Ef < 0.05 * (this.efPeak || Infinity)) this.freeze = true;
+      this.efPeak = Math.max(this.efPeak || 0, x.Ef || 0);
+    }
     this.peakCO2 = Math.max(this.peakCO2, env.pco2);
-    if (this.tPeak !== null && rate < 0.05 * this.peakRate) for (const T of [1e3, 1e4, 1e5]) {
-      if (!(T in this.at) && p.t - this.tPeak >= T) this.at[T] = (env.pco2 - this.co2Pre) * 2.12 / Math.max(1, p.emitted);
+    if (this.freeze && this.yPeak !== null) for (const T of [1e3, 1e4, 1e5]) {
+      if (!(T in this.at) && env.years - this.yPeak >= T) this.at[T] = (env.pco2 - this.co2Pre) * 2.12 / Math.max(1, p.emitted);
     }
   }
   report(p, env, theory) {
     const e = p.emitted, pc = v => `${Math.round(100 * v)}%`;
     const shares = [1e3, 1e4, 1e5].map(T => (T in this.at ? `${pc(this.at[T])}${theory ? ` (${pc(theory[T === 1e3 ? 's1' : T === 1e4 ? 's10' : 's100'])})` : ''}` : '–')).join(' · ');
-    return { emitted: e, peakCO2: this.peakCO2, at: this.at, done: e > 0 && this.tPeak !== null && (this.rate || 0) < 0.05 * this.peakRate,
-      text: e > 1 ? `${Math.round(e).toLocaleString('en')} Pg C burned · peak ${Math.round(this.peakCO2)} ppm · in the air after 1, 10, 100 kyr ${shares}` : 'no carbon burned yet' };
+    return { emitted: e, peakCO2: this.peakCO2, at: this.at, done: this.freeze, freeze: this.freeze,
+      text: e > 1 ? `${Math.round(e).toLocaleString('en')} Pg C burned · peak ${Math.round(this.peakCO2)} ppm · in the air after 1, 10, 100 kyr ${shares}${theory ? ' (the Pulse’s theory)' : ''}` : 'no carbon burned yet' };
   }
 }
 
@@ -182,7 +190,7 @@ class Takeoff {
 class Radiator {
   sample() {}
   report(p, env) {
-    const heat = p.forcing.heat, F = p.Ft, dT = env.dT || 0, pw = heat * 5.1e14 / 1e15;
+    const heat = p.forcing.heat || 0, F = p.Ft || 0, dT = env.dT || 0, pw = heat * 5.1e14 / 1e15;
     const run = p.boiled > 0 ? ` · the runaway: ${Math.round(100 * p.boiled)}% of the sea in the air` : '';
     return { heat, F, dT, text: `waste heat ${heat.toFixed(heat < 10 ? 1 : 0)} W/m² (${sp(pw)} PW) · forcing ${F.toFixed(0)} W/m² · +${dT.toFixed(1)} K against F/B's +${(F / B_EBM).toFixed(1)}${run}` };
   }

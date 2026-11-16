@@ -650,7 +650,7 @@ const EXPERIMENTS = [
   { id: 'axes', name: 'Axes', dial: 5, view: 'people', people: true,
     knob: { label: 'Crops’ climate', min: 0.5, max: 4, step: 0.1, value: 2, fmt: v => `${(+v).toFixed(1)}×`, apply: v => peopleParams({ W_PKG: +v }) } },
   // AI never comes: the carbon burned, its peak and what stays in the air, against the Pulse's theory.
-  { id: 'budget', name: 'Carbon budget', dial: 5, view: 'people', people: true, setup: () => peopleParams({ X20: 99 }),
+  { id: 'budget', name: 'Carbon budget', dial: 5, view: 'people', people: true, setup: () => peopleParams({ B_MAX: 0 }),
     knob: { label: 'Fossil carbon', min: 3, max: 4, step: 0.01, value: Math.log10(5000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => peopleParams({ FOSSIL: 10 ** v }) } },
   // Early takeoff to the dial, and the singularity's interval; the knob, how far AI substitutes for people.
   { id: 'takeoff', name: 'Takeoff', dial: 5, view: 'people', people: true,
@@ -690,6 +690,8 @@ function startPeople() {
     if (m.type === 'people') {
       // Dispersal holds the dial for the spread; once the front is measured the dial follows the people again.
       if (experiment.id === 'dispersal' && m.exp && m.exp.done && !people.released) { people.released = true; follow.on = true; follow.v = null; }
+      // The Carbon budget's burning over, the people held: the planet runs on at 3 kyr/s to 100 kyr.
+      if (experiment.id === 'budget' && m.exp && m.exp.freeze && !people.released) { people.released = true; follow.on = false; setDial(3.5); }
       people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true; }
     else if (m.type === 'figure') { people.fig = m.fig; figuresDirty = true; }
     else if (m.type === 'drawn') { people.drawn = m.d; if (globe) globe.setPeople(m.d, people.grid); drawDirty = true; }
@@ -697,7 +699,7 @@ function startPeople() {
   w.onerror = e => console.warn('[isochron] people:', e.message);
 }
 /** Years the people are owed: their last report's, and what was sent since. */
-const peopleOwed = () => (people.msg ? people.msg.owed + people.sent : 0);
+const peopleOwed = () => (people.msg && !(experiment.id === 'budget' && people.released) ? people.msg.owed + people.sent : 0);   // the Carbon budget's people, once held, owe nothing
 /** The follow dial's aim (log₁₀ yr/s), or null. */
 function followAim() {
   const m = people.msg;
@@ -898,11 +900,12 @@ const headcount = v => (v >= 1e9 ? `${(v / 1e9).toPrecision(3)} billion` : v >= 
 /** "3.2 Myr", "41 kyr", "530 yr", "6.1 days", "3.0 h". */
 function span(y) {
   const a = Math.abs(y);
-  if (a >= 1e6) return `${(a / 1e6).toPrecision(2)} Myr`;
-  if (a >= 1e3) return `${(a / 1e3).toPrecision(2)} kyr`;
-  if (a >= 1) return `${a.toPrecision(2)} yr`;
-  if (a * 365.25 >= 1) return `${(a * 365.25).toPrecision(2)} days`;
-  return `${(a * 8766).toPrecision(2)} h`;
+  const p2 = v => (+v.toPrecision(2)).toLocaleString('en');   // "160", not "1.6e+2"
+  if (a >= 1e6) return `${p2(a / 1e6)} Myr`;
+  if (a >= 1e3) return `${p2(a / 1e3)} kyr`;
+  if (a >= 1) return `${p2(a)} yr`;
+  if (a * 365.25 >= 1) return `${p2(a * 365.25)} days`;
+  return `${p2(a * 8766)} h`;
 }
 /** The People view's caption: the people's own year (from the first hominins), how many, where they are in the arc, and the doubling the dial follows. */
 function peopleCaption(name) {

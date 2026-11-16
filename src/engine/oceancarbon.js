@@ -507,6 +507,16 @@ export class OceanCarbon {
     if (inputs) this.set(inputs);
     if (CARBON.FIXED > 0) { this.hold = CARBON.FIXED; this.heldByCarbon = true; }
     else if (this.heldByCarbon) { this.hold = 0; this.heldByCarbon = false; }
+    // No sea left (the runaway has boiled all but its last hundredth): the air takes what comes from
+    // below and from the land, and nothing takes it back (a puddle's chemistry at 10⁴ ppm can't be
+    // solved, and has nothing to say).
+    if (this.left <= 0.0100001) {
+      const s = this.in, src = s.outgas + s.lip + s.oxid + s.land;
+      if (dtYears > 0) { const d = Math.max(-this.I[0] / 2, OC.PG * src * dtYears); this.I[0] += d; this.cum.source += d; }
+      this.pco2 = this.I[0] / this.ppmMol;
+      this.flux = { out: s.outgas + s.lip, weather: 0, lip: s.lip, burial: 0, oxid: s.oxid };
+      return;
+    }
     const x = this.context();
     if (dtYears > 0) {
       const n = Math.max(1, Math.ceil(dtYears / OC.SUB - 1e-9)), h = dtYears / n;
@@ -515,7 +525,6 @@ export class OceanCarbon {
     this.diagnose(x);
   }
 
-  /** A pulse of carbon into the air (Pg C). */
   /**
    * The sea boiled down to a share r of its water (the runaway, src/engine/runaway.js; synthesis):
    * the boiled water's dissolved carbon degasses to the air, its alkalinity and phosphate stay
@@ -538,6 +547,7 @@ export class OceanCarbon {
     [this.Mw, this.Mc, this.Md] = this.M0.map(m => m * r);
   }
 
+  /** A pulse of carbon into the air (Pg C). */
   pulse(PgC) {
     this.I[0] += PgC * OC.PG;
     this.cum.source += PgC * OC.PG;
