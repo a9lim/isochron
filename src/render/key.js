@@ -94,37 +94,46 @@ const GLYPHS = {
   current: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 1; c.beginPath(); c.ellipse(x + 13, y + 6, 11, 4.5, 0, 0, 7); c.stroke(); },
   // Export production: short viridian strokes on a staggered lattice, as the shader's `dashes`.
   export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; c.lineCap = 'round'; for (let b = 0; b < 3; b++) for (let a = 0; a < 4; a++) { const cx = x + 3.5 + a * 6.4 + (b % 2) * 3.2; line(c, cx - 1.5, y + 2 + b * 4, cx + 1.5, y + 2 + b * 4); } c.lineCap = 'butt'; },
-  // People: a tint by log density, graphite on the paper and light on the night (the cities lit),
-  // the farms' densities over the first two thirds and the cities' step after.
+  // People: the accent by log density, the farms' densities over the first two thirds and the cities' step after.
   folk: (c, x, y, P) => {
-    const ink = P.dark ? mixHex(P.inks.ochre, P.text, 0.5) : mixHex(P.text, P.land, 0.2);
     const ss = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
     for (let a = 0; a < 26; a++) {
       const v = -3 + 6.8 * a / 25;   // log₁₀ people per km²
-      c.fillStyle = ink; c.globalAlpha = ss(-3.2, -2.5, v) * (P.dark ? 0.04 + 0.13 * ss(-2.5, 2.5, v) : 0.1 + 0.24 * ss(-2.5, 2.5, v)) + ss(2.3, 3.6, v) * (P.dark ? 0.72 : 0.52);
+      c.fillStyle = P.accent; c.globalAlpha = ss(-3.2, -2.5, v) * (P.dark ? 0.05 + 0.16 * ss(-2.5, 2.5, v) : 0.08 + 0.22 * ss(-2.5, 2.5, v)) + ss(2.3, 3.6, v) * (P.dark ? 0.55 : 0.42);
       c.fillRect(x + a, y, 1, 12);
     }
     c.globalAlpha = 1;
     c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
-  // Factories and datacenters: squares and diamonds, haloed in paper, as the shader's `marks`.
+  // Robots at work: verdigris by log density (~1 to ~3,000 worker-equivalents a km²).
+  robot: (c, x, y, P) => {
+    for (let a = 0; a < 26; a++) { const t = a / 25; c.fillStyle = P.inks.verdigris; c.globalAlpha = (P.dark ? 0.6 : 0.55) * t * t * (3 - 2 * t); c.fillRect(x + a, y, 1, 12); }
+    c.globalAlpha = 1;
+    c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+  },
+  // The land's uses, as the shader draws them on the tesserae.
+  city: (c, x, y, P) => {
+    c.fillStyle = rgba(P.accent, 0.12); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = mixHex(P.accent, P.text, P.dark ? 0.3 : 0.35); c.globalAlpha = 0.75; c.lineWidth = 0.7;
+    c.beginPath(); for (let a = 1.5; a < 26; a += 3.4) { c.moveTo(x + a, y); c.lineTo(x + a, y + 12); } for (let b = 1.5; b < 12; b += 3.4) { c.moveTo(x, y + b); c.lineTo(x + 26, y + b); } c.stroke();
+    c.globalAlpha = 1;
+  },
   factory: (c, x, y, P) => {
-    for (const [a, b] of [[4, 3], [12, 8], [20, 3]]) { c.fillStyle = rgba(P.canvas, 0.55); c.fillRect(x + a - 1.8, y + b - 1.8, 3.6, 3.6); c.fillStyle = P.inks.sienna; c.fillRect(x + a - 1.1, y + b - 1.1, 2.2, 2.2); }
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.fillStyle = rgba(P.inks.sienna, 0.18); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(P.inks.sienna, 0.85); c.lineWidth = 1;
+    c.beginPath(); for (let t = -12; t < 26; t += 2.8) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 12, y); } c.stroke();
+    c.restore();
   },
   datacenter: (c, x, y, P) => {
-    for (const [a, b] of [[5, 4], [14, 8], [22, 4]]) {
-      c.fillStyle = rgba(P.canvas, 0.55); c.beginPath(); c.moveTo(x + a, y + b - 3); c.lineTo(x + a + 3, y + b); c.lineTo(x + a, y + b + 3); c.lineTo(x + a - 3, y + b); c.fill();
-      c.fillStyle = P.inks.indigo; c.beginPath(); c.moveTo(x + a, y + b - 2.1); c.lineTo(x + a + 2.1, y + b); c.lineTo(x + a, y + b + 2.1); c.lineTo(x + a - 2.1, y + b); c.fill();
-    }
+    c.fillStyle = rgba(P.inks.violet, 0.22); c.fillRect(x, y, 26, 12);
+    c.fillStyle = rgba(P.inks.violet, 0.9);
+    for (let b = 0, k = 0; b < 12; b += 2.25, k++) for (let a = 1.3 + (k % 2) * 1.3; a < 26; a += 2.6) { c.beginPath(); c.arc(x + a, y + b + 1, 0.75, 0, 7); c.fill(); }
   },
-  // Robots at work: verdigris dots, sparse to dense (their density, by log), as the people's scale.
-  robot: (c, x, y, P) => {
-    c.fillStyle = P.inks.verdigris;
-    for (let a = 0.8, k = 0; a < 26; k++) {
-      const g = 5.6 - 3.4 * a / 26;
-      for (let b = (k % 2) * g / 2 + 0.8; b < 12; b += g) { c.beginPath(); c.arc(x + a, y + b, 0.75, 0, 7); c.fill(); }
-      a += 0.866 * g;
-    }
+  solar: (c, x, y, P) => {
+    c.fillStyle = rgba(P.ocean, 0.12); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 1.1;
+    c.beginPath(); for (let b = 0, k = 0; b < 12; b += 3.1, k++) for (let a = 0.6 + (k % 2) * 1.8; a < 26; a += 3.6) { c.moveTo(x + a, y + b + 1.5); c.lineTo(x + a + 1.6, y + b + 1.5); } c.stroke();
   },
   // Farms: parcels, each furrowed its own way, in sap.
   farm: (c, x, y, P) => {
@@ -197,7 +206,7 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  people: [['folk', 'People'], ['farm', 'Farms'], ['factory', 'Factories'], ['datacenter', 'Datacenters'], ['robot', 'Robots'], ['veil', 'Sulfate veil'], ['icesheet', 'Ice sheet'], ['river', 'River']],
+  people: [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['factory', 'Factories'], ['datacenter', 'Datacenters'], ['farm', 'Farms'], ['solar', 'Solar farms'], ['veil', 'Sulfate veil'], ['icesheet', 'Ice sheet'], ['river', 'River']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

@@ -60,15 +60,13 @@
 // at the amphidromic points, at the slowest dials the line of high water
 // sweeping round them, and a stipple where the tide loses its energy.
 // The People view (the People experiment, src/engine/people.js) is a chart's
-// base with the ice sheets: farms as a parcel hatch (the mosaic's tesserae,
-// each farmed with the cell's farmed share and furrowed its own way, in sap);
-// people as a tint by log density (~0.01 to ~10,000 a km², rural and in cities:
-// People.places), graphite on the paper and, in the dark theme, light on the
-// night; industry's machines as marks on a lattice fixed to the globe, each site
-// holding one with a probability that rises with their power per area (log):
-// factories as sienna squares, datacenters as indigo diamonds, each haloed in
-// paper; robots at work as a verdigris stipple whose spacing is their density
-// per km² (the people's scale); the sulfate veil as in the Air map.
+// base with the ice sheets: people as a tint in the accent by log density
+// (~0.003 to ~4,000 a km², rural and in cities: People.places), robots at work
+// as a verdigris tint over it; the land's uses on the mosaic's tesserae, each
+// tessera one use by its cell's shares (exclusive): cities a grid of blocks,
+// factories a heavy sienna hatch, datacenters a violet stipple (racks), farms
+// sap parcels each furrowed its own way, solar farms rows of prussian strokes
+// (panels); the sulfate veil as in the Air map.
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
@@ -95,7 +93,7 @@ struct U {
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
 @group(0) @binding(2) var<storage, read> cover: array<vec4f>;   // the cover's eight colour weights a vertex
-@group(0) @binding(3) var<storage, read> folk: array<vec4f>;    // the people, two a vertex: per km², the farmed share, factories' and datacenters' power (W/m²); robots at work per km², industry's share
+@group(0) @binding(3) var<storage, read> folk: array<vec4f>;    // the people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, and robots at work per km²
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -259,31 +257,6 @@ fn dashP(uv: vec2f, fw: f32, o: vec2f, d2: vec2f, lpx: f32, wpx: f32) -> f32 {
 fn flowDash(T: Tri, d: vec3f, periodPx: f32, lpx: f32, wpx: f32) -> f32 {
   let o = octave(periodPx);
   return T.w.x * dashP(T.x, T.f.x, o, d.yz, lpx, wpx) + T.w.y * dashP(T.y, T.f.y, o, d.zx, lpx, wpx) + T.w.z * dashP(T.z, T.f.z, o, d.xy, lpx, wpx);
-}
-
-// Marks on the stipple's staggered lattice, each site holding one with probability p (its own
-// hash), jittered within its site: a square (shape 0) or a diamond (1), s px from its centre to its
-// edge, and in .y the halo h px beyond it.
-fn mark1(uv: vec2f, fw: f32, F: f32, p: f32, shape: i32, s: f32, h: f32, salt: f32) -> vec2f {
-  let q = uv * F;
-  let row = floor(q.y / 0.8660254);
-  let odd = row - 2.0 * floor(row * 0.5);
-  let qx = q.x + 0.5 * odd;
-  let r = hash3(vec3f(floor(qx), row, salt + 0.37 * F));
-  if (r.x >= p) { return vec2f(0.0); }
-  let c = vec2f(qx - floor(qx) - 0.5 + 0.3 * (r.y - 0.5), (q.y / 0.8660254 - row - 0.5) * 0.8660254 + 0.26 * (r.z - 0.5));
-  var dd = max(abs(c.x), abs(c.y));
-  if (shape == 1) { dd = 0.7071 * (abs(c.x) + abs(c.y)); }
-  let d = dd / max(fw * F, 1e-7);
-  return vec2f(1.0 - smoothstep(s - 0.6, s + 0.6, d), 1.0 - smoothstep(s + h - 0.6, s + h + 0.6, d));
-}
-fn marksP(uv: vec2f, fw: f32, o: vec2f, p: f32, shape: i32, s: f32, h: f32, salt: f32) -> vec2f {
-  return mix(mark1(uv, fw, o.x, p, shape, s, h, salt), mark1(uv, fw, 2.0 * o.x, p, shape, s, h, salt), o.y);
-}
-fn marks(T: Tri, periodPx: f32, p: f32, shape: i32, s: f32, h: f32, salt: f32) -> vec2f {
-  if (p <= 0.0) { return vec2f(0.0); }
-  let o = octave(periodPx);
-  return T.w.x * marksP(T.x, T.f.x, o, p, shape, s, h, salt) + T.w.y * marksP(T.y, T.f.y, o, p, shape, s, h, salt + 11.0) + T.w.z * marksP(T.z, T.f.z, o, p, shape, s, h, salt + 23.0);
 }
 
 // The veil's optical depth at sin(latitude) z, linear between its bands' centres.
@@ -592,34 +565,44 @@ fn hair(d: f32, w: f32) -> f32 {
   land = select(land, tland, tides);
   sea = select(sea, tsea, tides);
 
-  // The People view: a chart's base with the ice sheets, farms' parcel hatch, the people's tint, the
-  // machines' marks and the robots' stipple.
+  // The People view: a chart's base with the ice sheets; the people's and the robots' tints; the
+  // land's uses on the mosaic's tesserae, each tessera one use with its cell's shares (exclusive).
   var pland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), iceC, sheet);
   if (folkV) {
-    let furrowA = 3.14159265 * fract(tess * 97.31);
-    let furrow = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
-    let farmed = select(0.0, 1.0, tess < i.pp.y);
-    pland = mix(pland, u.inkC.rgb, farmed * (0.1 + 0.55 * furrow));
-    // People: graphite by log density on the paper; on the night, light (the cities lit, the farms dim).
-    // A faint wash wherever anyone lives, deepening to the farms' densities (~0.003 to ~300 a km²,
-    // by log), then a step for the cities (~200 to ~4,000 a km²), so they stand out of the farmland.
+    // People: the accent by log density, a faint wash wherever anyone lives deepening to the farms'
+    // densities (~0.003 to ~300 a km²), then a step for the cities (~200 to ~4,000 a km²).
     let plog = log(max(i.pp.x, 1e-9)) / 2.302585;
-    let rural = smoothstep(-3.2, -2.5, plog) * select(0.1 + 0.24 * smoothstep(-2.5, 2.5, plog), 0.04 + 0.13 * smoothstep(-2.5, 2.5, plog), dark);
-    let urban = smoothstep(2.3, 3.6, plog) * select(0.52, 0.72, dark);
-    let pInk = select(mix(u.text.rgb, u.land.rgb, 0.2), mix(u.inkB.rgb, u.text.rgb, 0.5), dark);
-    pland = mix(pland, pInk, rural + urban);
-    // Factories (W/m², by log: ~0.3 to ~100 from none to every site) and datacenters (~0.01 to ~30),
-    // haloed in paper: at the takeoff they hold the cities, and spread as the machines grow.
-    let fac = marks(T, 10.0 * u.mode.z, smoothstep(-0.5, 2.0, log(max(i.pp.z, 1e-12)) / 2.302585), 0, 1.35 * u.mode.z, 0.7 * u.mode.z, 3.1);
-    let dcm = marks(T, 13.0 * u.mode.z, smoothstep(-2.0, 1.5, log(max(i.pp.w, 1e-12)) / 2.302585), 1, 1.8 * u.mode.z, 0.7 * u.mode.z, 7.7);
-    pland = mix(pland, u.canvas.rgb, 0.55 * max(fac.y, dcm.y));
-    pland = mix(pland, u.inkF.rgb, 0.95 * fac.x);
-    pland = mix(pland, u.inkE.rgb, 0.95 * dcm.x);
-    // Robots at work (worker-equivalents per km²): a verdigris stipple, 22 px apart at 0.001 a km² to 3 px at 1,000 (the people's scale).
-    let rd = log(max(i.pq.x, 1e-12)) / 2.302585;
-    // Faded toward the limb, where the foreshortened lattice's dots run together into a wash.
-    let rDots = stipple(T, mix(22.0, 3.0, smoothstep(-3.0, 3.0, rd)) * u.mode.z, 0.7 * u.mode.z) * smoothstep(-3.6, -2.8, rd) * smoothstep(0.12, 0.4, S.z);
-    pland = mix(pland, u.inkD.rgb, 0.9 * rDots);
+    let rural = smoothstep(-3.2, -2.5, plog) * select(0.08 + 0.22 * smoothstep(-2.5, 2.5, plog), 0.05 + 0.16 * smoothstep(-2.5, 2.5, plog), dark);
+    let urban = smoothstep(2.3, 3.6, plog) * select(0.42, 0.55, dark);
+    pland = mix(pland, u.accent.rgb, rural + urban);
+    // Robots at work (worker-equivalents a km², ~1 to ~3,000 by log): verdigris over the people, so a
+    // few million robots near the cities barely show and billions over the land do.
+    let rlog = log(max(i.pq.z, 1e-12)) / 2.302585;
+    pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
+    // The land's uses, in order of claim: cities, factories, datacenters, farms, solar farms.
+    let c1 = i.pp.z;
+    let c2 = c1 + i.pp.w;
+    let c3 = c2 + i.pq.x;
+    let c4 = c3 + i.pp.y;
+    let c5 = c4 + i.pq.y;
+    // Cities: a grid of blocks in the accent, darkened. Factories: a heavy sienna hatch. Datacenters:
+    // violet racks, a fine dense stipple (indigo read as the solar farms' prussian). Farms: sap
+    // parcels, each furrowed its own way. Solar farms:
+    // rows of short prussian strokes (panels).
+    let blocks = max(hatch(T, vec2f(1.0, 0.0), 3.4 * u.mode.z, 0.7 * u.mode.z), hatch(T, vec2f(0.0, 1.0), 3.4 * u.mode.z, 0.7 * u.mode.z));
+    let cityInk = select(mix(u.accent.rgb, u.text.rgb, 0.35), mix(u.accent.rgb, u.text.rgb, 0.3), dark);
+    let furrowA = 3.14159265 * fract(tess * 97.31);
+    if (tess < c1) {
+      pland = mix(mix(pland, u.accent.rgb, 0.12), cityInk, 0.75 * blocks);
+    } else if (tess < c2) {
+      pland = mix(mix(pland, u.inkF.rgb, 0.18), u.inkF.rgb, 0.85 * hatch(T, vec2f(0.7071, 0.7071), 2.8 * u.mode.z, 1.0 * u.mode.z));
+    } else if (tess < c3) {
+      pland = mix(mix(pland, u.inkG.rgb, 0.22), u.inkG.rgb, 0.9 * stipple(T, 2.6 * u.mode.z, 0.75 * u.mode.z));
+    } else if (tess < c4) {
+      pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z));
+    } else if (tess < c5) {
+      pland = mix(mix(pland, u.ocean.rgb, 0.12), u.ocean.rgb, 0.8 * strokes(T, 3.6 * u.mode.z, 1.1 * u.mode.z));
+    }
   }
   land = select(land, pland, folkV);
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkV);

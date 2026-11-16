@@ -14,9 +14,9 @@
 //           industry off-world): graphite points on seeded orbits, as many as
 //           the share of the Sun's output they take (to a tenth), the disc
 //           dimmed by it
-//   base    the people's city on the Moon: ochre lights spreading from one
-//           site on its near side (north up, by the planet's pole), as far as
-//           off-world power has grown on a log scale (100 GW to 10²¹ W)
+//   base    the people's city on the Moon: an ochre grid of blocks spreading
+//           from one site on its near side (north up, by the planet's pole), as
+//           far as off-world power has grown on a log scale (100 GW to 10²¹ W)
 // Each shows only where the dial resolves its motion: the sky turns at the
 // slowest dials and holds still above; the Moon and the Sun fade out when a
 // month or a year would pass in under a few seconds.
@@ -126,17 +126,32 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       ctx.restore();
       ctx.strokeStyle = rgba(ink, 0.55); ctx.lineWidth = 0.8;
       ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.stroke();
-      // The city: its lights, as many as off-world power has grown (north up, along the pole's direction on screen).
+      // The city: the union of discs about its sites, as many as off-world power has grown (north up,
+      // along the pole's direction on screen), washed in ochre and ruled as a grid of blocks, as the
+      // globe draws a city; clipped to the disc.
       const nB = Math.round(BASE.length * Math.min(1, Math.max(0, sky.moonbase || 0)) ** 1.3);
       if (nB) {
         const up = project(m[0], m[1], m[2] + 0.02), ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2;
         const ny = [Math.cos(ua), Math.sin(ua)], nx = [-ny[1], ny[0]];   // screen directions of the Moon's north and east
-        ctx.fillStyle = pal.inks.ochre;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(p[0], p[1], R - 0.4, 0, 2 * Math.PI); ctx.clip();
+        ctx.beginPath();
         for (let k = 0; k < nB; k++) {
-          const [bx, by, , b] = BASE[k];
-          ctx.globalAlpha = sky.moonAlpha * (0.45 + 0.55 * b);
-          ctx.beginPath(); ctx.arc(p[0] + R * (bx * nx[0] + by * ny[0]), p[1] + R * (bx * nx[1] + by * ny[1]), Math.max(0.4, 0.022 * R), 0, 2 * Math.PI); ctx.fill();
+          const [bx, by] = BASE[k], cx = p[0] + R * (bx * nx[0] + by * ny[0]), cy = p[1] + R * (bx * nx[1] + by * ny[1]);
+          ctx.moveTo(cx + 0.075 * R, cy); ctx.arc(cx, cy, 0.075 * R, 0, 2 * Math.PI);
         }
+        ctx.clip();
+        ctx.globalAlpha = sky.moonAlpha;
+        ctx.fillStyle = rgba(pal.inks.ochre, 0.35); ctx.fillRect(p[0] - R, p[1] - R, 2 * R, 2 * R);
+        ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = Math.max(0.5, 0.02 * R);
+        const step = Math.max(1.3, 0.07 * R);
+        ctx.beginPath();
+        for (let t = -R; t <= R; t += step) {
+          ctx.moveTo(p[0] + t * nx[0] - R * ny[0], p[1] + t * nx[1] - R * ny[1]); ctx.lineTo(p[0] + t * nx[0] + R * ny[0], p[1] + t * nx[1] + R * ny[1]);
+          ctx.moveTo(p[0] + t * ny[0] - R * nx[0], p[1] + t * ny[1] - R * nx[1]); ctx.lineTo(p[0] + t * ny[0] + R * nx[0], p[1] + t * ny[1] + R * nx[1]);
+        }
+        ctx.stroke();
+        ctx.restore();
       }
       ctx.globalAlpha = 1;
     }

@@ -11,23 +11,30 @@ export function fmtYears(y) {
 }
 
 export { fitHyperbola } from '../../src/engine/peoplefit.js';
+import { paceOf } from '../../src/engine/people.js';
 
 /**
- * The dial set so a doubling of the minds takes `secs` seconds, within the dial's range
- * (10^−3.5 to 10^7 yr/s): its wall-clock in all, and by era (before the first tip, foragers after
- * it, farmers, industry, compute), the eras by the history's own shares.
+ * The follow dial's wall-clock, as People.pace sets it: a doubling of what changes fastest takes
+ * `secs` seconds (the minds; before early takeoff also the farmed land and the energy, each from its
+ * floor; after it the energy and the people on Earth and off it), within the dial's range and at
+ * most `cap` yr/s (the people's thread on the page: ~80 kyr/s in the forager era). Its wall-clock in
+ * all, and by era (before the first tip, foragers after it, farmers, industry, then from early
+ * takeoff to the dial, and after the dial).
  */
-export function followDial(h, secs) {
-  let wall = 0;
+export const FLOOR_HOMININS = 5e3;   // yr/s: main.js's follow floor before the first tip
+export function followDial(h, secs, cap = 8e4) {
+  let wall = 0, present = false, dial = false;
   const eras = new Map();
   for (let k = 1; k < h.length; k++) {
-    // The growth over the last 20 steps, so the dial reads the trend, not a step's noise.
-    const a = h[Math.max(0, k - 20)], b = h[k];
-    const g = Math.log(b.minds / a.minds) / (b.t - a.t);
-    const rate = g > 1e-7 ? Math.min(1e7, Math.max(Math.pow(10, -3.5), Math.log(2) / g / secs)) : 1e7;
+    const b = h[k];
+    present = present || b.beta >= 0.15;
+    const g = paceOf(h.slice(Math.max(0, k - 20), k + 1), present);
+    const floor = b.zmax > 1 || b.farm > 0 ? 0 : FLOOR_HOMININS;   // the page's floor before the first tip (main.js)
+    const rate = Math.min(cap, 1e7, Math.max(floor, g > 1e-7 ? Math.max(Math.pow(10, -3.5), Math.log(2) / g / secs) : 1e7));
     const w = b.dt / rate;
     wall += w;
-    const era = b.ind > 0.05 ? (b.zmax > 11 ? 'compute' : 'industry') : b.farm > 0.05 ? 'farmers' : b.zmax > 1 ? 'foragers' : 'hominins';
+    if (!dial && k >= 6) { const c = h[k - 5]; const gm = Math.log(b.minds / c.minds) / Math.max(b.t - c.t, 1e-12); dial = gm > 0 && Math.LN2 / gm < 1 / 365.25; }
+    const era = dial ? 'after the dial' : present ? 'takeoff' : b.ind > 0.05 ? 'industry' : b.farm > 0.05 ? 'farmers' : b.zmax > 1 ? 'foragers' : 'hominins';
     eras.set(era, (eras.get(era) || 0) + w);
   }
   return { wall, eras: [...eras] };

@@ -705,7 +705,10 @@ function followAim() {
   const m = people.msg;
   if (!m) return null;
   const top = Math.min(+els.dial.max, Math.log10(Math.max(1e-3, m.cap)));
-  const want = m.pace > 0 ? Math.log10(Math.LN2 / (m.pace * follow.secs)) : top;
+  // Before the first tip, at least 5 kyr/s: the first hominins' spread over their continent doubles
+  // every few decades, and at the knob's seconds a doubling it took most of the run's first minute.
+  const floor = m.era === 'hominins' ? Math.log10(5e3) : -Infinity;
+  const want = Math.max(floor, m.pace > 0 ? Math.log10(Math.LN2 / (m.pace * follow.secs)) : top);
   return Math.max(+els.dial.min, Math.min(top, want));
 }
 // Each experiment starts from the planet's opening (a snowball can't be undone
