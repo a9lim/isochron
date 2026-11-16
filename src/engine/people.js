@@ -174,7 +174,7 @@ export const PEOPLE = {
   HEAT_SAC: 1000, HEAT_PRES: 0.1,                   // Earth's heat budget (W/m²) as AI comes to run things: sacrificed (Earth a radiator at ~385 K: the oceans boil) or preserved (heavy industry off-world)
   T_CDR: 30, J_CDR: 2.2e19,                         // preserved: CO₂ drawn back to CO2_0 over T_CDR years at J_CDR J a Pg C (direct air capture, ~6 GJ a t CO₂, from memory), sulfate holding the forcing at none meanwhile
   F_RUN: 40, E_BOIL: 3.7e27, T_HAB: 12,             // the runaway greenhouse's forcing (W/m²: absorbed past ~282 W/m², Goldblatt and others 2013, from memory); the heat that boils the oceans away (J: 1.4e21 kg from 15 °C, standard); the warming that leaves half the land unlivable (wet bulbs past 35 °C: Sherwood and Huber 2010, ~11–12 K, from memory)
-  R_VOL: 1e-3, R_MIG: 0.5, W_HAB: 1e4, F_LIVE_MAX: 30,   // aligned: Earth's people leaving for space a year by choice, and as Earth's habitability fails; W a person off-world; the most forcing the live planet's climate is given (past it the runaway is the people's to count)
+  R_VOL: 1e-3, R_RET: 1e-3, R_MIG: 0.5, W_HAB: 1e4, F_LIVE_MAX: 30,   // aligned: Earth's people leaving for space a year by choice, and off-world's coming back by choice (× Earth's habitability: half and half where it's whole; a9: "offworlders migrate back to earth too"), and leaving as Earth's habitability fails; W a person off-world; the most forcing the live planet's climate is given (past it the runaway is the people's to count)
   // Energy and heat
   B_EBM: 2.09, SUN_ABS: 1.2e17, F_SUN: 0.05, HEAT_MAX: 11.8,   // B (W m⁻² K⁻¹); absorbed sunlight (W); surface renewables' most; the heat fossil carbon and fusion may add (W/m²)
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
@@ -182,6 +182,7 @@ export const PEOPLE = {
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4,
   DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
   T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
+  DT_ECON: 10,                     // the step's most from early takeoff on (past the fine stretch, 500-year steps set the economy oscillating: energy collapsing and recovering a step apart, the people to trillions)
   Z_SAT: 30,                       // culture past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
 };
 const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
@@ -917,12 +918,18 @@ export class People {
       const geo = end && end.preserve ? -sA * Math.max(0, Fc + E.heat + E.aer) : 0;
       this.forcing.heat = E.heat; this.forcing.aer = E.aer + geo; this.forcing.geo = geo;
       this.rewild = end && end.preserve ? sA * syn : 0;
-      // Aligned: people leave for space as it opens, by choice and as Earth fails them.
-      if (end && end.aligned) {
-        const m = sig((z - P.Z_SPACE) / P.W_SPACE) * (P.R_VOL + P.R_MIG * (1 - this.hE)), q = 1 - Math.exp(-m * dt);
-        let moved = 0;
-        for (const L of live) for (let c = 0; c < nL; c++) if (L.N[c] > 0) { const x = L.N[c] * q; L.N[c] -= x; moved += x; }
-        this.space += moved; people -= moved;
+      // Aligned: people move between Earth and space as it opens, by choice either way, and leave
+      // as Earth fails them; back only as far as it's livable. Two states exchanging at rates a
+      // (out) and b (back), stepped exactly: off-world relaxes to a/(a + b) of everyone.
+      if (end && end.aligned && people > 0) {
+        const open = sig((z - P.Z_SPACE) / P.W_SPACE), a = open * (P.R_VOL + P.R_MIG * (1 - this.hE)), b = open * P.R_RET * this.hE;
+        if (a + b > 0) {
+          const all = people + this.space, Sinf = all * a / (a + b);
+          const moved = Sinf + (this.space - Sinf) * Math.exp(-(a + b) * dt) - this.space;   // net out (back if negative)
+          const g = Math.max(0, 1 - moved / people);
+          for (const L of live) for (let c = 0; c < nL; c++) if (L.N[c] > 0) L.N[c] *= g;
+          this.space += people * (1 - g); people *= g;
+        }
       }
     }
     // The runaway greenhouse and the oceans; Earth's habitability (on the cached planet its climate's
@@ -1253,7 +1260,7 @@ export class People {
     let grow = 0;
     if (n >= 2 && h[n - 1].minds > 0 && h[n - 2].minds > 0) grow = Math.log(h[n - 1].minds / h[n - 2].minds) / h[n - 1].dt;
     const last = n ? h[n - 1].dt : P.DT_MAX / 2;
-    return Math.max(P.DT_MIN, Math.min(this.flags.tipped ? P.DT_MAX : P.DT_EARLY, P.DZ_MAX / Math.max(this.lastRate, 1e-12), grow > 0 ? 0.05 / grow : Infinity, 2 * last, this.dtCap || Infinity));
+    return Math.max(P.DT_MIN, Math.min(this.flags.present ? P.DT_ECON : this.flags.tipped ? P.DT_MAX : P.DT_EARLY, P.DZ_MAX / Math.max(this.lastRate, 1e-12), grow > 0 ? 0.05 / grow : Infinity, 2 * last, this.dtCap || Infinity));
   }
 
   /**
