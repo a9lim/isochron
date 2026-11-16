@@ -215,3 +215,18 @@ test('a spread of harvests kills in famine years, and stores take it back', () =
   assert.ok(d(0.15, 0.25) < 0.1 * d(0.15, 0), `a quarter-year's store takes most of it back (${d(0.15, 0.25).toExponential(2)})`);
   assert.ok(d(0.3, 0) > d(0.15, 0), 'more spread, more famine');
 });
+
+test('food and CO₂ capture are powered before output; off-world energy heats nothing; a preserved Earth keeps its heat budget', () => {
+  const P = { ...PEOPLE, FOSSIL: 1e9 }, AREA = 4 * Math.PI * 6.371e6 ** 2;
+  const fresh = () => { const E = newEconomy(P); E.on = true; E.Kf = 1e12; E.Ke = [1e10, 1e10, 1e10, 1e10]; return E; };
+  const x = { Lh: 1e9, z: 13 };
+  const E0 = industrialStep(fresh(), x, 0.01, P), sup = E0.Ef + E0.Er + E0.Eu + E0.Es;
+  const E1 = industrialStep(fresh(), { ...x, Efood: 0.3 * sup, Ecdr: 0.1 * sup }, 0.01, P);
+  assert.ok(Math.abs(E1.EfoodGot / (0.3 * sup) - 1) < 1e-9 && Math.abs(E1.EcdrGot / (0.1 * sup) - 1) < 1e-9, `food ${E1.EfoodGot} and capture ${E1.EcdrGot} met first`);
+  assert.ok(E1.Y < E0.Y, `output pays for them (${E1.Y.toExponential(3)} against ${E0.Y.toExponential(3)})`);
+  assert.ok(E0.Es > 0 && Math.abs(E0.heat - (E0.Ef + E0.Eu) / AREA) < 1e-12, `Earth's heat is fossil carbon's and fusion's alone (${E0.heat} W/m², off-world ${E0.Es.toExponential(2)} W)`);
+  const Ep = industrialStep(fresh(), { ...x, ending: { aligned: true, preserve: true }, sA: 1 }, 0.01, P);
+  assert.ok(Ep.heat <= P.HEAT_PRES * 1.0001 && Ep.Ef === 0, `preserved: heat ${Ep.heat} W/m² within ${P.HEAT_PRES}, no fossil carbon burned (${Ep.Ef})`);
+  const Es = industrialStep(fresh(), { ...x, ending: { aligned: false, preserve: false }, sA: 1 }, 0.01, P);
+  assert.ok(Es.capU > 50 * P.HEAT_MAX * AREA, `sacrificed: Earth's budget opens (${(Es.capU / AREA).toFixed(0)} W/m²)`);
+});

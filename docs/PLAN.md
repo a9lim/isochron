@@ -45,6 +45,15 @@ From a9, 2026-11-15, taking up Claude's proposal for people (Roadmap 2.0):
 - The ice fix (sheets that swing with the orbit, and sea level with them) would help but isn't a prerequisite, if the experiment's world can be set up to do without it.
 - A headless prototype comes first, in `tools/`, iterated on and tested before anything goes into the sim.
 
+From a9, 2026-11-15, on the ending:
+
+- It is up to chance, on two orthogonal axes: AI aligned or not, Earth preserved or sacrificed.
+  - 1a: misaligned, and it boils the oceans (after Yudkowsky and Soares, from memory).
+  - 1b: misaligned, but it preserves the planet: datacenters and factories in space, plankton or other carbon capture, sulfate in the air. People are still gradually disempowered and slowly go extinct, with no birth-rate floor.
+  - 2a: aligned, and people and AI reach for the stars together, sacrificing Earth to get there.
+  - 2b: aligned, and Earth is preserved, for real this time.
+- Food is bought with energy.
+
 
 ## Thesis: one planet, one state, one dial
 
@@ -524,11 +533,11 @@ Each a number against a theory, as in 1.0:
 
 ### Out
 
-Agents, polities, war, named cultures, tech trees and ages (they turn fields into a game, and names and events were already considered and not taken). What a superintelligence wants: alignment has no quantity in this model, so it says what the takeoff costs the planet, not what it is for.
+Agents, polities, war, named cultures, tech trees and ages (they turn fields into a game, and names and events were already considered and not taken). What a superintelligence wants is not modelled: alignment is a draw (Decisions, the ending), not a quantity that emerges, so the model says what each ending costs the planet and its people, not why it happens.
 
 ### Open for a9
 
-- The endpoint: the radiator (Claude's proposal: every mark is a flux), leaving (a swarm that dims the Sun in `sky.js`), or stopping at t*.
+- The endpoint is decided (Decisions, the ending: four by chance). Open: the draw's odds (even on each axis by default), and how the sim shows each: the oceans boiling (the planet's climate holds to F_LIVE_MAX, so it needs a runaway state of its own), a swarm that dims the Sun in `sky.js`, sulfate's veil and forests coming back.
 
 ### The prototype
 
@@ -709,11 +718,45 @@ Both sides of the food capacity are logistics, solved exactly; an oracle checks 
 - **Open: the saturated world.** Past the guard, TFP is e²³ and any sliver of capital saturates the energy. Fixed capital and production's compute decay until capital's return revives and its switch reopens: on seed c within the century, output cycles ×5–7 on a ~40-year beat (energy and heat steady); past ~1 kyr the energy capital cycles too. This lies beyond the arc's end. A ceiling on TFP (output per joule is bounded), or ending the arc at the dial, would settle it.
 - Oracles: 13 pass.
 
+**v1.4 (2026-11-15): the timelines, and four endings by chance.** a9: "irl we're heading for ASI in ~2027-28; does this square with the timelines?"; and the ending up to chance on two axes, with food from energy (Decisions).
+- **The timelines didn't square**, even counting from deep learning: the gap was the rate, not the start. At early takeoff effective compute grew ~1.5×/yr: the compute stock ~25%/yr, and AI's efficiency, tied to the general idea stock at θ_C = 2, ~15%/yr. Measured, frontier effective compute grows ~10×/yr: training compute ~4–5×/yr, algorithms ~3×/yr (Epoch, from memory). AI's efficiency is its own fast field, so θ_C = θ_AI = 25 (z grows ~0.08 a year there): effective compute now grows 0.8–1.0 orders a year at early takeoff on three seeds. Z_AI 10.35 keeps early takeoff near the output it had (at 11, early takeoff moved later and to 110 sy a person).
+  - Early takeoff: 199–348 years after industry, 2.5–3.6 B people, 6–8 TW, ~85 Pg C burned, 42–46 sy a person. Earth's: ~245 years, 8 B, ~19 TW, ~500 Pg C, 20–25 sy (from memory). The model's industrial era is still too light and its people too few.
+  - AI's labour passes people's 3–4 years after early takeoff, robots' ~0.5 years later, and the dial runs out 4.1–5.2 years after early takeoff. With early takeoff at ~2024–25, the dial is ~2029.
+  - The minds double every ~20 years in the people's hyperbola, flatten through the demographic transition, then double every ~9 years 2 years before the dial, ~0.8 years at 1 and ~0.16 at 0.3. The AI hyperbola is the last two years.
+- **Food bought with energy** (Z_SYN at the AI era): synthetic or indoor food and shelter at W_FOOD = 3 kW a person (~1 kW electrochemical-microbial to ~20 kW under LEDs; speculation). It is bought for the people the land can't feed, ×2, ahead of everything else. Room up to 20× the people is bought as far as it costs under 1% of their income at energy's price at the margin, so before AI none is bought and after the dial room is nearly free (20× the people at 3 kW is ~200 TW). It enters each cell's capacity beside the land's. The first tries killed the economy at ignition: a logistic's tail far below its era, sized to the room, claimed more energy than the newborn industry had.
+- **The ending** is drawn at early takeoff from the seed (`people:ending`), even on each axis (P_ALIGN, P_PRESERVE; ENDING forces one). Its levers move with AI's share of the work it could do at full power (sA), handed over over T_SA = 2 years:
+  - **Earth's heat budget** goes from people's HEAT_MAX (11.8 W/m²) to 1,000 W/m² sacrificed (Earth a radiator at ~385 K) or 0.1 W/m² preserved. Preserved, fossil carbon stays in the ground (×(1 − sA)) and farms return to forest as food comes from energy.
+  - **Off-world industry** (Z_SPACE 12): space solar adds no heat on Earth and is capped softly at a tenth of the Sun's output (F_DYSON, speculation); asteroid materials bound materials' energy at E_SPACE.
+  - **Preserved:** CO₂ is drawn back toward 280 ppm over T_CDR = 30 years by capture at 2.2 × 10¹⁹ J a Pg C (direct air capture, ~6 GJ a t CO₂, from memory). Sulfate holds the forcing at none meanwhile. Live, the capture is a negative pulse into the planet's own carbon.
+  - **Misaligned:** humans' control follows sA down over T_DIS = 30 years (gradual disempowerment, Kulveit and others 2025, from memory), and their births follow it (b × control: no floor). Sacrificed (1a), people's goods and bought food follow control down too.
+  - **Aligned:** people leave for space as it opens, 0.1% a year by choice and up to 50% a year as Earth's habitability fails. Each needs 10 kW off-world.
+  - **The runaway:** past F_RUN = 40 W/m² of forcing (absorbed past ~282 W/m², Goldblatt and others 2013, from memory), the excess boils the oceans (3.7 × 10²⁷ J: 1.4 × 10²¹ kg from 15 °C, standard). Earth's land capacity × 1/(1 + (ΔT/12 K)⁴) (half the land past wet bulbs of 35 °C at ~12 K, Sherwood and Huber 2010, from memory) × the oceans left; ΔT is F/B on the cached planet, and live only the forcing past what the planet is given. Bought food lasts until the oceans are gone.
+- **Two flip-flops** were found on the way and fixed. sA from the AI labour realized made a preserving AI's fossil cut take the power AI ran on: AI's share fell, the fossil came back, and so on step to step. It now counts the work AI could do, handed over gradually. Room bought only for the unfed left a rewilded Earth near capacity, where crowding at replacement births shrank the people ~0.1% a year.
+- **The four endings** (earthlike, forced; seeds b and c drew 1a and 2a; years after the dial):
+
+  | ending | Earth | the people | the end, +300 years |
+  |---|---|---|---|
+  | 1a misaligned, sacrificed | the runaway at +0.2, fossil carbon spent at +0.4, 1,000 W/m² by +20, the oceans gone at +237 | control below half at +22; the last die at +127 (b: +126) | none; 3.6 × 10²⁵ W off-world |
+  | 1b misaligned, preserved | off-world energy past Earth's at +0.1; Earth's heat 0.1 W/m² by +20; CO₂ peaks at 346 ppm and is back at 282 by +100; sulfate at most −3.4 W/m² | control below half at +22, 4% by +100; 3.6 → 1.75 B at +100 | 0.24 B, falling ~1%/yr |
+  | 2a aligned, sacrificed | as 1a | more off-world than on Earth at +1.5, Earth empty at +28 (c: +27) | 3.5 B off-world, Earth boiled dry |
+  | 2b aligned, preserved | as 1b | 3.5 B, slowly off-world by choice | 2.4 B on Earth, 0.9 B off-world |
+
+- **Live** (the planet given at most F_LIVE_MAX = 30 W/m²):
+  - sacrificed: the planet warms from 13.5 °C to ~35 °C. CO₂ peaks at ~2,600 ppm and the sea draws it to ~1,430 by +300. Trees spread to 66% of a hot, wet land (land carbon 2,000 → 3,500 Pg). The oceans' boiling is the people's to count: the planet's climate has no runaway state.
+  - preserved: CO₂ peaks at 351 ppm and is drawn back below 300 (120 Pg C taken back), to ~280 by +300; the planet holds at 13.3 °C; farms go down to 0.01% of land and trees come back to 40% of it. 2b keeps 3.1 B people (2.3 on Earth, 0.8 off-world); 1b falls to 0.22 B.
+- **Open:**
+  - the swarm's pace: a tenth of the Sun's output within ~5 years of the dial, since nothing bounds the build-out but output's growth (speculation; launch and mining rates would slow it);
+  - the planet's own runaway (to show the oceans boil in the sim);
+  - the odds;
+  - goods a person past the dial (10¹⁵–10²⁵ sy) mean little;
+  - early takeoff's industrial era is still light (6–8 TW and 85 Pg C against Earth's ~19 TW and ~500 Pg C).
+- Oracles: 14 pass, with food and capture powered first, off-world energy heating nothing, and a preserved Earth within its heat budget.
+
 Next, in order:
-1. **The ending** (a9). Food bought with energy, and the heat budget as a cost (compute's cooling, or crops' heat stress), decide whether the people outlive their radiator. Then: whether the arc ends at the dial, at the ceilings, or leaves (Z_SPACE).
-2. **The saturated world's cycles** (a ceiling on TFP), if the arc runs past the dial.
+1. **The sim's side of the endings** (a9: how each shows): the oceans boiling (a runaway state for the planet's climate), a swarm dimming the Sun in `sky.js`, sulfate's veil, forests returning, people leaving.
+2. **The industrial era's weight** (energy and carbon at early takeoff against Earth's), and the people's numbers through it.
 3. **Soil within a cell** (the regolith's relief at sub-grid scale) and **the ore map** (arcs, flood basalts, laterites).
-4. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds.
+4. **The experiments' numbers** from runs: Carbon budget (the crossover's knob), Long Anthropocene (farming on and off, live), Kremer's continents, Axes, Dispersal; then surveys across seeds and their draws.
 
 ## Open decisions
 

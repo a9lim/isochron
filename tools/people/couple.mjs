@@ -25,7 +25,7 @@ export const COUPLE = {
 
 export class Live {
   constructor(P, people) {
-    this.P = P; this.p = people;
+    this.P = P; this.p = people; this.live = true;
     // The regolith re-makes its opening layer once more after the climate settles; let it do so
     // before any tillage is added (inside the first fast step it would take tillage as its balance).
     P.regolith.advance(0);
@@ -56,7 +56,11 @@ export class Live {
     P.years += h; this.plateBank += h;
     while (this.plateBank >= 5e5) { P.plateStep(5e5); this.plateBank -= 5e5; }
     P.setOrbit(0);
-    if (this.carbonBank > 0) { P.carbon.pulse(this.carbonBank); this.stats.pulsed += this.carbonBank; this.carbonBank = 0; }
+    // Emissions less what's drawn back (never more than the air's excess over a 100 ppm floor).
+    if (this.carbonBank !== 0) {
+      const x = Math.max(this.carbonBank, -Math.max(0, P.carbon.pco2 - 100) * 2.12);
+      P.carbon.pulse(x); this.stats.pulsed += x; this.carbonBank = 0;
+    }
     for (let c = 0; c < p.nL; c++) if (p.Ef[c] > 0) ero[cells[c]] += p.Ef[c];
     try { P.fast(h, 1e9, 10 * h); }
     catch (e) {
@@ -70,7 +74,8 @@ export class Live {
     this.stats.steps++; this.stats.msFast += performance.now() - t0;
     // A climate cycle when due.
     this.since += h;
-    const F = p.forcing.heat + p.forcing.aer, farm = this.farmShare(), L = this.last;
+    // The planet's climate is given the forcing up to F_LIVE_MAX (past it, the runaway is the people's to count).
+    const F = Math.min(p.forcing.heat + p.forcing.aer, p.P.F_LIVE_MAX), farm = this.farmShare(), L = this.last;
     const moved = Math.abs(F - L.F) > COUPLE.D_F || Math.abs(P.carbon.pco2 - L.co2) > COUPLE.D_CO2 || Math.abs(farm - L.farm) > COUPLE.D_FARM;
     if (this.since >= COUPLE.CLIMATE_MAX || (this.since >= COUPLE.CLIMATE_MIN && moved)) this.cycle(F, farm);
   }
