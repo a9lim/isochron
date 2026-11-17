@@ -15,6 +15,11 @@ Fields, each n × 12 float32 (NaN where a source has nothing):
   sst     °C      the sea's surface (NOAA OISST v2, 1°, 1991–2020)
   icec    0–1     sea ice concentration (the same)
   pall    mm/mo   precipitation everywhere (GPCP v2.3, 2.5°, 1991–2020)
+  sdn     W/m²    sunlight at the top of the atmosphere (CERES EBAF 4.2, 1°, 2001–2020, through obs4MIPs)
+  sup     W/m²    sunlight reflected, all sky (the same)
+  supc    W/m²    sunlight reflected, clear sky (the same)
+  olr     W/m²    outgoing longwave, all sky (the same)
+  olrc    W/m²    outgoing longwave, clear sky (the same)
 """
 import json
 import pathlib
@@ -115,6 +120,27 @@ print('GPCP precip', z.shape, u)
 pa, _ = bin_monthly(lat, lon, z)
 fields['pall'] = pa * DAYS[None, :]   # mm/day → mm per month
 
+def climatology(path, name, y0=2001, y1=2020):
+    """A monthly file's mean year over y0–y1 (time in days since its first month's start)."""
+    lat, lon, z, u = read(path, name)
+    f = h5py.File(path, 'r')
+    units = f['time'].attrs['units']
+    units = units.decode() if isinstance(units, bytes) else str(units)
+    start = units.split('since ')[1][:7]   # YYYY-MM
+    ys, ms = int(start[:4]), int(start[5:7]) - 1
+    ym = ys * 12 + ms + np.arange(z.shape[0])
+    out = np.zeros((12,) + z.shape[1:])
+    for m in range(12):
+        k = (ym % 12 == m) & (ym // 12 >= y0) & (ym // 12 <= y1)
+        out[m] = np.nanmean(z[k], 0)
+    return lat, lon, out, u
+
+
+for key, var in (('sdn', 'rsdt'), ('sup', 'rsut'), ('supc', 'rsutcs'), ('olr', 'rlut'), ('olrc', 'rlutcs')):
+    lat, lon, z, u = climatology(CACHE / 'ceres' / f'{var}.nc', var)
+    print('CERES', var, z.shape, u)
+    fields[key], _ = bin_monthly(lat, lon, z)
+
 names = list(fields)
 arr = np.stack([fields[k].astype(np.float32) for k in names])   # (field, n, 12)
 arr.tofile(CACHE / f'obs-{LEVEL}.f32')
@@ -122,3 +148,6 @@ arr.tofile(CACHE / f'obs-{LEVEL}.f32')
 land = landw > 0.5
 print(f'land cells {land.sum()}; land T annual mean {np.nanmean(fields["tland"][land]):.1f} °C; land P {np.nanmean(fields["pland"][land].sum(1)):.0f} mm/yr; '
       f'GPCP global {np.nanmean(fields["pall"].sum(1)):.0f} mm/yr (unweighted cells ≈ area-weighted on this grid)')
+yr = {k: np.nanmean(fields[k]) for k in ('sdn', 'sup', 'supc', 'olr', 'olrc')}
+print(f'CERES: in {yr["sdn"]:.1f}, reflected {yr["sup"]:.1f} (clear {yr["supc"]:.1f}), OLR {yr["olr"]:.1f} (clear {yr["olrc"]:.1f}); '
+      f'albedo {yr["sup"] / yr["sdn"]:.3f}, CRE SW {yr["supc"] - yr["sup"]:.1f}, LW {yr["olrc"] - yr["olr"]:.1f} W/m²')

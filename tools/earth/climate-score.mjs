@@ -4,7 +4,10 @@
 // year's temperature, the year's rain, the Köppen groups), the sea's surface and its ice by latitude,
 // and the Köppen classes (the observations classified with the sim's own thresholds, hard, as the
 // sim's months are).
-// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO and AIRO (overrides-json for VEG, SEAHEAT and AIRHEAT), LEVEL (6), MAX (40), QUIET=1 (summary only)
+// The top of the atmosphere against CERES EBAF (obs.py's sdn, sup, supc, olr, olrc): the sunlight
+// reflected and the outgoing longwave, clear and all-sky, per cell through the year (the energy
+// balance's 24 samples, two a month), by cell and by 10° zone, and the clouds' forcing.
+// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO, AIRO and CLOUDO (overrides-json for VEG, SEAHEAT, AIRHEAT and CLOUDS), LEVEL (6), MAX (40), QUIET=1 (summary only)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildGrid } from '../../src/grid/icosphere.js';
@@ -21,11 +24,13 @@ import { Ice } from '../../src/engine/ice.js';
 import { loadEarth, earthGenesis, earthIce } from '../../src/engine/earth.js';
 import { SEAHEAT } from '../../src/engine/seaheat.js';
 import { AIRHEAT } from '../../src/engine/airheat.js';
+import { CLOUDS, shortwave, longwave } from '../../src/engine/clouds.js';
 
 Object.assign(CLIMATE, JSON.parse(process.argv[2] || '{}'));
 Object.assign(VEG, JSON.parse(process.env.VEGO || '{}'));
 Object.assign(SEAHEAT, JSON.parse(process.env.SEAO || '{}'));
 Object.assign(AIRHEAT, JSON.parse(process.env.AIRO || '{}'));
+Object.assign(CLOUDS, JSON.parse(process.env.CLOUDO || '{}'));
 const LEVEL = +(process.env.LEVEL || 6), QUIET = !!process.env.QUIET;
 const cache = fileURLToPath(new URL('./.cache/', import.meta.url));
 const meta = JSON.parse(readFileSync(`${cache}obs-${LEVEL}.json`, 'utf8'));
@@ -121,6 +126,47 @@ for (let i = 0; i < n; i++) {
     zband[b].ia += a; zband[b].is += a * ice; zband[b].io += a * iceO;
   }
 }
+// ── The top of the atmosphere: the sim's fluxes at the energy balance's samples against CERES's months ──
+const toa = (() => {
+  const Q = clim.insolationRows(), NS = 24, cl = CLOUDS.ON ? clim.clouds : null, sst = clim.ocean ? clim.ocean.fine.sst : null;
+  const forcing = clim.externalForcing() + CLIMATE.F_OLR;
+  const sim = { sup: new Float64Array(n), supc: new Float64Array(n), olr: new Float64Array(n), olrc: new Float64Array(n), sdn: new Float64Array(n) };
+  const ob = { sup: new Float64Array(n), supc: new Float64Array(n), olr: new Float64Array(n), olrc: new Float64Array(n), sdn: new Float64Array(n) };
+  for (let i = 0; i < n; i++) {
+    const l = clim.row[i], w = clim.roww[i], tp = !clim.landMask[i] && sst ? sst[i] : 0, [al, ah] = cl ? cl.layerAlbedo(i) : [0, 0];
+    for (let k = 0; k < NS; k++) {
+      const tau = (k + 0.5) / NS, q = Q[l * NS + k] * (1 - w) + Q[(l + 1) * NS + k] * w, Tsl = clim.tAt(i, tau);
+      const a = clim.albedo(i, Tsl + tp), Lc = CLIMATE.A + CLIMATE.B * Tsl - forcing;
+      let aa = a, La = Lc;
+      if (cl) { const [lo, hi] = cl.at(i, tau); aa = shortwave(a, lo, al, hi, ah); La = Lc - longwave(CLIMATE.A + CLIMATE.B * Tsl, hi); }
+      sim.sdn[i] += q / NS; sim.supc[i] += q * a / NS; sim.sup[i] += q * aa / NS; sim.olrc[i] += Lc / NS; sim.olr[i] += La / NS;
+    }
+    for (const key of Object.keys(ob)) { let v = 0; for (let m = 0; m < 12; m++) v += O[key][12 * i + m] / 12; ob[key][i] = v; }
+  }
+  const keys = ['sup', 'supc', 'olr', 'olrc'], e2 = Object.fromEntries(keys.map(k => [k, 0])), mean = { s: {}, o: {} };
+  let A = 0;
+  const zb = Array.from({ length: 18 }, () => ({ a: 0, s: Object.fromEntries(keys.map(k => [k, 0])), o: Object.fromEntries(keys.map(k => [k, 0])) }));
+  for (const k of [...keys, 'sdn']) { mean.s[k] = 0; mean.o[k] = 0; }
+  for (let i = 0; i < n; i++) {
+    if (!keys.every(k => Number.isFinite(ob[k][i]))) continue;
+    const a = g.area[i], z = zb[Math.min(17, Math.floor((lat(i) + 90) / 10))];
+    A += a; z.a += a;
+    for (const k of keys) { e2[k] += a * (sim[k][i] - ob[k][i]) ** 2; z.s[k] += a * sim[k][i]; z.o[k] += a * ob[k][i]; }
+    for (const k of [...keys, 'sdn']) { mean.s[k] += a * sim[k][i]; mean.o[k] += a * ob[k][i]; }
+  }
+  for (const k of [...keys, 'sdn']) { mean.s[k] /= A; mean.o[k] /= A; }
+  const zr = k => Math.sqrt(zb.reduce((t, z) => t + (z.a ? z.a * ((z.s[k] - z.o[k]) / z.a) ** 2 : 0), 0) / A);
+  const rms = Object.fromEntries(keys.map(k => [k, Math.sqrt(e2[k] / A)]));
+  // The clouds' forcing (clear less all-sky), each cell's, and its rms.
+  let c2s = 0, c2l = 0;
+  for (let i = 0; i < n; i++) {
+    if (!keys.every(k => Number.isFinite(ob[k][i]))) continue;
+    const a = g.area[i];
+    c2s += a * ((sim.supc[i] - sim.sup[i]) - (ob.supc[i] - ob.sup[i])) ** 2;
+    c2l += a * ((sim.olrc[i] - sim.olr[i]) - (ob.olrc[i] - ob.olr[i])) ** 2;
+  }
+  return { sim, ob, zb, mean, rms, zsw: zr('sup'), zlw: zr('olr'), zswc: zr('supc'), zlwc: zr('olrc'), cs: Math.sqrt(c2s / A), cl: Math.sqrt(c2l / A) };
+})();
 // Machine-readable (JSON=1): the summary, the zonal sea surface and sea ice errors, and each region's.
 {
   let se = 0, sw = 0, ie = 0, iw = 0;
@@ -134,6 +180,9 @@ for (let i = 0; i < n; i++) {
     sea: Math.sqrt(se / sw), ice: Math.sqrt(ie / iw), koppen: agree / la, group: agreeG / la,
     seas: Math.sqrt(SR.reduce((s, q) => s + (q.a ? (q.t / q.a - q.o / q.a) ** 2 : 0), 0) / SR.filter(q => q.a).length),
     groups: [...'ABCDE'].map((c, k) => [ALL.gs[k] / ALL.a, ALL.go[k] / ALL.a]),
+    toa: { sw: toa.rms.sup, lw: toa.rms.olr, swc: toa.rms.supc, lwc: toa.rms.olrc, zsw: toa.zsw, zlw: toa.zlw, zswc: toa.zswc, zlwc: toa.zlwc, cs: toa.cs, cl: toa.cl,
+      swcre: [toa.mean.s.supc - toa.mean.s.sup, toa.mean.o.supc - toa.mean.o.sup], lwcre: [toa.mean.s.olrc - toa.mean.s.olr, toa.mean.o.olrc - toa.mean.o.olr],
+      net: [toa.mean.s.sdn - toa.mean.s.sup - toa.mean.s.olr, toa.mean.o.sdn - toa.mean.o.sup - toa.mean.o.olr], cover: clim.clouds ? clim.clouds.stats.cover : 0 },
     regions: Object.fromEntries(REGIONS.map(([name], k) => { const r = R[k]; return r.a ? [name, { jan: (r.tj[0] - r.tj[1]) / r.a, jul: (r.tl[0] - r.tl[1]) / r.a, year: (r.ty[0] - r.ty[1]) / r.a, rain: r.py[0] / Math.max(1, r.py[1]) }] : [name, null]; })),
   };
 }
@@ -148,6 +197,9 @@ console.log(`settled ${s.settled || 'not'} (${((performance.now() - t0) / 1000).
   console.log(`air: H ${f1(AIRHEAT.H, 2)} km, the year's rotational wind ${f1(a.stats.urms)} m/s rms, ψ in ${a.stats.it} iterations`); }
 console.log(sum);
 console.log(`groups (sim/obs % of land): ${groups(ALL)}`);
+{ const m = toa.mean, c = clim.clouds ? clim.clouds.stats : null;
+  console.log(`top of the atmosphere, sim/CERES W/m²: reflected ${f1(m.s.sup)}/${f1(m.o.sup)} (clear ${f1(m.s.supc)}/${f1(m.o.supc)}), OLR ${f1(m.s.olr)}/${f1(m.o.olr)} (clear ${f1(m.s.olrc)}/${f1(m.o.olrc)}); cloud forcing SW ${f1(m.s.sup - m.s.supc)}/${f1(m.o.sup - m.o.supc)}, LW ${f1(m.s.olrc - m.s.olr)}/${f1(m.o.olrc - m.o.olr)}${c ? `; cover ${f1(100 * c.cover, 0)}% (low ${f1(100 * c.lo, 0)}, high ${f1(100 * c.hi, 0)})` : ''}`);
+  console.log(`  rms by cell: reflected ${f1(toa.rms.sup)} (clear ${f1(toa.rms.supc)}), OLR ${f1(toa.rms.olr)} (clear ${f1(toa.rms.olrc)}), cloud forcing SW ${f1(toa.cs)} LW ${f1(toa.cl)}; by zone: reflected ${f1(toa.zsw)} (clear ${f1(toa.zswc)}), OLR ${f1(toa.zlw)} (clear ${f1(toa.zlwc)})`); }
 if (!QUIET) {
   console.log('region          Jan sim/obs     Jul sim/obs     year sim/obs   rain sim/obs mm   groups sim/obs %');
   REGIONS.forEach(([name], k) => {
@@ -155,6 +207,17 @@ if (!QUIET) {
     const v = x => x / r.a;
     console.log(`${name.padEnd(14)} ${f1(v(r.tj[0])).padStart(6)} ${f1(v(r.tj[1])).padStart(6)}   ${f1(v(r.tl[0])).padStart(6)} ${f1(v(r.tl[1])).padStart(6)}   ${f1(v(r.ty[0])).padStart(6)} ${f1(v(r.ty[1])).padStart(6)}   ${f1(v(r.py[0]), 0).padStart(5)} ${f1(v(r.py[1]), 0).padStart(5)}    ${groups(r)}`);
   });
+  console.log('region          absorbed sim/obs   OLR sim/obs   cloud forcing SW sim/obs   LW sim/obs');
+  REGIONS.forEach(([name, l0, l1, o0, o1]) => {
+    let a = 0; const v = { ab: [0, 0], olr: [0, 0], cs: [0, 0], cl: [0, 0] };
+    for (let i = 0; i < n; i++) { const L = lat(i), Lo = lon(i); if (!(L >= l0 && L < l1 && Lo >= o0 && Lo < o1) || !Number.isFinite(toa.ob.olr[i])) continue;
+      const w = g.area[i]; a += w;
+      for (const [k, S] of [[0, toa.sim], [1, toa.ob]]) { v.ab[k] += w * (S.sdn[i] - S.sup[i]); v.olr[k] += w * S.olr[i]; v.cs[k] += w * (S.sup[i] - S.supc[i]); v.cl[k] += w * (S.olrc[i] - S.olr[i]); } }
+    if (a) console.log(`${name.padEnd(14)}   ${f1(v.ab[0] / a, 0).padStart(5)} ${f1(v.ab[1] / a, 0).padStart(5)}       ${f1(v.olr[0] / a, 0).padStart(5)} ${f1(v.olr[1] / a, 0).padStart(5)}        ${f1(v.cs[0] / a, 0).padStart(5)} ${f1(v.cs[1] / a, 0).padStart(5)}           ${f1(v.cl[0] / a, 0).padStart(5)} ${f1(v.cl[1] / a, 0).padStart(5)}`);
+  });
+  console.log('zonal (10°)  reflected sim/obs (clear)    OLR sim/obs (clear)');
+  toa.zb.forEach((z, b) => { if (!z.a) return; const v = (o, k) => f1(o[k] / z.a, 0).padStart(4);
+    console.log(`${String(-90 + 10 * b).padStart(4)}..${String(-80 + 10 * b).padStart(3)}   ${v(z.s, 'sup')} ${v(z.o, 'sup')} (${v(z.s, 'supc')} ${v(z.o, 'supc')})   ${v(z.s, 'olr')} ${v(z.o, 'olr')} (${v(z.s, 'olrc')} ${v(z.o, 'olrc')})`); });
   console.log('zonal (10°)     land year sim/obs   sea surface sim/obs   sea ice share sim/obs');
   zband.forEach((z, b) => {
     const l = -90 + 10 * b;

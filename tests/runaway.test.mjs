@@ -6,7 +6,8 @@ import { olr, olrInverse, plateau, steamT, RUNAWAY } from '../src/engine/runaway
 import { OceanCarbon, OC } from '../src/engine/oceancarbon.js';
 import { CLIMATE } from '../src/engine/climate.js';
 
-const A = CLIMATE.A, B = CLIMATE.B;
+// The outgoing longwave the runaway sees: the clear sky's A less the clouds' longwave (Climate.olrCorrection; ~28 W/m² on today's Earth).
+const A = CLIMATE.A - 28, B = CLIMATE.B;
 
 test('the OLR leaves A + BT at the knee, reaches the limit at the plateau, C¹ at both, and inverts', () => {
   const Tk = RUNAWAY.T_K, Tp = plateau(A, B), h = 1e-4;

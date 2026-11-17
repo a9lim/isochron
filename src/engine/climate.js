@@ -55,6 +55,11 @@
 // (VECODE's surface albedos; trees mask snow) in place of the zones', and
 // land's evaporation: bare ground and grass at the ground's β, trees at √β.
 //
+// Clouds (src/engine/clouds.js, `clouds`): each point of the year's moisture diagnoses high cloud
+// where it rains and low cloud from the column's humidity and, at sea, the inversion's strength;
+// the next energy balance sees them over the clear sky's albedo (`albedo`, the surface and the clear
+// air) by the adding formula, and the high cloud's cold top in the longwave over A + B T.
+//
 // Dust (src/engine/aeolian.js, `dust`) packs its sources at each point of the
 // year after the winds and rain, and is solved after the six; its last
 // cycle's darkening of snow and ice (`dustDark`) enters the albedo, and its
@@ -68,15 +73,20 @@ import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
 import { SeaHeat } from './seaheat.js';
 import { AirHeat, AIRHEAT } from './airheat.js';
+import { Clouds, CLOUDS, shortwave, longwave } from './clouds.js';
 
 // Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
 // tune.mjs): the constants below marked "Earth" were set by a pattern search over the land's January,
 // July and annual temperature, the sea's surface and ice by latitude, the land's rain and the Köppen
-// map, settled at level 6. Before it the climate had been tuned to Earth's numbers from memory on
-// seeded planets; on Earth's own map it scored 25% of the land's Köppen classes and 56% of its groups
-// right (now 53% and 74%), with land 3.8 K cold in the year and 14 K off in January.
+// map, settled at level 6, and since the clouds the top of the atmosphere against CERES. Before it the
+// climate had been tuned to Earth's numbers from memory on seeded planets; on Earth's own map it scored
+// 25% of the land's Köppen classes and 56% of its groups right (53% and 74% after the first tuning, 48%
+// and 71% with the clouds), with land 3.8 K cold in the year and 14 K off in January.
 export const CLIMATE = {
-  A: 206, B: 2.09,         // OLR = A + B·T (W/m², T in °C): North's fit to Earth (203.3, from memory); A raised (synthesis) to hold the converged mean under D's transport (Earth: 206, with the sea's heat transport)
+  // OLR = A + B·T (W/m², T in °C), the clear sky's: B North's fit to Earth (from memory); A Earth's,
+  // against CERES's clear sky (its 268 W/m² over a mean ~15 °C: ~238; tuned 234), the clouds' longwave
+  // taken from it (src/engine/clouds.js). Before the clouds, 206: the all-sky's, North's 203.3 raised.
+  A: 234, B: 2.09,
   // Heat diffusion, W m⁻² K⁻¹ on the unit sphere (the annual mean), at the equator; it falls toward
   // the poles as 1 + D_LAT sin²φ (each edge's weight carries it). Synthesis: a uniform 0.45 was
   // tuned to the opening's fourth cycle, a transient; converged it left the planet 2–3 K cold, 60°
@@ -86,16 +96,17 @@ export const CLIMATE = {
   // at −9 to −14 °C, 60° near 0 and the sea ice at 8–11%: Earth's ~7% (from memory) with
   // Antarctica's area as sea, as this planet's ocean poles have it. Earth: 0.85 and −0.75 (from 1.0
   // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold); 0.91 and −0.85 with the sea's heat transport (src/engine/seaheat.js) beside it;
-  // 0.86 with the air's (src/engine/airheat.js).
-  D: 0.86, D_LAT: -0.85,
+  // 0.86 with the air's (src/engine/airheat.js); 1.14 with the clouds (retuned with them: at 0.86 the
+  // tropical sea ran ~4 K warm and the Southern Ocean's ice 25 points too wide).
+  D: 1.14, D_LAT: -0.85,
   // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: with
   // the capacity mixed over each coarse cell, 0.1 left 55–65° continents with summers ~3 K cooler
   // than Earth's (from memory) and D climates at 15% of land, and 0.085 stood in for that mixing;
   // with each cell's own seasons (SUBGRID), 0.085 made 60–70° N land's summers 2–4 K warm, and 0.11
   // holds them near Earth's (~11 °C in June–August, from memory). Earth: 0.29 with maritime air (an
   // exchange with the sea's air carried inland, since replaced by the wind's own transport,
-  // src/engine/airheat.js); 0.49 with the sea's heat transport and the belts at Earth's latitudes.
-  D_SEASON: 0.49,
+  // src/engine/airheat.js); 0.49 with the sea's heat transport and the belts at Earth's latitudes; 0.44 with the clouds.
+  D_SEASON: 0.44,
   // Continental seasons (`continentalSeasons`): each cell's seasonal harmonics from its own heat
   // capacity, not its coarse cell's mixed one.
   SUBGRID: true,
@@ -109,11 +120,15 @@ export const CLIMATE = {
   C_LAND: 0.61,            // Earth (from 0.3, then 0.46: the air's column with the ground's seasonal layer)
   C_ICE: 1.2,
   LAPSE: 5.4,              // K/km. Earth (from 6.5, then 5.6): the surface's, which broad uplands warm (Tibet's air)
-  // + ALB_POLAR·sin²φ (sun angle, cloud). ALB_LAND Earth (from 0.27): a diffusive balance imports heat
-  // only where land is colder than its neighbours, so land as bright as it is left subtropical land
-  // ~10 K cold (the Sahara, India; the descent that heats deserts isn't in the balance).
-  ALB_OCEAN: 0.25, ALB_LAND: 0.225, ALB_POLAR: 0.12,
-  ALB_SNOW: 0.62, ALB_SEAICE: 0.56,
+  // The clear sky's albedo at the top of the atmosphere (the surface and the clear air; the clouds
+  // are src/engine/clouds.js's, over it), + ALB_POLAR·sin²φ at sea and ALB_POLAR_LAND·sin²φ on land
+  // (a low sun: water's reflection grows at a slant, land's less). Earth, against CERES's clear sky
+  // (the sea's ~0.10 in the tropics, deserts' ~0.3, the ice sheets' ~0.65; tuned). Before the clouds,
+  // the planetary albedo with them folded in: the sea 0.25 + 0.12 sin²φ, land 0.225 (from 0.27: a
+  // diffusive balance imports heat only where land is colder than its neighbours, so land as bright as
+  // it is left subtropical land ~10 K cold), snow and the ice sheets 0.62, sea ice 0.56.
+  ALB_OCEAN: 0.09, ALB_LAND: 0.18, ALB_POLAR: 0.13, ALB_POLAR_LAND: 0.07,
+  ALB_SNOW: 0.44, ALB_ICE: 0.62, ALB_SEAICE: 0.46,   // land's snow (trees mask it further: VEG), the ice sheets', sea ice's
   ALB_DESERT: 0.07, ALB_FOREST: -0.03,
   ALB_COVER: 0,            // snow-free land's offset under the plants' cover (which also masks snow): Earth (from 0.03)
   CO2: 280, CO2_REF: 280,  // ppm
@@ -124,7 +139,13 @@ export const CLIMATE = {
   ITCZ_PEN: 0.5,           // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6 before)
   ITCZ_MAX: 0.5,           // rad: the ITCZ's reach from the equator (Earth; 0.35 kept India's monsoon trough at 20°)
   ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
-  THERMAL: 0.12,           // hPa per K: the low over land warmer than its latitude, the high over land colder (Earth; 0.75, then 0.4, 0.2, 0.12 with the air's heat transport: at 0.6–1 its winds carried a summer continent's heat into its interior, and at 1.5 the two ran away)
+  // hPa per K: the low where it's warmer than its latitude, the high where it's colder, bounded softly at
+  // THERMAL_MAX (hPa). Earth's winter highs over cold continents and lows over warm seas are ~1 hPa/K
+  // (from memory). Earth: 0.75, then 0.4, 0.2, and 0.12 with the air's heat transport, whose winds at
+  // 0.6–1 carried a summer continent's heat into its interior (Siberia's July 25–28 °C against 16) and at
+  // 1.5 ran away; with the clouds, which shade a summer continent's rain, 1.0 holds (against 0.12:
+  // January's land 6.4 → 5.7 K rms, eastern North America's January 2 K colder; Siberia's July 2.5 K warm).
+  THERMAL: 1.0, THERMAL_MAX: 30,
   // The Hadley edge, where the subtropical highs stand: Held and Hou's √ΔT/Ω, HADLEY degrees at
   // an equator-to-60° contrast of HADLEY_DT; the subpolar lows at LOWS of it. Earth: its highs at
   // ~30–35° and its lows at ~60–65° (the Southern Ocean's trough ~65° S; from memory), so its
@@ -196,7 +217,7 @@ const W0 = 25, WA = 0.065;     // saturated column water (mm) = W0 e^{WA (T − 
 
 const sigmoid = x => 1 / (1 + Math.exp(-x));
 const ramp = (x, a, b) => { const t = (x - a) / (b - a); return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); };
-const wsat = T => W0 * Math.exp(WA * (Math.max(-45, Math.min(45, T)) - 15));
+export const wsat = T => W0 * Math.exp(WA * (Math.max(-45, Math.min(45, T)) - 15));
 
 /**
  * The surface wind from the template's sea-level pressure (hPa about the mean): r u + f k×u =
@@ -459,6 +480,7 @@ export class Climate {
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ebmGpu = null;  // src/gpu/ebm.js, where there's a device: the energy balance's steps
     this.airHeat = new AirHeat(this);     // the air's heat carried by the mean wind (src/engine/airheat.js): its wind from each cycle
+    this.clouds = new Clouds(this);       // the clouds (src/engine/clouds.js): from each point of the year's moisture, in the next energy balance
     this.seaHeat = new SeaHeat(this);     // the sea's heat transport (src/engine/seaheat.js): the gyres and the overturning, their paths with the geography, their flows from each cycle's winds
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
@@ -559,16 +581,16 @@ export class Climate {
 
   /** Albedo of fine cell i at sea-level temperature T (at sea, the surface's: the air's plus the gyres' anomaly). */
   albedo(i, T) {
-    const C = CLIMATE, s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s;
+    const C = CLIMATE, s = Math.sin(this.lat[i]), s2 = s * s, polar = C.ALB_POLAR * s2, polarL = C.ALB_POLAR_LAND * s2;
     const dk = this.dustDark ? this.dustDark[i] : 0, snowA = C.ALB_SNOW + dk;   // dusty snow and ice are darker
-    if (this.ice && this.ice.H[i] > 10) return snowA;
+    if (this.ice && this.ice.H[i] > 10) return C.ALB_ICE + dk;
     if (this.landMask[i]) {
       const z = this.zones, o = NZ * i, cv = this.cover, Ts = T - C.LAPSE * this.elevPos[i];
       let a;
       // The plants' cover where it's known (trees mask snow), else the zones'.
-      if (cv) a = landAlbedo(cv.ft[i], cv.fg[i], ramp(-Ts, -1, 5), C.ALB_LAND + C.ALB_COVER + polar, snowA);
+      if (cv) a = landAlbedo(cv.ft[i], cv.fg[i], ramp(-Ts, -1, 5), C.ALB_LAND + C.ALB_COVER + polarL, snowA);
       else {
-        const base = C.ALB_LAND + polar + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
+        const base = C.ALB_LAND + polarL + C.ALB_DESERT * (z[o + 4] + 0.5 * z[o + 5]) + C.ALB_FOREST * (z[o] + z[o + 1] + 0.5 * (z[o + 6] + z[o + 9]));
         a = base + (snowA - base) * ramp(-Ts, -1, 5);
       }
       const lw = this.lakeWet[i];
@@ -591,17 +613,17 @@ export class Climate {
     const C = CLIMATE, n = this.grid.n, z = this.zones, cv = this.cover, H = this.ice ? this.ice.H : null;
     const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing, pF = this.peopleForcing;
     for (let i = 0; i < n; i++) {
-      const s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s, dk = this.dustDark ? this.dustDark[i] : 0, snowA = C.ALB_SNOW + dk;
+      const s = Math.sin(this.lat[i]), s2 = s * s, polar = C.ALB_POLAR * s2, polarL = C.ALB_POLAR_LAND * s2, dk = this.dustDark ? this.dustDark[i] : 0, snowA = C.ALB_SNOW + dk;
       const land = this.landMask[i], o = land ? -C.LAPSE * this.elevPos[i] : sstA ? sstA[i] : 0;
       let c0, c1, c2 = 0;
-      if (H && H[i] > 10) { c0 = snowA; c1 = 0; }
+      if (H && H[i] > 10) { c0 = C.ALB_ICE + dk; c1 = 0; }
       else if (land) {
         if (cv) {
-          const base = C.ALB_LAND + C.ALB_COVER + polar;
+          const base = C.ALB_LAND + C.ALB_COVER + polarL;
           c0 = landAlbedo(cv.ft[i], cv.fg[i], 0, base, snowA); c1 = landAlbedo(cv.ft[i], cv.fg[i], 1, base, snowA) - c0;
         } else {
           const q = NZ * i;
-          c0 = C.ALB_LAND + polar + C.ALB_DESERT * (z[q + 4] + 0.5 * z[q + 5]) + C.ALB_FOREST * (z[q] + z[q + 1] + 0.5 * (z[q + 6] + z[q + 9]));
+          c0 = C.ALB_LAND + polarL + C.ALB_DESERT * (z[q + 4] + 0.5 * z[q + 5]) + C.ALB_FOREST * (z[q] + z[q + 1] + 0.5 * (z[q + 6] + z[q + 9]));
           c1 = snowA - c0;
         }
         const lw = this.lakeWet[i];
@@ -706,8 +728,28 @@ export class Climate {
    */
   olrCorrection() {
     const C = CLIMATE;
-    C.F_OLR = this.runaway && this.absMean !== undefined ? this.runaway.correction(this.absMean, this.externalForcing(), C.A, C.B) : 0;
+    if (this.runaway && this.absMean !== undefined) {
+      // The limit is the planet's outgoing longwave: the clear sky's A + BT less the clouds' (their
+      // mean from the last state), so the curve's knee stands where it did before the clouds.
+      const Lc = this.cloudLongwave();
+      C.F_OLR = this.runaway.correction(this.absMean - Lc, this.externalForcing(), C.A - Lc, C.B);
+    } else C.F_OLR = 0;
     this.forcingUsed = this.externalForcing() + C.F_OLR;
+  }
+
+  /** The clouds' longwave, its global mean (W/m²), from each cell's year-mean high cloud and annual-mean temperature (both paths alike). */
+  cloudLongwave() {
+    const cl = CLOUDS.ON ? this.clouds : null;
+    if (!cl) return 0;
+    const C = CLIMATE, n = this.grid.n, a = this.grid.area, T = this.Tf[0];
+    let s = 0, w = 0;
+    for (let i = 0; i < n; i++) {
+      let h = 0;
+      for (let p = 0; p < NP; p++) h += cl.hi[p * n + i];
+      s += a[i] * longwave(C.A + C.B * T[i], h / NP);
+      w += a[i];
+    }
+    return s / w;
   }
 
   /** After each step: its mean absorbed sunlight, from the annual mean's global balance, A + B T̄ = Ā + the forcing (the transport sums to nothing). */
@@ -729,15 +771,26 @@ export class Climate {
     // (warm currents keep a sea open poleward of its latitude's ice edge, cold ones carry
     // ice toward the equator), so the edge isn't the energy balance's latitude circle.
     const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing, pF = this.peopleForcing;   // dust's forcing with the sunlight it scatters; coal's sulfate's (src/engine/peoplelink.js)
+    // The clouds (src/engine/clouds.js): each sample's two points of the year and its weight between them,
+    // the layers over the clear sky's albedo, and the high cloud's longwave over the clear sky's A + B T.
+    const cl = CLOUDS.ON && this.clouds ? this.clouds : null;
+    const ck = new Int32Array(2 * NS), cw = new Float64Array(NS);
+    for (let s = 0; s < NS; s++) { const x = (((s + 0.5) / NS * NP - 0.5) % NP + NP) % NP, k = Math.floor(x); ck[2 * s] = k * n; ck[2 * s + 1] = ((k + 1) % NP) * n; cw[s] = x - k; }
     for (let i = 0; i < n; i++) {
       const l = this.row[i], w = this.roww[i], land = this.landMask[i], tp = !land && sstA ? sstA[i] : 0;
       let f0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0, cold = 0;
+      const [al, ah] = cl ? cl.layerAlbedo(i) : [0, 0];
       for (let s = 0; s < NS; s++) {
         const q = Q[l * NS + s] * (1 - w) + Q[(l + 1) * NS + s] * w;
         const c = cs[s], sv = sn[s], c2 = c * c - sv * sv, s2 = 2 * sv * c;
-        const T = this.Tf[0][i] + this.Tf[1][i] * c - this.Tf[2][i] * sv + this.Tf[3][i] * c2 - this.Tf[4][i] * s2 + tp;
-        const a = this.albedo(i, T);
-        const fa = q * (1 - a);
+        const Tsl = this.Tf[0][i] + this.Tf[1][i] * c - this.Tf[2][i] * sv + this.Tf[3][i] * c2 - this.Tf[4][i] * s2, T = Tsl + tp;
+        let a = this.albedo(i, T), fa;
+        if (cl) {
+          const u = cw[s], k0 = ck[2 * s] + i, k1 = ck[2 * s + 1] + i;
+          const lo = cl.lo[k0] * (1 - u) + cl.lo[k1] * u, hi = cl.hi[k0] * (1 - u) + cl.hi[k1] * u;
+          a = shortwave(a, lo, al, hi, ah);
+          fa = q * (1 - a) + longwave(C.A + C.B * Tsl, hi);
+        } else fa = q * (1 - a);
         f0 += fa; a1 += fa * c; b1 -= fa * sv; a2 += fa * c2; b2 -= fa * s2;
         cold += land ? ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5) : ramp(-T, 1.5, 6);
       }
@@ -974,8 +1027,9 @@ export class Climate {
       }
     }
     prolong(this.T, c5, anom);
-    // Pressure (hPa about the mean).
+    // Pressure (hPa about the mean). The thermal part: −THERMAL per kelvin of the departure, bounded softly at THERMAL_MAX.
     const pres = this.pres, G = (x, w) => Math.exp(-0.5 * (x / w) * (x / w));
+    const thMax = C.THERMAL_MAX, thermal = a => { const x = -C.THERMAL * a; return thMax > 0 ? thMax * Math.tanh(x / thMax) : x; };
     // The polar highs don't move: their Gaussians once.
     const polarHi = this.polarHi || (this.polarHi = Float64Array.from(this.lat, la => G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28)));
     for (let i = 0; i < n; i++) {
@@ -983,7 +1037,7 @@ export class Climate {
       const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
       const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
       pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * this.landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
-        + 8 * polarHi[i] - C.THERMAL * anom[i];
+        + 8 * polarHi[i] + thermal(anom[i]);
     }
     this.presPhase[p].set(pres);
     // Winds: r u + f k×u = −∇p/ρ.
@@ -993,6 +1047,8 @@ export class Climate {
     surfaceWind(g, pres, C.OMEGA, this.windPhase[p], carry, this.gp);
     yield;
     yield* this.moisture(p, T, carry);
+    // Its clouds (src/engine/clouds.js), for the next energy balance.
+    if (this.clouds) this.clouds.phase(p, T);
     // Dust's sources on these winds and this rain (src/engine/aeolian.js).
     if (this.dust) { yield; yield* this.dust.phaseSteps(p, T); }
   }

@@ -1,6 +1,6 @@
 // The climate's cycle on the GPU against its CPU reference (src/engine/climate.js),
 // headless (WebGPU in node via tests/webgpu-node.mjs; skipped without it):
-// the energy balance's steps (src/gpu/ebm.js) and the moisture's packing
+// the energy balance's steps (src/gpu/ebm.js, with the clouds) and the moisture's packing
 // (src/gpu/moisture.js, solveFrom), each from one warm state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,6 +29,7 @@ test('the energy balance on the GPU: the CPU\'s fixed point, solved tightly', { 
   // One energy balance each way from the same state, Anderson's memory cleared (so neither
   // starts from the other's seasons), the CPU's solves converged far past their default.
   assert.ok(c.airHeat.on, 'the air\'s heat carried by the wind (src/engine/airheat.js) is on');
+  assert.ok(c.clouds.stats.points >= 18, 'the clouds diagnosed from the moisture (src/engine/clouds.js)');
   c.ebmWs.hist = 0;
   const snap = { Tc: c.Tc.map(a => a.slice()), Tf: c.Tf.map(a => a.slice()), snow: c.snowAnn.slice(), ws: structuredClone(c.ebmWs), th: c.seaHeat.theta.slice(), deep: c.seaHeat.deep };
   const cg = CLIMATE.EBM_CG.slice();

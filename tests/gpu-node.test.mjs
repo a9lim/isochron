@@ -42,7 +42,8 @@ test('moisture on the GPU: the balance the CPU sweeps converge to', { skip }, as
   // One more cycle from the same state each way: the CPU's sweeps run to convergence.
   const keys = ['Tc', 'Tf', 'W', 'Pph', 'Pf', 'zones', 'snowAnn', 'runoff'];
   const snap = Object.fromEntries(keys.map(k => [k, structuredClone(c[k])]));
-  const restore = () => { for (const k of keys) { if (Array.isArray(c[k])) c[k].forEach((a, i) => a.set(snap[k][i])); else c[k].set(snap[k]); } };
+  const clouds = { lo: c.clouds.lo.slice(), hi: c.clouds.hi.slice() };   // the next energy balance's (src/engine/clouds.js)
+  const restore = () => { for (const k of keys) { if (Array.isArray(c[k])) c[k].forEach((a, i) => a.set(snap[k][i])); else c[k].set(snap[k]); } c.clouds.lo.set(clouds.lo); c.clouds.hi.set(clouds.hi); };
   const base = CLIMATE.SWEEPS;
   CLIMATE.SWEEPS = 60;
   c.solve(1);

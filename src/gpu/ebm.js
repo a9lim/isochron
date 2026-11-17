@@ -7,7 +7,8 @@
 // A step, on the nested grids packed by src/gpu/hierarchy.js (the engine's
 // level down to level 1):
 //   forcing   each fine cell's absorbed sunlight at 24 points of the year
-//             through its albedo, as harmonics; its snow-and-ice share; its
+//             through its albedo and its clouds (with the high cloud's
+//             longwave), as harmonics; its snow-and-ice share; its
 //             heat capacity's admittances 1/(B + K + ikωC) for the continental
 //             seasons, and the forcing through them
 //   restrict  those to the energy balance's grid (area-weighted means)
@@ -29,8 +30,9 @@ import { hierarchy } from './hierarchy.js';
 import { prolongT } from '../grid/transfer.js';
 import { CLIMATE } from '../engine/climate.js';
 import { AIRHEAT } from '../engine/airheat.js';
+import { CLOUDS, topEmission } from '../engine/clouds.js';
 
-const NS = 24, NLAT = 181, NR = 10, NPF = 9;   // samples of the year; latitude rows; restricted fields (+ snow); prolonged fields
+const NS = 24, NLAT = 181, NR = 10, NPF = 9, NP = 6;   // samples of the year; latitude rows; restricted fields (+ snow); prolonged fields; the moisture's points of the year (the clouds')
 
 // Per level: n, off, nc, offc (the next coarser level's), N (all levels), and the systems' diffusivities.
 const HEAD = /* wgsl */`
@@ -190,10 +192,14 @@ fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u)
 // Each fine cell's absorbed sunlight through the year, as harmonics; its snow-and-ice share; the
 // continental seasons' admittances and forcing; the fields to restrict (rf, field-major over all levels).
 // pa: (o, c0, c1, c2): v = T + o, albedo c0 + c1 r₁(v) + c2 ramp(−v, 0, 4.5), r₁ land's ramp(−v, −1, 5)
-// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing).
+// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing). The clouds
+// (src/engine/clouds.js): cld, each cell's low and high shares at the six points of the year (12 a
+// cell), over the clear sky's albedo by the adding formula, and the high cloud's longwave over
+// A + B T (at most L_MAX); k (A, B, σT_TOP⁴, on), h (the layers' albedos A_LO, A_HI, Z, and L_MAX).
 const FORCING = /* wgsl */`
-struct Fu { n: u32, N: u32, off: u32, p0: u32, c: vec4f, ang: array<vec4f, ${NS}> };
+struct Fu { n: u32, N: u32, off: u32, p0: u32, c: vec4f, k: vec4f, h: vec4f, ang: array<vec4f, ${NS}> };
 fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+fn adding(a: f32, c: f32, l: f32) -> f32 { return (1.0 - c) * a + c * (l + (1.0 - l) * (1.0 - l) * a / (1.0 - l * a)); }
 @group(0) @binding(0) var<uniform> U: Fu;
 @group(0) @binding(1) var<storage, read> tf: array<f32>;
 @group(0) @binding(2) var<storage, read> pa: array<vec4f>;
@@ -202,6 +208,7 @@ fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1
 @group(0) @binding(5) var<storage, read_write> fh: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> yv: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> rf: array<f32>;
+@group(0) @binding(8) var<storage, read> cld: array<f32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -215,13 +222,33 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let land = P.z > 0.5;
   let lo = select(1.5, -1.0, land);
   let hi = select(6.0, 5.0, land);
+  // The layers' albedos at the cell's sun angle (its latitude from its row).
+  let sl = sin(-1.5707963 + 3.14159265 * (f32(row) + w) / ${NLAT - 1}.0);
+  let s2 = sl * sl;
+  let al = U.h.x + U.h.z * s2 * (1.0 - U.h.x);
+  let ah = U.h.y + U.h.z * s2 * (1.0 - U.h.y);
+  let on = U.k.w > 0.5;
   var f0 = 0.0; var a1 = 0.0; var b1 = 0.0; var a2 = 0.0; var b2 = 0.0; var cold = 0.0;
   for (var s = 0u; s < ${NS}u; s++) {
     let g = U.ang[s];
     let qs = q[row * ${NS}u + s] * (1.0 - w) + q[(row + 1u) * ${NS}u + s] * w;
-    let v = T0 + T1 * g.x - T2 * g.y + T3 * g.z - T4 * g.w + A.x;
+    let tsl = T0 + T1 * g.x - T2 * g.y + T3 * g.z - T4 * g.w;
+    let v = tsl + A.x;
     let r1 = ramp(-v, lo, hi);
-    let fa = qs * (1.0 - (A.y + A.z * r1 + A.w * ramp(-v, 0.0, 4.5)));
+    var alb = A.y + A.z * r1 + A.w * ramp(-v, 0.0, 4.5);
+    var lw = 0.0;
+    if (on) {
+      let x = fract(((f32(s) + 0.5) * ${NP / NS} - 0.5 + 6.0) / 6.0) * 6.0;
+      let k0 = min(u32(floor(x)), 5u);
+      let k1 = (k0 + 1u) % 6u;
+      let u = x - f32(k0);
+      let cl = cld[12u * i + k0] * (1.0 - u) + cld[12u * i + k1] * u;
+      let ch = cld[12u * i + 6u + k0] * (1.0 - u) + cld[12u * i + 6u + k1] * u;
+      alb = adding(adding(alb, cl, al), ch, ah);
+      let L = min(U.k.x + U.k.y * tsl, U.h.w);
+      lw = select(0.0, ch * (L - U.k.z), L > U.k.z);
+    }
+    let fa = qs * (1.0 - alb) + lw;
     f0 += fa; a1 += fa * g.x; b1 -= fa * g.y; a2 += fa * g.z; b2 -= fa * g.w;
     cold += r1;
   }
@@ -485,7 +512,7 @@ export class GpuEnergyBalance {
     this.X = B(8 * 3 * N); this.Y = B(8 * 3 * N); this.Bv = B(8 * 3 * N); this.Dg = B(8 * 3 * N);
     this.RF = B(4 * NR * N); this.PF = B(4 * NPF * N);
     this.TF = B(4 * 5 * n); this.PA = B(16 * n); this.PB = B(16 * n); this.Q = B(4 * NLAT * NS);
-    this.FH = B(16 * n); this.YV = B(16 * n);
+    this.FH = B(16 * n); this.YV = B(16 * n); this.CLD = B(4 * 12 * n); this.cld = new Float32Array(12 * n);
     this.WT = B(4 * cg.n, Float32Array.from(prolongT(climate.T, fine.area, new Float64Array(cg.n))));
     this.parts = Math.ceil(n / 256);
     this.PART = B(32 * this.parts); this.DL = B(16);
@@ -503,14 +530,14 @@ export class GpuEnergyBalance {
     this.Lu = lv.map((_, k) => U(this.lvBuf(k)));
     const Urf = lv.map((_, k) => U(this.lvBuf(k, NR))), Upf = lv.map((_, k) => U(this.lvBuf(k, NPF)));
     this.Uc = U(this.lvBuf(ci));
-    this.Fu = uniform(device, new Float32Array(8 + 4 * NS));
+    this.Fu = uniform(device, new Float32Array(16 + 4 * NS));
     this.Su = [0, 1].map(() => uniform(device, new Float32Array(8)));
     const { topo, X, Y, Bv, Dg, RF, PF } = this, gb = this.geo;
     this.SEA = B(8 * cg.n); this.sea = new Float32Array(2 * cg.n); this.seaOn = false;
     this.ADV = B(4 * 6 * N); this.adv = new Float32Array(6 * N); this.advOn = false; this.advVer = -1;
     this.XF = B(8 * 3 * cg.n); this.xf = new Float32Array(6 * cg.n); this.xfOn = false;
     const adv = this.ADV;
-    const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF }), [wg(n)]]];
+    const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF, cld: this.CLD }), [wg(n)]]];
     for (let k = top; k > ci; k--) step.push([K.rf, K.rf.bind({ U: Urf[k], topo, geo: gb, f: RF }), [wg(lv[k - 1].n)]]);
     step.push([K.setup, K.setup.bind({ U: this.Uc, geo: gb, rf: RF, dg: Dg, b: Bv, sea: this.SEA, xf: this.XF }), [wg(lv[ci].n)]]);
     for (let k = ci; k >= 1; k--) step.push([K.diag, K.diag.bind({ U: this.Lu[k], topo, dg: Dg }), [wg(lv[k - 1].n), 1, 3]]);
@@ -567,12 +594,14 @@ export class GpuEnergyBalance {
     const P = CLIMATE, q = this.device.queue, lv = this.H.levels;
     lv.forEach((_, k) => q.writeBuffer(this.Lu[k], 0, this.lvBuf(k)));
     this.writeForcing();
-    const fu = new ArrayBuffer(32 + 16 * NS), u = new Uint32Array(fu), ff = new Float32Array(fu);
+    const fu = new ArrayBuffer(64 + 16 * NS), u = new Uint32Array(fu), ff = new Float32Array(fu);
     u[0] = this.n; u[1] = this.N; u[2] = this.offTop;
     ff[4] = P.B + P.SUB_K; ff[5] = P.C_LAND; ff[6] = P.C_OCEAN; ff[7] = P.C_ICE;
+    const K = CLOUDS;
+    ff.set([P.A, P.B, topEmission(), K.ON && climate.clouds ? 1 : 0, K.A_LO, K.A_HI, K.Z, K.L_MAX], 8);
     for (let s = 0; s < NS; s++) {
       const c = Math.cos(2 * Math.PI * (s + 0.5) / NS), sv = Math.sin(2 * Math.PI * (s + 0.5) / NS);
-      ff.set([c, sv, c * c - sv * sv, 2 * sv * c], 8 + 4 * s);
+      ff.set([c, sv, c * c - sv * sv, 2 * sv * c], 16 + 4 * s);
     }
     q.writeBuffer(this.Fu, 0, fu);
     q.writeBuffer(this.Su[0], 0, this.suBuf(0));
@@ -589,6 +618,14 @@ export class GpuEnergyBalance {
     const n = this.n, q = this.device.queue;
     climate.packAlbedo(this.pa, this.pb);
     q.writeBuffer(this.PA, 0, this.pa); q.writeBuffer(this.PB, 0, this.pb);
+    // The clouds' six points of the year (src/engine/clouds.js), when they've changed.
+    const cl = climate.clouds;
+    if (cl && CLOUDS.ON && cl.version !== this.cldVer) {
+      const c = this.cld, lo = cl.lo, hi = cl.hi;
+      for (let i = 0; i < n; i++) for (let p = 0; p < NP; p++) { c[12 * i + p] = lo[p * n + i]; c[12 * i + 6 + p] = hi[p * n + i]; }
+      q.writeBuffer(this.CLD, 0, c);
+      this.cldVer = cl.version;
+    }
     const tf = this.tfStage || (this.tfStage = new Float32Array(5 * n));
     for (let k = 0; k < 5; k++) tf.set(climate.Tf[k], k * n);
     q.writeBuffer(this.TF, 0, tf);

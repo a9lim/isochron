@@ -203,7 +203,7 @@ test('the opening planet: dust from the arid zones on the climate\'s winds and r
   for (let p = 0; p < NP; p++) d.phase(p, { wind: c.windPhase[p], carry: carryingWind(g, c.windPhase[p], carry), rain: c.Pph[p], source });
   const tPack = (performance.now() - tp) / NP;
   const ts = performance.now();
-  const r = d.solve(600, 1e-6);
+  const r = d.solve(2000, 1e-6);
   const tSweep = (performance.now() - ts) / r.sweeps;
   const out = d.finish(), s = { ...d.stats };
   const resid = d.residual();
