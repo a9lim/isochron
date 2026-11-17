@@ -214,3 +214,25 @@ test("vegetation: cost at level 7's cells", () => {
   console.log(`  on a synthetic climate: land carbon ${(land29.veg).toFixed(0)} Pg in plants, ${(land29.soil).toFixed(0)} Pg in soil; trees ${(100 * land29.trees).toFixed(0)}%, bare ${(100 * land29.bare).toFixed(0)}%`);
   assert.ok(ts < 25 && ta < 40, 'a frame can afford a step');
 });
+
+test('vegetation: fire and browsing hold a grassy savanna open and leave a closed forest (bistable)', async () => {
+  const { disturbance, dryMonths } = await import('../src/engine/vegetation.js');
+  // A tropical year of ~1,100 mm with a long dry season: the climate's own trees ~70% of the cell.
+  const P12 = [5, 5, 20, 110, 190, 220, 220, 190, 110, 30, 10, 5], T12 = Array(12).fill(25);
+  const dry = dryMonths(P12, T12), P = P12.reduce((a, b) => a + b, 0);
+  assert.ok(dry > 5 && dry < 6, `dry months ${dry}`);
+  assert.ok(disturbance(0.7, dry, P) > 0.5, 'continuous grass burns');
+  assert.ok(disturbance(0.1, dry, P) < 0.02, 'a closed forest doesn\'t');
+  assert.ok(disturbance(0.7, dryMonths(P12.map(() => 200), T12), 2400) < 0.05, 'an ever-wet year doesn\'t');
+  // A frozen dry winter isn't a fire season.
+  assert.ok(dryMonths([5, 5, 5, 5, 60, 80, 90, 80, 60, 5, 5, 5], [-20, -18, -10, -2, 6, 14, 17, 15, 8, -2, -12, -18]) < 1);
+  // Two cells, one climate: the savanna stays open and the forest closed.
+  const G = gdd(T12), [f, v] = equilibrium(G, P), veg = new Vegetation(2);
+  veg.veg.fill(v); veg.share.set([0.15, 0.95]);
+  veg.ft.set([0.15 * v, 0.95 * v]); veg.fg.set([0.85 * v, 0.05 * v]);
+  for (let k = 0; k < 30; k++) {
+    veg.setClimate({ land: [1, 1], gdd: [G, G], precip: [P, P], temp: [25, 25], dry: [dry, dry] });
+    veg.step(500);
+  }
+  assert.ok(veg.ft[0] < 0.6 * f && veg.ft[1] > 0.9 * f, `savanna ${veg.ft[0].toFixed(2)}, forest ${veg.ft[1].toFixed(2)} (climate's ${f.toFixed(2)})`);
+});

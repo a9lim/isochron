@@ -17,8 +17,8 @@ import { stream } from '../rng.js';
 import { makeNoise } from '../noise.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, restrict } from '../grid/transfer.js';
-import { H_OCEANIC, RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL, elevation, subsidence, seaMask } from './crust.js';
-import { PARAMS } from './plates.js';
+import { H_OCEANIC, RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL, elevation, subsidence, seaMask, SEA } from './crust.js';
+import { PARAMS, seaChannel } from './plates.js';
 import { framesFromWorld, hangSlabs } from './genesis.js';
 
 export const EARTH_SEED = 'earth';
@@ -71,21 +71,23 @@ function ageOfDrop(drop, cap) {
 
 /**
  * The data on grid g (its level or a coarser one: area-weighted restriction, the age weighted by the
- * oceanic share; plates sampled at the nested cells; the lowest land by its lowest nested cell), in the
- * sim's units: bed (km), ice (m), the oceanic share and its age (Myr), each cell's plate, its lowest land
- * (km; Infinity where none stands above sea level).
+ * oceanic share; plates sampled at the nested cells; the lowest land and the sea's reach by their lowest
+ * nested cell), in the sim's units: bed (km), ice (m), the oceanic share and its age (Myr), each cell's
+ * plate, its lowest land (km; Infinity where none stands above sea level), and the level at which
+ * today's ocean floods into it (`reach`, km; Infinity where it doesn't by +200 m).
  */
 function fieldsOn(d, g) {
   if (g.level > d.level) throw new Error(`earth: the data is level ${d.level}; the grid is ${g.level}`);
-  const nf = d.n, bed = new Float64Array(nf), ice = new Float64Array(nf), oc = new Float64Array(nf), oa = new Float64Array(nf), low = new Float64Array(nf);
+  const nf = d.n, bed = new Float64Array(nf), ice = new Float64Array(nf), oc = new Float64Array(nf), oa = new Float64Array(nf), low = new Float64Array(nf), reach = new Float64Array(nf);
   for (let i = 0; i < nf; i++) {
     bed[i] = d.bed[i] / 1000; ice[i] = d.ice[i]; oc[i] = d.ocean[i] / 255; oa[i] = oc[i] * d.age[i] / 100;
     low[i] = d.low && d.low[i] !== 32767 ? d.low[i] / 1000 : Infinity;
+    reach[i] = d.reach && d.reach[i] !== 32767 ? d.reach[i] / 1000 : Infinity;
   }
-  const n = g.n, out = { bed, ice, ocean: oc, age: new Float64Array(nf), plate: d.plate.slice(0, n), low };
+  const n = g.n, out = { bed, ice, ocean: oc, age: new Float64Array(nf), plate: d.plate.slice(0, n), low, reach };
   if (g.level < d.level) {
     const T = makeTransfer(buildGrid(d.level), g), r = a => restrict(T, a, new Float64Array(n));
-    out.bed = r(bed); out.ice = r(ice); out.ocean = r(oc); out.low = lowest(T, low);
+    out.bed = r(bed); out.ice = r(ice); out.ocean = r(oc); out.low = lowest(T, low); out.reach = lowest(T, reach);
     const ra = r(oa);
     out.age = new Float64Array(n);
     for (let i = 0; i < n; i++) out.age[i] = out.ocean[i] > 1e-6 ? ra[i] / out.ocean[i] : 0;
@@ -202,6 +204,13 @@ export function earthGenesis(tec, seed, d) {
     const top = f.bed[i] + f.ice[i] / 1000, cut = top - f.low[i];
     if (cut > 0 && top > 0) tec.plates[tec.owner[i]].gz[tec.ref[i]] = cut;
   }
+  // Each cell's sea channel: how far below its mean bed today's ocean floods into it (plates.js's
+  // `seaChannel`), so a strait narrower than a cell (Gibraltar's sill at −341 m, Hormuz's at −52 m,
+  // the Danish straits' at −11 m) joins its seas while the cell's mean stands above them.
+  for (let i = 0; i < n; i++) {
+    const cut = f.bed[i] - f.reach[i];
+    if (cut > 0) tec.plates[tec.owner[i]].gs[tec.ref[i]] = Math.min(SEA.CHANNEL_MAX, cut);
+  }
   // Earth's slabs mostly reach the transition zone (~660 km, from memory), so they hang at SLAB_MAX, where the pull saturates.
   hangSlabs(tec, PARAMS.SLAB_MAX);
   tec.seaLevel = s0;
@@ -222,7 +231,7 @@ export function earthGenesis(tec, seed, d) {
 /** The water that holds the sea at s0 over the ocean (with the ice's and the lakes' off it), and the sea solved. */
 function fillSea(tec, s0) {
   const g = tec.grid, n = g.n, elev = tec.elev, sea = new Uint8Array(n), strait = new Uint8Array(n);
-  seaMask(g, elev, s0, sea, strait, null, tec.phi);
+  seaMask(g, elev, s0, sea, strait, null, tec.phi, seaChannel(tec, new Float64Array(n)));
   let v = 0;
   for (let i = 0; i < n; i++) if (sea[i]) v += (s0 - elev[i]) * g.area[i];
   tec.water = v + tec.iceWater + tec.lakeWater;

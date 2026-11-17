@@ -92,25 +92,36 @@ export class Carbon {
   }
 
   /** Weathering's map, from the climate's latest state. */
-  measure() {
-    // A sea boiling away (the People scenario's runaway) keeps the map it had: drawn on the seafloor
-    // left dry, weathering would draw the air down as no sea-built cycle could (src/engine/peoplelink.js).
-    if (this.boiling && this.wF > 0) return;
-    const c = this.climate, g = c.grid, n = g.n, L = c.landMask, erosion = this.land ? this.land.erosion : null;
+  /**
+   * Each cell's weathering per unit area on the climate's map (measure's summand; 0 at sea and
+   * under ice): runoff^RUNOFF_EXP (mm/yr) × e^{(T − 15)/TE} × fresh rock's supply × the cover's factor.
+   */
+  weatheringMap(out = new Float64Array(this.climate.grid.n)) {
+    const c = this.climate, n = c.grid.n, L = c.landMask, erosion = this.land ? this.land.erosion : null;
     const ice = c.ice ? c.ice.H : null, cover = c.cover;
     // Fresh rock's supply: the regolith's production where there is one (src/engine/regolith.js: at
     // steady state it is the erosion, E_HALF's rate), else the erosion itself.
     const prod = this.land && this.land.regolith ? this.land.regolith.prod : null;
-    let f = 0;
     for (let i = 0; i < n; i++) {
-      if (!L[i] || (ice && ice[i] > 10)) continue;
+      if (!L[i] || (ice && ice[i] > 10)) { out[i] = 0; continue; }
       const run = c.runoff[i] * 1000;                                  // mm/yr
       const T = c.Tf[0][i] - 6.5 * c.elevPos[i];
       const e = prod ? prod[i] : erosion ? erosion[i] : CARBON.E_HALF;
       const supply = 0.25 + 0.75 * e / (e + CARBON.E_HALF);
-      f += g.area[i] * Math.pow(Math.max(0, run), CARBON.RUNOFF_EXP) * Math.exp((T - 15) / CARBON.TE) * supply
+      out[i] = Math.pow(Math.max(0, run), CARBON.RUNOFF_EXP) * Math.exp((T - 15) / CARBON.TE) * supply
         * (cover ? coverWeathering(cover.ft[i], cover.fg[i]) : 1);
     }
+    return out;
+  }
+
+  measure() {
+    // A sea boiling away (the People scenario's runaway) keeps the map it had: drawn on the seafloor
+    // left dry, weathering would draw the air down as no sea-built cycle could (src/engine/peoplelink.js).
+    if (this.boiling && this.wF > 0) return;
+    const c = this.climate, g = c.grid, n = g.n;
+    const w = this.wMap = this.weatheringMap(this.wMap && this.wMap.length === n ? this.wMap : undefined);
+    let f = 0;
+    for (let i = 0; i < n; i++) f += g.area[i] * w[i];
     this.wF = f;
     // The reference is taken once the climate has settled (its first cycles are a transient: from a
     // cold start the cover and the rain take ~10 cycles to agree, and at cycle 3 the map stood

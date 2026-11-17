@@ -64,10 +64,13 @@ export function solveSeaLevel(grid, elev, volume, guess = null, excl = null) {
 }
 
 /**
- * The ocean at level s (synthesis): the cells below it that the open ocean reaches. A cell
- * below s joins its neighbours below s, and a strait joins them too: a cell that was part of
- * the ocean (`strait`, kept here) and now stands less than STRAIT above it, a channel below
- * the grid's scale (so a sill doesn't open and close with every metre the sea moves). A body
+ * The ocean at level s (synthesis): the cells below it that the open ocean reaches. Cells join
+ * on their channel's height (`chan`, plates.js's seaChannel: the mean less the sea's channel
+ * through the cell, a strait narrower than a cell; the mean where none is given), their wet area
+ * on their mean. A cell whose channel is below s joins its neighbours, and a strait joins them
+ * too: a cell that was part of the ocean (`strait`, kept here) whose channel now stands less than
+ * STRAIT above it, the sub-grid relief (so a sill doesn't open and close with every metre the sea
+ * moves). A body
  * holding at least SEA.OCEAN_MIN of the sphere, or the largest, is ocean; the others are basins
  * the sea doesn't reach, which hold lakes or lie dry (src/engine/lakes.js). Writes `sea` (1
  * on the ocean) and `strait`; returns the ocean's area (sr).
@@ -75,10 +78,17 @@ export function solveSeaLevel(grid, elev, volume, guess = null, excl = null) {
 /** Tunable; tools and tests may change them. */
 export const SEA = {
   STRAIT: 0.025,      // km: a sill stands this far clear of the sea before it closes (the sub-grid relief's half range, LAND.ROUGH)
-  OCEAN_MIN: 0.02,    // of the sphere (~10 M km²): a body this large is ocean wherever it stands (0: every basin below sea level is sea, as before 2026-11-17)
+  OCEAN_MIN: 0.02,    // of the sphere (~10 M km²): a body this large is ocean wherever it stands (0: every basin below sea level is sea)
   TRAPPED: 0.5,       // a body this much floored by oceanic crust is ocean too (2 or more: none is)
+  // The straits' scour (plates.js, `scour`; speculation): where the sea flows through a cell between
+  // two of its waters, its channel cuts down at SCOUR, less as it deepens (e-fold SCOUR_D below the
+  // sea), against uplift and filling; everywhere the channel fills back toward the mean over FILL.
+  SCOUR: 0.4,         // km/Myr: a shallow strait's cutting (0.4 mm/yr), the uplift it holds open against
+  SCOUR_D: 0.025,     // km: the channel's depth below the sea over which the cutting falls e-fold
+  FILL: 30,           // Myr: a channel's relief filling back toward its cell's mean
+  CHANNEL_MAX: 0.6,   // km: the deepest channel kept below a cell's mean
 };
-export function seaMask(grid, elev, s, sea, strait, scratch = null, felsic = null) {
+export function seaMask(grid, elev, s, sea, strait, scratch = null, felsic = null, chan = elev) {
   const n = grid.n, area = grid.area, nbrOff = grid.nbrOff, nbr = grid.nbr, S2 = s + SEA.STRAIT;
   const id = scratch && scratch.id && scratch.id.length === n ? scratch.id : new Int32Array(n);
   const stack = scratch && scratch.stack && scratch.stack.length === n ? scratch.stack : new Int32Array(n);
@@ -97,7 +107,7 @@ export function seaMask(grid, elev, s, sea, strait, scratch = null, felsic = nul
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
         const j = nbr[t];
         if (id[j] >= 0) continue;
-        const z = elev[j];
+        const z = chan[j];
         if (z < s || (strait[j] && z < S2)) { id[j] = c; stack[sp++] = j; }
       }
     }

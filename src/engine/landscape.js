@@ -311,8 +311,7 @@ export class Landscape {
 
   /** The rivers' part of a step: cut, carry and deposit, written into the plates' crust. */
   erode(dt) {
-    const tec = this.tec, g = this.grid, n = g.n, s = tec.seaLevel;
-    const plates = tec.plates, owner = tec.owner, ref = tec.ref;
+    const n = this.grid.n;
     this.reroute();
     const z = this.z, z0 = this.z0, f = this.f, dh = this.dh, A = this.areaKm;
     // Rivers erode down to sea level at the coast.
@@ -352,34 +351,46 @@ export class Landscape {
     }
     // At the coast: a shelf to just below sea level, then out into deeper water.
     let toSea = 0;
-    const nbrOff = g.nbrOff, nbr = g.nbr, elev = tec.elev;
-    const shelf = s - LAND.SHELF;
     for (let c0 = 0; c0 < n; c0++) {
-      let V = qs[c0];
+      const V = qs[c0];
       if (!(V > 0) || !this.base[c0]) continue;
       qs[c0] = 0;
       toSea += V;
-      let c = c0;
-      for (let hop = 0; hop < 10 && V > 0; hop++) {
-        const top = elev[c] + f[c] * dh[c];
-        const cap = Math.max(0, shelf - top) * A[c] / f[c];
-        const d = hop === 9 ? V : Math.min(V, cap);
-        dh[c] += d / A[c];
-        V -= d;
-        // Onward to the deepest neighbouring sea.
-        let next = -1, deep = Infinity;
-        for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) {
-          const j = nbr[t];
-          if (!this.base[j]) continue;
-          const zj = elev[j] + f[j] * dh[j];
-          if (zj < deep) { deep = zj; next = j; }
-        }
-        if (next < 0) { dh[c] += V / A[c]; V = 0; break; }
-        c = next;
-      }
+      this.seaward(c0, V, dh);
     }
-    // Write the change into the plates' crust, mixing in felsic sediment.
-    const sedPhi = LAND.SED_FELSIC;
+    this.deposit(dh);
+    this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt; this.flux.outwash = outwash / dt;
+  }
+
+  /**
+   * V km³ of sediment entering the sea at its cell c0, laid into dh (km of thickness): a shelf to
+   * SHELF below sea level, then onward to the deepest neighbouring sea, at most ten cells out.
+   */
+  seaward(c0, V, dh) {
+    const g = this.grid, nbrOff = g.nbrOff, nbr = g.nbr, elev = this.tec.elev, f = this.f, A = this.areaKm, base = this.base;
+    const shelf = this.tec.seaLevel - LAND.SHELF;
+    let c = c0;
+    for (let hop = 0; hop < 10 && V > 0; hop++) {
+      const top = elev[c] + f[c] * dh[c];
+      const cap = Math.max(0, shelf - top) * A[c] / f[c];
+      const d = hop === 9 ? V : Math.min(V, cap);
+      dh[c] += d / A[c];
+      V -= d;
+      let next = -1, deep = Infinity;
+      for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) {
+        const j = nbr[t];
+        if (!base[j]) continue;
+        const zj = elev[j] + f[j] * dh[j];
+        if (zj < deep) { deep = zj; next = j; }
+      }
+      if (next < 0) { dh[c] += V / A[c]; break; }
+      c = next;
+    }
+  }
+
+  /** Sediment (dh, km of thickness per world cell) written into the plates' crust, mixing in felsic sediment. */
+  deposit(dh) {
+    const tec = this.tec, n = this.grid.n, plates = tec.plates, owner = tec.owner, ref = tec.ref, sedPhi = LAND.SED_FELSIC;
     for (let i = 0; i < n; i++) {
       const d = dh[i];
       if (d === 0) continue;
@@ -388,7 +399,6 @@ export class Landscape {
       p.h[j] = Math.max(0.5, p.h[j] + d);
       tec.h[i] = p.h[j]; tec.phi[i] = p.phi[j];
     }
-    this.flux.eroded = eroded / dt; this.flux.toSea = toSea / dt; this.flux.toLakes = toLakes / dt; this.flux.outwash = outwash / dt;
   }
 
   /**
@@ -399,23 +409,31 @@ export class Landscape {
   plan(dt) {
     const tec = this.tec, n = this.grid.n, h = tec.h, phi = tec.phi, A = this.areaKm;
     if (!this.kap) { this.kap = new Float64Array(n); this.cont = new Int32Array(n); }
-    const kap = this.kap, C = this.cont;
+    if (!this.kapT || this.kapT.length !== n) this.kapT = new Float64Array(n);
+    const kap = this.kap, kapT = this.kapT, C = this.cont;
     let kmax = 0, nc = 0;
     for (let i = 0; i < n; i++) {
       if (phi[i] < CONTINENTAL) { kap[i] = -1; continue; }
-      const k = LAND.KAPPA + LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
+      kapT[i] = LAND.KAPPA_THICK * Math.max(0, h[i] - 40) / 30;
+      const k = LAND.KAPPA + kapT[i];
       kap[i] = k; kmax = Math.max(kmax, k); C[nc++] = i;
     }
     const lim = 0.2 * Math.min(A[0], A[12]) / 3.5;   // κ·dt (km²) per substep; cell 0 is a pentagon
     const sub = Math.max(1, Math.ceil(kmax * dt / lim));
-    return { kap, C, nc, sub, ds: dt / sub };
+    return { kap, kapT, C, nc, sub, ds: dt / sub };
   }
 
   /**
    * Thickness spreads between continental cells, faster under thick crust. Explicit and
-   * conservative, edge by edge. (On the GPU, as a gather per cell, it cost 1.8 ms against
-   * 5.4 here at level 7, but in the engine's worker its readback queued behind the ice's
-   * steps and the step cost the same.)
+   * conservative, edge by edge. Two kinds of flow (synthesis): KAPPA's is the surface's
+   * (hillslopes and small rivers below the grid's scale), a load the crust's flexure sees, and
+   * what of it reaches a cell of the sea goes on as the rivers' sediment does (`seaward`: the
+   * sea's currents carry it off, so a strait isn't filled from its shores); KAPPA_THICK's is the
+   * thick crust's flow at depth, which adds buoyant root, not weight: the column's mass the
+   * flexure last saw (`mq`) moves by ρ_mantle a km of it, so the flexure sees its buoyancy,
+   * −(ρ_mantle − ρ) a km. (On the GPU, as a gather per cell, it cost 1.8 ms against 5.4 here
+   * at level 7, but in the engine's worker its readback queued behind the ice's steps and the
+   * step cost the same.)
    */
   diffuse(dt) {
     const tec = this.tec, g = this.grid, n = g.n, h = tec.h, A = this.areaKm;
@@ -425,36 +443,52 @@ export class Landscape {
       for (let i = 0; i < n; i++) for (let t = g.nbrOff[i], e = g.nbrOff[i + 1]; t < e; t++) if (g.nbr[t] > i) { ei.push(i); ej.push(g.nbr[t]); eg.push(g.ell[t] / g.dist[t]); }
       const m = ei.length;
       this.edges = { i: Int32Array.from(ei), j: Int32Array.from(ej), g: Float64Array.from(eg), m };
-      this.dI = new Int32Array(m); this.dJ = new Int32Array(m); this.dW = new Float64Array(m);
-      this.loc = new Int32Array(n); this.hc = new Float64Array(n); this.ddh = new Float64Array(n); this.Ac = new Float64Array(n);   // 1 / area (km⁻²)
+      this.dI = new Int32Array(m); this.dJ = new Int32Array(m); this.dW = new Float64Array(m); this.dWT = new Float64Array(m);
+      this.loc = new Int32Array(n); this.hc = new Float64Array(n); this.ddh = new Float64Array(n); this.dT = new Float64Array(n); this.Ac = new Float64Array(n);   // 1 / area (km⁻²)
     }
     // The substeps run on the continental cells packed together (local index c, cell C[c]),
     // which keeps them in cache (scattered over the grid they cost twice as much), and multiply
     // by each cell's 1/area (dividing cost half again).
-    const { kap, C, nc, sub, ds } = this.plan(dt), loc = this.loc, hc = this.hc, dh = this.ddh, Ac = this.Ac;
-    for (let c = 0; c < nc; c++) { const i = C[c]; loc[i] = c; hc[c] = h[i]; Ac[c] = 1 / A[i]; }
-    // Each continental edge's flow per km of difference (km²).
-    const E = this.edges, EI = E.i, EJ = E.j, EG = E.g, I = this.dI, J = this.dJ, Wt = this.dW;
-    let m = 0;
+    const { kap, kapT, C, nc, sub, ds } = this.plan(dt), loc = this.loc, hc = this.hc, dh = this.ddh, dT = this.dT, Ac = this.Ac;
+    for (let c = 0; c < nc; c++) { const i = C[c]; loc[i] = c; hc[c] = h[i]; Ac[c] = 1 / A[i]; dT[c] = 0; }
+    // Each continental edge's flow per km of difference (km²), and its thick crust's share.
+    const E = this.edges, EI = E.i, EJ = E.j, EG = E.g, I = this.dI, J = this.dJ, Wt = this.dW, WT = this.dWT;
+    let m = 0, thick = false;
     for (let e = 0; e < E.m; e++) {
       const i = EI[e], j = EJ[e], ki = kap[i], kj = kap[j];
       if (ki < 0 || kj < 0) continue;
-      I[m] = loc[i]; J[m] = loc[j]; Wt[m] = 0.5 * (ki + kj) * ds * EG[e]; m++;
+      I[m] = loc[i]; J[m] = loc[j]; Wt[m] = 0.5 * (ki + kj) * ds * EG[e]; WT[m] = 0.5 * (kapT[i] + kapT[j]) * ds * EG[e];
+      if (WT[m] > 0) thick = true;
+      m++;
     }
     for (let s = 0; s < sub; s++) {
       dh.fill(0, 0, nc);
       for (let k = 0; k < m; k++) {
-        const i = I[k], j = J[k], flow = Wt[k] * (hc[j] - hc[i]);   // km³
+        const i = I[k], j = J[k], d = hc[j] - hc[i], flow = Wt[k] * d;   // km³
         dh[i] += flow * Ac[i];
         dh[j] -= flow * Ac[j];
+        if (thick) { const ft = WT[k] * d; dT[i] += ft * Ac[i]; dT[j] -= ft * Ac[j]; }
       }
       for (let c = 0; c < nc; c++) hc[c] += dh[c];
     }
-    // The change into the plates' crust; then every world cell reads its frame cell back, so
-    // world cells that share one (nearest-cell rounding) all see its sum.
-    const plates = tec.plates, owner = tec.owner, ref = tec.ref;
-    for (let c = 0; c < nc; c++) { const i = C[c], d = hc[c] - h[i]; if (d !== 0) plates[owner[i]].h[ref[i]] += d; }
+    // The change into the plates' crust: the surface's gain at sea goes on seaward; then every
+    // world cell reads its frame cell back, so world cells that share one all see its sum.
+    const plates = tec.plates, owner = tec.owner, ref = tec.ref, base = this.base, rm = RHO_MANTLE;
+    const sed = this.dhSea || (this.dhSea = new Float64Array(n));
+    let seaward = false;
+    for (let c = 0; c < nc; c++) {
+      const i = C[c], d = hc[c] - h[i], t = dT[c];
+      if (d === 0) continue;
+      const p = plates[owner[i]], j = ref[i], surf = d - t;
+      if (base[i] && surf > 0) {
+        if (!seaward) { sed.fill(0); seaward = true; for (let k = 0; k < n; k++) this.f[k] = factor(tec.phi[k]); }
+        p.h[j] += t;
+        this.seaward(i, surf * A[i], sed);
+      } else p.h[j] += d;
+      if (t !== 0 && p.mq[j] >= 0) p.mq[j] = Math.fround(p.mq[j] + rm * t);
+    }
     for (let c = 0; c < nc; c++) { const i = C[c]; h[i] = plates[owner[i]].h[ref[i]]; }
+    if (seaward) this.deposit(sed);
   }
 
   /** Total continental volume (km³), for conservation checks. */

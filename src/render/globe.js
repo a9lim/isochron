@@ -23,7 +23,10 @@
 //                    from orbit: quiet in the gyres, seen at upwelling coasts
 //                    and in the cold sea (Relief)
 //   lakes            from their water (src/engine/lakes.js), in the sea's tint
-//                    by depth, with a hard shore; eased when they change
+//                    by depth, blooming as the sea does by their algae's
+//                    production (src/engine/life.js, lakeAlgae), with a hard
+//                    shore; eased when they change. In the Zones map the sea's
+//                    wash with their shore and the production's strokes
 //   salt flats       where a closed lake has dried: a pale crust, hard-edged,
 //                    under short graphite strokes (Relief)
 //   permafrost       ground frozen all year (src/engine/soil.js): a violet hatch
@@ -508,14 +511,17 @@ fn hair(d: f32, w: f32) -> f32 {
     land = mix(land, u.inkG.rgb, 0.07 * frozen);
     land = mix(land, u.inkG.rgb, 0.7 * frozen * hatch(T, vec2f(1.0, 0.0), 4.2 * u.mode.z, 0.8 * u.mode.z));
   }
-  // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The field is smoothed
+  // Lakes, in the sea's tint by depth and blooming as the sea does (their algae's production, on the
+  // sea's export scale, in the zones' slot 14: src/engine/life.js), with a hard shore and its hairline. The field is smoothed
   // and signed (dry land below zero), so the shore is a curve. Frozen, a lake is ice on water, as
   // the sea's is: the sea ice's ink and its edge's hairline, where the land's snow field passes ½,
   // read on the lake at its surface's height (src/engine/climate.js, geography). The model
   // freezes a lake's share by ramp(−Ts, 0, 4.5), a quarter degree colder than the snow's; through the year
   // the two disagree on under 3% of lake vertices.
   let lk = clamp(0.5 + lake / flake, 0.0, 1.0);
-  let lakeInk = mix(mix(mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * lakeQ), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
+  var lakeWater = mix(u.canvas.rgb, mix(u.ocean.rgb, u.inkD.rgb, PLANKTON_HUE * bloom), u.frame2.y + u.frame2.z * lakeQ);
+  lakeWater = mix(lakeWater, mix(u.canvas.rgb, mix(u.inkD.rgb, u.ocean.rgb, 0.3), 0.4), PLANKTON_WASH * bloom);
+  let lakeInk = mix(mix(lakeWater, iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
   land = mix(land, lakeInk, lk);
   land = mix(land, u.text.rgb, 0.55 * hair(abs(lake), flake));
 
@@ -533,8 +539,11 @@ fn hair(d: f32, w: f32) -> f32 {
     acc += probs[k] / max(tot, 1e-6);
     if (h < acc) { cls = k; break; }
   }
-  // A lake in the Zones map is the sea's wash, frozen as the sea is there.
-  let zone = mix(zoneColor(cls, T), mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.16), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge), lk);
+  // A lake in the Zones map is the sea's wash, frozen as the sea is there, with its production's
+  // strokes as the sea's and its shore's hairline.
+  let lakeWash = mix(mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.16), u.inkA.rgb, 0.6 * exMarks), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
+  var zone = mix(zoneColor(cls, T), lakeWash, lk);
+  zone = mix(zone, u.text.rgb, 0.5 * hair(abs(lake), flake));
   land = select(land, zone, climate);
   let shade = select(relief, mix(1.0, relief, 0.55), climate);
   let seaShade = select(relief, 1.0, climate);

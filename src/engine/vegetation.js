@@ -47,6 +47,21 @@
 //                quarter of forest's (GEOCARB's pre-plant factor, from
 //                memory). Dust: the bare share. Colours for the Relief view,
 //                by cover and warmth.
+//   fire and     (synthesis) disturbance holds the trees below their climate's
+//   browsing     share: f̂/v̂ × (1 − D), D = 1 − (1 − F)(1 − B). Fire F =
+//                FIRE_MAX × fuel × dry season: it spreads where grass is
+//                continuous (a logistic of the cell's grass about G_FUEL; the
+//                percolation threshold Staver and others 2011 found was ~40%,
+//                from memory, and G_FUEL sits above it, since the cover's own
+//                equilibrium was fitted to biomes fire shaped) and burns where
+//                the year has a warm dry season (a soft count of months under
+//                P_DRY and above T_DRY, about D_FIRE months). Browsing B =
+//                B_MAX × the herds' forage (grass about G_GRAZE) × rain below
+//                P_BROWSE (they thin in wet forest): herbivores and fire hold
+//                savannas open above ~650 mm (Sankaran and others 2005, Nature
+//                438, 846). Both read the grass already there, so a grassy
+//                cell burns and stays open and a closed forest doesn't:
+//                savanna and forest can each hold under one climate.
 //   bistability  (speculation) where rain follows cover (recycling), a dry
 //                margin can hold green or desert under one forcing, as in
 //                Claussen's green Sahara; the tests show a toy cell carrying
@@ -79,6 +94,13 @@ export const VEG = {
   PLANETARY: 0.55,                  // share of a surface contrast the climate's planetary albedo sees (tuned on today's Earth: tools/earth/)
   E_BARE: 0.4, E_TREE: 1.2, S_CRIT: 0.75,            // evaporation by cover against grass's; the bucket's knee
   W_BARE: 0.25, W_GRASS: 0.5,       // weathering: bare against forest; grass's share of forest's gain
+  // Fire and browsing (synthesis)
+  FIRE_MAX: 0.65, G_FUEL: 0.5, W_FUEL: 0.04,   // fire's most, and the grass (share of the cell) about which it spreads
+  P_DRY: 50, W_DRY: 15,             // mm a month under which a month is dry (soft)
+  T_DRY: 5, W_TDRY: 2,              // °C above which a dry month burns (a frozen one doesn't)
+  D_FIRE: 4, W_DFIRE: 0.75,         // warm dry months about which a year burns
+  B_MAX: 0.2, G_GRAZE: 0.4, W_GRAZE: 0.1,  // browsing's most, and the grass about which the herds live
+  P_BROWSE: 1000, W_BROWSE: 200,    // mm/yr above which the herds thin
 };
 
 const R_M = 6.371e6, MONTH_DAYS = 30.44;
@@ -133,6 +155,25 @@ export function equilibrium(G0, P, soil = -1, out = [0, 0]) {
   }
   out[0] = Math.min(f, v); out[1] = v;
   return out;
+}
+
+/** Warm dry months in a year of twelve monthly rains (mm) and means (°C), soft: each month under P_DRY and above T_DRY counts. */
+export function dryMonths(p12, t12, o = 0) {
+  const V = VEG;
+  let d = 0;
+  for (let m = 0; m < 12; m++) d += sigmoid((V.P_DRY - p12[o + m]) / V.W_DRY) * sigmoid((t12[o + m] - V.T_DRY) / V.W_TDRY);
+  return d;
+}
+
+/**
+ * Disturbance D (0–1): the share of their climate's room fire and browsing keep trees out of, in
+ * a cell with grass share g (of the cell), dry months dry and P mm of rain a year.
+ */
+export function disturbance(g, dry, P) {
+  const V = VEG;
+  const F = V.FIRE_MAX * sigmoid((g - V.G_FUEL) / V.W_FUEL) * sigmoid((dry - V.D_FIRE) / V.W_DFIRE);
+  const B = V.B_MAX * sigmoid((g - V.G_GRAZE) / V.W_GRAZE) * sigmoid((V.P_BROWSE - P) / V.W_BROWSE);
+  return 1 - (1 - F) * (1 - B);
 }
 
 /**
@@ -202,6 +243,7 @@ export class Vegetation {
     this.Cg = new Float64Array(n);
     this.Cs = new Float64Array(n);
     this.temp = new Float32Array(n); this.gdd = new Float32Array(n);
+    this.dist = new Float32Array(n);     // fire's and browsing's share of the trees' room kept open
     this.flux = { npp: 0, litter: 0, resp: 0, air: 0 };     // Pg C/yr over the last step
     this.climate = false;
   }
@@ -212,16 +254,19 @@ export class Vegetation {
    * °C), optional soil (growing season's share of capacity, 0–1); co2 (ppm).
    * Elsewhere the cover goes and its carbon respires to the air.
    */
-  setClimate({ land, gdd, precip, temp, soil = null, co2 = VEG.CO2_0 }) {
+  setClimate({ land, gdd, precip, temp, soil = null, dry = null, co2 = VEG.CO2_0 }) {
     const V = VEG, eq = [0, 0], lq = Math.log(V.Q10) / 10;
     for (let i = 0; i < this.n; i++) {
       const T = temp[i];
       this.temp[i] = T; this.gdd[i] = gdd[i];
       this.kS[i] = 1 / Math.min(V.TAU_SOIL_MAX, V.TAU_SOIL * Math.exp(lq * (V.T_SOIL - T)));
-      if (!land[i]) { this.vEq[i] = 0; this.sEq[i] = 0; this.pi[i] = 0; continue; }
+      if (!land[i]) { this.vEq[i] = 0; this.sEq[i] = 0; this.pi[i] = 0; this.dist[i] = 0; continue; }
       equilibrium(gdd[i], precip[i], soil ? soil[i] : -1, eq);
       const u = Math.min(1, Math.max(0, (T - V.T_HOT[0]) / (V.T_HOT[1] - V.T_HOT[0]))), hot = 1 - u * u * (3 - 2 * u);
-      this.vEq[i] = hot * eq[1]; this.sEq[i] = eq[1] > 0 ? eq[0] / eq[1] : 0;
+      // Fire and browsing on the grass there now (a bare cell, new land, has none to burn).
+      const D = dry ? disturbance(this.fg[i], dry[i], precip[i]) : 0;
+      this.dist[i] = D;
+      this.vEq[i] = hot * eq[1]; this.sEq[i] = eq[1] > 0 ? (1 - D) * eq[0] / eq[1] : 0;
       this.pi[i] = hot * npp(T, precip[i], co2);
     }
     this.climate = true;

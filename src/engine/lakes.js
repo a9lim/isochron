@@ -85,6 +85,12 @@ export const LAKES = {
   SALT_TAU: 3000,         // yr: a dry bed's memory of its water
   WET: 0.5,               // the closure's spread of inflow from year to year (salt flats at fast dials)
   YEAR: 1,                // yr: the rivers' memory of each basin's inflow and outflow (regInY, regOutY)
+  // The lakes' algae (`production`; synthesis on standard forms)
+  V_SETTLE: 10,           // m/yr: phosphorus settling to the bed (Vollenweider's σz, from memory)
+  P_DEP: 30,              // mg P m⁻² yr⁻¹ falling on the water from the air (dust and smoke; from memory, its order)
+  PP_MAX: 700,            // g C m⁻² yr⁻¹: a warm lake's production, rich in phosphorus, year-round
+  K_TP: 15,               // µg/L: the phosphorus at which production is half its most
+  EPPLEY: 1.066,          // growth's rise a degree (Eppley 1972, standard, from memory), about 20 °C
 };
 
 const R_KM = 6371;
@@ -667,6 +673,45 @@ export class Lakes {
     // Cells that left every depression forget their water.
     for (let i = 0; i < n; i++) if (this.regOf[i] < 0) this.mem[i] = 0;
     return toSea;
+  }
+
+  /**
+   * The lakes' algae (synthesis on standard forms): each region's phosphorus by Vollenweider's mass
+   * balance, TP = (load + P_DEP) / (q_out + V_SETTLE), the load what its catchment's runoff carries
+   * (cIn, µg/L per cell, from the rocks' weathering) over its water's area (mg m⁻² yr⁻¹), q_out
+   * its outflow over its area (m/yr): flushed lakes keep little of it, closed ones all but what
+   * settles (a soda lake is rich). Production PP_MAX × TP/(TP + K_TP) × the open, warm season
+   * (each month's share of open water, by its mean above 0 °C, × EPPLEY^{T − 20}). Writes g C m⁻²
+   * yr⁻¹ on each wet cell into out (0 elsewhere); returns the lakes' total (Pg C/yr).
+   */
+  production(cIn, runoff, T12, out = new Float32Array(this.n)) {
+    const n = this.n, A = this.areaKm, ca = this.catch, P = LAKES;
+    out.fill(0);
+    if (!this.built || !this.lakeNodes || !this.lakeNodes.length) return 0;
+    const nr = this.nr, load = this.pLoad && this.pLoad.length === nr ? this.pLoad.fill(0) : (this.pLoad = new Float64Array(nr));
+    const area = this.pArea && this.pArea.length === nr ? this.pArea.fill(0) : (this.pArea = new Float64Array(nr));
+    for (let i = 0; i < n; i++) { const t = ca[i]; if (t >= 0 && runoff[i] > 0) load[this.region[t]] += A[i] * runoff[i] * 1e-3 * cIn[i]; }   // km³/yr × µg/L
+    for (const b of this.lakeNodes) if (this.volume[b] > 0) area[this.region[b]] += this.areaB[b];
+    let total = 0;
+    for (const b of this.lakeNodes) {
+      if (!(this.volume[b] > 0) || !(this.areaB[b] > 0)) continue;
+      const q = this.region[b], a = area[q];
+      const tp = (1e3 * load[q] / a + P.P_DEP) / (1e3 * Math.max(0, this.regOutY[q]) / a + P.V_SETTLE);
+      // The season over the lake's wet cells.
+      let s = 0, w = 0;
+      for (let k = this.cellOff[b], e = this.cellOff[b + 1]; k < e; k++) {
+        const i = this.cells[k];
+        if (this.lakeId[i] !== b || !(this.wet[i] > 0)) continue;
+        let m12 = 0;
+        for (let m = 0; m < 12; m++) { const T = T12[12 * i + m]; m12 += Math.max(0, Math.min(1, T / 2)) * Math.pow(P.EPPLEY, T - 20); }
+        s += A[i] * this.wet[i] * m12 / 12; w += A[i] * this.wet[i];
+      }
+      if (!(w > 0)) continue;
+      const pp = P.PP_MAX * (s / w) * tp / (tp + P.K_TP);
+      for (let k = this.cellOff[b], e = this.cellOff[b + 1]; k < e; k++) { const i = this.cells[k]; if (this.lakeId[i] === b && this.wet[i] > 0) out[i] = pp; }
+      total += pp * w * 1e6 * 1e-15;   // g C/yr over km² → Pg C/yr
+    }
+    return total;
   }
 
   /** The lakes now: node, level (km), area (km²), volume (km³), spilling, and the wet cells. */

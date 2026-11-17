@@ -27,8 +27,10 @@
 // Other layers keep state of their own with the crust, in the same frames
 // (FRAME_EXTRA): the regolith (src/engine/regolith.js), the flexure's
 // correction to the elevation and the column's mass it last saw
-// (src/engine/crustflex.js), and the cell's lowest land below its mean, where
-// its water runs (today's Earth's, src/engine/earth.js: `channel`). They travel as the crust does: copied where crust
+// (src/engine/crustflex.js), the cell's lowest land below its mean, where
+// its water runs (today's Earth's, src/engine/earth.js: `channel`), and the
+// sea's channel through it below its mean (`gs`: Earth's baked reach, then the
+// straits' scour: `seaChannel`, `scour`). They travel as the crust does: copied where crust
 // moves between frames (relaxation, merges, rifts, initiation), set to their
 // defaults where crust is new.
 import { nearest, gradient } from '../grid/icosphere.js';
@@ -75,7 +77,7 @@ export const PARAMS = {
 };
 
 /** Per frame cell, with the crust: name and the value new crust starts with (−1: not yet seen). */
-export const FRAME_EXTRA = { reg: 0, cf: 0, mq: -1, gz: 0 };
+export const FRAME_EXTRA = { reg: 0, cf: 0, mq: -1, gz: 0, gs: 0 };
 const EXTRA = Object.entries(FRAME_EXTRA);
 
 /** Crust and its extras from frame cell jf of plate P to jt of Q (which then holds it). */
@@ -97,6 +99,17 @@ export function channel(tec, out) {
     const e = tec.elev[i], g = tec.plates[tec.owner[i]].gz[tec.ref[i]];
     out[i] = g > 0 ? Math.max(e - g, Math.min(e, s)) : e;
   }
+  return out;
+}
+
+/**
+ * Each world cell's height for the sea's reach (km): its mean elevation less its sea channel (`gs`,
+ * km: how far below the mean the sea gets through the cell, below the grid's scale: a strait).
+ * The ocean's mask joins cells on it (crust.js, seaMask); their wet area stays the mean's.
+ */
+export function seaChannel(tec, out) {
+  const n = tec.grid.n, plates = tec.plates, owner = tec.owner, ref = tec.ref, elev = tec.elev;
+  for (let i = 0; i < n; i++) { const p = plates[owner[i]], g = p ? p.gs[ref[i]] : 0; out[i] = g > 0 ? elev[i] - g : elev[i]; }
   return out;
 }
 
@@ -625,7 +638,8 @@ export class Tectonics {
     const scr = this.maskScratch && this.maskScratch.n === n ? this.maskScratch : (this.maskScratch = { n });
     const prev = scr.prev || (scr.prev = new Uint8Array(n)), excl = scr.excl || (scr.excl = new Uint8Array(n));
     prev.set(sea);
-    seaMask(g, elev, s0, sea, strait, scr, this.phi);
+    const chan = seaChannel(this, scr.chan || (scr.chan = new Float64Array(n)));
+    seaMask(g, elev, s0, sea, strait, scr, this.phi, chan);
     let events = 0;
     const join = i => {
       const w = ((held ? this.lakeDepth[i] : 0) + this.cutWater[i]) * area[i];
@@ -666,7 +680,7 @@ export class Tectonics {
         for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
           const j = nbr[t];
           if (sea[j] || vis[j]) continue;
-          if (elev[j] < s || (strait[j] && elev[j] < s + SEA.STRAIT)) { vis[j] = 1; stack[sp++] = j; }
+          if (chan[j] < s || (strait[j] && chan[j] < s + SEA.STRAIT)) { vis[j] = 1; stack[sp++] = j; }
         }
       }
       events += more;
@@ -682,6 +696,43 @@ export class Tectonics {
     this.datum = this.boiled > 0 ? solveSeaLevel(g, elev, this.seaWater(0), this.datum || s, excl) : s;
     if (events) this.basins++;
   }
+  /**
+   * The straits' scour over dt Myr (SEA.SCOUR…; speculation): a cell of the ocean whose ring of
+   * neighbours holds two or more separate runs of the ocean's water is a strait, the sea flowing
+   * through it; its channel (`gs`) cuts down at SCOUR e^{−d/SCOUR_D}, d its depth below the sea
+   * (the full rate at or above it), so it holds open against uplift slower than SCOUR and closes
+   * under faster. Every channel fills back toward its cell's mean over FILL. Exact in each frame
+   * cell (once, however many world cells show it).
+   */
+  scour(dt) {
+    const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, plates = this.plates, owner = this.owner, ref = this.ref;
+    const strait = this.strait, s = this.seaLevel, top = s + SEA.STRAIT;
+    const scr = this.maskScratch && this.maskScratch.n === n ? this.maskScratch : (this.maskScratch = { n });
+    const chan = seaChannel(this, scr.chan || (scr.chan = new Float64Array(n)));
+    const seen = scr.seen || (scr.seen = new Set());
+    seen.clear();
+    const keep = Math.exp(-dt / SEA.FILL), R = SEA.SCOUR * dt, D = SEA.SCOUR_D, cap = SEA.CHANNEL_MAX;
+    for (let i = 0; i < n; i++) {
+      const p = plates[owner[i]], j = ref[i], key = owner[i] * n + j;
+      if (!p || seen.has(key)) continue;
+      seen.add(key);
+      let gs = p.gs[j] * keep;
+      if (strait[i] && chan[i] < top) {
+        // Runs of water round the ring (neighbours counter-clockwise): two or more, and the sea passes through.
+        let runs = 0, first = -1, last = 0;
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+          const k = nbr[t], w = strait[k] && chan[k] < top ? 1 : 0;
+          if (first < 0) first = w; else if (w && !last) runs++;
+          last = w;
+        }
+        if (first && !last) runs++;
+        if (runs === 0 && first) runs = 1;
+        if (runs >= 2) gs += R * Math.exp(-Math.max(0, s - chan[i]) / D);
+      }
+      p.gs[j] = Math.min(cap, gs);
+    }
+  }
+
   /** The sea's water (km·sr): less what the ice holds (at most nine tenths) and the lakes, less what has boiled away. */
   seaWater(boiled = this.boiled) { return Math.max(1e-3 * this.water, Math.max(0.1 * this.water, this.water - this.iceWater - this.lakeWater) * (1 - boiled)); }
   /**

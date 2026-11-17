@@ -18,6 +18,11 @@ cell) and is weighted by its area (cos latitude). Per cell, little-endian, n cel
                        stands above sea level (32767 where none does), where its water runs: a gorge
                        narrower than a cell (the Congo's, the Yangtze's) stands far below the cell's
                        mean, and a lake's floor (where ETOPO has its bathymetry) below its surface
+  reach  int16   m     the level at which today's ocean floods into the cell: the least, over its 60″
+                       pixels, of the level at which each joins the open ocean through ground below it
+                       (the bed, or the grounded ice's surface), taken every 5 m from −600 m (the least)
+                       to +200 m (32767 where it doesn't by then): a strait narrower than a cell
+                       (Gibraltar's sill, −341 m at 60″) stands far below the cell's mean
   ocean  uint8   /255  the share of the cell with a seafloor age (Seton et al. 2020): its oceanic crust
   age    uint16  /100  Myr, the mean age over that share
   plate  uint8         an index into earth.json's plates (Müller et al. 2019's plates today: the rigid
@@ -33,6 +38,7 @@ import time
 import h5py
 import numpy as np
 import pygplates
+from scipy import ndimage
 from scipy.spatial import cKDTree
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -62,6 +68,36 @@ print(f'level {LEVEL}: {n} cells')
 
 
 # ── ETOPO 2022, 60″: bed and ice, averaged 2 × 2 (2′, ~3.7 km) before they're assigned ──
+REACH_LEVELS = np.arange(-600, 201, 5)   # m: the levels the sea's flood is taken at
+
+
+def flood(zb, zs):
+    """The level (m) at which today's ocean floods each 60″ pixel: the lowest level at which it joins
+    the open ocean through pixels below that level (4-connected), the ground being the bed where
+    there's no grounded ice and the ice's surface where there is. Taken at REACH_LEVELS, so a pixel
+    the ocean reaches below the lowest level reads that level, and one it doesn't reach by the
+    highest reads 32767. The open ocean is the body holding the deep Pacific (0°, 150° W)."""
+    t0 = time.time()
+    H = zb.shape[0]
+    z = np.empty(zb.shape, np.int16)
+    for r0 in range(0, H, 1200):
+        b = zb[r0:r0 + 1200].astype(np.float64)
+        s = zs[r0:r0 + 1200].astype(np.float64)
+        thick = s - b
+        grounded = (thick > 0.5) & ((b >= 0) | (thick >= -b * RHO_W / RHO_I))
+        z[r0:r0 + 1200] = np.clip(np.round(np.where(grounded, s, b)), -32768, 32767)
+    seed = (H // 2, zb.shape[1] * 30 // 360)
+    out = np.full(zb.shape, 32767, np.int16)
+    for L in REACH_LEVELS:
+        lab, _ = ndimage.label(z < L)
+        k = lab[seed]
+        assert k > 0, f'the seed is dry at {L} m'
+        out[(lab == k) & (out == 32767)] = L
+        print(f'  the sea\'s flood at {L:5d} m ({time.time() - t0:.0f} s)', end='\r', flush=True)
+    print()
+    return out
+
+
 def etopo():
     t0 = time.time()
     fb = h5py.File(CACHE / 'etopo' / 'bed.nc', 'r')
@@ -69,8 +105,9 @@ def etopo():
     lat, lon = var(fb, 'lat', 'y')[:], var(fb, 'lon', 'x')[:]
     zb, zs = var(fb, 'z'), var(fs, 'z')
     assert zb.shape == (len(lat), len(lon)) and zs.shape == zb.shape, (zb.shape, zs.shape)
+    reach = flood(zb, zs)
     W, B, I, L = (np.zeros(n) for _ in range(4))
-    LOW = np.full(n, np.inf)
+    LOW, REACH = np.full(n, np.inf), np.full(n, 32767.0)
     other = 0
     nr = len(lat) - len(lat) % 2
     step = 600
@@ -97,11 +134,13 @@ def etopo():
         ss, bl = blk(s).ravel(), bb.ravel()
         land = ss > 0
         np.minimum.at(LOW, idx[land], bl[land])
+        rr = reach[r0:r1, : len(lon2) * 2]
+        np.minimum.at(REACH, idx, rr.reshape(rr.shape[0] // 2, 2, -1, 2).min(axis=(1, 3)).ravel().astype(np.float64))
         print(f'  etopo rows {r0}–{r1} of {nr} ({time.time() - t0:.0f} s)', end='\r', flush=True)
     print()
     if other:
         print(f'  note: {other} pixels equatorward of 59° where the surface stands above the bed (not ice sheets)')
-    return B / W, I / W, L / W, W, LOW
+    return B / W, I / W, L / W, W, LOW, REACH
 
 
 # ── Seton et al. 2020: the seafloor's age, 6′, gridline-registered. What it leaves blank is
@@ -228,7 +267,7 @@ def hotspots():
 
 
 print('ETOPO 2022…')
-bed, ice, landShare, _, low = etopo()
+bed, ice, landShare, _, low, reach = etopo()
 print('Seafloor ages…')
 ocean, age = ages()
 print('Plates…')
@@ -240,6 +279,8 @@ print(f'land (bed above sea level): {landShare.mean():.1%} of the sphere by area
 print(f'grounded ice: {(ice * area * 1e-3).sum() / 1e6:.1f} M km³ over {(ice > 0).sum()} cells')
 inc = np.where(np.isfinite(low) & (bed + ice > 0), bed + ice - low, 0)
 print(f'lowest land: {np.isfinite(low).sum()} cells; the mean surface above it, where above sea level: median {np.median(inc[inc > 0]):.0f} m, 90th percentile {np.percentile(inc[inc > 0], 90):.0f} m')
+ch = (reach < bed) & (bed > -600) & (reach < 32767)
+print(f'the sea\'s reach: {ch.sum()} cells with a channel below their mean bed above −600 m; where the mean is above −50 m, median {np.median((bed - reach)[ch & (bed > -50)]):.0f} m below it')
 print(f'oceanic crust: {ocean.mean():.1%} of cells by share; mean age where dated {np.average(age, weights=ocean):.1f} Myr')
 for k, p in enumerate(plist):
     cnt = int((plate == k).sum())
@@ -251,6 +292,7 @@ fields = [
     ('bed', '<i2', np.clip(np.round(bed), -32768, 32767)),
     ('ice', '<u2', np.clip(np.round(ice), 0, 65535)),
     ('low', '<i2', np.where(np.isfinite(low), np.clip(np.round(low), -32768, 32766), 32767)),
+    ('reach', '<i2', np.clip(np.round(reach), -32768, 32767)),
     ('ocean', 'u1', np.clip(np.round(ocean * 255), 0, 255)),
     ('age', '<u2', np.clip(np.round(age * 100), 0, 65535)),
     ('plate', 'u1', plate),

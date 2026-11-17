@@ -53,7 +53,7 @@
 //                     cold box's edge (1.5 K). Per cell, g C m⁻² yr⁻¹.
 //
 // Units: years, Pg C; per cell as noted.
-import { Vegetation, gdd } from './vegetation.js';
+import { Vegetation, gdd, dryMonths } from './vegetation.js';
 import { OC } from './oceancarbon.js';
 import { prolong } from '../grid/transfer.js';
 
@@ -70,6 +70,8 @@ export const LIFE = {
   BIO_MIN: 0.5, BIO_MAX: 2, BIO_EASE: 0.3,
   BG: 0.15,               // the warm sea's background nutrient supply against a strong upwelling's
   RIVER: 2e4,             // m³/s: a river mouth's supply at which it saturates
+  P_RUNOFF: 220,          // µg/L of phosphorus in runoff per unit of the weathering map over the runoff (mm/yr): ~30 at 300 mm, 15 °C (synthesis)
+  E_LAKE: 0.1,            // the lakes' production drawn on the sea's export scale (a lake's sinking share; synthesis)
 };
 
 const sigmoid = x => 1 / (1 + Math.exp(-x));
@@ -83,15 +85,16 @@ export function coverClimate(veg, climate, co2, scratch = {}) {
   const n = climate.grid.n, T12 = climate.T12, P12 = climate.P12, L = climate.landMask, H = climate.ice ? climate.ice.H : null;
   const land = scratch.land || (scratch.land = new Uint8Array(n));
   const G = scratch.gdd || (scratch.gdd = new Float32Array(n)), P = scratch.P || (scratch.P = new Float32Array(n));
-  const T = scratch.T || (scratch.T = new Float32Array(n));
+  const T = scratch.T || (scratch.T = new Float32Array(n)), D = scratch.dry || (scratch.dry = new Float32Array(n));
   const tm = new Float64Array(12);
   for (let i = 0; i < n; i++) {
     let p = 0, t = 0;
     for (let m = 0; m < 12; m++) { tm[m] = T12[12 * i + m]; p += P12[12 * i + m]; t += tm[m]; }
     land[i] = L[i] && !(H && H[i] > LIFE.ICE) ? 1 : 0;
     G[i] = land[i] ? gdd(tm) : 0; P[i] = p; T[i] = t / 12;
+    D[i] = land[i] ? dryMonths(P12, T12, 12 * i) : 0;
   }
-  veg.setClimate({ land, gdd: G, precip: P, temp: T, co2 });
+  veg.setClimate({ land, gdd: G, precip: P, temp: T, dry: D, co2 });
   return land;
 }
 
@@ -105,7 +108,7 @@ export class Life {
     this.veg = new Vegetation(n, grid.area);
     this.scratch = {};
     this.landMask = new Uint8Array(n);
-    this.export = new Float32Array(n);     // g C m⁻² yr⁻¹ per sea cell (drawn)
+    this.export = new Float32Array(n);     // g C m⁻² yr⁻¹ per sea cell, and E_LAKE of the lakes' production on theirs (drawn)
     this.upFine = ocean && ocean.coarse ? new Float64Array(n) : null;
     this.bank = 0;
     this.version = 0;                      // bumps when the cover changes
@@ -236,6 +239,25 @@ export class Life {
     const kW = sW > 0 ? eW * 12.011 / (sW * R2) : 0, kC = sC > 0 ? eC * 12.011 / (sC * R2) : 0;   // g C m⁻² yr⁻¹ per unit weight
     for (let i = 0; i < n; i++) this.export[i] = L[i] ? 0 : kW * wt[2 * i] + kC * wt[2 * i + 1];
     this.stats.sstWarm = sstWarm; this.stats.sstCold = sstCold; this.stats.shelf = shelf * R2 / 1e12;
+    this.lakeAlgae();
+  }
+
+  /**
+   * The lakes' algae (src/engine/lakes.js, `production`; synthesis): the phosphorus in each cell's
+   * runoff from its rocks' weathering (the carbon cycle's map over the runoff, so a dry, warm
+   * catchment's water is richer), the lakes' production from it, and on their wet cells the drawn
+   * field's export-equivalent share of it (E_LAKE), so lakes bloom on the sea's scale.
+   */
+  lakeAlgae() {
+    const lakes = this.climate.lakes, c = this.climate, n = this.grid.n;
+    this.lakePP = this.lakePP || new Float32Array(n);
+    if (!lakes || !this.carbon || !c.T12) { this.stats.lakePP = 0; return; }
+    const w = this.carbon.weatheringMap(this.scratch.wMap || (this.scratch.wMap = new Float64Array(n)));
+    const cIn = this.scratch.cIn || (this.scratch.cIn = new Float64Array(n));
+    for (let i = 0; i < n; i++) cIn[i] = LIFE.P_RUNOFF * w[i] / Math.max(1, c.runoff[i] * 1000);
+    this.stats.lakePP = lakes.production(cIn, c.runoff, c.T12, this.lakePP);
+    const pp = this.lakePP, ex = this.export, sea = this.tec.sea;
+    for (let i = 0; i < n; i++) if (pp[i] > 0 && !sea[i]) ex[i] = LIFE.E_LAKE * pp[i];
   }
 
   /** Totals for the figures and captions. */
