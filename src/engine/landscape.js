@@ -215,11 +215,11 @@ export class Landscape {
    * does. Steep ground is unaffected.
    */
   reroute() {
-    const tec = this.tec, n = this.grid.n, s = tec.seaLevel, R = LAND.ROUGH;
+    const tec = this.tec, n = this.grid.n, R = LAND.ROUGH;
     const zr = this.zr || (this.zr = new Float64Array(n));
     for (let i = 0; i < n; i++) {
       this.z[i] = tec.elev[i];
-      this.base[i] = tec.elev[i] < s ? 1 : 0;
+      this.base[i] = tec.sea[i];              // the ocean (src/engine/plates.js, solveSea): a basin below sea level it doesn't reach is a depression
       zr[i] = tec.elev[i] + (this.base[i] ? 0 : R * rough(tec.owner[i], tec.ref[i]));
     }
     this.r = route(this.grid, zr, this.base, this.r);

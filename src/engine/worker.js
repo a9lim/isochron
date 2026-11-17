@@ -261,10 +261,10 @@ async function sendSurface(fromStep, steps = 0, ms = 0) {
   if (rk !== riversSteps) {
     const rt = riversRt = drainage(grid, land, P.lakes);
     riversQ12 = land.monthly(P.climate.runoffM, rt);
-    m.rivers = traceRivers(grid, land, f.elevRel, riversQ12, RIVER_MIN, rt, lakesDraw); riversSteps = rk;
+    m.rivers = traceRivers(grid, land, f.coast, riversQ12, RIVER_MIN, rt, lakesDraw); riversSteps = rk;
     m.riversId = ++riversId; riversCells = m.rivers.map(r => r.cells);
   }
-  post(m, [f.elevRel.buffer, f.normals.buffer, f.tfDraw.buffer, f.felsic.buffer, m.elev.buffer]);
+  post(m, [f.elevRel.buffer, f.coast.buffer, f.normals.buffer, f.tfDraw.buffer, f.felsic.buffer, m.elev.buffer]);
 }
 
 // The lakes as drawn: their depth from their water, and the salt flats.

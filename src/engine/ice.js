@@ -249,9 +249,11 @@ export class Ice {
 
   /** Bed above sea level (m), with the load's depression. */
   bed(i) { return (this.tec.elev[i] - this.tec.seaLevel) * 1000; }
+  /** Does the sea reach cell i (src/engine/plates.js, solveSea)? A basin below sea level it doesn't reach floats no ice and calves none. */
+  wet(i) { const m = this.tec.sea; return !m || m[i] === 1; }
 
   /** The surface (m above sea level): grounded ice's, the bed plus the ice; floating ice's freeboard; open sea's, sea level. */
-  surface(i) { const h = Math.max(0, this.H[i]); return Math.max(this.bed(i) + h, (1 - ICE.RHO_I / ICE.RHO_W) * h); }
+  surface(i) { const h = Math.max(0, this.H[i]), b = this.bed(i); return this.wet(i) ? Math.max(b + h, (1 - ICE.RHO_I / ICE.RHO_W) * h) : b + h; }
 
   /** The sea's thermal forcing at each cell (the year's mean warmth above freezing, K) and its calving speed per metre (`tf`, `cf`). */
   frontFactor() {
@@ -318,7 +320,7 @@ export class Ice {
       let tm = 0;
       for (let m = 0; m < 12; m++) tm += c.tAt(i, mph[m]);
       this.Ts0[i] = tm / 12;
-      const grounded = b > 0 || H * ICE.RHO_I > -b * ICE.RHO_W;
+      const grounded = b > 0 || !this.wet(i) || H * ICE.RHO_I > -b * ICE.RHO_W;
       if (!grounded) { this.M[i] = 0; this.melt[i] = 0; continue; }
       const sKm = Math.max(0, b + H + dz) / 1000;
       let acc = 0, pdd = 0;
@@ -400,7 +402,7 @@ export class Ice {
     let dmax = 0;
     for (let k = 0; k < na; k++) {
       const i = act[k], h = H[i], bd = this.bed(i);
-      if (!(h > 0) || (bd < 0 && h * RI < -bd * RW)) { D[i] = 0; this.ub[i] = this.thaw[i] = this.mb[i] = 0; continue; }
+      if (!(h > 0) || (bd < 0 && h * RI < -bd * RW && this.wet(i))) { D[i] = 0; this.ub[i] = this.thaw[i] = this.mb[i] = 0; continue; }
       let gx = 0, gy = 0, gz = 0;
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
         const d = s[nbr[t]] - s[i];
@@ -430,14 +432,14 @@ export class Ice {
     for (let k = 0; k < na; k++) {
       const i = act[k];
       const hi = Math.max(0, H[i]), bi = this.bed(i), ci = hi > 0 ? b[i] / hi : 0, si = s[i];
-      const sea = !(hi > 0) && bi < 0;
+      const sea = !(hi > 0) && bi < 0 && this.wet(i);
       let q = 0, qb = 0, fr = 0, kp = 0;
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
         const j = nbr[t];
         if (D[j] > 0) kp = 1;
         const hj = Math.max(0, H[j]), bj = this.bed(j), De = 0.5 * (D[i] + D[j]);
         const F = De > 0 ? De * coef[t] * (s[j] - si) : 0;   // into i (m³/yr)
-        if (hi > 0 && !(hj > 0) && bj < 0) {
+        if (hi > 0 && !(hj > 0) && bj < 0 && this.wet(j)) {
           // i's front on open sea j: the outflow (F ≤ 0) leaves whole; what it doesn't supply, the ice behind gives.
           q += F; qb += F * ci;
           fr += Math.max(0, frontRate(cf[j], bi, hi, coef[t], A[i]) + F);
@@ -474,9 +476,10 @@ export class Ice {
       }
       // Floating ice away from flowing grounded ice calves.
       const bd = this.bed(i);
-      if (h > 0 && bd < 0 && h * RI < -bd * RW && !keep[i]) { calved += h * A[i]; h = 0; }
+      const wet = bd < 0 && this.wet(i);
+      if (h > 0 && wet && h * RI < -bd * RW && !keep[i]) { calved += h * A[i]; h = 0; }
       // Less than half a metre goes: at sea, to the front; on land, as melt.
-      if (h > 0 && h <= 0.5) { if (bd < 0) calved += h * A[i]; else bud.melt += h * A[i]; }
+      if (h > 0 && h <= 0.5) { if (wet) calved += h * A[i]; else bud.melt += h * A[i]; }
       h = h > 0.5 ? h : 0;
       H[i] = h;
       if (h > 0 && !hasIce) gained[ng++] = i;
@@ -621,7 +624,7 @@ export class Ice {
     for (let i = 0; i < n; i++) {
       tec.load[i] = this.w[i] / 1000;
       if (H[i] > 0) {
-        const a = this.areaM[i], d = Math.max(0, -this.bed(i));
+        const a = this.areaM[i], d = this.wet(i) ? Math.max(0, -this.bed(i)) : 0;
         vol += H[i] * a; area += a;
         // The sea's loss is the volume above flotation: below it, the ice fills basin the sea would.
         vaf += Math.max(0, H[i] - RW * d / RI) * a;

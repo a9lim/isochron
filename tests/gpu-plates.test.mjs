@@ -11,6 +11,7 @@ import { buildGrid } from '../src/grid/icosphere.js';
 import { Tectonics, CM_PER_YR } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
 import { genesis } from '../src/engine/genesis.js';
+import { solveSeaLevel } from '../src/engine/crust.js';
 import { mostPieces, deepCell, strand } from './pieces.mjs';
 
 const skip = hasGPU ? false : 'no WebGPU in node (npm install in tests/)';
@@ -77,7 +78,9 @@ test('the balance\'s sums on the GPU: the CPU\'s, on one state', { skip }, async
   tec.kinematics(cell);
   assert.ok(Math.abs(tec.counters.opened - o0 - r.open) < 1e-5 * r.open, 'kinematics');
   tec.balance(0.5);
-  assert.ok(Math.abs(r.sea - tec.seaLevel) < 5e-5, `sea level ${(1e6 * (r.sea - tec.seaLevel)).toFixed(0)} mm off`);
+  // The GPU's level fills every basin below it (the CPU then solves the ocean's: plates.js, solveSea).
+  const all = solveSeaLevel(grid6, tec.elev, tec.seaWater(), tec.seaLevel);
+  assert.ok(Math.abs(r.sea - all) < 5e-5, `sea level ${(1e6 * (r.sea - all)).toFixed(0)} mm off`);
   for (const p of tec.plates) {
     if (!p.alive) continue;
     const k = p.index, T = [0, 1, 2].map(c => r.T[3 * k + c] + p.torqueExt[c] - cap.T[3 * k + c]);
@@ -200,6 +203,10 @@ test('the drawn surface on the GPU: the CPU\'s fields', { skip }, async () => {
   const c = surfaceFields(grid6, tec, land, ice), gs = new GpuSurface(await gpuDevice(), grid6), f = await gs.fields(tec);
   const worst = k => { let w = 0; for (let i = 0; i < c[k].length; i++) w = Math.max(w, Math.abs(c[k][i] - f[k][i])); return w; };
   assert.ok(worst('elevRel') < 1e-4, `relief off by ${worst('elevRel')} km`);
+  let basins = 0;
+  for (let i = 0; i < grid6.n; i++) if (!tec.sea[i] && tec.elev[i] < tec.seaLevel) basins++;
+  assert.ok(worst('coast') < 1e-4, `coast off by ${worst('coast')} km (${basins} cells in basins the sea doesn't reach)`);
+  for (let i = 0; i < grid6.n; i++) if (!tec.sea[i] && tec.elev[i] < tec.seaLevel) assert.ok(c.coast[i] > 0, 'a basin below sea level draws as land');
   assert.ok(worst('normals') < 1e-4, `normals off by ${worst('normals')}`);
   assert.ok(worst('tfDraw') < 1e-3, `stripes off by ${worst('tfDraw')} Myr`);
   assert.deepEqual(Object.keys(f).sort(), Object.keys(c).sort(), 'the same fields');

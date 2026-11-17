@@ -22,8 +22,10 @@
 //                              steps per frame, its carbon traded with the air
 //
 // The lakes are routed on the smooth surface, the ground plus its ice (so ice
-// dams them), and rebuilt after each landscape step and when the ice has
-// moved enough of the sea (src/engine/lakes.js carries their water over).
+// dams them), and rebuilt after each landscape step, when the ice has moved
+// enough of the sea, and when the sea leaves or reaches a basin below its level
+// (src/engine/plates.js, solveSea: a basin it leaves comes with its water). The
+// lakes carry their water over, and what they hold is off the sea's.
 import { buildGrid } from '../grid/icosphere.js';
 import { Tectonics } from './plates.js';
 import { Landscape } from './landscape.js';
@@ -38,7 +40,7 @@ import { genesis } from './genesis.js';
 import { refineTectonics } from './refine.js';
 import { Moon } from './tides.js';
 import { Volcanoes } from './volcanoes.js';
-import { Year } from './year.js';
+import { Year, monthIndex } from './year.js';
 import { Ground } from './ground.js';
 import { Lakes } from './lakes.js';
 import { Flexure } from './flexure.js';
@@ -49,6 +51,7 @@ import { Aeolian } from './aeolian.js';
 
 export const PLANET = {
   LAKES_LIVE: 1e4,       // yr/s: lakes step below this, and sit at their balance above
+  LAKES_SEASON: 1.4,     // yr/s: below this (where the globe shows the season) lakes step by the month, above it by the year
   LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
   LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
 };
@@ -104,6 +107,9 @@ export class Planet {
     this.climate.ground = this.ground;
     this.lakes = new Lakes(this.grid);
     this.climate.lakes = this.lakes;
+    // From here a basin the sea leaves keeps its water for the lakes (the spin-up's went back to the sea).
+    this.tec.lakeDepth = this.lakes.depth;
+    this.tec.cutWater.fill(0); this.tec.cutHeld = 0; this.tec.lakeWater = 0;
     // Dust (src/engine/aeolian.js): lifted from bare, dry ground, dry lake beds and outwash in the
     // climate's cycle; it darkens snow and ice, feeds the cold sea iron and settles as loess.
     this.aeolian = opts.dust === false ? null : new Aeolian(this);
@@ -126,7 +132,7 @@ export class Planet {
   /** The sea's depth (m) on the first `n` cells (a coarser level's, which nest first), for the tide. */
   tideDepth(n) {
     const t = this.tec, d = new Float64Array(n);
-    for (let i = 0; i < n; i++) d[i] = Math.max(0, (t.seaLevel - t.elev[i]) * 1000);
+    for (let i = 0; i < n; i++) d[i] = t.sea[i] ? Math.max(0, (t.seaLevel - t.elev[i]) * 1000) : 0;
     return d;
   }
 
@@ -197,10 +203,11 @@ export class Planet {
       if (this.iceGpu) this.iceGpu.advance(dt); else this.ice.advance(dt, iceMs);
       // The regolith: the ice's erosion and till into it and the crust, production against the rivers.
       this.regolith.advance(dt);
-      // Re-solve the sea only when the ice has moved ~10 cm of it (the solve is ~5 ms).
-      if (Math.abs(this.tec.iceWater - (this.iceWaterSolved ?? 0)) > 3.5e-6 || this.loadSince++ > 30) {
+      // Re-solve the sea only when the ice and the lakes have moved ~10 cm of it (the solve is ~5 ms).
+      const held = this.tec.iceWater + this.tec.lakeWater;
+      if (Math.abs(held - (this.iceWaterSolved ?? 0)) > 3.5e-6 || this.loadSince++ > 30) {
         this.tec.updateElevation();
-        this.iceWaterSolved = this.tec.iceWater;
+        this.iceWaterSolved = this.tec.iceWater + this.tec.lakeWater;
         this.loadSince = 0;
       }
     }
@@ -212,9 +219,21 @@ export class Planet {
     this.stepLakes(dt, rate);
   }
 
-  /** Lakes routed afresh on the ground and its ice (the water carried over). */
+  /**
+   * Lakes routed afresh on the ground and its ice to the ocean, carrying their water over, and
+   * taking up the water of any basin the sea has left (the plates' `cutWater`).
+   */
   rebuildLakes() {
-    this.lakes.reroute(this.tec.elev, this.tec.seaLevel, this.ice.H);
+    const tec = this.tec, cut = tec.cutWater, n = this.grid.n, R2 = 6371 * 6371;
+    let extra = null;
+    if (tec.cutHeld > 0) {
+      extra = new Float64Array(n);
+      for (let i = 0; i < n; i++) if (cut[i] > 0) { extra[i] = cut[i] * this.grid.area[i] * R2; cut[i] = 0; }
+      tec.cutHeld = 0;
+    }
+    this.lakes.reroute(tec.elev, tec.sea, this.ice.H, extra);
+    this.syncLakes();
+    this.lakesBasins = tec.basins;
     this.lakesSteps = this.land.steps; this.lakesIce = this.tec.iceWater; this.lakesBuiltYears = this.years;
     this.lakesBuiltAt = typeof performance !== 'undefined' ? performance.now() : 0;
     this.lakesClimate = -1;
@@ -224,43 +243,67 @@ export class Planet {
   /**
    * The lakes over dt years at `rate` years a second: rebuilt when the landscape has stepped
    * (at most every half `lakesMinGap` ms of the wall clock: at 1 Myr/s it steps four times a
-   * second) or the ice has moved (at most every LAKES_ICE_YEARS of the clock and `lakesMinGap`
-   * ms: ice dams change over centuries), then stepped
-   * (backward Euler, at most 20 times a second of the dial and at least a quarter year a
-   * step) below LAKES_LIVE, at their balance above (when the climate or the basins change,
-   * or a tenth of a second's dial has passed).
+   * second), the ice has moved (at most every LAKES_ICE_YEARS of the clock and `lakesMinGap`
+   * ms: ice dams change over centuries) or the sea has left or reached a basin, then stepped
+   * (backward Euler, at most 20 times a second of the dial) below LAKES_LIVE, at their balance
+   * above (when the climate or the basins change, or a tenth of a second's dial has passed).
+   * Where the globe shows the season (below LAKES_SEASON) a step is a month at most, under that
+   * month's rain and evaporation, so a closed lake fills in its wet season and shrinks in its
+   * dry one; above, a year at least, so the drawn lakes don't flicker through seasons the globe
+   * doesn't show.
    */
   stepLakes(dt, rate = 10 * dt) {
     const now = typeof performance !== 'undefined' ? performance.now() : 0;
     const iceMoved = Math.abs(this.tec.iceWater - this.lakesIce) > PLANET.LAKES_ICE && this.years - this.lakesBuiltYears >= PLANET.LAKES_ICE_YEARS && now - this.lakesBuiltAt >= this.lakesMinGap;
-    const landStepped = this.land.steps !== this.lakesSteps && now - this.lakesBuiltAt >= this.lakesMinGap / 2;
+    const landStepped = (this.land.steps !== this.lakesSteps || this.tec.basins !== this.lakesBasins) && now - this.lakesBuiltAt >= this.lakesMinGap / 2;
     if (landStepped || iceMoved) this.rebuildLakes();
     this.lakesBank += Math.max(0, dt);
     // The opening's lakes sit at their balance with each climate cycle until the climate has
     // settled, whatever the dial (the first, from a cold start, holds about half the lakes the
     // third does).
     const cs = this.climate.stats, open = this.climate.soilWarm && !(cs.settled && cs.cycles > cs.settled) && this.climate.version !== this.lakesClimate;
-    const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(0.25, rate / 20);
+    const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(rate < PLANET.LAKES_SEASON ? 1 / 12 : 1, rate / 20);
     if (!open && (live ? this.lakesBank < due : this.lakesBank < due && this.climate.version === this.lakesClimate)) return;
     const { runoff, pe } = this.lakeForcing(live ? this.lakesBank : 0);
     if (live) this.lakes.step(this.lakesBank, runoff, pe); else this.lakes.equilibrium(runoff, pe, this.lakesBank);
+    this.syncLakes();
     this.lakesBank = 0; this.lakesClimate = this.climate.version;
     this.lakesVersion++;
   }
+
+  /** The lakes' water off the sea's (km·sr), with any basin's the lakes haven't taken up yet. */
+  syncLakes() { this.tec.lakeWater = this.lakes.storage() / (6371 * 6371) + this.tec.cutHeld; }
 
   /**
    * The lakes' forcing (m/yr per cell) over dt years stepped (0 at their balance): runoff off
    * dry ground, the ground's (its closure's, and by the live weight the water the live ground
    * let go over those years, or at their balance its last twelve months', which carry the
    * year's anomaly with its own statistics); and open water's gain, the climate's rain less its
-   * potential evaporation. (The anomaly on the lakes' own surface is left out: held over the
-   * year's steps, a month's anomaly would stand for a season's.)
+   * potential evaporation, the year's, or over a step within a year the months it covers. (The
+   * anomaly on the lakes' own surface is left out: held over the year's steps, a month's anomaly
+   * would stand for a season's.)
    */
   lakeForcing(dt = 0) {
     const { runoff, pe } = this.lakeIn;
     this.ground.lakeRunoff(runoff, this.years, dt);
     pe.set(this.climate.peAnn);
+    if (dt > 0 && dt < 1 && this.lakes.built) this.monthlyPE(pe, this.years - dt, dt);
     return this.lakeIn;
+  }
+
+  /** Open water's gain (m/yr) over [t0, t0 + dt] by the months it covers, on the depressions' cells (the lakes read no others). */
+  monthlyPE(pe, t0, dt) {
+    const c = this.climate, P12 = c.P12, E12 = c.PET12, L = c.landMask, cells = this.lakes.regCells;
+    const w = this.peW || (this.peW = new Float64Array(12)), k = Math.max(1, Math.ceil(24 * dt));
+    w.fill(0);
+    for (let j = 0; j < k; j++) w[monthIndex((((t0 + (j + 0.5) * dt / k) % 1) + 1) % 1)] += 12 / (1000 * k);   // mm a month → m/yr
+    for (let q = 0; q < cells.length; q++) {
+      const i = cells[q];
+      if (!L[i]) continue;
+      let v = 0;
+      for (let m = 0; m < 12; m++) if (w[m] > 0) v += w[m] * (P12[12 * i + m] - E12[12 * i + m]);
+      pe[i] = v;
+    }
   }
 
   /** Background work on the climate; true when a cycle completed. */
@@ -291,7 +334,7 @@ export class Planet {
   sample() {
     const tec = this.tec, g = this.grid;
     let land = 0;
-    for (let i = 0; i < g.n; i++) if (tec.elev[i] > tec.seaLevel) land += g.area[i];
+    for (let i = 0; i < g.n; i++) if (!tec.sea[i]) land += g.area[i];
     return [this.climate.stats.meanT + this.year.meanAt(this.years), this.carbon.pco2, (tec.seaLevel - this.seaLevel0) * 1000,
       this.ice.stats.seaLevel, 100 * land / (4 * Math.PI), this.carbon.ridge / this.carbon.ridge0, this.moon.solarDay];
   }

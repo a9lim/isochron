@@ -35,11 +35,14 @@ struct Iu { n: u32, gamma: f32, amin: f32, maxStep: f32,
 struct Ctl { dmax: atomic<u32>, remaining: f32, done: f32, dt: f32, lim: f32, p0: f32, p1: f32, p2: f32 };
 struct CtlR { dmax: u32, remaining: f32, done: f32, dt: f32, lim: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(0) var<uniform> U: Iu;
-// The surface: grounded ice's bed plus ice, floating ice's freeboard, open sea's sea level.
-fn surf(b: f32, h: f32) -> f32 { return max(b + h, (1.0 - U.rhoI / U.rhoW) * h); }
+// The surface: grounded ice's bed plus ice, floating ice's freeboard, open sea's sea level. A cell's
+// ba.w (the geothermal flux) is negative where the sea doesn't reach (a basin below sea level,
+// src/engine/plates.js, solveSea): its ice floats none and its bed is its surface.
+fn surf(v: vec4f, h: f32) -> f32 { return select(v.x + h, max(v.x + h, (1.0 - U.rhoI / U.rhoW) * h), v.w >= 0.0); }
 `;
 // Per cell: six neighbours (a pentagon's sixth is itself), and per slot (ℓ/d, ∇ weights).
-// ba = (the bed above sea level (m), the cell's area (m²), the sliding coefficient, the geothermal flux (W/m²));
+// ba = (the bed above sea level (m), the cell's area (m²), the sliding coefficient, the geothermal flux (W/m²),
+// negative where the sea doesn't reach);
 // M = the net balance; Mx = (melt, the annual mean at sea level (°C), the net balance again for the bed's
 // column (the diffusivity's kernel has no binding to spare), 0); D = (diffusivity, sliding speed, thawed share, basal melt).
 const DIFF = HEAD + /* wgsl */`
@@ -69,13 +72,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let h = H[i];
   let bi = ba[i];
   // Floating ice doesn't flow (no shelves; src/engine/ice.js).
-  if (!(h > 0.0) || (bi.x < 0.0 && h * U.rhoI < -bi.x * U.rhoW)) { D[i] = vec4f(0.0); vel[i] = vec4f(0.0); return; }
-  let si = surf(bi.x, h);
+  if (!(h > 0.0) || (bi.x < 0.0 && bi.w >= 0.0 && h * U.rhoI < -bi.x * U.rhoW)) { D[i] = vec4f(0.0); vel[i] = vec4f(0.0); return; }
+  let si = surf(bi, h);
+  let geo = abs(bi.w);
   var g = vec3f(0.0);
   for (var k = 0u; k < 6u; k++) {
     let j = nb[6u * i + k];
     let e = ew[6u * i + k];
-    g += (surf(ba[j].x, max(H[j], 0.0)) - si) * e.yzw;
+    g += (surf(ba[j], max(H[j], 0.0)) - si) * e.yzw;
   }
   g = g / ${R_M.toExponential(6)};
   let g2 = dot(g, g);
@@ -87,13 +91,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let R = robin(h, mx.z);
   let tau = rg * h * gm;
   let strain = tau * U.gamma * h * h * h * h * g2 * gm / ${SEC.toExponential(6)};
-  let Tb = Ts + (bi.w + strain) * R / U.k;
+  let Tb = Ts + (geo + strain) * R / U.k;
   let Tpm = -U.beta * h;
   let thaw = 1.0 / (1.0 + exp(clamp((Tpm - Tb) / U.thawW, -60.0, 60.0)));
   let C = bi.z * thaw;
   let tp = ${ICE.P === 3 ? 'tau * tau' : `pow(tau, ${(ICE.P - 1).toFixed(3)})`};
   let ub = C * tp * tau;
-  let heat = bi.w + strain + tau * ub / ${SEC.toExponential(6)} - U.k * max(0.0, Tpm - Ts) / R;
+  let heat = geo + strain + tau * ub / ${SEC.toExponential(6)} - U.k * max(0.0, Tpm - Ts) / R;
   let mb = thaw * max(0.0, heat) * ${SEC.toExponential(6)} / (U.rhoI * U.latent);
   var d = U.gamma * h * h * h * h * h * g2 + C * rg * h * h * tp;
   var ubc = ub;
@@ -143,9 +147,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let hi = max(H[i], 0.0);
   let bi = ba[i].x;
   let ai = ba[i].y;
-  let si = surf(bi, hi);
+  let wi = ba[i].w >= 0.0;
+  let si = surf(ba[i], hi);
   let ci = select(0.0, b[i] / hi, hi > 0.0);
-  let sea = !(hi > 0.0) && bi < 0.0;
+  let sea = !(hi > 0.0) && bi < 0.0 && wi;
   var q = 0.0;
   var qb = 0.0;
   var fr = 0.0;
@@ -159,8 +164,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let bj = ba[j].x;
     let De = 0.5 * (D[i].x + Dj);
     let c = ew[6u * i + k].x;
-    let F = select(0.0, De * c * (surf(bj, hj) - si), De > 0.0);
-    if (hi > 0.0 && !(hj > 0.0) && bj < 0.0) {
+    let F = select(0.0, De * c * (surf(ba[j], hj) - si), De > 0.0);
+    if (hi > 0.0 && !(hj > 0.0) && bj < 0.0 && ba[j].w >= 0.0) {
       q += F; qb += F * ci;
       fr += max(0.0, frontRate(cf[j], bi, hi, c, ai) + F);
     } else if (sea && hj > 0.0) {
@@ -173,7 +178,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       qb += F * select(ci, b[j] / hj, F > 0.0);
     }
   }
-  dHb[i] = vec4f(q / ai, qb / ai, bi, select(-1.0 - fr / ai, fr / ai, keep));
+  dHb[i] = vec4f(q / ai, qb / ai, select(max(bi, 0.0), bi, wi), select(-1.0 - fr / ai, fr / ai, keep));
 }`;
 // Mass balance and basal melt, the fronts, floating ice let go, meltwater, erosion and melt-out;
 // acc = (eroded, till, melt, calved), m per cell.
@@ -265,7 +270,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var tm = 0.0;
   for (var m = 0u; m < 12u; m++) { let c = Q.ph[m]; tm += T0.x + T0.y * c.x - T0.z * c.y + T0.w * c.z - T1.x * c.w; }
   tm = tm / 12.0;
-  if (!(b > 0.0 || h * U.rhoI > -b * U.rhoW)) { M[i] = 0.0; Mx[i] = vec4f(0.0, tm, 0.0, 0.0); return; }
+  if (!(b > 0.0 || ba[i].w < 0.0 || h * U.rhoI > -b * U.rhoW)) { M[i] = 0.0; Mx[i] = vec4f(0.0, tm, 0.0, 0.0); return; }
   let sKm = max(0.0, b + h + Q.dz) / 1000.0;
   var acc = 0.0;
   var pdd = 0.0;
@@ -386,7 +391,8 @@ export class GpuIce {
     if (now - this.lastBed > 100) {
       this.lastBed = now;
       const a = this.bedArr;
-      for (let i = 0; i < n; i++) { const o = 4 * i; a[o] = (tec.elev[i] - tec.seaLevel) * 1000; a[o + 1] = ice.areaM[i]; a[o + 2] = ice.Cb[i]; a[o + 3] = ice.geo[i]; }
+      const sea = tec.sea;
+      for (let i = 0; i < n; i++) { const o = 4 * i; a[o] = (tec.elev[i] - tec.seaLevel) * 1000; a[o + 1] = ice.areaM[i]; a[o + 2] = ice.Cb[i]; a[o + 3] = !sea || sea[i] ? ice.geo[i] : -Math.max(ice.geo[i], 1e-6); }
       this.device.queue.writeBuffer(this.ba, 0, a);
       const dz = tec.airDatum ? (tec.seaLevel - tec.airDatum()) * 1000 : 0;
       if (dz !== this.dz) { this.dz = dz; this.device.queue.writeBuffer(this.Q, 52 * 4, new Float32Array([dz])); }

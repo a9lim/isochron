@@ -98,14 +98,17 @@ test('the lakes are rebuilt when the ice moves: an ice dam makes a lake, and its
   // left the reach a way round on some planets).
   const rt = drainage(g, P.land, L), Q = new Float64Array(n), land = i => i >= 0 && !P.land.base[i];
   accumulatePass(rt, Float64Array.from(P.climate.runoff, (r, i) => P.land.base[i] ? 0 : r * g.area[i]), Q);
+  // Each cell's main-stem donor; the reach two cells above the dam must run free too.
+  const stem = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) { const c = rt.rcv[i]; if (c >= 0 && land(i) && (stem[c] < 0 || Q[i] > Q[stem[c]])) stem[c] = i; }
+  const donor = c => c >= 0 ? stem[c] : -1;
   let dam = -1;
   for (let i = 0; i < n; i++) {
-    const a = rt.rcv[i], b = a >= 0 ? rt.rcv[a] : -1, d = b >= 0 ? rt.rcv[b] : -1;
-    if (land(i) && land(a) && land(b) && land(d) && L.regOf[i] < 0 && (dam < 0 || Q[i] > Q[dam])) dam = i;
+    const a = rt.rcv[i], b = a >= 0 ? rt.rcv[a] : -1, d = b >= 0 ? rt.rcv[b] : -1, u = donor(donor(i));
+    if (land(i) && land(a) && land(b) && land(d) && L.regOf[i] < 0 && u >= 0 && L.regOf[u] < 0 && L.regOf[donor(i)] < 0 && (dam < 0 || Q[i] > Q[dam])) dam = i;
   }
   assert.ok(dam >= 0);
   // Two cells upstream: the main stem's.
-  const donor = c => { let best = -1; for (let i = 0; i < n; i++) if (rt.rcv[i] === c && land(i) && (best < 0 || Q[i] > Q[best])) best = i; return best; };
   const up = donor(donor(dam));
   assert.ok(up >= 0 && L.regOf[up] < 0, 'the reach above runs free');
   const saved = Float32Array.from(H), builds = L.builds;

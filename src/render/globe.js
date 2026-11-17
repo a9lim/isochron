@@ -374,6 +374,7 @@ fn hair(d: f32, w: f32) -> f32 {
 
 @fragment fn fs(i: VOut) -> @location(0) vec4f {
   let e = i.f.x;           // km above sea level
+  let cst = i.f.w;         // the coast: negative on the ocean (a basin below sea level that the sea doesn't reach is land)
   let tf = i.f.y;          // formation time, Myr after the polarity origin
   let phi = i.f.z;         // felsic fraction
   let lake = mix(i.lw.x, i.lw.z, u.tide2.w);   // lake depth, km (signed: dry land below zero)
@@ -399,6 +400,7 @@ fn hair(d: f32, w: f32) -> f32 {
 
   // Derivatives first: WGSL takes them only in uniform control flow.
   let fe = fwidth(e);
+  let fcst = fwidth(cst);
   let ftf = fwidth(tf);
   let fa = max(fwidth(age), 0.05);
   let fsst = fwidth(sst);
@@ -531,7 +533,7 @@ fn hair(d: f32, w: f32) -> f32 {
   var iceC = mix(snowInk, u.ocean.rgb, 0.35 * hair(abs(sc - round(sc)), max(2.0 * fsurf, 1e-4)) * step(0.3, iceSurf));
   land = mix(land, iceC, sheet);
   sea = mix(sea, iceC, sheet);
-  let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, e + iceH / 1000.0);
+  let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, cst + iceH / 1000.0);
   land = mix(land, u.text.rgb, 0.55 * sheetEdge);
   sea = mix(sea, u.text.rgb, 0.55 * sheetEdge);
   // Ice streams: where sliding carries more than half the flow and the ice moves at tens of m/yr.
@@ -660,10 +662,10 @@ fn hair(d: f32, w: f32) -> f32 {
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkD);
   let chart = weather || tides || air || folkD;
 
-  var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), e < 0.0);
+  var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), cst < 0.0);
 
   // The coastline.
-  c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
+  c = mix(c, u.text.rgb, 0.7 * hair(abs(cst), fcst));
   // The sulfate veil (Air, People): graphite hatching along the circles of latitude (the volcanoes' and
   // a sprayed veil lie in bands; coal's haze lies where the winds carry it), denser where its optical
   // depth is (16 px apart at 0.02, 4 px at 1, by log optical depth).
@@ -781,12 +783,15 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     },
     get polarityOrigin() { return polT0; },
 
-    /** Per cell: elevation above sea level (km), formation time (Myr), felsic fraction, lake depth (km), normal. */
+    /**
+     * Per cell: elevation above sea level (km), formation time (Myr), felsic fraction, the coast
+     * (km, signed: negative on the ocean; src/render/surface.js, coastField), normal.
+     */
     // `fromStep`: the old current becomes the previous state to blend from;
     // otherwise both are the new state.
     // `mode`: 'step', the current becomes the previous to blend from; 'reset', both are the
     // new state; 'refresh', the current changes and the previous stays (the blend carries on).
-    setFields(elevRel, tform, felsic, lake, normals, mode = 'reset') {
+    setFields(elevRel, tform, felsic, coast, normals, mode = 'reset') {
       const fromStep = mode === 'step', both = mode === 'reset';
       for (let i = 0; i < n; i++) {
         const o = 8 * i;
@@ -794,7 +799,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
         field[o] = elevRel[i];
         field[o + 1] = tform[i] - polT0;
         field[o + 2] = felsic[i];
-        field[o + 3] = lake ? lake[i] : 0;
+        field[o + 3] = coast ? coast[i] : elevRel[i];
         if (both) { field[o + 4] = field[o]; field[o + 5] = field[o + 1]; field[o + 6] = field[o + 2]; field[o + 7] = field[o + 3]; }
         const q = 8 * i;
         if (fromStep) { norm[q + 4] = norm[q]; norm[q + 5] = norm[q + 1]; norm[q + 6] = norm[q + 2]; }

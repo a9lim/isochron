@@ -81,7 +81,7 @@ export const YEAR = {
 
 // The calendar month (0 = January) at year phase τ (0 at the March equinox, as orbit.js counts).
 const ENDS = [31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 366];
-const monthIndex = tau => { const day = ((tau * 365.2422 + 78.5) % 365.2422 + 365.2422) % 365.2422; let m = 0; while (m < 11 && day >= ENDS[m]) m++; return m; };
+export const monthIndex = tau => { const day = ((tau * 365.2422 + 78.5) % 365.2422 + 365.2422) % 365.2422; let m = 0; while (m < 11 && day >= ENDS[m]) m++; return m; };
 const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const R_KM = 6371;
 

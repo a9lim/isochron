@@ -104,8 +104,11 @@ test('a step past a cell of motion runs as substeps: the closing consumed whatev
 test('sea level holds the water it is given', () => {
   const tec = new Tectonics(grid);
   genesis(tec, 'sea', {});
-  const v = oceanVolume(grid, tec.elev, tec.seaLevel);
+  // Over the ocean alone: a basin below sea level the sea doesn't reach holds none (tests/sea.test.mjs).
+  let v = 0;
+  for (let i = 0; i < grid.n; i++) if (tec.sea[i]) v += (tec.seaLevel - tec.elev[i]) * grid.area[i];
   assert.ok(Math.abs(v - tec.water) / tec.water < 1e-6);
+  assert.ok(oceanVolume(grid, tec.elev, tec.seaLevel) >= v);
   const s2 = solveSeaLevel(grid, tec.elev, tec.water * 1.1);
   assert.ok(s2 > tec.seaLevel);
 });

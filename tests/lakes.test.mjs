@@ -157,7 +157,7 @@ test('one depression, two pits: the fed one fills, spills over the sill, and the
 });
 
 test('the closure agrees with a long run of steps, through a cascade', () => {
-  const { z } = twoCones(g6);
+  const { z } = twoCones(g6, { dA: 0.2 });
   const { lakes } = setup(g6, z);
   // Runoff off all the land, evaporation off the lakes: A spills into B, which is closed.
   const runoff = Float64Array.from(z, v => v > 0 ? 0.3 : 0), pe = new Float64Array(n6).fill(-1.5);

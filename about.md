@@ -2,7 +2,7 @@
 name: Isochron
 title: Isochron — Planet Simulator
 description: Run an Earth-like planet from plate tectonics to weather on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, a carbon thermostat, ocean gyres, tides that slow its spin, and weather fronts. Or set people on it, from the first hominins through farming and industry to the machines that outgrow them.
-updated: 2026-11-16
+updated: 2026-11-17
 ---
 
 # Isochron
@@ -19,11 +19,11 @@ New crust records the direction of the planet's magnetic field as it cools, and 
 
 ## Sea level
 
-Elevation comes from isostasy: thicker and lighter crust floats higher. Sea level is the level at which the ocean basins hold the planet's water, so young, shallow seafloor from fast spreading raises the sea, and thick ice would lower it.
+Elevation comes from isostasy: thicker and lighter crust floats higher. Sea level is the level at which the ocean basins hold the planet's water, so young, shallow seafloor from fast spreading raises the sea, and thick ice would lower it. The ocean is only what the open sea reaches: a basin below sea level that a sill closes off is land, and holds a lake only as far as its own rain and rivers fill it against evaporation. In a dry climate it lies partly or wholly dry below sea level, as the Caspian, the Dead Sea and the Qattara Depression do; in a wet one it fills and spills, a lake above the sea. When a sill rises out of the sea it cuts its basin off with the water inside, which then evaporates or freshens as the climate there allows. When the sea rises over a sill it pours into the basin beyond and stands a little lower for it. Water held in lakes is water out of the sea.
 
 ## The landscape
 
-Rivers drain the land toward the sea, filling closed basins into lakes. A river cuts its bed at a rate that grows with its discharge and its slope, so mountains wear down from their rivers inward. Rock removed from the top of the crust lowers the surface only by a fraction of its thickness, because the lighter crust rebounds on the mantle beneath, which is why old mountain belts outlast their erosion. The sediment fills lakes and builds continental shelves at the coast, and enough of it turns ocean crust into continent. Thick crust under a mountain belt also spreads under its own weight. Over hundreds of millions of years the ocean's volume itself drifts so the continents keep their height above the sea; the planet's water is exchanged with the mantle at ridges and trenches, and how Earth's freeboard has stayed constant is still debated.
+Rivers drain the land toward the sea, filling closed basins into lakes. A lake with no outlet settles where its evaporation balances what flows in, and slowed to the seasons it fills in the wet season and shrinks in the dry, most on flat floors, where a metre of water covers wide ground; a lake that spills over its rim most of the year may sink below it in the dry season. A river cuts its bed at a rate that grows with its discharge and its slope, so mountains wear down from their rivers inward. Rock removed from the top of the crust lowers the surface only by a fraction of its thickness, because the lighter crust rebounds on the mantle beneath, which is why old mountain belts outlast their erosion. The sediment fills lakes and builds continental shelves at the coast, and enough of it turns ocean crust into continent. Thick crust under a mountain belt also spreads under its own weight. Over hundreds of millions of years the ocean's volume itself drifts so the continents keep their height above the sea; the planet's water is exchanged with the mantle at ridges and trenches, and how Earth's freeboard has stayed constant is still debated.
 
 ## Climate
 

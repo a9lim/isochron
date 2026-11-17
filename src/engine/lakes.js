@@ -16,12 +16,17 @@
 //                leaf, or the sea.
 //   catchments   (standard) each cell's water runs down the routing to the
 //                first filled cell it meets, and so into that cell's leaf.
-//   hypsometry   (synthesis) a cell's ground spans [z, z + RAMP] below the
+//   hypsometry   (synthesis) a cell's ground spans [z, z + ramp] below the
 //                grid's scale: z, the routed height, is its lowest point,
 //                where water runs. A cell's wet share then rises linearly with
 //                the level, so a lake's area is continuous in its volume, and a
-//                fully wet cell's mean depth is level − z − RAMP/2 (with RAMP
-//                twice the routing's roughness, land.lake's zf − z − ROUGH).
+//                fully wet cell's mean depth is level − z − ramp/2. The ramp is
+//                the cell's relief, its mean height difference to its
+//                neighbours, within [RAMP_MIN, RAMP]: a flat floor holds a
+//                shallow lake that spreads and shrinks with a metre of level (a
+//                Chad, an Eyre), a steep basin a lake whose shore barely moves.
+//                (A fixed 50 m, the routing's roughness's full range, drew a
+//                closed lake's seasons as ~1% of its area.)
 //   the year     (standard water balance) dV/dt = the catchment's runoff off
 //                dry ground + (P − E) on the wet ground, by backward Euler in
 //                the lake's level, so any step is stable and a closed lake
@@ -44,9 +49,13 @@
 //                (speculation: WET = 50%, a guess at the spread of a dry
 //                basin's inflow, until the year's anomalies give it).
 //   rivers       each depression region's inflow and outflow over the last
-//                call (`regIn`, `regOut`, km³/yr): a river below a closed lake
-//                carries nothing, below a spilling one its overflow's share
-//                (src/render/rivers.js, `drainage`).
+//                call (`regIn`, `regOut`, km³/yr), and over about the last year
+//                (`regInY`, `regOutY`: a lake that sinks below its sill in the
+//                dry season still spills in the year): a river below a closed
+//                lake carries nothing, below a spilling one its overflow's share
+//                (src/render/rivers.js, `drainage`, by the year's). The climate
+//                reads each cell's wet share over the year too (`wetY`), as it
+//                reads everything else as a climatology.
 //   reroutes     a new routing (the landscape every 0.25 Myr, or the ice) is
 //                a new hierarchy. The old lakes' water is laid on their cells
 //                and each cell's share goes to the new leaf there, or down the
@@ -54,16 +63,25 @@
 //                water is conserved. An ice dam that thins is a reroute too: its
 //                basin is gone, and the water above the new spill leaves in
 //                that step (an outburst), counted in `released`.
+//   the sea      the outlets are the ocean the plates solve (src/engine/plates.js,
+//                solveSea), not every cell below sea level: a basin below it
+//                that the sea doesn't reach is a depression like any other,
+//                holding a lake at its balance or lying dry (a Caspian, a Dead
+//                Sea, a Qattara). A basin the sea leaves comes with its water
+//                (`extra` in a rebuild), and one the sea reaches gives its
+//                lakes to the sea.
 //
 // Lengths and levels in km, areas in km², volumes in km³, time in years,
 // runoff and P − E in m/yr.
 import { LAND, route } from './landscape.js';
 
 export const LAKES = {
-  RAMP: 2 * LAND.ROUGH,   // km: a cell's ground below the grid's scale (the roughness's full range)
+  RAMP: 2 * LAND.ROUGH,   // km: a cell's ground below the grid's scale, at most (the roughness's full range)
+  RAMP_MIN: 0.005,        // km: at least (a floodplain's relief across a cell)
   TOL: 1e-5,              // km: filled by more than this is in a depression
   SALT_TAU: 3000,         // yr: a dry bed's memory of its water
   WET: 0.5,               // the closure's spread of inflow from year to year (salt flats at fast dials)
+  YEAR: 1,                // yr: the rivers' memory of each basin's inflow and outflow (regInY, regOutY)
 };
 
 const R_KM = 6371;
@@ -78,6 +96,7 @@ export class Lakes {
     this.depth = new Float32Array(n);     // km: mean water depth over the cell
     this.wet = new Float32Array(n);       // share of the cell under water
     this.under = new Uint8Array(n);       // its mean floor is under water (wet > ½)
+    this.wetY = new Float32Array(n);      // the wet share over about the last year (the climate's)
     this.salt = new Float32Array(n);      // share of the cell that is salt flat
     this.lakeId = new Int32Array(n).fill(-1);   // the lake node over the cell (state, level, area, volume), or −1
     this.mem = new Float32Array(n);       // recent wet share, decaying over SALT_TAU
@@ -85,6 +104,7 @@ export class Lakes {
     this.catch = new Int32Array(n).fill(-1);    // the leaf the cell's water reaches, or −1 (the sea)
     this.regOf = new Int32Array(n).fill(-1);
     this.z = new Float64Array(n);
+    this.ramp = new Float64Array(n).fill(LAKES.RAMP);   // km: each cell's ground below the grid's scale (hypsometry)
     this.wts = new Float64Array(n);       // km³/yr: A (R − (P − E)), what wetting the cell costs its lake
     this.nb = 0;
     this.nr = 0;
@@ -102,8 +122,9 @@ export class Lakes {
    * already hold water, it is carried onto the new ones. Returns { released }: km³
    * that went to the sea in the change.
    */
-  rebuild(r, z, dry = null) {
-    const carried = this.built ? this.cellWater() : null;
+  rebuild(r, z, dry = null, extra = null) {
+    let carried = this.built ? this.cellWater() : null;
+    if (extra) { carried = carried || new Float64Array(this.n); for (let i = 0; i < this.n; i++) carried[i] += extra[i]; }
     this.build(r, z, dry);
     const released = carried ? this.carry(carried) : 0;
     this.total.toSea += released;
@@ -115,6 +136,12 @@ export class Lakes {
     const g = this.grid, n = this.n, nbrOff = g.nbrOff, nbr = g.nbr;
     const zf = r.zf, rcv = r.rcv, order = r.order, count = r.count, TOL = LAKES.TOL;
     this.z.set(z);
+    for (let i = 0; i < n; i++) {
+      if (!(zf[i] - z[i] > TOL)) continue;
+      let d = 0;
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) d += Math.abs(z[nbr[t]] - z[i]);
+      this.ramp[i] = Math.min(LAKES.RAMP, Math.max(LAKES.RAMP_MIN, d / (nbrOff[i + 1] - nbrOff[i])));
+    }
     this.depth.fill(0); this.wet.fill(0); this.under.fill(0); this.salt.fill(0); this.lakeId.fill(-1);
     // Regions: connected filled cells.
     const reg = this.regOf;
@@ -250,34 +277,37 @@ export class Lakes {
     this.fullF = new Uint8Array(nb); this.mergedF = new Uint8Array(nb);
     this.closedFringe = new Float64Array(nb).fill(-Infinity);
     this.regIn = new Float64Array(nr); this.regOut = new Float64Array(nr);
+    this.regInY = new Float64Array(nr); this.regOutY = new Float64Array(nr); this.yFresh = true;
     this.builds = (this.builds || 0) + 1;
     this.built = true;
   }
 
   /**
    * Route the smooth surface and rebuild: the ground (km, `elev`) plus its ice (m, `iceH`),
-   * so ice dams lakes but holds none (it's dry); the sea below `seaLevel` is the outlet.
-   * Not the landscape's rough routing, whose roughness makes one-cell ponds. Returns rebuild's.
+   * so ice dams lakes but holds none (it's dry); the ocean (`sea`, the plates' mask) is the
+   * outlet. Not the landscape's rough routing, whose roughness makes one-cell ponds. `extra`
+   * (km³ per cell) is water to lay down with the lakes' own: a basin the sea has left.
+   * Returns rebuild's.
    */
-  reroute(elev, seaLevel, iceH = null) {
+  reroute(elev, sea, iceH = null, extra = null) {
     const n = this.n, z = this.zr || (this.zr = new Float64Array(n)), base = this.baseR || (this.baseR = new Uint8Array(n)), dry = this.dryR || (this.dryR = new Uint8Array(n));
     for (let i = 0; i < n; i++) {
       const h = iceH ? iceH[i] : 0;
-      z[i] = elev[i] + h / 1000; base[i] = elev[i] < seaLevel ? 1 : 0; dry[i] = h > 1 ? 1 : 0;
+      z[i] = elev[i] + h / 1000; base[i] = sea[i] ? 1 : 0; dry[i] = h > 1 ? 1 : 0;
     }
     this.routeR = route(this.grid, z, base, this.routeR);
-    return this.rebuild(this.routeR, z, dry);
+    return this.rebuild(this.routeR, z, dry, extra);
   }
 
   /** Node b's pool at level h: volume, area, and (with weights) the cost of its wet ground and its slope. */
   eval(b, h, wts) {
-    const z = this.z, A = this.areaKm, cells = this.cells, RAMP = LAKES.RAMP, half = RAMP / 2;
+    const z = this.z, A = this.areaKm, cells = this.cells, ramp = this.ramp;
     let V = 0, Ar = 0, L = 0, dL = 0;
     for (let k = this.cellOff[b], e = this.cellOff[b + 1]; k < e; k++) {
-      const i = cells[k], x = h - z[i];
+      const i = cells[k], x = h - z[i], R = ramp[i];
       if (!(x > 0)) break;
-      if (x >= RAMP) { V += A[i] * (x - half); Ar += A[i]; if (wts) L += wts[i]; }
-      else { const f = x / RAMP; V += A[i] * x * f / 2; Ar += A[i] * f; if (wts) { L += wts[i] * f; dL += wts[i] / RAMP; } }
+      if (x >= R) { V += A[i] * (x - R / 2); Ar += A[i]; if (wts) L += wts[i]; }
+      else { const f = x / R; V += A[i] * x * f / 2; Ar += A[i] * f; if (wts) { L += wts[i] * f; dL += wts[i] / R; } }
     }
     this._V = V; this._A = Ar; this._L = L; this._dL = dL;
   }
@@ -434,9 +464,19 @@ export class Lakes {
     }
     this.account(runIn, vert, toSea);
     this.refresh(dt, false);
+    const k = 1 - Math.exp(-dt / LAKES.YEAR);
+    this.remember(this.yFresh ? 1 : k, k);
   }
 
   stepYear(runoff, pe) { this.step(1, runoff, pe); }
+
+  /** The year's inflow and outflow per region (k of the way to the last call's), and wet share per cell (kc of the way: cells outlast a rebuild). */
+  remember(k, kc) {
+    const I = this.regInY, O = this.regOutY, W = this.wetY, w = this.wet;
+    for (let q = 0; q < this.nr; q++) { I[q] += k * (this.regIn[q] - I[q]); O[q] += k * (this.regOut[q] - O[q]); }
+    for (let i = 0; i < this.n; i++) W[i] += kc * (w[i] - W[i]);
+    this.yFresh = false;
+  }
 
   /** The water now in node b's subtree (whether or not it is one lake). */
   heldNow(b) {
@@ -475,6 +515,7 @@ export class Lakes {
     for (let b = 0; b < this.nb; b++) if (this.c0[b] < 0) runIn += this.I[b];
     this.account(runIn * dt, (toSea - runIn) * dt + this.storage() - before, toSea * dt);
     this.refresh(dt, true);
+    this.remember(1, 1);
   }
 
   /** Node b at balance under the leaves' inflows I + inb (km³/yr). Returns its overflow (km³/yr). */
@@ -525,7 +566,7 @@ export class Lakes {
    */
   refresh(dt, closure) {
     const { z, areaKm: A, cells, cellOff, depth, wet, under, salt, mem, regCells } = this;
-    const RAMP = LAKES.RAMP, half = RAMP / 2, decay = Math.exp(-dt / LAKES.SALT_TAU);
+    const ramp = this.ramp, decay = Math.exp(-dt / LAKES.SALT_TAU);
     const lakeId = this.lakeId;
     for (let k = 0; k < regCells.length; k++) { const i = regCells[k]; depth[i] = 0; wet[i] = 0; under[i] = 0; salt[i] = 0; lakeId[i] = -1; }
     this.flags();
@@ -544,8 +585,8 @@ export class Lakes {
       for (let k = cellOff[b], e = cellOff[b + 1]; k < e; k++) {
         const i = cells[k], x = h - z[i];
         if (!(x > 0)) break;
-        const f = Math.min(1, x / RAMP);
-        wet[i] = f; depth[i] = x >= RAMP ? x - half : x * f / 2; under[i] = f > 0.5 ? 1 : 0; lakeId[i] = b;
+        const R = ramp[i], f = Math.min(1, x / R);
+        wet[i] = f; depth[i] = x >= R ? x - R / 2 : x * f / 2; under[i] = f > 0.5 ? 1 : 0; lakeId[i] = b;
       }
       // The closure's spread: the level a closed lake would hold with WET more inflow.
       if (closure && !this.fullF[b] && this.J && this.J[b] > 0) {
@@ -553,7 +594,7 @@ export class Lakes {
         for (let k = cellOff[b], e = cellOff[b + 1]; k < e; k++) {
           const i = cells[k], x = hw - z[i];
           if (!(x > 0)) break;
-          fringe[i] = Math.min(1, x / RAMP);
+          fringe[i] = Math.min(1, x / ramp[i]);
         }
       }
     }
@@ -576,7 +617,7 @@ export class Lakes {
   /** km³ of water on each cell, from the current lakes. */
   cellWater() {
     const w = new Float64Array(this.n), { z, areaKm: A, cells, cellOff } = this;
-    const RAMP = LAKES.RAMP, half = RAMP / 2;
+    const ramp = this.ramp;
     for (const b of this.lakeNodes || []) {
       if (!(this.held(b) > 0)) continue;
       const h = this.level[b];
@@ -584,7 +625,7 @@ export class Lakes {
       for (let k = cellOff[b], e = cellOff[b + 1]; k < e; k++) {
         const i = cells[k], x = h - z[i];
         if (!(x > 0)) break;
-        const d = x >= RAMP ? x - half : x * x / (2 * RAMP);
+        const R = ramp[i], d = x >= R ? x - R / 2 : x * x / (2 * R);
         w[i] += A[i] * d; sum += A[i] * d;
       }
       // The level is solved to rounding; scale so the cells carry exactly what the lake held.

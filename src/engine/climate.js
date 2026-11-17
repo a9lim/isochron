@@ -381,19 +381,33 @@ export class Climate {
     const tec = this.tec, n = this.grid.n, s = tec.seaLevel, H = this.ice ? this.ice.H : null;
     // Heights from the air's datum (where the sea stood, if it has boiled away: src/engine/plates.js).
     const dz = s - (tec.airDatum ? tec.airDatum() : s);
+    const L = this.lakes && this.lakes.built ? this.lakes : null;
+    const lift = this.lakeLift || (this.lakeLift = new Float32Array(n));
     for (let i = 0; i < n; i++) {
       // Grounded ice counts as land, its surface as the height; floating ice (a marine front's
-      // partly filled cell, src/engine/ice.js) is sea.
-      const e = tec.elev[i] - s, h = H ? H[i] / 1000 : 0, grounded = h > 0 && (e > 0 || h * ICE.RHO_I > -e * ICE.RHO_W);
-      this.landMask[i] = e > 0 || grounded ? 1 : 0;
-      this.elevPos[i] = e > 0 || grounded ? Math.max(0, e + h + dz) : 0;
+      // partly filled cell, src/engine/ice.js) is sea. The sea is the ocean the plates solve: a
+      // basin below sea level it doesn't reach is land, as low as it lies (a Dead Sea's air is the
+      // warmer for it). Its height is the mean surface's: a lake's share stands at the lake's
+      // level (src/engine/lakes.js, the year's wet share), not on the floor below it (a lake 3 km
+      // deep in a 6.7 km pit, read on the floor, was ~20 K too warm and evaporated at the
+      // saturation's cap). The lift is relaxed halfway each time: a closed lake's level and its
+      // air's warmth feed each other, and the opening's cycles, each with the lakes at their
+      // balance, rang (seed c's land rain ±0.8% with a period of three cycles, never settling).
+      const e = tec.elev[i] - s, h = H ? H[i] / 1000 : 0, sea = tec.sea[i], grounded = h > 0 && (!sea || h * ICE.RHO_I > -e * ICE.RHO_W);
+      const land = !sea || grounded;
+      let up = 0;
+      if (L && !(h > 0) && L.lakeId[i] >= 0) { const top = L.level[L.lakeId[i]] - s; if (top > e) up = L.wetY[i] * (top - e); }
+      lift[i] = 0.5 * (lift[i] + up);
+      const z = e + h + dz + lift[i];
+      this.landMask[i] = land ? 1 : 0;
+      this.elevPos[i] = land ? (!sea && e < 0 ? z : Math.max(0, z)) : 0;
     }
     // The soil's capacity: land, but not under grounded ice (the ice owns its water).
     const cap = this.soilCap || (this.soilCap = new Float32Array(n));
     const reg = this.regolith;              // the regolith's depth sets it (src/engine/regolith.js)
     for (let i = 0; i < n; i++) cap[i] = this.landMask[i] && !(H && H[i] > 1) ? (reg ? reg.capacity(i) : SOIL.SMAX) : 0;
     this.soil.setCapacity(cap);
-    if (this.lakes) this.lakeWet.set(this.lakes.wet); else this.lakeWet.fill(0);
+    if (this.lakes) this.lakeWet.set(this.lakes.wetY); else this.lakeWet.fill(0);   // the year's (src/engine/lakes.js): a climatology, not this month's
     gradient(this.grid, this.elevPos, this.upz);
     for (let i = 0; i < 3 * n; i++) this.upz[i] /= R_KM;   // km per km
     const f6 = this.scratch.f6;

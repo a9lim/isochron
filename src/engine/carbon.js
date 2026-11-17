@@ -75,9 +75,9 @@ export class Carbon {
 
   /** The share of the seafloor consumed a year: the trenches' smoothed rate (cells/Myr) against the sea's cells. */
   subduct() {
-    const e = this.tec.elev, s = this.tec.seaLevel, n = this.tec.grid.n;
+    const m = this.tec.sea, n = this.tec.grid.n;
     let sea = 0;
-    if (e) for (let i = 0; i < n; i++) if (e[i] < s) sea++;
+    if (m) for (let i = 0; i < n; i++) if (m[i]) sea++;
     return this.arc / Math.max(1, sea || 0.7 * n) / 1e6;
   }
 

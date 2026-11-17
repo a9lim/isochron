@@ -391,8 +391,8 @@ function uploadSurface(m, mode) {
     globe.setPolarity(polarity.table(origin, POL_DT, Math.ceil(POL_SPAN / POL_DT)), origin, POL_DT);
     polarityReady = true;
   }
-  globe.setFields(m.elevRel, m.tfDraw, m.felsic, null, m.normals, mode);
-  season.setSurface(m.elevRel);
+  globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.coast, m.normals, mode);
+  season.setSurface(m.coast);
 }
 let polarityReady = false;
 
@@ -943,7 +943,7 @@ function figures(force) {
       const e = tec.elev[i] - tec.seaLevel, a = grid.area[i];
       if (e > 0) { la += a; lh += a * e; } else { sa += a; sd -= a * e; }
     }
-    els.capHyps.textContent = `Hypsometry · land ${Math.round(100 * la / (4 * Math.PI))}% · mean height ${(lh / la).toFixed(2)} km · mean depth ${(sd / sa).toFixed(1)} km`;
+    els.capHyps.textContent = `Hypsometry · land ${Math.round(100 * tecStats.land)}% · mean height ${(lh / la).toFixed(2)} km · mean depth ${(sd / sa).toFixed(1)} km`;
   }
   if (visible(els.figModel)) {
     if (peopleModel()) {

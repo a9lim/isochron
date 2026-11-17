@@ -1,8 +1,9 @@
 // The drawn surface on the GPU (src/render/surface.js, surfaceFields, is the
 // reference, and says what each field draws): relief eased toward its
-// neighbours and the deep sea eased twice more, normals from its gradient, and
-// formation times eased along each plate's own seafloor. The engine's worker
-// prepares a surface after each batch of plate steps; here that's six dispatches
+// neighbours and the deep sea eased twice more, the coast, normals from the
+// relief's gradient, and formation times eased along each plate's own seafloor.
+// The engine's worker prepares a surface after each batch of plate steps; here
+// that's seven dispatches
 // and one read back, from the engine's arrays as they stand (so it doesn't care
 // which of the CPU or the GPU last stepped them). Every pass reads the last
 // pass's field whole (the reference's passes do too), so the two agree to
@@ -10,6 +11,7 @@
 // the lakes change).
 import { kernel, storage } from './device.js';
 import { gridBuffers } from './plates.js';
+import { LIFT } from '../render/surface.js';
 
 const HEAD = /* wgsl */`
 const NONE: u32 = 0xffffffffu;
@@ -47,16 +49,35 @@ ${MAIN}
   }
   fout[i] = 0.4 * v + 0.6 * s / d;
 }`,
+  coast: `
+@group(0) @binding(2) var<storage, read> elev: array<f32>;
+@group(0) @binding(3) var<storage, read> sea: array<u32>;
+@group(0) @binding(4) var<storage, read> fin: array<f32>;
+@group(0) @binding(5) var<storage, read_write> fout: array<f32>;
+fn dry(i: u32) -> bool { return sea[i] == 0u && elev[i] < U.sea; }
+fn raw(i: u32) -> f32 { return select(elev[i] - U.sea, ${LIFT.toFixed(6)}, dry(i)); }
+${MAIN}
+  fout[i] = fin[i];
+  var near = dry(i);
+  var s = 0.0;
+  var d = 0.0;
+  for (var k = 0u; k < 6u; k++) { let j = nb(i, k); if (j == NONE) { break; } near = near || dry(j); s += raw(j); d += 1.0; }
+  if (!near) { return; }
+  var c = 0.5 * raw(i) + 0.5 * s / d;
+  if (sea[i] == 0u) { c = max(c, ${LIFT.toFixed(6)}); }
+  fout[i] = c;
+}`,
   normals: `
 @group(0) @binding(2) var<storage, read> egw: array<vec4f>;
 @group(0) @binding(3) var<storage, read> fin: array<f32>;
 @group(0) @binding(4) var<storage, read_write> nrm: array<f32>;
+@group(0) @binding(5) var<storage, read> cst: array<f32>;
 ${MAIN}
   let v = fin[i];
   var g = vec3f(0.0);
   for (var k = 0u; k < 6u; k++) { let j = nb(i, k); if (j == NONE) { break; } g += (fin[j] - v) * egw[6u * i + k].xyz; }
   // Land relief at full exaggeration; the sea floor at a third.
-  let kk = select(U.kLand, U.kLand / 3.0, v < 0.0);
+  let kk = select(U.kLand, U.kLand / 3.0, cst[i] < 0.0);
   let p = normalize(geo[7u * i].xyz - kk * g);
   nrm[3u * i] = p.x; nrm[3u * i + 1u] = p.y; nrm[3u * i + 2u] = p.z;
 }`,
@@ -87,21 +108,22 @@ export class GpuSurface {
     const n = this.n = grid.n;
     this.device = device; this.grid = grid;
     const G = gridBuffers(device, grid), S = b => storage(device, b);
-    const b = this.b = { geo: G.geo, egw: G.egw, elev: S(4 * n), phi: S(4 * n), owner: S(4 * n),
-      rA: S(4 * n), rB: S(4 * n), tA: S(4 * n), tB: S(4 * n), nrm: S(12 * n) };
+    const b = this.b = { geo: G.geo, egw: G.egw, elev: S(4 * n), phi: S(4 * n), owner: S(4 * n), sea: S(4 * n),
+      rA: S(4 * n), rB: S(4 * n), cA: S(4 * n), tA: S(4 * n), tB: S(4 * n), nrm: S(12 * n) };
     this.U = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const k = name => kernel(device, HEAD + K[name], 'surface.' + name);
     const kk = Object.fromEntries(Object.keys(K).map(name => [name, k(name)]));
     const g = (name, res) => ({ pipeline: kk[name].pipeline, group: kk[name].bind({ U: this.U, geo: b.geo, ...res }) });
-    // The passes in order; tf goes up into tA, the relief ends in rA, the stripes in tA.
+    // The passes in order; tf goes up into tA, the relief ends in rA, the coast in cA, the stripes in tA.
     this.passes = [
       g('ease', { elev: b.elev, fout: b.rA }),
       g('deep', { fin: b.rA, fout: b.rB }), g('deep', { fin: b.rB, fout: b.rA }),
-      g('normals', { egw: b.egw, fin: b.rA, nrm: b.nrm }),
+      g('coast', { elev: b.elev, sea: b.sea, fin: b.rA, fout: b.cA }),
+      g('normals', { egw: b.egw, fin: b.rA, nrm: b.nrm, cst: b.cA }),
       g('stripes', { fin: b.tA, phi: b.phi, owner: b.owner, fout: b.tB }), g('stripes', { fin: b.tB, phi: b.phi, owner: b.owner, fout: b.tA }),
     ];
-    this.staging = device.createBuffer({ size: 20 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    this.ownerBuf = new Uint32Array(n);
+    this.staging = device.createBuffer({ size: 24 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    this.ownerBuf = new Uint32Array(n); this.seaBuf = new Uint32Array(n);
   }
 
   /** surfaceFields (src/render/surface.js) for the engine's current state, on the GPU. */
@@ -112,6 +134,9 @@ export class GpuSurface {
     const o = this.ownerBuf;
     for (let i = 0; i < n; i++) o[i] = tec.owner[i];
     q.writeBuffer(b.owner, 0, o);
+    const sm = this.seaBuf;
+    for (let i = 0; i < n; i++) sm[i] = tec.sea ? tec.sea[i] : tec.elev[i] < tec.seaLevel ? 1 : 0;
+    q.writeBuffer(b.sea, 0, sm);
     const u = new ArrayBuffer(16);
     new Uint32Array(u)[0] = n; new Float32Array(u).set([tec.seaLevel, RELIEF / R_KM], 2);
     q.writeBuffer(this.U, 0, u);
@@ -122,12 +147,13 @@ export class GpuSurface {
     enc.copyBufferToBuffer(b.rA, 0, st, 0, 4 * n);
     enc.copyBufferToBuffer(b.nrm, 0, st, 4 * n, 12 * n);
     enc.copyBufferToBuffer(b.tA, 0, st, 16 * n, 4 * n);
+    enc.copyBufferToBuffer(b.cA, 0, st, 20 * n, 4 * n);
     q.submit([enc.finish()]);
     await st.mapAsync(GPUMapMode.READ);
     const m = st.getMappedRange();
     const f = {
       elevRel: new Float32Array(m, 0, n).slice(), normals: new Float32Array(m, 4 * n, 3 * n).slice(),
-      tfDraw: new Float32Array(m, 16 * n, n).slice(), felsic: Float32Array.from(tec.phi),
+      tfDraw: new Float32Array(m, 16 * n, n).slice(), coast: new Float32Array(m, 20 * n, n).slice(), felsic: Float32Array.from(tec.phi),
     };
     st.unmap();
     return f;

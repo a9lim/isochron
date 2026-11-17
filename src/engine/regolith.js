@@ -116,7 +116,7 @@ export class Regolith {
   /** Is world cell i weathering ground (land, not under ice)? */
   ground(i) {
     const t = this.tec;
-    return t.elev[i] > t.seaLevel && !(this.ice && this.ice.H[i] > REGOLITH.ICE);
+    return !t.sea[i] && !(this.ice && this.ice.H[i] > REGOLITH.ICE);
   }
 
   /**
@@ -131,7 +131,7 @@ export class Regolith {
       let h = 0;
       // The rivers' erosion, and the wind's where dust has been lifted (src/engine/aeolian.js).
       const D = this.aeolian ? this.aeolian.deflation(i) : 0;
-      if (t.elev[i] > t.seaLevel) h = R.START >= 0 ? R.START : regolithStep(0, this.p0(i), (E[i] || 0) * 1e-3 + D, yrs);
+      if (!t.sea[i]) h = R.START >= 0 ? R.START : regolithStep(0, this.p0(i), (E[i] || 0) * 1e-3 + D, yrs);
       p.reg[j] = h;
     }
     this.sample();
@@ -147,7 +147,7 @@ export class Regolith {
       const g = this.ground(i);
       this.prod[i] = g ? this.p0(i) * 1e3 * Math.exp(-h[i] / h0) : 0;
       this.soft[i] = 1 - Math.exp(-h[i] / R.H_SOFT);
-      if (t.elev[i] > t.seaLevel) { const a = this.areaKm[i]; la += a; hs += a * h[i]; if (h[i] < 0.05) bare += a; }
+      if (!t.sea[i]) { const a = this.areaKm[i]; la += a; hs += a * h[i]; if (h[i] < 0.05) bare += a; }
       if (this.ice && this.ice.H[i] > R.ICE) { const a = this.areaKm[i]; sa += a; ss += a * this.soft[i]; }
     }
     if (this.ice) this.ice.setSoftness(this.soft);
@@ -201,7 +201,7 @@ export class Regolith {
         p.reg[j] = r > 0 ? r : 0;
         // Till: laid down as regolith, less the outwash's share (at sea, all of it stays).
         let lay = till;
-        if (till > 0 && t.elev[i] > t.seaLevel && sed) {
+        if (till > 0 && !t.sea[i] && sed) {
           lay = keep * till;
           sed[i] += (till - lay) * A[i] / 1e9;          // km³ for the landscape's next step
           this.budget.outwash += (till - lay) * A[i];

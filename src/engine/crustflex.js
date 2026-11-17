@@ -128,7 +128,7 @@ export class CrustFlex {
       let c = p.cf[j] * ((1 - f) * ko + f * kc) + (q[i] / rm - w[i]) * ((1 - f) * d0 + f * dc);
       c = c > cm ? cm : c < -cm ? -cm : c;
       p.cf[j] = c;
-      if (t.elev[i] > t.seaLevel) { const ar = g.area[i]; s += c * c * ar; a += ar; mx = Math.max(mx, Math.abs(c)); }
+      if (!t.sea[i]) { const ar = g.area[i]; s += c * c * ar; a += ar; mx = Math.max(mx, Math.abs(c)); }
     }
     this.stats.rms = a > 0 ? Math.sqrt(s / a) : 0; this.stats.max = mx;
     t.sampleFlex(false);

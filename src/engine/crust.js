@@ -39,9 +39,10 @@ export function oceanVolume(grid, elev, s) {
 /**
  * The level whose basins hold exactly `volume`. V(s) is convex and piecewise
  * linear, rising with slope the ocean's area, so Newton from the last level
- * lands in a few passes (bisection took 48); a bracket guards it.
+ * lands in a few passes (bisection took 48); a bracket guards it. Cells with
+ * `excl` set (basins the sea doesn't reach: seaMask) hold none of it.
  */
-export function solveSeaLevel(grid, elev, volume, guess = null) {
+export function solveSeaLevel(grid, elev, volume, guess = null, excl = null) {
   const n = grid.n, area = grid.area;
   let lo = Infinity, hi = -Infinity;
   for (let i = 0; i < n; i++) { if (elev[i] < lo) lo = elev[i]; if (elev[i] > hi) hi = elev[i]; }
@@ -49,7 +50,8 @@ export function solveSeaLevel(grid, elev, volume, guess = null) {
   let s = guess != null && guess > lo && guess < hi ? guess : 0.5 * (lo + hi);
   for (let it = 0; it < 60; it++) {
     let v = 0, a = 0;
-    for (let i = 0; i < n; i++) { const d = s - elev[i]; if (d > 0) { v += d * area[i]; a += area[i]; } }
+    if (excl) { for (let i = 0; i < n; i++) { const d = s - elev[i]; if (d > 0 && !excl[i]) { v += d * area[i]; a += area[i]; } } }
+    else for (let i = 0; i < n; i++) { const d = s - elev[i]; if (d > 0) { v += d * area[i]; a += area[i]; } }
     const r = v - volume;
     if (Math.abs(r) <= 1e-12 * volume) break;
     if (r > 0) hi = s; else lo = s;
@@ -59,6 +61,57 @@ export function solveSeaLevel(grid, elev, volume, guess = null) {
     s = next;
   }
   return s;
+}
+
+/**
+ * The ocean at level s (synthesis): the cells below it that the open ocean reaches. A cell
+ * below s joins its neighbours below s, and a strait joins them too: a cell that was part of
+ * the ocean (`strait`, kept here) and now stands less than STRAIT above it, a channel below
+ * the grid's scale (so a sill doesn't open and close with every metre the sea moves). A body
+ * holding at least SEA.OCEAN_MIN of the sphere, or the largest, is ocean; the others are basins
+ * the sea doesn't reach, which hold lakes or lie dry (src/engine/lakes.js). Writes `sea` (1
+ * on the ocean) and `strait`; returns the ocean's area (sr).
+ */
+/** Tunable; tools and tests may change them. */
+export const SEA = {
+  STRAIT: 0.025,      // km: a sill stands this far clear of the sea before it closes (the sub-grid relief's half range, LAND.ROUGH)
+  OCEAN_MIN: 0.02,    // of the sphere (~10 M km²): a body this large is ocean wherever it stands (0: every basin below sea level is sea, as before 2026-11-17)
+};
+export function seaMask(grid, elev, s, sea, strait, scratch = null) {
+  const n = grid.n, area = grid.area, nbrOff = grid.nbrOff, nbr = grid.nbr, S2 = s + SEA.STRAIT;
+  const id = scratch && scratch.id && scratch.id.length === n ? scratch.id : new Int32Array(n);
+  const stack = scratch && scratch.stack && scratch.stack.length === n ? scratch.stack : new Int32Array(n);
+  if (scratch) { scratch.id = id; scratch.stack = stack; }
+  id.fill(-1);
+  const wet = [];
+  let big = -1, bigA = -1;
+  for (let i0 = 0; i0 < n; i0++) {
+    if (id[i0] >= 0 || !(elev[i0] < s)) continue;
+    const c = wet.length;
+    let sp = 0, a = 0;
+    id[i0] = c; stack[sp++] = i0;
+    while (sp) {
+      const i = stack[--sp];
+      if (elev[i] < s) a += area[i];
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+        const j = nbr[t];
+        if (id[j] >= 0) continue;
+        const z = elev[j];
+        if (z < s || (strait[j] && z < S2)) { id[j] = c; stack[sp++] = j; }
+      }
+    }
+    wet.push(a);
+    if (a > bigA) { bigA = a; big = c; }
+  }
+  const min = SEA.OCEAN_MIN * 4 * Math.PI;
+  let ocean = 0;
+  for (let i = 0; i < n; i++) {
+    const c = id[i], o = c >= 0 && (c === big || wet[c] >= min);
+    sea[i] = o && elev[i] < s ? 1 : 0;
+    strait[i] = o ? 1 : 0;
+    if (sea[i]) ocean += area[i];
+  }
+  return ocean;
 }
 
 /** The water volume that leaves `landFraction` of the surface dry. */

@@ -30,7 +30,7 @@ export function refineTectonics(c, fine) {
   const pa = i => par[2 * (i - nc)], pb = i => par[2 * (i - nc) + 1];
   // Scalars and objects as they are; per-cell arrays prolonged.
   for (const [k, v] of Object.entries(c)) {
-    if (k === 'grid' || k === 'res' || k === 'plates') continue;
+    if (k === 'grid' || k === 'res' || k === 'plates' || k === 'maskScratch') continue;
     if (ArrayBuffer.isView(v) && (v.length === nc || v.length === 3 * nc)) {
       const w = v.length / nc, out = f[k] && f[k].length === w * n ? f[k] : new v.constructor(w * n);
       const cat = !(v instanceof Float32Array || v instanceof Float64Array);

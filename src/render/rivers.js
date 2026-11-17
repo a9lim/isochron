@@ -7,7 +7,7 @@
 // Lines are smoothed on the sphere (relaxed toward their neighbours, then
 // corner-cutting, ends held: cut corners alone kept the grid's straight runs
 // between them), so every line meeting at a node shares its point exactly. A
-// river reaches the sea where the drawn relief crosses sea level along its
+// river reaches the sea where the drawn coast crosses zero along its
 // course, so it ends on the coast the globe draws. Each point keeps its
 // discharge, which sets line weight (docs/PLAN.md, "Depict, don't decorate").
 // Rivers stop at lakes and start again at their outlets. With the climate's
@@ -38,9 +38,11 @@ export const NODE = 0.4;
 export function lakesKey(lakes) {
   if (!lakes || !lakes.built) return '';
   let key = `${lakes.builds}:`;
-  for (let q = 0; q < lakes.nr; q++) key += lakes.regOut[q] > 0 ? 's' : 'c';
+  for (let q = 0; q < lakes.nr; q++) key += spills(lakes, q) ? 's' : 'c';
   return key;
 }
+/** Does region q spill over the year (more than a hundredth of what reaches it)? The year's memory decays toward closed, never to it. */
+const spills = (lakes, q) => lakes.regOutY[q] > 0.01 * lakes.regInY[q] && lakes.regOutY[q] > 0;
 
 export function drainage(grid, land, lakes) {
   const n = grid.n, r = land.r, nbrOff = grid.nbrOff, nbr = grid.nbr;
@@ -50,8 +52,8 @@ export function drainage(grid, land, lakes) {
     const reg = lakes.regOf, z = lakes.z, under = lakes.under, nr = lakes.nr;
     const closed = new Uint8Array(nr), f = new Float32Array(nr);
     for (let q = 0; q < nr; q++) {
-      closed[q] = lakes.regOut[q] > 0 ? 0 : 1;
-      f[q] = lakes.regIn[q] > 0 ? Math.min(1, lakes.regOut[q] / lakes.regIn[q]) : 1;
+      closed[q] = spills(lakes, q) ? 0 : 1;
+      f[q] = lakes.regInY[q] > 0 ? Math.min(1, lakes.regOutY[q] / lakes.regInY[q]) : 1;
     }
     for (let i = 0; i < n; i++) {
       const q = reg[i];
@@ -79,7 +81,7 @@ export function drainage(grid, land, lakes) {
 }
 
 /**
- * `drawn`: the relief as the globe draws it (surface.js, metres over the sea ÷ 1000), whose
+ * `drawn`: the coast as the globe draws it (surface.js, coastField: km, negative on the ocean), whose
  * zero is the coast; `Q12`: discharge by month (landscape.js, `monthly`), whose mean is the
  * year's; `rt`: the drainage it was routed down (`drainage`), else the landscape's.
  */

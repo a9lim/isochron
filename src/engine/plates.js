@@ -29,7 +29,7 @@
 // moves between frames (relaxation, merges, rifts, initiation), set to their
 // defaults where crust is new.
 import { nearest, gradient } from '../grid/icosphere.js';
-import { elevation, subsidence, solveSeaLevel, H_OCEANIC } from './crust.js';
+import { elevation, subsidence, solveSeaLevel, seaMask, SEA, H_OCEANIC } from './crust.js';
 
 export const EARTH_RADIUS_KM = 6371;
 export const CM_PER_YR = EARTH_RADIUS_KM * 1e5 / 1e6;   // per rad/Myr
@@ -195,6 +195,16 @@ export class Tectonics {
     this.flexc = null;                       // km: the flexure's correction to the elevation, the frames' cf sampled (src/engine/crustflex.js)
     this.swell = null;                       // km: hotspot swells (src/engine/plumes.js)
     this.iceWater = 0;                       // water held as ice (km·sr)
+    // The ocean (crust.js, seaMask): the cells below sea level the open ocean reaches. A basin
+    // below sea level it doesn't reach is land, dry or holding a lake (solveSea).
+    this.sea = new Uint8Array(n);
+    this.strait = new Uint8Array(n);         // the ocean's cells and its channels, the mask's memory
+    this.oceanArea = 0;                      // sr
+    this.lakeWater = 0;                      // water held in lakes (km·sr), off the sea: the planet keeps it
+    this.lakeDepth = null;                   // km per cell: the lakes' water (src/engine/lakes.js, depth), when the planet has lakes
+    this.cutWater = new Float32Array(n);     // km: a basin's water the sea left there, until the lakes take it
+    this.cutHeld = 0;                        // km·sr: its sum (in lakeWater meanwhile)
+    this.basins = 0;                         // basins cut off or reached so far (the planet rebuilds its lakes on a change)
     this.boiled = 0;                         // the share of the sea boiled away (the people's runaway: src/engine/peoplelink.js)
     this.datum = 0;                          // where the sea would stand unboiled: the air's datum for heights (`airDatum`)
     this.grad = new Float64Array(3 * n);
@@ -476,8 +486,9 @@ export class Tectonics {
     const cell = 4 * Math.PI / this.grid.n;
     c.opened += r.open * dt / cell; c.closed += r.close * dt / cell;
     this.t = t1;
-    if (this.water > 0) this.seaLevel = r.sea;
-    this.exchangeWater(dt, r.land);
+    // The GPU's level fills every basin below it; the ocean's is the CPU's (solveSea).
+    if (this.water > 0) this.solveSea();
+    this.exchangeWater(dt);
     const T = r.T;
     for (let a = 0; a < np; a++) {
       const p = this.plates[a];
@@ -545,12 +556,7 @@ export class Tectonics {
    */
   exchangeWater(dt, land = null) {
     if (!(this.landTarget > 0) || !(PARAMS.WATER_TAU > 0)) return;
-    if (land == null) {
-      const g = this.grid, n = g.n, s = this.seaLevel;
-      land = 0;
-      for (let i = 0; i < n; i++) if (this.elev[i] > s) land += g.area[i];
-      land /= 4 * Math.PI;
-    }
+    if (land == null) land = 1 - this.oceanArea / (4 * Math.PI);
     this.water += (1 - land) * 4 * Math.PI * 3 * (land - this.landTarget) * dt / PARAMS.WATER_TAU;
   }
 
@@ -574,13 +580,85 @@ export class Tectonics {
       this.subs[i] = this.phi[i] < CONTINENTAL ? subsidence(age) : 0;
       this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
     }
-    if (this.water > 0) {
-      this.seaLevel = solveSeaLevel(this.grid, this.elev, this.seaWater(), this.seaLevel);
-      this.datum = this.boiled > 0 ? solveSeaLevel(this.grid, this.elev, this.seaWater(0), this.datum || this.seaLevel) : this.seaLevel;
-    }
+    if (this.water > 0) this.solveSea();
   }
-  /** The sea's water (km·sr): less what the ice holds (at most nine tenths), less what has boiled away. */
-  seaWater(boiled = this.boiled) { return Math.max(1e-3 * this.water, Math.max(0.1 * this.water, this.water - this.iceWater) * (1 - boiled)); }
+
+  /**
+   * The sea level and the ocean (crust.js, seaMask) for the sea's water (synthesis). The level
+   * holds the water over the ocean alone: a basin below it the sea doesn't reach holds none.
+   * A basin the sea leaves (its sill now clear by STRAIT) keeps its water, handed to the lakes
+   * (`cutWater`, until the planet's lakes take it: src/engine/planet.js) and counted off the sea
+   * (`lakeWater`) meanwhile, so the level doesn't move; without lakes (the spin-up) it goes
+   * back to the sea. A basin the level rises over takes the sea's water, its lakes' water
+   * joining the sea, and the level is solved again without it (the sea pours in and stands
+   * lower), until no more join. A cut waits for the next solve, so one solve never both
+   * reaches and leaves a basin.
+   */
+  solveSea() {
+    const g = this.grid, n = g.n, elev = this.elev, area = g.area, nbrOff = g.nbrOff, nbr = g.nbr;
+    const sea = this.sea, strait = this.strait, s0 = this.seaLevel, held = !!this.lakeDepth;
+    const scr = this.maskScratch && this.maskScratch.n === n ? this.maskScratch : (this.maskScratch = { n });
+    const prev = scr.prev || (scr.prev = new Uint8Array(n)), excl = scr.excl || (scr.excl = new Uint8Array(n));
+    prev.set(sea);
+    seaMask(g, elev, s0, sea, strait, scr);
+    let events = 0;
+    const join = i => {
+      const w = ((held ? this.lakeDepth[i] : 0) + this.cutWater[i]) * area[i];
+      this.cutHeld = Math.max(0, this.cutHeld - this.cutWater[i] * area[i]);
+      this.cutWater[i] = 0;
+      this.lakeWater = Math.max(0, this.lakeWater - w);
+      return w > 0;
+    };
+    for (let i = 0; i < n; i++) {
+      const below = elev[i] < s0;
+      excl[i] = below && !sea[i] ? 1 : 0;
+      if (prev[i] && excl[i]) {
+        events++;
+        if (held) { const d = s0 - elev[i]; this.cutWater[i] += d; this.cutHeld += d * area[i]; this.lakeWater += d * area[i]; }
+      } else if (!prev[i] && sea[i]) {
+        // The ground moved, not the sea: a sill sank, and the sea reaches what lay beyond it.
+        if (join(i) || elev[i] < s0 - SEA.STRAIT) events++;
+      }
+    }
+    let s = s0;
+    const stack = scr.stack;
+    for (let round = 0; round < 12; round++) {
+      s = solveSeaLevel(g, elev, this.seaWater(), s, excl);
+      if (!(s > s0)) break;
+      // The sea's new reach: from its edge into what the level now covers, and through straits.
+      const vis = scr.vis || (scr.vis = new Uint8Array(n));
+      vis.fill(0);
+      let sp = 0, more = 0;
+      for (let i = 0; i < n; i++) {
+        if (sea[i] || !(elev[i] < s)) continue;
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (sea[nbr[t]]) { vis[i] = 1; stack[sp++] = i; break; }
+      }
+      while (sp) {
+        const i = stack[--sp];
+        strait[i] = 1;
+        if (elev[i] < s) sea[i] = 1;
+        if (excl[i]) { excl[i] = 0; more++; join(i); }
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+          const j = nbr[t];
+          if (sea[j] || vis[j]) continue;
+          if (elev[j] < s || (strait[j] && elev[j] < s + SEA.STRAIT)) { vis[j] = 1; stack[sp++] = j; }
+        }
+      }
+      events += more;
+      // What the level now covers that the sea doesn't reach is a basin too: solve again without it.
+      let fresh = 0;
+      for (let i = 0; i < n; i++) if (!sea[i] && !excl[i] && elev[i] < s) { excl[i] = 1; fresh++; }
+      if (!more && !fresh) break;
+    }
+    let ocean = 0;
+    for (let i = 0; i < n; i++) { if (sea[i] && !(elev[i] < s)) sea[i] = 0; if (sea[i]) ocean += area[i]; }
+    this.oceanArea = ocean;
+    this.seaLevel = s;
+    this.datum = this.boiled > 0 ? solveSeaLevel(g, elev, this.seaWater(0), this.datum || s, excl) : s;
+    if (events) this.basins++;
+  }
+  /** The sea's water (km·sr): less what the ice holds (at most nine tenths) and the lakes, less what has boiled away. */
+  seaWater(boiled = this.boiled) { return Math.max(1e-3 * this.water, Math.max(0.1 * this.water, this.water - this.iceWater - this.lakeWater) * (1 - boiled)); }
   /**
    * The air's datum for heights (km): the sea level, or where the sea would stand had none of it
    * boiled away. The air doesn't drain with the sea, so the climate's lapse rate and the ice's
@@ -1047,7 +1125,7 @@ export class Tectonics {
     const g = this.grid, n = g.n;
     let land = 0, ocean = 0, oceanAge = 0;
     for (let i = 0; i < n; i++) {
-      if (this.elev[i] > this.seaLevel) land += g.area[i];
+      if (!this.sea[i]) land += g.area[i];
       if (this.phi[i] < CONTINENTAL) { ocean += g.area[i]; oceanAge += g.area[i] * (this.t - this.tf[i]); }
     }
     let vmax = 0;

@@ -87,7 +87,7 @@ test('rock, regolith and sediment kept through glacial erosion, till and outwash
         if (!solo[i]) continue;
         const p = tec.plates[tec.owner[i]], j = tec.ref[i];
         lost += Math.min(p.reg[j], e[i]) * A[i];
-        laid += (tec.elev[i] > tec.seaLevel ? 1 - REGOLITH.OUTWASH : 1) * tl[i] * A[i];
+        laid += (!tec.sea[i] ? 1 - REGOLITH.OUTWASH : 1) * tl[i] * A[i];
       }
       reg.update(0);                                     // no production: the budget alone
     }

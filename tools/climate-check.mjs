@@ -28,7 +28,7 @@ if (!process.env.NOOCEAN) clim.ocean = new Ocean(clim, clim.coarse);
 if (!process.env.FIXED) clim.year = new Year(clim);
 // The lakes at their balance after each cycle, as at a fast dial (NOLAKES=1: none).
 const lakes = process.env.NOLAKES ? null : new Lakes(g);
-if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.seaLevel); }
+if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.sea); }
 // The regolith sets the soil's capacity (NOREG=1: the fixed capacity, as before phase 7); its
 // opening layer sits at its balance with the climate until the climate has settled.
 const reg = process.env.NOREG ? null : new Regolith(tec, land, clim);

@@ -41,7 +41,8 @@ export const peopleLevel = level => Math.min(6, level);
  * the rivers' discharge and the lakes' share by the most within a cell (a river crossing a
  * coarse cell waters it).
  *
- * Per cell, as Float32: the relief above sea level (km), the grounded ice (m), the twelve months'
+ * Per cell, as Float32: the relief above sea level (km; the land the sea doesn't reach, a basin
+ * below its level, reads as just above it, so land is where it's positive), the grounded ice (m), the twelve months'
  * surface temperature (°C) and rain (mm), the cover's trees and grass, the vegetation's NPP (kg C
  * per m² of vegetation a year), the zones' probabilities (NZ a cell), the ground's runoff (m/yr),
  * the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K), a
@@ -55,7 +56,7 @@ export function fieldsOf(P, f = null, T = null) {
   for (let i = 0; i < N; i++) { let t = 0; for (let m = 0; m < 12; m++) t += c.P12[12 * i + m]; map[i] = t; }
   const sigT = P.year.spreadFine().T;
   const src = {
-    elev: i => tec.elev[i] - s, ice: i => P.ice.H[i], ft: i => P.life.veg.ft[i], fg: i => P.life.veg.fg[i], npp: i => P.life.veg.pi[i],
+    elev: i => tec.sea[i] ? Math.min(-1e-3, tec.elev[i] - s) : Math.max(1e-3, tec.elev[i] - s), ice: i => P.ice.H[i], ft: i => P.life.veg.ft[i], fg: i => P.life.veg.fg[i], npp: i => P.life.veg.pi[i],
     runoff: i => c.runoff[i], discharge: i => P.land.discharge[i], lake: i => c.lakeWet[i], perma: i => c.soil.permafrost[i],
     sigT: i => sigT[i], sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
     reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
