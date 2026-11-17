@@ -10,7 +10,7 @@ import { FIELDS, fieldsOf } from '../../src/engine/peoplelink.js';
 
 export { fieldsOf };
 const CACHE = join(dirname(fileURLToPath(import.meta.url)), '.cache');
-const VERSION = 5;   // 4: the ores' geology (arc, phi, age); 5: the sea's heat transport and the template's belts (2026-11-17)
+const VERSION = 6;   // bumped when the planet's climate changes (6: the clouds)
 
 export async function planetFields(seed = 'earthlike', level = 6, { log = () => {} } = {}) {
   const file = join(CACHE, `${seed}-l${level}-v${VERSION}.bin`), grid = buildGrid(level), n = grid.n;

@@ -19,6 +19,7 @@ The model is `src/engine/people.js` (`PEOPLE`; its header holds the forms), run 
 
 ## Lineages, spread and farming
 
+- **The first hominins** start at the heart of the broadest tree–grass mosaic (H.mosaic, b × 4·trees·grass, summed within `R_ORIGIN` 1,000 km) on the landmass that can hold the most of them (`seed`; speculation): an ape radiation lives across an ecotone, and the best single cell is a near tie among tropical coasts.
 - **Lineages are kinds of hominin** (soft species: a heritable trait; splits after 200 kyr apart). Two in contact (sharing `MERGE` 10%) for `T_MERGE` merge, faster with culture's pace; a merge keeps each cell's higher culture and the higher trait, ancestry weighted by numbers; gene flow carries each side's advantage across while in contact.
 - **Crossing the sea** (synthesis, `tools/people/settle.mjs`): sea edges are every crossing of up to `HOPS` (6) sea cells, plus each landmass group's `K_LONG` (4) nearest groups to `LONG_HOPS` (40), then whatever is still apart. An empty shore is settled by a voyage (`voyages`): `FOUNDERS` (50) at a rate `S_SEA` × crowding × e^{z/Z_V} × e^{−km/reach}, reach = `L_SEA0` + `L_SEA` z (rafts, then boats). Farming and industry spread across a crossing by e^{−km/reach} too. Cold opens faster with culture (`K_COLD`).
 - **Fields** keep to each cell's deep, flat bottoms (`fieldSoil`), at most its arable share (`H.arable`: no permafrost, rain-fed above 400 mm/yr); they go back to the wild over `T_WILD` where no one works them; nothing grows past the cover's heat limit.

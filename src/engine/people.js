@@ -98,8 +98,8 @@
 //   lineages  a lineage whose range stays broken into isolated pieces for T_SPLIT splits; gene flow
 //             where lineages meet mixes their traits and ancestry, and two that keep sharing most of
 //             the smaller's range for T_MERGE become one (soft species, synthesis). The first
-//             hominins are placed in the best tree–grass mosaic on the landmass that can hold the
-//             most of them (speculation).
+//             hominins are placed at the heart of the broadest tree–grass mosaic on the landmass that can hold the
+//             most of them, summed over R_ORIGIN (speculation).
 //
 // Units: years, km, people, z in e-folds; output in subsistence-years a year (sy/yr, a person's
 // subsistence a year), capital in sy; energy in W; carbon in Pg C.
@@ -151,6 +151,7 @@ export const PEOPLE = {
   K_G: 0.1,                        // … and raises foraging's yield, e^{K_G g} (cooking, hunting: speculation)
   // Lineages
   L_MAX: 12, CHECK: 10e3, T_SPLIT: 200e3, P_MIN: 3000, N_MIN: 0.003, P_EXT: 100, GENE_FLOW: 2e-3,   // N_MIN per km²; CHECK and T_MERGE shorten with culture's pace (e^{−z/Z_V}: people travel and mix as they copy), so lineages sharing a range merge within centuries once they do
+  R_ORIGIN: 1000,                  // km: the first hominins at the heart of the broadest tree–grass mosaic, summed this far (speculation)
   MERGE: 0.1, T_MERGE: 50e3,       // lineages in contact (sharing this much of the smaller's numbers) for T_MERGE become one: kinds of hominin interbreeding where they meet (soft species; with half shared, lineages on two continents met only at their coasts and never merged: 3–6 at takeoff)
   // Farming
   Z_FARM: 3, W_FARM: 0.25, H_FARM: 2e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, W_PKG: 2,
@@ -938,15 +939,27 @@ export class People {
     this.lineages.push(L);
     return L;
   }
-  // The first hominins: the best tree–grass mosaic on the landmass that can hold the most of them
-  // (a radiation of apes lives on a continent, not an islet).
+  // The first hominins: the heart of the broadest tree–grass mosaic (the mosaic summed within
+  // R_ORIGIN) on the landmass that can hold the most of them. A radiation of apes lives across an
+  // ecotone on a continent, not in one cell or on an islet: the best single cell is a near tie among
+  // tropical coasts the world over (on today's Earth within 2% from Southeast Asia to West Africa).
   seed() {
     const H = this.H, nL = this.nL, body = this.components(() => true, 0);
     const room = new Float64Array(body.count);
     for (let c = 0; c < nL; c++) room[body.id[c]] += H.area[c] * H.b[c] * this.coldOK(c, 0);
     let home = 0; for (let k = 1; k < body.count; k++) if (room[k] > room[home]) home = k;
-    let best = -1;
-    for (let c = 0; c < nL; c++) if (body.id[c] === home && (best < 0 || H.mosaic[c] > H.mosaic[best])) best = c;
+    const cand = [];
+    for (let c = 0; c < nL; c++) if (body.id[c] === home && H.mosaic[c] > 0) cand.push(c);
+    const xyz = cand.map(c => [Math.cos(H.lat[c]) * Math.cos(H.lon[c]), Math.cos(H.lat[c]) * Math.sin(H.lon[c]), Math.sin(H.lat[c])]);
+    const cosR = Math.cos(this.P.R_ORIGIN / R);
+    let best = -1, bestS = -1;
+    for (let a = 0; a < cand.length; a++) {
+      const [x, y, z] = xyz[a];
+      let sum = 0;
+      for (let b = 0; b < cand.length; b++) { const q = xyz[b]; if (x * q[0] + y * q[1] + z * q[2] > cosR) sum += H.area[cand[b]] * H.mosaic[cand[b]]; }
+      if (sum > bestS) { bestS = sum; best = cand[a]; }
+    }
+    if (best < 0) for (let c = 0; c < nL; c++) if (body.id[c] === home && (best < 0 || H.b[c] > H.b[best])) best = c;
     const L = this.newLineage(null, 0, 0);
     L.lat = H.lat[best]; L.lon = H.lon[best];
     const E = this.E, seedCells = [best];

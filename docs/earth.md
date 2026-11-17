@@ -21,7 +21,7 @@ Climate (`tools/earth/climate-score.mjs`, level 6, settled; against UDel, OISST,
 - The sea: the overturning 11.3 Sv (`EKMAN` and `LAMBDA` at Earth's measured scale), 1.2 PW north across 26° N; 60–70° N's sea ~2 °C (4.4 observed), the Nordic Seas ~2 against 6.3 °C, the Barents frozen (its water doesn't reach it).
 - Doubled CO₂ warms it 2.8 K with the ice sheets held.
 - Lakes: routed on each cell's lowest land, ~2.5 M km² at level 7 (the Black Sea to its spill, the Baltic, the Great Lakes, Baikal, Chad, Eyre); the Caspian too full (the Aral spills into it); Lake Victoria missing (no bathymetry under it).
-- Tides on the page ~4.8 TW (Earth's ~3.7). People: the first hominins at 1° S, 40° E.
+- Tides on the page ~4.8 TW (Earth's ~3.7). People: the first hominins in central Africa (~2°, 20–23° E: the broadest tree–grass mosaic; East Africa itself is too wooded here), lineages reaching Asia and Europe within ~220 kyr.
 
 ## Known errors
 
