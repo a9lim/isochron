@@ -106,11 +106,20 @@ export class Regolith {
   }
 
   /** P₀ (m/yr) at world cell i, by the climate (the reference before the climate has run). */
-  p0(i) {
-    const R = REGOLITH, c = this.climate;
-    if (!c || !(c.stats && c.stats.cycles > 0)) return R.P0 * 1e-3;
-    const run = Math.max(0, c.runoff[i]), T = Math.min(45, c.Tf[0][i] - 6.5 * c.elevPos[i]);   // no faster past a hot wet tropic's (a runaway planet's surface is dry)
-    return R.P0 * 1e-3 * Math.pow(run / R.RUNOFF0, R.RUNOFF_EXP) * Math.exp((T - R.T0) / R.TE);
+  p0(i) { return this.p0s()[i]; }
+  /** Every cell's P₀, kept until the climate's next cycle (or a change to REGOLITH's constants). */
+  p0s() {
+    const R = REGOLITH, c = this.climate, n = this.n;
+    const key = !c || !(c.stats && c.stats.cycles > 0) ? -1 : c.version;
+    const v = this.p0v || (this.p0v = new Float64Array(n));
+    if (key === this.p0Key && this.p0R === R.P0 + R.RUNOFF0 + R.RUNOFF_EXP + R.T0 + R.TE) return v;
+    this.p0Key = key; this.p0R = R.P0 + R.RUNOFF0 + R.RUNOFF_EXP + R.T0 + R.TE;
+    if (key < 0) { v.fill(R.P0 * 1e-3); return v; }
+    for (let i = 0; i < n; i++) {
+      const run = Math.max(0, c.runoff[i]), T = Math.min(45, c.Tf[0][i] - 6.5 * c.elevPos[i]);   // no faster past a hot wet tropic's (a runaway planet's surface is dry)
+      v[i] = R.P0 * 1e-3 * Math.pow(run / R.RUNOFF0, R.RUNOFF_EXP) * Math.exp((T - R.T0) / R.TE);
+    }
+    return v;
   }
 
   /** Is world cell i weathering ground (land, not under ice)? */
@@ -142,11 +151,12 @@ export class Regolith {
   sample() {
     const t = this.tec, n = this.n, R = REGOLITH, h = this.h, h0 = R.H0;
     let la = 0, hs = 0, bare = 0, sa = 0, ss = 0;
+    const p0 = this.p0s(), sea = t.sea, H = this.ice ? this.ice.H : null, hs0 = R.H_SOFT, iceH = R.ICE;
     for (let i = 0; i < n; i++) {
       h[i] = t.plates[t.owner[i]].reg[t.ref[i]];
-      const g = this.ground(i);
-      this.prod[i] = g ? this.p0(i) * 1e3 * Math.exp(-h[i] / h0) : 0;
-      this.soft[i] = 1 - Math.exp(-h[i] / R.H_SOFT);
+      const g = !sea[i] && !(H && H[i] > iceH);   // this.ground(i)
+      this.prod[i] = g ? p0[i] * 1e3 * Math.exp(-h[i] / h0) : 0;
+      this.soft[i] = 1 - Math.exp(-h[i] / hs0);
       if (!t.sea[i]) { const a = this.areaKm[i]; la += a; hs += a * h[i]; if (h[i] < 0.05) bare += a; }
       if (this.ice && this.ice.H[i] > R.ICE) { const a = this.areaKm[i]; sa += a; ss += a * this.soft[i]; }
     }
@@ -229,11 +239,11 @@ export class Regolith {
     this.stats.glacial = is && is.area > 0 ? 1000 * is.erosion / is.area : 0;    // mm/yr under the ice, its rate now
     // Production against the rivers, on weathering ground.
     if (years > 0) {
-      const E = land.erosion;
+      const E = land.erosion, p0 = this.p0s();
       for (let i = 0; i < n; i++) {
         if (!this.ground(i)) continue;
         const p = plates[owner[i]], j = ref[i];
-        p.reg[j] = regolithStep(p.reg[j], this.p0(i), (E[i] || 0) * 1e-3, years);
+        p.reg[j] = regolithStep(p.reg[j], p0[i], (E[i] || 0) * 1e-3, years);
       }
     }
     this.sample();

@@ -159,6 +159,9 @@ export const CLIMATE = {
   HIGH_LAND: 0.75,         // Earth (0.85 before the sea's heat transport)
   CARRY: 0.4,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes
   KAPPA_W: 1.65e5,         // km²/day, eddy mixing of moisture (Earth; 7e4, then 1.45e5)
+  // The eddies' mixing is the storm tracks': KW_TROP of it in the deep tropics, the whole past KW_LAT[1]°
+  // (smoothly from KW_LAT[0]°), where the mean circulation carries the water (standard in kind).
+  KW_TROP: 0.3, KW_LAT: [10, 30],
   CONV_A: 15.6,            // convective rain = (W_s/60 mm) e^{a (r − r₀)} mm/day at column humidity r
   CONV_R0: 0.743,          //   (the shape of Bretherton and others' tropical fit, from memory; r₀ Earth, 0.603, then 0.693)
   RAIN_BG: 0.14,           // 1/day where the air isn't sinking (Earth; 0.08 ungated, then 0.12)
@@ -181,6 +184,7 @@ export const CLIMATE = {
   RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
   LAND_EVAP: 0.56,         // land's evaporation relative to the sea's, at the soil's full efficiency (β = 1): retuned
   LAND_EVAP_COVER: 0.46,   // the same with the plants' cover (src/engine/vegetation.js's factors): Earth (0.52 before)
+  LAND_FLUX: 1,            // over land the air takes the ground's own evaporation (its year's, × this; 1 keeps the water), once the ground has a year; 0: the deficit's, as the sea
   LAKE_ICE: 0.15,          // a frozen lake's evaporation relative to open water's
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
@@ -446,6 +450,7 @@ export class Climate {
     this.peAnn = new Float32Array(n);          // m/yr: rain less potential evaporation (what open water gains)
     this.pAnn = new Float32Array(n);           // m/yr: rain (land)
     this.betaPh = Array.from({ length: NP }, () => new Float32Array(n).fill(0.5));   // the ground's evaporative efficiency at each point of the year
+    this.evapPh = Array.from({ length: NP }, () => new Float32Array(n));            // the ground's evaporation at each point of the year (mm/day), the air's source over land
     this.soilWarm = false;
     this.lakes = null;   // src/engine/lakes.js, when there is one
     this.lakeWet = new Float32Array(n);        // the lakes' share of each cell, as this cycle saw it
@@ -1053,6 +1058,25 @@ export class Climate {
     if (this.dust) { yield; yield* this.dust.phaseSteps(p, T); }
   }
 
+  /** Whether the air takes land's evaporation from the ground (LAND_FLUX, once the ground has had a year). */
+  landFlux() { return CLIMATE.LAND_FLUX > 0 && !!this.soilWarm; }
+
+  /**
+   * Each edge's share of KAPPA_W (the eddies' mixing of moisture): KW_TROP in the deep tropics,
+   * rising to the whole between KW_LAT's latitudes, at the edge's mean latitude (kept until those move).
+   */
+  mixFactor() {
+    const C = CLIMATE, g = this.grid, n = g.n, key = `${C.KW_TROP},${C.KW_LAT}`;
+    if (this.kfKey === key) return this.kf;
+    const kf = this.kf || (this.kf = new Float32Array(g.nbrOff[n])), l0 = C.KW_LAT[0] * Math.PI / 180, l1 = C.KW_LAT[1] * Math.PI / 180;
+    for (let i = 0; i < n; i++) for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+      const la = 0.5 * (Math.abs(this.lat[i]) + Math.abs(this.lat[g.nbr[t]]));
+      kf[t] = C.KW_TROP + (1 - C.KW_TROP) * ramp(la, l0, l1);
+    }
+    this.kfKey = key;
+    return kf;
+  }
+
   /** Each cell's descent (0–1) under the carrying wind (CLIMATE.SUB_V; see SUB_R0): its equatorward speed over SUB_V. */
   descent(wind) {
     const n = this.grid.n, e = this.eqw, sub = this.sinking, v0 = CLIMATE.SUB_V;
@@ -1071,12 +1095,15 @@ export class Climate {
       this.gpu.setGeography(this, C, VEG);
       const beta = this.betaPh[p], G = this.ground, gw = G && G.betaSlow ? G.weight : 0, gratio = gw > 0 ? G.betaRatio : null;
       const bf = this.betaF || (this.betaF = new Float32Array(n));
-      if (gw > 0) for (let i = 0; i < n; i++) bf[i] = beta[i] * (1 - gw + gw * gratio[i]); else bf.set(beta);
+      if (this.landFlux()) {
+        const ev = this.evapPh[p], lw = this.lakeWet, k = C.LAND_FLUX;
+        for (let i = 0; i < n; i++) bf[i] = this.landMask[i] ? k * (1 - lw[i]) * ev[i] * (gw > 0 ? 1 - gw + gw * gratio[i] : 1) : 0;
+      } else if (gw > 0) for (let i = 0; i < n; i++) bf[i] = beta[i] * (1 - gw + gw * gratio[i]); else bf.set(beta);
       yield this.gpu.solveFrom(wind, T, bf, this.W[p], this.Pph[p], this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, C.CONV_A, C.CONV_R0, pmax, this.descent(wind), this.W[p]);
       return;
     }
-    if (!this.edgeU) { this.edgeU = new Float32Array(m); this.coefA = new Float64Array(n); this.ws_ = new Float64Array(n); this.lam = new Float64Array(n); this.ecoef = new Float64Array(n); }
-    const un = this.edgeU, A = this.coefA, Ws = this.ws_, lam = this.lam, ec = this.ecoef;
+    if (!this.edgeU) { this.edgeU = new Float32Array(m); this.coefA = new Float64Array(n); this.ws_ = new Float64Array(n); this.lam = new Float64Array(n); this.ecoef = new Float64Array(n); this.lflux = new Float64Array(n); }
+    const un = this.edgeU, A = this.coefA, Ws = this.ws_, lam = this.lam, ec = this.ecoef, fl = this.lflux;
     const toKmDay = 86.4;
     // Edge-normal winds, and the divergence.
     const div = this.scratch.F[2];
@@ -1107,7 +1134,14 @@ export class Climate {
       r0[i] = C.CONV_R0 + C.SUB_R0 * sub[i];
       cvf[i] = ramp(Ts, C.CONV_T0, C.CONV_T1);
       let e = C.EVAP * (speed + 3) / 10;
-      if (land) {
+      fl[i] = 0;
+      if (land && this.landFlux()) {
+        // The ground's own evaporation (its year's, at this point of the year: the water the soil
+        // loses is the air's), off the land a lake doesn't cover; a lake's open water as the sea's.
+        const lw = this.lakeWet[i];
+        fl[i] = C.LAND_FLUX * (1 - lw) * this.evapPh[p][i] * (gw > 0 ? 1 - gw + gw * gratio[i] : 1);
+        e = lw * e * (1 - (1 - C.LAKE_ICE) * ramp(-Ts, 0, 4.5));
+      } else if (land) {
         // The soil's evaporative efficiency at this point of the year, and a lake's open water.
         // With the plants' cover: bare ground and grass at β, trees at √β (deeper roots).
         const b = beta[i] * (gw > 0 ? 1 - gw + gw * gratio[i] : 1), cv = this.cover;
@@ -1119,7 +1153,7 @@ export class Climate {
       A[i] = g.area[i] * areaKm;
     }
     // Each cell solves a W + A P(W) = b, P convex in W, by Newton from its last value.
-    const sweeps = this.warm ? C.SWEEPS : 4 * C.SWEEPS, ca = C.CONV_A, cr = C.CONV_R0, kap = C.KAPPA_W;
+    const sweeps = this.warm ? C.SWEEPS : 4 * C.SWEEPS, ca = C.CONV_A, cr = C.CONV_R0, kap = C.KAPPA_W, kf = this.mixFactor();
     if (this.gpu) {
       // On the GPU (src/gpu/moisture.js): every cell at once, many times (the page's engine).
       const co = this.gpuCo || (this.gpuCo = new Float32Array(16 * n)), cin = new Float64Array(6);
@@ -1127,14 +1161,14 @@ export class Climate {
         let a = 0;
         cin.fill(0);
         for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-          const k = t - nbrOff[i], L = ell[t] * R_KM * toKmDay, u = un[t], kd = kap * ell[t] / dist[t];
+          const k = t - nbrOff[i], L = ell[t] * R_KM * toKmDay, u = un[t], kd = kap * kf[t] * ell[t] / dist[t];
           if (u > 0) a += u * L; else cin[k] -= u * L;
           a += kd; cin[k] += kd;
         }
         const Ai = A[i], ws = Ws[i], o = 16 * i;
         a += Ai * (lam[i] + ec[i]);
         co[o] = cin[0]; co[o + 1] = cin[1]; co[o + 2] = cin[2]; co[o + 3] = cin[3];
-        co[o + 4] = cin[4]; co[o + 5] = cin[5]; co[o + 6] = a; co[o + 7] = Ai * ec[i] * ws;
+        co[o + 4] = cin[4]; co[o + 5] = cin[5]; co[o + 6] = a; co[o + 7] = Ai * (ec[i] * ws + fl[i]);
         co[o + 8] = cvf[i] * Ai * ws / 60 * Math.exp(-ca * r0[i]); co[o + 9] = ca / ws; co[o + 10] = lam[i]; co[o + 11] = ws;
         co[o + 12] = Ai; co[o + 13] = Ai * pmax; co[o + 14] = r0[i]; co[o + 15] = cvf[i];
       }
@@ -1149,13 +1183,13 @@ export class Climate {
         let a = 0, b = 0;
         for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
           const j = nbr[t], L = ell[t] * R_KM * toKmDay, u = un[t];
-          const kd = kap * ell[t] / dist[t];
+          const kd = kap * kf[t] * ell[t] / dist[t];
           if (u > 0) a += u * L; else b -= u * L * W[j];
           a += kd; b += kd * W[j];
         }
         const Ai = A[i], ws = Ws[i];
         a += Ai * (lam[i] + ec[i]);
-        b += Ai * ec[i] * ws;
+        b += Ai * (ec[i] * ws + fl[i]);
         const k0 = cvf[i] * Ai * ws / 60 * Math.exp(-ca * r0[i]), al = ca / ws;
         let w = Math.min(W[i], b / a);
         for (let it = 0; it < 4; it++) {
@@ -1300,15 +1334,16 @@ export class Climate {
       if (!(smax > 0)) {
         this.runoff[i] = 0;
         for (let m = 0; m < 12; m++) this.runoffM[b + m] = 0;
-        for (let p = 0; p < NP; p++) this.betaPh[p][i] = 0;
+        for (let p = 0; p < NP; p++) this.betaPh[p][i] = this.evapPh[p][i] = 0;
         continue;
       }
       this.runoff[i] = s.runoff[i] / 1000;
-      for (let p = 0; p < NP; p++) this.betaPh[p][i] = 0;
+      for (let p = 0; p < NP; p++) this.betaPh[p][i] = this.evapPh[p][i] = 0;
       for (let m = 0; m < 12; m++) {
         const k = b + m, sw = o.SWE[k];
         this.runoffM[k] = (o.quick[k] + o.base[k]) / 1000;
         this.betaPh[ph[m]][i] += Math.min(1, o.S[k] / smax / FC) * (1 - sw / (sw + CV)) / cnt[ph[m]];
+        this.evapPh[ph[m]][i] += o.evap[k] / 30.44 / cnt[ph[m]];
       }
     }
     if (this.land) this.land.runoff.set(this.runoff);

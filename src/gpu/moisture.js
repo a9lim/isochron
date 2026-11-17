@@ -57,8 +57,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 // (et: the tangent × the edge's length, the eddy mixing's κℓ/d; pads zero).
 // a: (R_KM·86.4, R_KM², RAIN_BG, RAIN_ORO); b: (EVAP, land's evaporation, LAKE_ICE, LAPSE);
 // c: (CONV_A, CONV_R0, RAIN_MAX, cover?); d: (E_BARE, E_TREE, W0, WA); e: (SUB_R0, SUB_BG, BG_R1, BG_R2);
-// f: (CONV_T0, CONV_T1).
-// tb: (T, β's factor, descent, the last solve's W: the background rain's humidity).
+// f: (CONV_T0, CONV_T1, land's evaporation the ground's?).
+// tb: (T, β's factor or the ground's evaporation (mm/day), descent, the last solve's W: the background rain's humidity).
 const PACK = /* wgsl */`
 struct Pu { n: u32, p0: u32, p1: u32, p2: u32, a: vec4f, b: vec4f, c: vec4f, d: vec4f, e: vec4f, f: vec4f };
 @group(0) @binding(0) var<uniform> U: Pu;
@@ -99,7 +99,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let lam = U.a.z * (0.25 + 0.75 * exp(-max(0.0, div) / 3e-6 - U.e.y * sub)) * ramp(tb[i].w / ws, U.e.z, U.e.w) + U.a.w * max(0.0, dot(wi, h.xyz));
   let r0 = U.c.y + U.e.x * sub;
   var e = U.b.x * (length(wi) + 3.0) / 10.0;
-  if (land) {
+  var flux = 0.0;
+  if (land && U.f.z > 0.5) {
+    // The ground's own evaporation (tb.y, mm/day, off the land a lake doesn't cover); a lake's open water as the sea's.
+    flux = tb[i].y;
+    e = h.w * e * (1.0 - (1.0 - U.b.z) * ramp(-Ts, 0.0, 4.5));
+  } else if (land) {
     let b = tb[i].y;
     var bc = b;
     if (U.c.w > 0.5) { let v = s2[i]; bc = (U.d.x * max(0.0, 1.0 - v.x - v.y) + v.y) * b + U.d.y * v.x * sqrt(b); }
@@ -109,7 +114,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let A = g.w * U.a.y;
   a += A * (lam + e);
   co[4u * i] = vec4f(cin[0], cin[1], cin[2], cin[3]);
-  co[4u * i + 1u] = vec4f(cin[4], cin[5], a, A * e * ws);
+  co[4u * i + 1u] = vec4f(cin[4], cin[5], a, A * (e * ws + flux));
   let cvf = ramp(Ts, U.f.x, U.f.y);
   co[4u * i + 2u] = vec4f(cvf * A * ws / 60.0 * exp(-U.c.x * r0), U.c.x / ws, lam, ws);
   co[4u * i + 3u] = vec4f(A, A * U.c.z, r0, cvf);
@@ -186,23 +191,24 @@ export class GpuMoisture {
       if (cv) { s2[2 * i] = cv.ft[i]; s2[2 * i + 1] = cv.fg[i]; }
     }
     q.writeBuffer(this.S0, 0, s0); q.writeBuffer(this.S1, 0, s1); if (cv) q.writeBuffer(this.S2, 0, s2);
-    // κℓ/d in km²/day per edge (the eddy mixing), rewritten when κ moves.
-    if (C.KAPPA_W !== this.kappa) {
-      const et = Float32Array.from(this.et);
-      for (let k = 3; k < et.length; k += 4) et[k] *= C.KAPPA_W;
-      q.writeBuffer(this.ET, 0, et); this.kappa = C.KAPPA_W;
+    // κℓ/d in km²/day per edge (the eddy mixing, by latitude: Climate.mixFactor), rewritten when κ or its profile moves.
+    const kf = c.mixFactor(), kkey = `${C.KAPPA_W},${c.kfKey}`;
+    if (kkey !== this.kappa) {
+      const et = Float32Array.from(this.et), go = g.nbrOff;
+      for (let i = 0; i < n; i++) for (let k = 0; k < go[i + 1] - go[i]; k++) et[4 * (6 * i + k) + 3] *= C.KAPPA_W * kf[go[i] + k];
+      q.writeBuffer(this.ET, 0, et); this.kappa = kkey;
     }
     const u = new ArrayBuffer(112), ui = new Uint32Array(u), f = new Float32Array(u);
     ui[0] = n;
     f.set([6371 * 86.4, 6371 * 6371, C.RAIN_BG, C.RAIN_ORO, C.EVAP, cv ? C.LAND_EVAP_COVER : C.LAND_EVAP, C.LAKE_ICE, C.LAPSE,
-      C.CONV_A, C.CONV_R0, C.RAIN_MAX, cv ? 1 : 0, V.E_BARE, V.E_TREE, 25, 0.065, C.SUB_R0, C.SUB_BG, C.BG_R1, C.BG_R2, C.CONV_T0, C.CONV_T1, 0, 0], 4);
+      C.CONV_A, C.CONV_R0, C.RAIN_MAX, cv ? 1 : 0, V.E_BARE, V.E_TREE, 25, 0.065, C.SUB_R0, C.SUB_BG, C.BG_R1, C.BG_R2, C.CONV_T0, C.CONV_T1, c.landFlux() ? 1 : 0, 0], 4);
     q.writeBuffer(this.Pu, 0, u);
   }
 
   /**
    * The balance at one point of the year from its inputs: the carrying wind (3n, m/s), the
    * sea-level temperature (n) and β's factor (n, land's evaporative efficiency with the live
-   * ground's ratio), the descent (n, 0–1: Climate.descent) and the last solve's W (the background
+   * ground's ratio; where the climate's landFlux() holds, the ground's evaporation, mm/day), the descent (n, 0–1: Climate.descent) and the last solve's W (the background
    * rain's humidity); `iters` Jacobi passes from W (overwritten), the rain into P (mm/day).
    */
   async solveFrom(wind, T, beta, W, P, iters, ca, cr, pmax, sub = null, Wlast = null) {

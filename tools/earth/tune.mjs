@@ -3,9 +3,10 @@
 // processes), takes the best, then tries every improving move together; with none, the steps halve.
 // usage: node tools/earth/tune.mjs spec.json [rounds] [objective]
 //   spec.json: { "params": [{ "key": "CLIMATE.A", "lo": 200, "hi": 210, "x": 205.5, "step": 1 }, …],
-//                "fixed": { "CLIMATE": {…}, "VEG": {…}, "SEAHEAT": {…}, "AIRHEAT": {…}, "CLOUDS": {…} } }
+//                "fixed": { "CLIMATE": {…}, "VEG": {…}, "SEAHEAT": {…}, "AIRHEAT": {…}, "CLOUDS": {…}, "SOIL": {…} } }
 //   objective: temp (default: land temperature, the sea's surface and ice, the Köppen groups), all (with rain),
-//   or rad (temp with the Köppen classes and the top of the atmosphere against CERES: reflected and outgoing by cell and zone, clear and all-sky, and the clouds' forcing)
+//   rad (temp with the Köppen classes and the top of the atmosphere against CERES: reflected and outgoing by cell and zone, clear and all-sky, and the clouds' forcing),
+//   or reg (rad with land's rain and the rain of the regions in REG_RAIN)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -16,24 +17,30 @@ const spec = JSON.parse(readFileSync(specPath, 'utf8'));
 const P = spec.params, ROUNDS = +roundsArg, JOBS = Math.max(1, Math.min(16, cpus().length - 2));
 const score = fileURLToPath(new URL('./climate-score.mjs', import.meta.url));
 
+// The regions whose rain `reg` weighs (climate-score.mjs's REGIONS), with their weights.
+const REG_RAIN = [['E N America', 1], ['E China', 1], ['India', 1], ['E Africa', 1], ['Amazon', 0.5], ['Congo', 0.5]];
+const regRain = j => REG_RAIN.reduce((s, [k, w]) => s + w * Math.log(Math.max(1e-3, j.regions[k].rain)) ** 2, 0);
 const OBJ = {
   temp: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 0.5 * j.seas + 20 * j.ice + 10 * (1 - j.group),
   all: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 0.5 * j.seas + 20 * j.ice + 10 * (1 - j.group) + 6 * j.rain + 10 * (1 - j.koppen),
   // 10 W/m² rms by cell, or 5 by zone, weighs about as a kelvin of land's year.
   rad: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 0.5 * j.seas + 20 * j.ice + 10 * (1 - j.group) + 10 * (1 - j.koppen)
     + (j.toa.sw + j.toa.lw + j.toa.cs + j.toa.cl) / 10 + (j.toa.zsw + j.toa.zlw + j.toa.zswc + j.toa.zlwc) / 5,
+  // rad with land's rain (as `all` weighs it) and the rain of the regions in REG_RAIN, each's log
+  // ratio squared (4 × a ratio of e weighs as 4 K of land's year).
+  reg: j => OBJ.rad(j) + 6 * j.rain + 4 * regRain(j),
 };
 const objective = OBJ[objName];
 
 function overrides(x) {
-  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) }, AIRHEAT: { ...(spec.fixed?.AIRHEAT || {}) }, CLOUDS: { ...(spec.fixed?.CLOUDS || {}) } };
+  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) }, AIRHEAT: { ...(spec.fixed?.AIRHEAT || {}) }, CLOUDS: { ...(spec.fixed?.CLOUDS || {}) }, SOIL: { ...(spec.fixed?.SOIL || {}) } };
   P.forEach((p, k) => { const [ns, key] = p.key.split('.'); o[ns][key] = x[k]; });
   return o;
 }
 function run(x) {
   const o = overrides(x);
   return new Promise(resolve => {
-    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT), AIRO: JSON.stringify(o.AIRHEAT), CLOUDO: JSON.stringify(o.CLOUDS) } });
+    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT), AIRO: JSON.stringify(o.AIRHEAT), CLOUDO: JSON.stringify(o.CLOUDS), SOILO: JSON.stringify(o.SOIL) } });
     let out = '';
     ch.stdout.on('data', d => { out += d; });
     ch.on('close', () => {
@@ -50,7 +57,8 @@ async function pool(xs) {
 }
 const clamp = (v, p) => Math.min(p.hi, Math.max(p.lo, v));
 const rad = j => (j.toa ? ` · TOA ${j.toa.sw.toFixed(1)}/${j.toa.lw.toFixed(1)} (cre ${j.toa.cs.toFixed(1)}/${j.toa.cl.toFixed(1)}, zones ${j.toa.zsw.toFixed(1)}/${j.toa.zlw.toFixed(1)}/${j.toa.zswc.toFixed(1)}/${j.toa.zlwc.toFixed(1)})` : '');
-const show = r => `f ${r.f.toFixed(3)} · T rms ${r.j.rmsY.toFixed(2)}/${r.j.rmsJ.toFixed(2)}/${r.j.rmsL.toFixed(2)} bias ${r.j.bias.toFixed(2)} · sea ${r.j.sea.toFixed(2)} (seas ${r.j.seas.toFixed(2)}) · ice ${r.j.ice.toFixed(3)} · rain ${r.j.rain.toFixed(2)} · Köppen ${(100 * r.j.koppen).toFixed(0)}/${(100 * r.j.group).toFixed(0)}% · ${r.j.meanT.toFixed(1)} °C${rad(r.j)}`;
+const regs = j => (objName === 'reg' ? ` · rain ${REG_RAIN.map(([k]) => `${k.replace(/ /g, '')} ${j.regions[k].rain.toFixed(2)}`).join(' ')}` : '');
+const show = r => `f ${r.f.toFixed(3)} · T rms ${r.j.rmsY.toFixed(2)}/${r.j.rmsJ.toFixed(2)}/${r.j.rmsL.toFixed(2)} bias ${r.j.bias.toFixed(2)} · sea ${r.j.sea.toFixed(2)} (seas ${r.j.seas.toFixed(2)}) · ice ${r.j.ice.toFixed(3)} · rain ${r.j.rain.toFixed(2)} · Köppen ${(100 * r.j.koppen).toFixed(0)}/${(100 * r.j.group).toFixed(0)}% · ${r.j.meanT.toFixed(1)} °C${rad(r.j)}${regs(r.j)}`;
 const fmt = x => P.map((p, k) => `${p.key.split('.')[1]} ${+x[k].toPrecision(4)}`).join(', ');
 
 let best = (await pool([P.map(p => p.x)]))[0];

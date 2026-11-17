@@ -7,7 +7,7 @@
 // The top of the atmosphere against CERES EBAF (obs.py's sdn, sup, supc, olr, olrc): the sunlight
 // reflected and the outgoing longwave, clear and all-sky, per cell through the year (the energy
 // balance's 24 samples, two a month), by cell and by 10° zone, and the clouds' forcing.
-// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO, AIRO and CLOUDO (overrides-json for VEG, SEAHEAT, AIRHEAT and CLOUDS), LEVEL (6), MAX (40), QUIET=1 (summary only)
+// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO, AIRO, CLOUDO and SOILO (overrides-json for VEG, SEAHEAT, AIRHEAT, CLOUDS and SOIL), LEVEL (6), MAX (40), QUIET=1 (summary only)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildGrid } from '../../src/grid/icosphere.js';
@@ -25,12 +25,14 @@ import { loadEarth, earthGenesis, earthIce } from '../../src/engine/earth.js';
 import { SEAHEAT } from '../../src/engine/seaheat.js';
 import { AIRHEAT } from '../../src/engine/airheat.js';
 import { CLOUDS, shortwave, longwave } from '../../src/engine/clouds.js';
+import { SOIL } from '../../src/engine/soil.js';
 
 Object.assign(CLIMATE, JSON.parse(process.argv[2] || '{}'));
 Object.assign(VEG, JSON.parse(process.env.VEGO || '{}'));
 Object.assign(SEAHEAT, JSON.parse(process.env.SEAO || '{}'));
 Object.assign(AIRHEAT, JSON.parse(process.env.AIRO || '{}'));
 Object.assign(CLOUDS, JSON.parse(process.env.CLOUDO || '{}'));
+Object.assign(SOIL, JSON.parse(process.env.SOILO || '{}'));
 const LEVEL = +(process.env.LEVEL || 6), QUIET = !!process.env.QUIET;
 const cache = fileURLToPath(new URL('./.cache/', import.meta.url));
 const meta = JSON.parse(readFileSync(`${cache}obs-${LEVEL}.json`, 'utf8'));
