@@ -1,5 +1,5 @@
 // The people's thread (Roadmap 2.0: docs/PLAN.md; the model is src/engine/people.js), beside the
-// engine's. The People experiment starts it with a port to the engine's thread:
+// engine's. The People scenario starts it with a port to the engine's thread:
 //   from the engine   `fields` after each climate cycle (the planet's fields on the people's grid,
 //                     src/engine/peoplelink.js), `air` a few times a second (CO₂, the regolith)
 //   to the engine     `writeback` ~10 times a second: farmed shares and tillage a cell, the carbon
@@ -16,13 +16,11 @@
 import { buildGrid } from '../grid/icosphere.js';
 import { People } from './people.js';
 import { figureOf } from './peoplefit.js';
-import { measureFor } from './peopleexp.js';
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
 let grid = null, people = null, port = null, params = {}, owed = 0, lastStep = 0, timer = 0;
 let lastPost = 0, lastDrawn = 0, lastBack = 0, lastFig = 0, eventsSent = 0, msPerStep = 5, dtLast = 1;
-let measure = null, theory = null, theoryAsked = false;   // the experiment's number (src/engine/peopleexp.js); the Pulse's theory for the Carbon budget, from the engine
 // The planet's side: its CO₂, how much of the sea has boiled (src/engine/runaway.js), and its warming since the people began.
 const env = { live: true, pco2: 280, bank: 0, boiled: 0, years: 0, meanT: null, T0: null, get dT() { return this.meanT === null ? 0 : this.meanT - this.T0; },
   co2() { return this.pco2; }, emit(PgC) { this.bank += PgC; }, soil() {} };
@@ -32,17 +30,10 @@ self.onmessage = e => {
   if (m.type === 'init') {
     grid = buildGrid(m.level); params = m.params || {};
     port = m.port; port.onmessage = onEngine;
-  } else if (m.type === 'tick') { if (people && !(measure && measure.freeze)) { owed += m.adv; schedule(0); } }
+  } else if (m.type === 'tick') { if (people) { owed += m.adv; schedule(0); } }
   else if (m.type === 'params') {
     Object.assign(params, m.params);
-    if (!people) return;
-    // The fossil carbon (the Carbon budget's knob) before industry: the stock and its map rescaled.
-    if ('FOSSIL' in m.params && !people.econ.on && people.P.FOSSIL > 0) {
-      const k = m.params.FOSSIL / people.P.FOSSIL;
-      people.econ.S = m.params.FOSSIL;
-      for (let c = 0; c < people.nL; c++) { people.coal[c] *= k; people.coalReach[c] *= k; }
-    }
-    Object.assign(people.P, m.params);
+    if (people) Object.assign(people.P, m.params);
   }
 };
 
@@ -57,19 +48,16 @@ function onEngine(e) {
       people = new People(f, params);
       people.env = env;
       people.seed();
-      measure = measureFor(params.EXP, people);
       lastStep = performance.now();
       post(true);
     } else {
       people.rates(f);
       for (let c = 0; c < people.nL; c++) people.soil[c] = f.reg[people.cells[c]];
     }
-  } else if (m.type === 'theory') { theory = m;
   } else if (m.type === 'air') {
     env.pco2 = m.co2;
     if (m.years !== undefined) env.years = m.years;
     if (m.boiled !== undefined) env.boiled = m.boiled;
-    if (people && measure && measure.always) { measure.sample(people, env); if (measure.freeze) post(false); }
     if (m.meanT !== undefined && env.T0 !== null) env.meanT = m.meanT;
     if (people && m.soil) for (let c = 0; c < people.nL; c++) people.soil[c] = m.soil[people.cells[c]];
   }
@@ -79,7 +67,6 @@ function schedule(ms) { if (!timer) timer = setTimeout(() => { timer = 0; pump()
 
 function pump() {
   if (!people) return;
-  if (measure && measure.freeze) { owed = 0; post(false); return; }   // held (the Carbon budget, once the burning is over)
   const t0 = performance.now();
   while (owed > 0 && performance.now() - t0 < BUDGET) {
     const want = people.nextDt();
@@ -87,7 +74,6 @@ function pump() {
     if (owed < want && performance.now() - lastStep < WAIT) break;
     const dt = Math.min(want, owed), ts = performance.now();
     people.step(dt);
-    if (measure) measure.sample(people, env);
     owed -= dt; dtLast = want;
     lastStep = performance.now();
     msPerStep = 0.9 * msPerStep + 0.1 * (lastStep - ts);
@@ -113,10 +99,6 @@ function post(force) {
     const ev = people.events.slice(eventsSent); eventsSent = people.events.length;
     // The most years a second the people keep up with: a step's years over its cost, on most of this thread.
     const cap = 0.8 * 1000 * dtLast / Math.max(0.05, msPerStep), F = people.flags;
-    const rep = measure ? measure.report(people, env, theory) : null;
-    // The Carbon budget's theory: the Pulse's for the carbon burned, once the burning has ended (the engine has the sea).
-    if (measure && measure.snapshot) { measure.snapshot = false; port.postMessage({ type: 'snapshot' }); }
-    if (rep && rep.done && !theoryAsked) { theoryAsked = true; port.postMessage({ type: 'theory', PgC: people.emitted }); }
     const era = F.dial ? 'after the dial' : F.present ? 'takeoff' : F.industry ? 'industry' : people.packages.length ? 'farmers'
       : people.lineages.some(L => L.tipped !== null) ? 'foragers' : 'hominins';
     self.postMessage({
@@ -124,7 +106,7 @@ function post(force) {
       lineages: people.lineages.filter(L => L.died === null).length, packages: people.packages.length,
       ending: people.ending, flags: { ...people.flags }, dialAt: people.dialAt ?? null,
       forcing: { ...people.forcing }, space: people.space, boiled: people.boiled, hE: people.hE, dis: people.dis,
-      Es: E.Es || 0, sA: E.sA || 0, sun: people.P.L_SUN, msPerStep, emitted: people.emitted, removed: people.removed, exp: rep,
+      Es: E.Es || 0, sA: E.sA || 0, sun: people.P.L_SUN, msPerStep, emitted: people.emitted, removed: people.removed,
       city: people.city ? people.city.reduce((a, b) => Math.max(a, b), 0) : 0,
       // Fig. 7's economy: investment by stock (sy/yr), people's work, the bodies, the ores' grade,
       // the power to food and to capture (and the carbon it takes back, Pg C/yr), AI's research minds,

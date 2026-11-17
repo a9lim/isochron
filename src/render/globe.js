@@ -59,13 +59,14 @@
 // wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
 // at the amphidromic points, at the slowest dials the line of high water
 // sweeping round them, and a stipple where the tide loses its energy.
-// The People view (the People experiment, src/engine/people.js) has two maps.
+// The People view (the People scenario, src/engine/people.js) has two maps.
 // Settlement: the Relief view's land and sea where people have ever lived and
 // grey terra incognita where they haven't, a hairline at the frontier. Density:
 // a chart's base with the ice sheets under people as a tint in the accent by log
 // density (~0.003 to ~4,000 a km², rural and in cities: People.places) and
 // robots at work as a verdigris tint over it. On both, the land's uses on the
-// mosaic's tesserae, each tessera one use by its cell's shares (exclusive), in
+// mosaic's tesserae, each tessera one use by its cell's shares (exclusive) at a
+// rank fixed to the globe (landRank, so a use stays put through the zoom), in
 // two patterns of two colours each: blocks for residences (cities in the accent,
 // datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
 // farms in indigo), and factories a heavy sienna hatch; the sulfate veil as in
@@ -163,23 +164,52 @@ fn hash3(p: vec3f) -> vec3f {
   return fract((q.xxy + q.yxx) * q.zyx);
 }
 
-// The tessera at p: a uniform value per cell of a jittered lattice (Worley's).
-fn tessera(p: vec3f) -> f32 {
+// The tessera at p: its site (xyz, in the lattice's units) and a uniform value (w) per cell of a
+// jittered lattice (Worley's).
+fn tessera(p: vec3f) -> vec4f {
   let c = floor(p);
   var best = 1e9;
-  var id = 0.0;
+  var t = vec4f(0.0);
   for (var dz = -1; dz <= 1; dz++) {
     for (var dy = -1; dy <= 1; dy++) {
       for (var dx = -1; dx <= 1; dx++) {
         let cell = c + vec3f(f32(dx), f32(dy), f32(dz));
-        let h = hash3(cell);
-        let d = p - (cell + 0.15 + 0.7 * h);
+        let site = cell + 0.15 + 0.7 * hash3(cell);
+        let d = p - site;
         let dd = dot(d, d);
-        if (dd < best) { best = dd; id = hash3(cell + 17.31).x; }
+        if (dd < best) { best = dd; t = vec4f(site, hash3(cell + 17.31).x); }
       }
     }
   }
-  return id;
+  return t;
+}
+
+// The People view's uses are claimed by a rank fixed to the globe, read at each tessera's site,
+// rather than by the tessera's own value: so a use keeps its place as the mosaic's lattice changes
+// octave with the zoom (a tessera's own value is new at each octave, and cities moved), and a
+// cell's uses gather into patches, cities at the field's lows and the fields round them. The rank
+// is two octaves of value noise (features ~160 and ~80 km) made uniform through their quantiles on
+// the sphere (computed once, in f32 as here; a share s then covers s of the land to 0.01%).
+fn vnoise(p: vec3f) -> f32 {
+  let i = floor(p);
+  let f = p - i;
+  let w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  let a = mix(hash3(i).x, hash3(i + vec3f(1.0, 0.0, 0.0)).x, w.x);
+  let b = mix(hash3(i + vec3f(0.0, 1.0, 0.0)).x, hash3(i + vec3f(1.0, 1.0, 0.0)).x, w.x);
+  let c = mix(hash3(i + vec3f(0.0, 0.0, 1.0)).x, hash3(i + vec3f(1.0, 0.0, 1.0)).x, w.x);
+  let d = mix(hash3(i + vec3f(0.0, 1.0, 1.0)).x, hash3(i + vec3f(1.0, 1.0, 1.0)).x, w.x);
+  return mix(mix(a, b, w.y), mix(c, d, w.y), w.z);
+}
+fn landRank(x: vec3f) -> f32 {
+  var lp = array<f32, 39>(0.0, 0.0005, 0.001, 0.002, 0.004, 0.007, 0.01, 0.015, 0.02, 0.03, 0.045, 0.065, 0.09, 0.12, 0.16, 0.21, 0.28, 0.36, 0.44, 0.5,
+                          0.56, 0.64, 0.72, 0.79, 0.84, 0.88, 0.91, 0.935, 0.955, 0.97, 0.98, 0.985, 0.99, 0.993, 0.996, 0.998, 0.999, 0.9995, 1.0);
+  var lq = array<f32, 39>(0.01975, 0.09039, 0.10478, 0.12105, 0.14115, 0.15998, 0.17373, 0.19092, 0.20425, 0.22515, 0.24882, 0.27279, 0.29647,
+                          0.31988, 0.34625, 0.37406, 0.40800, 0.44275, 0.47534, 0.49917, 0.52297, 0.55546, 0.59025, 0.62460, 0.65319, 0.67995,
+                          0.70385, 0.72775, 0.75180, 0.77520, 0.79603, 0.80949, 0.82655, 0.83990, 0.85874, 0.87843, 0.89623, 0.91079, 0.97054);
+  let n = 0.65 * vnoise(x * 40.0) + 0.35 * vnoise(x * 80.0 + 31.7);
+  var k = 0;
+  for (var j = 1; j < 38; j++) { if (n >= lq[j]) { k = j; } }
+  return clamp(lp[k] + (lp[k + 1] - lp[k]) * (n - lq[k]) / (lq[k + 1] - lq[k]), 0.0, 1.0);
 }
 
 // Patterns are anchored to the globe: each is drawn in three planar projections
@@ -458,7 +488,8 @@ fn hair(d: f32, w: f32) -> f32 {
   // Permafrost (Relief): a violet hatch on the Climate view's mosaic of tesserae, each tessera frozen
   // with the share's probability, so the soft share reads as patchiness. Over snow (the ground stays
   // frozen under it), under a lake's water, frozen over or not, and under the ice sheets (their fill, below).
-  let tess = tessera(i.wp * u.mode.y);
+  let ts = tessera(i.wp * u.mode.y);
+  let tess = ts.w;
   let pf = i.td.w * select(0.0, 1.0, u.mode.x < 0.5);
   if (pf > 0.002) {
     let frozen = select(0.0, 1.0, tess < pf) * (1.0 - clamp(0.5 + lake / flake, 0.0, 1.0));
@@ -573,7 +604,7 @@ fn hair(d: f32, w: f32) -> f32 {
   // The People view. Settlement: the Relief view's land and sea where people have ever lived, grey
   // terra incognita where they haven't, a hairline at the frontier. Density: a chart's base with the
   // ice sheets under the people's and the robots' tints. Both: the land's uses on the mosaic's
-  // tesserae, each tessera one use by its cell's shares (exclusive), in two patterns, each in two
+  // tesserae, each tessera one use by its cell's shares (exclusive) at the rank, in two patterns, each in two
   // colours: blocks for residences (people's cities in the accent, AI's datacenters in the robots'
   // verdigris), parcels for fields (farms in sap, solar farms in indigo), and factories a heavy hatch.
   let explored = clamp(0.5 + (i.pq.w - 0.5) / freach, 0.0, 1.0);
@@ -594,24 +625,26 @@ fn hair(d: f32, w: f32) -> f32 {
     } else {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
     }
-    // The land's uses, in order of claim: cities, factories, datacenters, farms, solar farms.
+    // The land's uses by the rank at the tessera's site: cities at its lows, then datacenters,
+    // factories, farms and solar farms outward.
+    let rank = landRank(ts.xyz / u.mode.y);
     let c1 = i.pp.z;
-    let c2 = c1 + i.pp.w;
-    let c3 = c2 + i.pq.x;
+    let c2 = c1 + i.pq.x;
+    let c3 = c2 + i.pp.w;
     let c4 = c3 + i.pp.y;
     let c5 = c4 + i.pq.y;
     let blocks = max(hatch(T, vec2f(1.0, 0.0), 3.4 * u.mode.z, 0.7 * u.mode.z), hatch(T, vec2f(0.0, 1.0), 3.4 * u.mode.z, 0.7 * u.mode.z));
     let furrowA = 3.14159265 * fract(tess * 97.31);
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
-    if (tess < c1) {
+    if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
-    } else if (tess < c2) {
-      pland = mix(mix(pland, u.inkF.rgb, 0.18), u.inkF.rgb, 0.85 * hatch(T, vec2f(0.7071, 0.7071), 2.8 * u.mode.z, 1.0 * u.mode.z));
-    } else if (tess < c3) {
+    } else if (rank < c2) {
       pland = mix(mix(pland, u.inkD.rgb, 0.14), mix(u.inkD.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
-    } else if (tess < c4) {
+    } else if (rank < c3) {
+      pland = mix(mix(pland, u.inkF.rgb, 0.18), u.inkF.rgb, 0.85 * hatch(T, vec2f(0.7071, 0.7071), 2.8 * u.mode.z, 1.0 * u.mode.z));
+    } else if (rank < c4) {
       pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
-    } else if (tess < c5) {
+    } else if (rank < c5) {
       pland = mix(pland, u.inkE.rgb, 0.12 + 0.6 * furrows);
     }
   }

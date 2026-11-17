@@ -253,7 +253,7 @@ The margin figures come from the same state: none is a separate model.
 
 ## Experiments
 
-Each preset is one knob, a measured number in the caption and, where theory gives one, a predicted number. Each is surveyed across seeds before it ships (Miasma's rule).
+Since 2026-11-16 (a9's fifth round, below) the page has two scenarios, World and People, and these presets' knobs are live controls in either; the table stays as the record of what each measured. Each preset was one knob, a measured number in the caption and, where theory gives one, a predicted number. Each was surveyed across seeds before it shipped (Miasma's rule).
 
 | Preset | Knob | Measured | Theory |
 |---|---|---|---|
@@ -522,7 +522,7 @@ Under hyperbolic growth the doubling time is proportional to the time left, t* �
 
 ### Experiments
 
-Each a number against a theory, as in 1.0:
+Built in v2.1 and taken off the page in a9's fifth round (below); their numbers stay in the v2.1 entry. Each a number against a theory, as in 1.0:
 - **Dispersal**: the front's speed against 2√(rD).
 - **Kremer's continents**: culture at a date against the landmass's connected population (his natural experiment, from memory: Old World, Americas, Australia, Tasmania, Flores).
 - **Axes**: farming's spread east–west against north–south.
@@ -834,6 +834,12 @@ Next:
 - **The robots.** Past the dial the fleet burst ~10⁹-fold in one step and stood idle for a century, and the running share flipped 0–1 between steps: a robot's return counted from nothing to the physical bottleneck's whole worth the step the fleet could all run, all a step's saving went to it, and at the space solar's ceiling output barely moves with the robots, so the search's pick was rounding. Machines' returns are now net of their power at energy's worth, research's compute pays its power, robots aren't built past the ramp or the AI that drives them, and all run unless fewer measurably helps. Output at the ceiling went from ~9 × 10²⁴ to ~2 × 10²⁵ sy/yr. A slow ~4× swing of the fleet over ~40 years remains (production compute overshooting at the ceiling). The stagnation itself is two ceilings by design: space solar at a tenth of the Sun (`F_DYSON`), and the off-world people at the demography's replacement floor.
 - **The boiled planet.** Fields no one works go wild over 30 years; nothing grows past the cover's heat limit; the land the people's cells don't hold (the seafloor a boiled sea leaves, the opening's ice gone) takes solar farms and machines, and the machines' floor rises to what they'd need of all their land.
 - **Solar farms in the model.** Their ceiling is the land they may stand on at 10 W/m² by each cell's sun, placed sunniest first and open land before fields, the fields giving way under them; a preserving AI gives the land back; a boiled sea's steam dims them. Absent before the dial, ~20% of the land within months of it, all they may (88%) in the spent endings until the steam takes the sun. Early takeoff unchanged on two seeds.
+
+**Views, scenarios and controls (2026-11-16): a9's fifth round.** a9: "some of the legends contain unnecessary info (ice sheet, river, sulfate veil); tides could maybe go under weather; and climate could maybe go under relief (and it should maybe be locked behind timescale -- so you can't switch to weather where it wouldn't make sense to for instance). i think we can trim the scenarios significantly: the other sims also have a guideline of preferring just a few high-quality scenarios; i think we should remove the scenarios tab or replace it with just two: world and people. we could maybe also fold that into a controls tab, with all the controls for the user to play around with, or just turn it into a pair of floating buttons somewhere. and finally, the land use is somewhat inconsistent: what are drawn as cities don't reliably stay in the same place when i zoom in."
+- **Two scenarios and a Controls tab.** World and People (`?scenario=people`), picked at the top of the margin's first tab, Controls, which holds every control live in either: sunlight, CO₂ (free, or held), outgassing, mantle heat, an eruption and a carbon pulse on a press (each with its size), and in People the doubling the dial follows. The eleven experiments (Earth-like, Snowball, Ice ages, High stand, Thermostat, Eruption, Pulse; People's Dispersal, Kremer's continents, Axes, Carbon budget, Takeoff, Radiator) and the figure bar's knob are gone; `src/engine/peopleexp.js` and the Carbon budget's theory plumbing with them. The caption keeps a pressed eruption's cooling and a released pulse's share in the air. Chosen over floating buttons: a tab keeps the controls, which floating buttons would have dropped.
+- **Views by timescale.** Relief (Surface, Zones, Air), Weather (Pressure, Temperature, Humidity, Tides), People. The Weather group's button is disabled faster than ~2.9 days a second (where the weather would be the climate's mean), and inside it the dial stops there; Erupt is disabled where the year doesn't step (~56 yr/s). The tides went under Weather with it, so their co-tidal chart at plate speeds isn't reachable now (the day's length and the Moon stay in the record and Fig. 7).
+- **Keys** without rivers, ice sheets and the People view's veil.
+- **Land use through the zoom.** Each tessera took its use from its own value, new at each octave of the mosaic's lattice, so cities moved as the zoom crossed one. Uses are now claimed by a rank fixed to the globe (two octaves of value noise, ~160 and ~80 km, made uniform through their quantiles on the sphere), read at each tessera's site: on one city from 1× to 8×, the city and the factories round it stay put and sharpen. A cell's uses gather into patches, cities at the rank's lows and datacenters, factories, farms and solar farms outward.
 
 ## Open decisions
 

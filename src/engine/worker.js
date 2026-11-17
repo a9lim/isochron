@@ -43,7 +43,6 @@ import { PLUMES } from './plumes.js';
 import { VOLC } from './volcanoes.js';
 import { Year, YEAR } from './year.js';
 import { monthAt } from './orbit.js';
-import { pulseTheory, cloneSea } from './pulse.js';
 import { accumulatePass } from './landscape.js';
 import { NZ } from './climate.js';
 import { surfaceFields, lakeFields } from '../render/surface.js';
@@ -392,13 +391,7 @@ let people = null;
 function startPeople(port) {
   const level = peopleLevel(P.grid.level), T = level < P.grid.level ? makeTransfer(P.grid, buildGrid(level)) : null;
   people = { port, T, link: new PeopleLink(P, T), sentVersion: -1, lastAir: 0, soil: new Float32Array(T ? T.coarse.n : P.grid.n) };
-  port.onmessage = e => {
-    if (e.data.type === 'writeback') people.link.receive(e.data);
-    // The Carbon budget's theory: the Pulse's shares for the carbon burned, on the sea as it was when
-    // the burning began (snapshot), not the sea that has since taken some of it up.
-    else if (e.data.type === 'snapshot') people.seaAt = cloneSea(P.carbon.sea);
-    else if (e.data.type === 'theory') port.postMessage({ type: 'theory', ...pulseTheory(people.seaAt || P.carbon.sea, e.data.PgC) });
-  };
+  port.onmessage = e => { if (e.data.type === 'writeback') people.link.receive(e.data); };
   sendPeopleFields();
 }
 /** The planet's fields on the people's grid, once a climate cycle has run and after each. */

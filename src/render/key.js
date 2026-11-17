@@ -1,9 +1,11 @@
 // The key at the globe's corner: each view's symbols, drawn as the scene draws
 // them, with their names (a glyph key: "Show, don't tell" keeps these on the
 // surface). Only marks a reader needs named are keyed: the land's natural
-// colours, lakes, snow and sea ice, the highs' and lows' letters and the
-// temperature chart's warm and cold speak for themselves. The Climate view's
-// fourteen classes are keyed in full in the margin; here, their five groups.
+// colours, lakes, rivers, snow, sea ice and the ice sheets, the highs' and
+// lows' letters and the temperature chart's warm and cold speak for
+// themselves, and the People view's veil is the Air map's to name. The
+// climate's fourteen zones are keyed in full in the margin; here, their five
+// groups.
 import { zonePattern } from './figures.js';
 import { streamWidth } from './streamlines.js';
 
@@ -62,7 +64,6 @@ const GLYPHS = {
     c.strokeStyle = rgba(P.text, 0.5); c.lineWidth = 0.6;
     c.beginPath(); for (let r = 1.5; r < 12; r += 3) { c.moveTo(x, y + r); c.lineTo(x + 26, y + r); } c.stroke();
   },
-  river: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.9); c.lineWidth = 1.6; c.beginPath(); c.moveTo(x, y + 9); c.quadraticCurveTo(x + 10, y + 1, x + 26, y + 5); c.stroke(); },
   // A streamline: its weight the wind's speed, an arrowhead downwind.
   wind: (c, x, y, P) => {
     c.strokeStyle = rgba(P.text, 0.72); c.fillStyle = rgba(P.text, 0.72); c.lineCap = 'round';
@@ -98,11 +99,6 @@ const GLYPHS = {
   amplitude: (c, x, y, P) => {
     for (let k = 0; k < 26; k++) { c.fillStyle = mixHex(P.canvas, P.ocean, 0.05 + 0.62 * Math.sqrt(k / 25)); c.fillRect(x + k, y, 1.05, 12); }
     c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
-  },
-  icesheet: (c, x, y, P) => {
-    c.fillStyle = P.dark ? mixHex(P.canvas, P.text, 0.2) : P.canvas; c.fillRect(x, y, 26, 12);
-    c.strokeStyle = rgba(P.ocean, 0.4); c.lineWidth = 0.8; c.beginPath(); c.ellipse(x + 13, y + 6, 7, 3.2, 0, 0, 7); c.stroke();
-    c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
   // Dashes along the flow on the ice's fill, as the globe draws a stream.
   icestream: (c, x, y, P) => {
@@ -204,15 +200,15 @@ function wash(c, x, y, P, ink, a) {
 const FRONTS = [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', 'Stationary'], ['occluded', 'Occluded']];
 const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'],
-    ['volcano', 'Eruption'], ['river', 'River'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['icesheet', 'Ice sheet'], ['icestream', 'Ice stream']],
+    ['volcano', 'Eruption'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['icestream', 'Ice stream']],
   'climate-zones': [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['isotherm', 'Isotherm, 5 °C'],
     ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['volcano', 'Eruption']],
   'climate-air': [['wind', 'Wind'], ['dust', 'Dust'], ['veil', 'Sulfate veil'], ['volcano', 'Eruption']],
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms'], ['veil', 'Sulfate veil'], ['icesheet', 'Ice sheet'], ['river', 'River']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms'], ['veil', 'Sulfate veil'], ['icesheet', 'Ice sheet'], ['river', 'River']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

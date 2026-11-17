@@ -44,9 +44,9 @@ body.sim-body { background: var(--bg-canvas); }
   gap: 2px;
 }
 .globe-head-row { display: flex; align-items: center; height: 32px; }
-.wx-picker[hidden] { display: none; }
-.wx-picker { gap: 12px; }
-.wx-picker .view-btn { font-size: var(--font-sm); font-style: italic; }
+.map-picker[hidden] { display: none; }
+.map-picker { gap: 12px; }
+.map-picker .view-btn { font-size: var(--font-sm); font-style: italic; }
 .view-picker { display: flex; align-items: center; gap: 15px; }
 .view-btn {
   border: 0;
@@ -64,6 +64,7 @@ body.sim-body { background: var(--bg-canvas); }
 .view-btn:hover { color: var(--text); }
 .view-btn[aria-checked="true"] { color: var(--accent); text-decoration-color: var(--accent); }
 .view-btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+.view-btn:disabled { color: var(--text-muted); opacity: 0.4; cursor: default; }
 
 .key-btn {
   margin-left: 15px;
@@ -154,30 +155,27 @@ body.sim-body { background: var(--bg-canvas); }
 .fig-model { height: 600px; }
 .fig-people { height: 400px; }
 
-/* ───── Experiments: one knob each ───── */
-.experiments { list-style: none; margin: 0.4rem 0 0; padding: 0; }
-.experiments li { border-bottom: 1px solid var(--border); }
-.exp-btn {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 11px 0 10px;
+/* ───── Controls: the scenario, then each control's name, value and track ───── */
+.scenario-picker { gap: 18px; margin: 0.5rem 0 0.4rem; }
+.scenario-picker .view-btn { font-size: 1.08rem; }
+.controls { margin-top: 0.4rem; }
+.ctl { padding: 10px 0 4px; border-bottom: 1px solid var(--border); }
+.ctl-head { display: flex; align-items: baseline; gap: 10px; }
+.ctl-label { flex: 1 1 auto; font-style: italic; color: var(--text-muted); }
+.ctl-head output { color: var(--text); font-variant-numeric: lining-nums tabular-nums; }
+.ctl-act {
   border: 0;
+  padding: 0;
   background: none;
-  color: var(--text);
+  color: var(--accent);
   font-family: var(--font-text);
-  font-size: 1.08rem;
-  text-align: left;
+  font-size: var(--font-base);
   cursor: pointer;
-  transition: color 0.15s var(--ease-out);
+  text-decoration: underline 1px color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 0.2em;
 }
-.exp-btn:hover { color: var(--accent); }
-.exp-btn[aria-pressed="true"] { color: var(--accent); }
-.exp-btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
-.exp-knob { color: var(--text-muted); font-size: var(--font-sm); font-style: italic; }
-.knob[hidden] { display: none; }
+.ctl-act:disabled { color: var(--text-muted); text-decoration-color: transparent; opacity: 0.5; cursor: default; }
+.ctl-act:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
 .zone-key { display: block; width: 100%; height: 116px; }
 
 .globe-stage {
@@ -208,7 +206,7 @@ body.sim-body { background: var(--bg-canvas); }
 /* ───── The figure bar: caption and dial ───── */
 .figure-bar {
   display: flex;
-  flex-wrap: wrap;           /* with a knob beside the dial, a narrow stage puts them under the caption rather than squeezing it */
+  flex-wrap: wrap;           /* a narrow stage puts the dial under the caption rather than squeezing it */
   align-items: center;
   gap: 8px 24px;
   padding: 12px 20px 14px;
@@ -238,7 +236,8 @@ body.sim-body { background: var(--bg-canvas); }
 }
 
 /* A hairline track with a ring for a thumb. */
-.dial input[type="range"] {
+.dial input[type="range"],
+.ctl input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 180px;
@@ -247,15 +246,18 @@ body.sim-body { background: var(--bg-canvas); }
   background: transparent;
   cursor: pointer;
 }
-.dial input[type="range"]::-webkit-slider-runnable-track {
+.dial input[type="range"]::-webkit-slider-runnable-track,
+.ctl input[type="range"]::-webkit-slider-runnable-track {
   height: 1px;
   background: var(--text-muted);
 }
-.dial input[type="range"]::-moz-range-track {
+.dial input[type="range"]::-moz-range-track,
+.ctl input[type="range"]::-moz-range-track {
   height: 1px;
   background: var(--text-muted);
 }
-.dial input[type="range"]::-webkit-slider-thumb {
+.dial input[type="range"]::-webkit-slider-thumb,
+.ctl input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 11px;
   height: 11px;
@@ -264,14 +266,17 @@ body.sim-body { background: var(--bg-canvas); }
   border-radius: 50%;
   background: var(--bg-canvas);
 }
-.dial input[type="range"]::-moz-range-thumb {
+.dial input[type="range"]::-moz-range-thumb,
+.ctl input[type="range"]::-moz-range-thumb {
   width: 9px;
   height: 9px;
   border: 1px solid var(--text);
   border-radius: 50%;
   background: var(--bg-canvas);
 }
-.dial input[type="range"]:focus-visible { outline: 1px solid var(--accent); outline-offset: 4px; }
+.dial input[type="range"]:focus-visible,
+.ctl input[type="range"]:focus-visible { outline: 1px solid var(--accent); outline-offset: 4px; }
+.ctl input[type="range"] { display: block; width: 100%; }
 
 @media (max-width: 860px) {
   /* The body stays locked (shared); the planet scrolls, the globe first. */

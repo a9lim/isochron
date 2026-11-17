@@ -7,7 +7,7 @@
 // and draws: the globe blends each step's surface into the next, and the
 // lines turn with their plates.
 //
-// In the People experiment the people run on a third thread (src/engine/people-worker.js),
+// In the People scenario the people run on a third thread (src/engine/people-worker.js),
 // linked to the engine's by a port: this thread sends them its ticks, holds the clock while
 // they are behind, sets the dial by their doubling time (the follow dial) until it is taken,
 // and draws them (the People view).
@@ -60,13 +60,10 @@ const els = {
   stage: document.querySelector('.globe-stage'),
   gpu: $('globe-gpu'), overlay: $('globe-overlay'), nogpu: $('globe-nogpu'),
   caption: $('globe-caption'), dial: $('dial'), dialOut: $('dial-out'),
-  knob: $('knob'), knobLabel: $('knob-label'), knobInput: $('knob-input'), knobOut: $('knob-out'),
   views: document.querySelectorAll('#view-picker .view-btn'),
+  mapPickers: document.querySelectorAll('.map-picker'), maps: document.querySelectorAll('.map-picker .view-btn'),
   keyBtn: $('key-btn'), key: $('globe-key'), keyCanvas: $('key-canvas'),
-  wxPicker: $('wx-picker'), wxBtns: document.querySelectorAll('#wx-picker .view-btn'),
-  clPicker: $('cl-picker'), clBtns: document.querySelectorAll('#cl-picker .view-btn'),
-  pmPicker: $('pm-picker'), pmBtns: document.querySelectorAll('#pm-picker .view-btn'),
-  experiments: $('experiments'),
+  scenarios: document.querySelectorAll('#scenario-picker .view-btn'), controls: $('controls'), eruptBtn: null,
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
@@ -483,7 +480,7 @@ function refreshWeather(force) {
     lastChart = nowMs; chartBusy = true;
     wx.read().then(r => {
       if (!r) { chartBusy = false; return; }
-      // A blown-up run (an experiment far outside the model's range) starts again from the climate.
+      // A blown-up run (a planet pushed far outside the model's range) starts again from the climate.
       if (!r.psi2.every(Number.isFinite)) { wx.started = false; chartBusy = false; chart = null; return; }
       const pres = new Float32Array(grid.n), landF = new Float32Array(grid.n);
       for (let i = 0; i < grid.n; i++) { pres[i] = climate.presAt(i, tau); landF[i] = climate.landMask[i]; }
@@ -556,42 +553,37 @@ new ResizeObserver(resize).observe(els.stage);
 resize();
 
 // ── The dial ──
-// The People experiment's follow dial (below): while it holds the dial, the rate is its eased value.
+// The People scenario's follow dial (below): while it holds the dial, the rate is its eased value.
 const follow = { on: true, secs: 3, v: null, active: false };
 function rate() { return 10 ** (follow.active && follow.on && follow.v != null ? follow.v : +els.dial.value); }
 function syncDial() { els.dialOut.textContent = formatRate(rate()); }
-els.dial.addEventListener('input', () => { follow.on = false; syncDial(); caption(true); figuresDirty = true; });
-syncDial();
-function setDial(v) { els.dial.value = String(v); syncDial(); }
+els.dial.addEventListener('input', () => { follow.on = false; clampDial(); syncDial(); lockControls(); caption(true); figuresDirty = true; });
+function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 
-// ── The view ──
+// ── The views ──
+// Three groups of maps, by timescale: Relief (the surface, the climate's zones, the air), Weather
+// (its three charts and the tides) and People. The Weather group's maps run only at WX_TOP or
+// slower, where the weather is live (weatherLive, below): its button is disabled faster, and in it
+// the dial stops there. An eruption shows only where the year steps (YEAR_TOP: src/engine/year.js).
+const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
+const YEAR_TOP = 1.75;        // log₁₀ yr/s: ~56 years a second
+const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
+const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density'] };
+const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
+const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
+function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
+const weatherLocked = () => GROUP[view] !== 'weather' && Math.log10(rate()) > WX_TOP + 1e-6;
+// Controls disabled at dials where they'd show nothing, checked each frame (the follow dial moves the rate).
+let wxLockShown = null, eruptLockShown = null;
+function lockControls() {
+  const wl = weatherLocked();
+  if (wl !== wxLockShown) { wxLockShown = wl; for (const b of els.views) if (b.dataset.group === 'weather') b.disabled = wl; }
+  const el = Math.log10(rate()) > YEAR_TOP + 1e-6;
+  if (el !== eruptLockShown && els.eruptBtn) { eruptLockShown = el; els.eruptBtn.disabled = el; }
+}
+
 // ── The key ──
 function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view === 'climate' ? `climate-${clMode}` : view === 'people' ? `people-${pmMode}` : view, palette()); }
-function setWxMode(m) {
-  wxMode = m;
-  for (const b of els.wxBtns) b.setAttribute('aria-checked', b.dataset.wx === m ? 'true' : 'false');
-  drawTheKey();
-  drawDirty = true;
-  caption(true);
-}
-for (const b of els.wxBtns) b.addEventListener('click', () => setWxMode(b.dataset.wx));
-function setClMode(m) {
-  clMode = m;
-  for (const b of els.clBtns) b.setAttribute('aria-checked', b.dataset.cl === m ? 'true' : 'false');
-  drawTheKey();
-  refreshAir();
-  drawDirty = true;
-  caption(true);
-}
-for (const b of els.clBtns) b.addEventListener('click', () => setClMode(b.dataset.cl));
-function setPmMode(m) {
-  pmMode = m;
-  for (const b of els.pmBtns) b.setAttribute('aria-checked', b.dataset.pm === m ? 'true' : 'false');
-  drawTheKey();
-  drawDirty = true;
-  caption(true);
-}
-for (const b of els.pmBtns) b.addEventListener('click', () => setPmMode(b.dataset.pm));
 function setKey(on) {
   els.key.hidden = !on;
   els.keyBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -600,210 +592,149 @@ function setKey(on) {
 els.keyBtn.addEventListener('click', () => setKey(els.key.hidden));
 setKey(window.innerWidth > 860);
 
+/** Show a view (relief, climate, weather, tides, people) at its current map; entering Weather brings the dial into its range. */
 function setView(v) {
   if (v === 'people' && !people.worker) v = 'relief';
   view = v;
-  els.wxPicker.hidden = v !== 'weather';
-  els.clPicker.hidden = v !== 'climate';
-  els.pmPicker.hidden = v !== 'people';
+  const g = GROUP[v];
+  if (g === 'weather') { follow.on = false; clampDial(); syncDial(); }
+  lastMap[g] = mapOf();
+  for (const b of els.views) b.setAttribute('aria-checked', b.dataset.group === g ? 'true' : 'false');
+  for (const p of els.mapPickers) p.hidden = p.dataset.maps !== g;
+  for (const b of els.maps) b.setAttribute('aria-checked', b.dataset.map === mapOf() ? 'true' : 'false');
   drawTheKey();
   if (v === 'weather') {
     // A weather run under an earlier spin starts again under this one (the Moon's tides lengthen the day).
     if (wx && Math.abs(wx.Omega / moon.Omega - 1) > 0.003) wx.setSpin(moon.Omega);
     refreshWeather(true);
   }
-  for (const b of els.views) b.setAttribute('aria-checked', b.dataset.view === v ? 'true' : 'false');
+  if (v === 'climate') refreshAir();
+  lockControls();
   drawDirty = true;
   caption(true);
 }
-for (const b of els.views) b.addEventListener('click', () => setView(b.dataset.view));
-// The People view is there only with people (the People experiment).
-// The People experiment and its six (EXPERIMENTS, below, marks them `people`).
-const PEOPLE_EXPS = ['people', 'dispersal', 'kremer', 'axes', 'budget', 'takeoff', 'radiator'];
-const peopleExp = () => PEOPLE_EXPS.includes(query.get('exp'));
-for (const b of els.views) if (b.dataset.view === 'people') b.hidden = !peopleExp();
-$('fig-people-wrap').hidden = !peopleExp();   // Fig. 8, under the model
+/** Show a map by name (MAPS). */
+function setMap(m) {
+  if (m === 'zones' || m === 'air') { clMode = m; setView('climate'); }
+  else if (m === 'pressure' || m === 'temperature' || m === 'humidity') { wxMode = m; setView('weather'); }
+  else if (m === 'tides') setView('tides');
+  else if (m === 'settlement' || m === 'density') { pmMode = m; setView('people'); }
+  else setView('relief');
+}
+/** Show a group at the map it last showed; Weather only where it's live. */
+function setGroup(g) {
+  if ((g === 'weather' && weatherLocked()) || (g === 'people' && !people.worker)) return;
+  setMap(lastMap[g]);
+}
+/** The next map in the group shown. */
+function nextMap() { const ms = MAPS[GROUP[view]]; setMap(ms[(ms.indexOf(mapOf()) + 1) % ms.length]); }
+for (const b of els.views) b.addEventListener('click', () => setGroup(b.dataset.group));
+for (const b of els.maps) b.addEventListener('click', () => setMap(b.dataset.map));
 
-// ── Experiments: each one knob, a measured number in the caption ──
+// ── Scenarios and controls ──
+// Two scenarios, each from the planet's opening (choosing one reloads, with ?scenario=people for
+// the second): the world alone, and people on it from the first hominins, the People view and
+// Fig. 8 with them. The controls act live in either.
+const scenario = query.get('scenario') === 'people' ? 'people' : 'world';
+const peopleOn = () => scenario === 'people';
+for (const b of els.views) if (b.dataset.group === 'people') b.hidden = !peopleOn();
+$('fig-people-wrap').hidden = !peopleOn();   // Fig. 8, under the model
+for (const b of els.scenarios) {
+  b.setAttribute('aria-checked', b.dataset.scenario === scenario ? 'true' : 'false');
+  b.addEventListener('click', () => {
+    if (b.dataset.scenario === scenario) return;
+    const q = new URLSearchParams(location.search);
+    if (b.dataset.scenario === 'people') q.set('scenario', 'people'); else q.delete('scenario');
+    q.delete('ending');
+    location.search = q.toString();
+  });
+}
 const BASE = { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX };
-const pct = v => `${Math.round(v)}%`;
-const EXPERIMENTS = [
-  { id: 'earth', name: 'Earth-like', dial: 6, view: 'relief' },
-  { id: 'snowball', name: 'Snowball', dial: 4, view: 'relief',
-    setup: () => { CARBON.FIXED = 'now'; },
-    knob: { label: 'Sunlight', min: 82, max: 106, step: 0.5, value: 100, fmt: v => `${(+v).toFixed(1)}%`, apply: v => { CLIMATE.S = S0 * v / 100; } } },
-  { id: 'iceages', name: 'Ice ages', dial: 4, view: 'relief',
-    knob: { label: 'CO₂', min: 100, max: 450, step: 5, value: 180, fmt: v => `${v} ppm`, apply: v => { CARBON.FIXED = +v; } } },
-  { id: 'highstand', name: 'High stand', dial: 6, view: 'relief',
-    knob: { label: 'Mantle heat', min: 0.5, max: 2, step: 0.05, value: 1.6, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { PARAMS.K_SLAB = BASE.K_SLAB * v; PARAMS.K_RIDGE = BASE.K_RIDGE * v; PARAMS.V_MAX = BASE.V_MAX * Math.sqrt(v); } } },
-  { id: 'thermostat', name: 'Thermostat', dial: 5, view: 'climate',
-    knob: { label: 'Outgassing', min: 0.25, max: 4, step: 0.05, value: 2, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { CARBON.OUTGAS = +v; } } },
-  // One eruption at the start, at the most active tropical arc; each new size erupts again.
-  { id: 'eruption', name: 'Eruption', dial: 0, view: 'relief',
-    setup: () => { erupt.id = 1; },
-    knob: { label: 'Sulfate', min: -1, max: Math.log10(30), step: 0.01, value: 1, fmt: v => `${pinatubos(10 ** v)} Pinatubos`, apply: v => { erupt.M = 10 ** v; } } },
-  // One pulse of carbon into the air once the sea has settled; each new size pulses again.
-  { id: 'pulse', name: 'Pulse', dial: 3.5, view: 'climate',
-    setup: () => { pulse.id = 1; },
-    knob: { label: 'Carbon', min: Math.log10(500), max: 4, step: 0.01, value: Math.log10(2000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => { pulse.PgC = 10 ** v; } } },
-  // The first hominins on the settled planet, to the takeoff and an ending drawn by chance; the
-  // dial follows the doubling time (the knob: seconds a doubling) until it is taken.
-  { id: 'people', name: 'People', dial: 5, view: 'people', people: true,
-    knob: { label: 'Doubling', min: 1, max: 10, step: 0.5, value: 3, fmt: v => `${(+v).toFixed(1).replace(/\.0$/, '')} s`, apply: v => { follow.secs = +v; follow.on = true; follow.v = null; } } },
-  // The people's experiments (src/engine/peopleexp.js): each the People experiment with one knob
-  // and its number against a theory in the caption. The dial follows the people, except where noted.
-  // The first hominins' front against Fisher's 2√(rD); the dial held at 1 kyr/s for the spread.
-  { id: 'dispersal', name: 'Dispersal', dial: 3, view: 'people', people: true, setup: () => { follow.on = false; },
-    knob: { label: 'Dispersal', min: 0, max: 1.5, step: 0.05, value: Math.log10(4), fmt: v => `${(10 ** v).toFixed(1)} km²/yr`, apply: v => peopleParams({ D0: 10 ** v }) } },
-  // Each landmass's culture against its balance A M/λ (Kremer's natural experiment).
-  { id: 'kremer', name: 'Kremer’s continents', dial: 5, view: 'people', people: true,
-    knob: { label: 'Loss', min: -6, max: -4, step: 0.05, value: -5, fmt: v => `${(100 * (1 - Math.exp(-(10 ** v) * 1e4))).toFixed(v < -5.5 ? 1 : 0)}% in 10 kyr`, apply: v => peopleParams({ LAMBDA: 10 ** v }) } },
-  // Farming's spread east–west against north–south (Diamond's axes); the knob, how tightly crops keep to their climate.
-  { id: 'axes', name: 'Axes', dial: 5, view: 'people', people: true,
-    knob: { label: 'Crops’ climate', min: 0.5, max: 4, step: 0.1, value: 2, fmt: v => `${(+v).toFixed(1)}×`, apply: v => peopleParams({ W_PKG: +v }) } },
-  // AI never comes: the carbon burned, its peak and what stays in the air, against the Pulse's theory.
-  { id: 'budget', name: 'Carbon budget', dial: 5, view: 'people', people: true, setup: () => peopleParams({ B_MAX: 0 }),
-    knob: { label: 'Fossil carbon', min: 3, max: 4, step: 0.01, value: Math.log10(5000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => peopleParams({ FOSSIL: 10 ** v }) } },
-  // Early takeoff to the dial, and the singularity's interval; the knob, how far AI substitutes for people.
-  { id: 'takeoff', name: 'Takeoff', dial: 5, view: 'people', people: true,
-    knob: { label: 'Substitution', min: 0.2, max: 2, step: 0.05, value: 0.5, fmt: v => `σ ${(+v).toFixed(2)}`, apply: v => peopleParams({ SIGMA: +v }) } },
-  // Earth spent as the machines' radiator (1a): the warming against F/B, and the runaway past the limit.
-  { id: 'radiator', name: 'Radiator', dial: 5, view: 'climate', people: true, setup: () => peopleParams({ ENDING: '1a' }),
-    knob: { label: 'Heat budget', min: 0, max: 3, step: 0.05, value: 3, fmt: v => `${Math.round(10 ** v).toLocaleString('en')} W/m²`, apply: v => peopleParams({ HEAT_SAC: 10 ** v }) } },
-];
-// The Pulse experiment's pulse: its size (Pg C) and a count, so the engine pulses once per size set.
-const pulse = { PgC: 2000, id: 0 };
+// An eruption (Pinatubos) and a pulse of carbon (Pg C), each with a count, so the engine erupts or
+// pulses once per press: the eruption at the most active tropical arc once the climate is warm,
+// the pulse into the air once the sea has settled.
+const erupt = { M: 10, id: 0 }, pulse = { PgC: 2000, id: 0 };
 const pgc = v => (v < 1000 ? Math.round(v / 10) * 10 : Math.round(v / 100) * 100).toLocaleString('en');
-// The Eruption experiment's eruption: its size (Pinatubos) and a count, so the engine erupts once per size set.
-const erupt = { M: 10, id: 0 };
-let eruptTimer = 0;
 const pinatubos = M => M < 1 ? M.toFixed(1) : M < 10 ? M.toFixed(1).replace(/\.0$/, '') : Math.round(M).toString();
-let experiment = EXPERIMENTS[0];
+const CO2_FREE = 2;           // the CO₂ control below 10^2 ppm: free (the carbon cycle's); above, held there
+const CONTROLS = [
+  // The People scenario's: the follow dial's seconds a doubling (until the dial is taken by hand).
+  { id: 'doubling', label: 'Doubling', people: true, min: 1, max: 10, step: 0.5, value: 3, fmt: v => `${(+v).toFixed(1).replace(/\.0$/, '')} s`,
+    apply: v => { follow.secs = +v; follow.on = true; follow.v = null; } },
+  { id: 'sun', label: 'Sunlight', min: 82, max: 106, step: 0.5, value: 100, fmt: v => `${(+v).toFixed(1)}%`, apply: v => { CLIMATE.S = S0 * v / 100; } },
+  { id: 'co2', label: 'CO₂', min: 1.96, max: Math.log10(2000), step: 0.01, value: 1.96, fmt: v => v < CO2_FREE ? 'free' : `${Math.round(10 ** v / 5) * 5} ppm`,
+    apply: v => { CARBON.FIXED = v < CO2_FREE ? 0 : Math.round(10 ** v / 5) * 5; } },
+  { id: 'outgas', label: 'Outgassing', min: 0.25, max: 4, step: 0.05, value: 1, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { CARBON.OUTGAS = +v; } },
+  { id: 'mantle', label: 'Mantle heat', min: 0.5, max: 2, step: 0.05, value: 1, fmt: v => `${(+v).toFixed(2)}×`,
+    apply: v => { PARAMS.K_SLAB = BASE.K_SLAB * v; PARAMS.K_RIDGE = BASE.K_RIDGE * v; PARAMS.V_MAX = BASE.V_MAX * Math.sqrt(v); } },
+  { id: 'erupt', label: 'Eruption', min: -1, max: Math.log10(30), step: 0.01, value: 1, fmt: v => `${pinatubos(10 ** v)} Pinatubos`, apply: v => { erupt.M = 10 ** v; },
+    act: { label: 'Erupt', fire: () => { erupt.id++; } } },
+  { id: 'pulse', label: 'Carbon', min: Math.log10(500), max: 4, step: 0.01, value: Math.log10(2000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => { pulse.PgC = 10 ** v; },
+    act: { label: 'Release', fire: () => { pulse.id++; } } },
+];
+for (const c of CONTROLS) {
+  if (c.people && !peopleOn()) continue;
+  const row = document.createElement('div'), head = document.createElement('div');
+  const lab = document.createElement('label'), out = document.createElement('output'), inp = document.createElement('input');
+  row.className = 'ctl'; head.className = 'ctl-head'; lab.className = 'ctl-label';
+  lab.textContent = c.label; lab.htmlFor = inp.id = `ctl-${c.id}`; out.htmlFor = inp.id;
+  Object.assign(inp, { type: 'range', min: c.min, max: c.max, step: c.step });
+  inp.value = String(c.value); out.textContent = c.fmt(c.value);
+  head.append(lab, out);
+  if (c.act) {
+    const b = document.createElement('button');
+    b.className = 'ctl-act'; b.textContent = c.act.label;
+    b.addEventListener('click', () => { c.act.fire(); sendParams(); caption(true); });
+    head.append(b);
+    if (c.id === 'erupt') els.eruptBtn = b;
+  }
+  inp.addEventListener('input', () => { out.textContent = c.fmt(+inp.value); c.apply(+inp.value); if (!c.act) sendParams(); caption(true); });
+  row.append(head, inp);
+  els.controls.append(row);
+  c.apply(c.value);
+}
+/** The controls' parameters, as the engine's thread holds them. */
+function params() {
+  return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX },
+    ERUPT: erupt.id > 0 ? { M: erupt.M, id: erupt.id } : null, PULSE: pulse.id > 0 ? { PgC: pulse.PgC, id: pulse.id } : null };
+}
+function sendParams() { if (engineStarted) engine.postMessage({ type: 'params', params: params() }); }
 
-// ── The people (the People experiment) ──
+// ── The people (the People scenario) ──
 // Their thread, its last report (the clock, what's owed, the record's last row, the ending), the
 // drawn fields, the years sent since that report, and the follow dial: the rate at which a
 // doubling (or halving) of what moves fastest takes `secs` seconds (People.pace), within the
 // dial's range and what the people keep up with, eased; the dial taken by hand ends it.
-const people = { worker: null, msg: null, sent: 0, events: [], link: null, grid: null, params: {} };
-/** The people's parameters (the experiments' knobs): kept for their thread's start, and sent live. */
-function peopleParams(p) { Object.assign(people.params, p); if (people.worker) people.worker.postMessage({ type: 'params', params: p }); }
+const people = { worker: null, msg: null, sent: 0, events: [], link: null, grid: null };
 const PEOPLE_LEVEL = Math.min(6, LEVEL);
 function startPeople() {
   const w = people.worker = new Worker(new URL('./src/engine/people-worker.js', import.meta.url), { type: 'module' });
   const ch = new MessageChannel();
-  const params = { ...people.params, EXP: experiment.id };
-  if (query.get('ending')) params.ENDING = query.get('ending');
+  const params = query.get('ending') ? { ENDING: query.get('ending') } : {};   // &ending=1a (1b, 2a, 2b) forces the ending
   w.postMessage({ type: 'init', level: PEOPLE_LEVEL, port: ch.port2, params }, [ch.port2]);
   engine.postMessage({ type: 'people', port: ch.port1 }, [ch.port1]);
   people.grid = PEOPLE_LEVEL === LEVEL ? grid : buildGrid(PEOPLE_LEVEL);
   w.onmessage = e => {
     const m = e.data;
-    if (m.type === 'people') {
-      // Dispersal holds the dial for the spread; once the front is measured the dial follows the people again.
-      if (experiment.id === 'dispersal' && m.exp && m.exp.done && !people.released) { people.released = true; follow.on = true; follow.v = null; }
-      // The Carbon budget's burning over, the people held: the planet runs on at 3 kyr/s to 100 kyr.
-      if (experiment.id === 'budget' && m.exp && m.exp.freeze && !people.released) { people.released = true; follow.on = false; setDial(3.5); }
-      people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true; }
+    if (m.type === 'people') { people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true; }
     else if (m.type === 'figure') { people.fig = m.fig; figuresDirty = true; }
     else if (m.type === 'drawn') { people.drawn = m.d; if (globe) globe.setPeople(m.d, people.grid); drawDirty = true; }
   };
   w.onerror = e => console.warn('[isochron] people:', e.message);
 }
 /** Years the people are owed: their last report's, and what was sent since. */
-const peopleOwed = () => (people.msg && !(experiment.id === 'budget' && people.released) ? people.msg.owed + people.sent : 0);   // the Carbon budget's people, once held, owe nothing
+const peopleOwed = () => (people.msg ? people.msg.owed + people.sent : 0);
 /** The follow dial's aim (log₁₀ yr/s), or null. */
 function followAim() {
   const m = people.msg;
   if (!m) return null;
   const top = Math.min(+els.dial.max, Math.log10(Math.max(1e-3, m.cap)));
   // Before the first tip, at least 5 kyr/s: the first hominins' spread over their continent doubles
-  // every few decades, and at the knob's seconds a doubling it took most of the run's first minute.
+  // every few decades, and at the control's seconds a doubling it took most of the run's first minute.
   const floor = m.era === 'hominins' ? Math.log10(5e3) : -Infinity;
   const want = Math.max(floor, m.pace > 0 ? Math.log10(Math.LN2 / (m.pace * follow.secs)) : top);
   return Math.max(+els.dial.min, Math.min(top, want));
 }
-// Each experiment starts from the planet's opening (a snowball can't be undone
-// by turning the sun back up: that's the point of it), so choosing one reloads
-// with ?exp=; the knob then acts live.
-function chooseExperiment(id) {
-  if (id === experiment.id) return;
-  const q = new URLSearchParams(location.search);
-  if (id === 'earth') q.delete('exp'); else q.set('exp', id);
-  location.search = q.toString();
-}
-/** The experiments' parameters, as the engine's thread holds them. */
-function params() {
-  return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX },
-    ERUPT: experiment.id === 'eruption' && erupt.id > 0 ? { M: erupt.M, id: erupt.id } : null,
-    PULSE: experiment.id === 'pulse' && pulse.id > 0 ? { PgC: pulse.PgC, id: pulse.id } : null };
-}
-function sendParams() { if (engineStarted) engine.postMessage({ type: 'params', params: params() }); }
-function defaults() {
-  CLIMATE.S = S0; CARBON.FIXED = 0; CARBON.OUTGAS = 1; pulse.id = 0;
-  Object.assign(PARAMS, BASE);
-}
-function setExperiment(id) {
-  experiment = EXPERIMENTS.find(e => e.id === id) || EXPERIMENTS[0];
-  defaults();
-  if (experiment.setup) experiment.setup();
-  const k = experiment.knob;
-  els.knob.hidden = !k;
-  if (k) {
-    els.knobLabel.textContent = k.label;
-    Object.assign(els.knobInput, { min: k.min, max: k.max, step: k.step });
-    els.knobInput.value = String(k.value);
-    els.knobOut.textContent = k.fmt(k.value);
-    k.apply(k.value);
-  }
-  setDial(experiment.dial);
-  setView(experiment.view);
-  for (const b of els.experiments.querySelectorAll('.exp-btn')) b.setAttribute('aria-pressed', b.dataset.exp === experiment.id ? 'true' : 'false');
-  sendParams();
-  setPlaying(true);
-  caption(true);
-}
-els.knobInput.addEventListener('input', () => {
-  const k = experiment.knob;
-  if (!k) return;
-  els.knobOut.textContent = k.fmt(els.knobInput.value);
-  k.apply(+els.knobInput.value);
-  // A new size erupts again once the knob rests.
-  if (experiment.id === 'eruption') { clearTimeout(eruptTimer); eruptTimer = setTimeout(() => { erupt.id++; sendParams(); caption(true); }, 350); }
-  else if (experiment.id === 'pulse') { clearTimeout(eruptTimer); eruptTimer = setTimeout(() => { pulse.id++; sendParams(); caption(true); }, 350); }
-  else sendParams();
-  caption(true);
-});
-for (const e of EXPERIMENTS) {
-  const li = document.createElement('li');
-  const b = document.createElement('button');
-  b.className = 'exp-btn'; b.dataset.exp = e.id; b.setAttribute('aria-pressed', e.id === 'earth' ? 'true' : 'false');
-  b.innerHTML = `<span>${e.name}</span><span class="exp-knob">${e.knob ? e.knob.label : ''}</span>`;
-  b.addEventListener('click', () => chooseExperiment(e.id));
-  li.appendChild(b);
-  els.experiments.appendChild(li);
-}
-
-/** The ice's dominant period (kyr) in the record, by periodogram over 15–150 kyr. */
-function icePeriod() {
-  const { t, v } = P.record.window(4e5);
-  const n = t.length;
-  if (n < 60 || t[n - 1] - t[0] < 1.5e5) return null;
-  // The ice's record less its linear trend (a sheet still growing would read as the longest period).
-  const x = v[3];
-  let mt = 0, mx = 0; for (let k = 0; k < n; k++) { mt += t[k]; mx += x[k]; } mt /= n; mx /= n;
-  let sxy = 0, sxx = 0; for (let k = 0; k < n; k++) { sxy += (t[k] - mt) * (x[k] - mx); sxx += (t[k] - mt) ** 2; }
-  const slope = sxx > 0 ? sxy / sxx : 0, y = Array.from(x, (v, k) => v - mx - slope * (t[k] - mt));
-  let best = 0, bp = null;
-  for (let p = 15; p <= 150; p += 1) {
-    let a = 0, b = 0;
-    for (let k = 0; k < n; k++) { const th = 2 * Math.PI * t[k] / (p * 1000); a += y[k] * Math.cos(th); b += y[k] * Math.sin(th); }
-    const pw = a * a + b * b;
-    if (pw > best) { best = pw; bp = p; }
-  }
-  return bp;
-}
-
 // ── Captions: the view's name and live values ──
 const setCaption = window._colophon ? window._colophon.caption(els.caption, 250) : t => { els.caption.textContent = t; };
 let lastCaption = 0;
@@ -832,7 +763,7 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const name = view === 'climate' ? `Climate, ${clMode}` : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : view === 'people' ? 'People' : 'Relief';
+  const name = view === 'climate' ? (clMode === 'air' ? 'Air' : 'Climate zones') : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : view === 'people' ? 'People' : 'Relief';
   // Until the planet's first surface arrives (its spin-up, ~1.7 s) there is nothing to read out.
   if (!shown) { setCaption(name, true); return; }
   const parts = [name, formatTime(P.years)];
@@ -856,55 +787,33 @@ function caption(force) {
     return;
   }
   if (view === 'people') { setCaption(peopleCaption(name), true); return; }
-  // The experiment's measured number.
   const cs = climate.stats;
-  if (experiment.people && experiment.id !== 'people' && people.msg && people.msg.exp) parts.push(people.msg.exp.text);
-  if (experiment.id === 'snowball' && cs.cycles > 0) parts.push(`ice line ${Math.round(cs.iceLat)}°`);
-  if (experiment.id === 'iceages') { const p = icePeriod(); parts.push(`ice ${(ice.stats.volume / 1e15).toFixed(1)} M km³`, p ? `period ${p} kyr` : 'period —'); }
-  if (experiment.id === 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`, `balance ${Math.round(carbon.balance)} ppm`);
-  if (experiment.id === 'eruption') {
-    // The eruption's own cooling (its response alone: the model is linear) against the
-    // anomaly model's analytic response, independent boxes under the veil's decaying forcing.
-    const g = year.tag, K = v => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(2)} K`;
-    if (g) {
-      const yr = v => v != null ? `${v.toFixed(1)} yr` : '—';
-      parts.push(`${pinatubos(g.M)} Pinatubos`, `peak ${K(g.peak)} at ${yr(g.tPeak)}`, `e-folding ${yr(g.efold)}`, `theory ${K(g.theory.peak)} at ${yr(g.theory.tPeak)}, ${yr(g.theory.efold)}`);
-    } else parts.push(`${pinatubos(erupt.M)} Pinatubos`, 'waiting for the climate');
-    if (view === 'relief') { setCaption(parts.join(' · '), true); return; }
-  }
-  if (experiment.id === 'pulse') {
-    // The share of the pulse still in the air (against a twin of the sea without it) after 1, 10
-    // and 100 kyr, and the theory's: the closed sea, the compensated sea, then weathering.
-    const g = carbon.pulse, sh = v => (v == null ? '—' : `${(100 * v).toFixed(v < 0.1 ? 1 : 0)}%`);
-    if (g) {
-      parts.push(`${pgc(g.PgC)} Pg C`, `CO₂ ${Math.round(carbon.pco2)} ppm`, `in the air ${sh(g.share)}`,
-        `1 kyr ${sh(g.at[0])} · 10 kyr ${sh(g.at[1])} · 100 kyr ${sh(g.at[2])}`, `theory ${sh(g.theory.s1)}, ${sh(g.theory.s10)}, ${sh(g.theory.s100)}`);
-    } else parts.push(`${pgc(pulse.PgC)} Pg C`, 'waiting for the sea');
-    setCaption(parts.join(' · '), true);
-    return;
-  }
+  // A pressed eruption's own cooling (its tagged response: the model is linear) while the year
+  // shows it, and a released pulse's share still in the air (against a twin of the sea without it).
+  const g = year.tag, K = v => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(2)} K`;
+  if (erupt.id > 0 && g && year.live > 0.5 && P.years - g.t < 20) parts.push(`eruption ${pinatubos(g.M)} Pinatubos, ${K(g.now)}, peak ${K(g.peak)}`);
+  const pg = carbon.pulse;
+  if (pulse.id > 0 && pg && pg.t < 3e5) parts.push(`pulse ${pgc(pg.PgC)} Pg C, ${(100 * pg.share).toFixed(pg.share < 0.1 ? 1 : 0)}% in the air`);
   if (airShown()) {
     // The winds' fastest, the dust lifted and carried (its optical depth), and the veil's.
     const D = climate.dust;
-    if (experiment.id !== 'eruption') {
-      if (air.cur) parts.push(`wind to ${air.maxWind.toFixed(0)} m/s`);
-      if (D) parts.push(`dust ${Math.round(D.emission).toLocaleString('en')} Tg/yr, τ ${D.tau.toFixed(3)}`);
-    }
+    if (air.cur) parts.push(`wind to ${air.maxWind.toFixed(0)} m/s`);
+    if (D) parts.push(`dust ${Math.round(D.emission).toLocaleString('en')} Tg/yr, τ ${D.tau.toFixed(3)}`);
     if (year.live > 0) parts.push(`veil τ ${year.aod.toFixed(3)}`);
   } else if (view === 'climate') {
     const sh = zoneShares();
     const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
     parts.push(`mean ${cs.meanT.toFixed(1)} °C`);
     if (runaway && runaway.boiled > 1e-4) parts.push(`steam ${runaway.steam.toPrecision(2)} bar`);
-    if (experiment.id !== 'thermostat') parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`);
+    parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`);
     parts.push(`rain ${Math.round(cs.meanP || 0)} mm/yr`);
-    if (experiment.id !== 'snowball') parts.push(`ice line ${Math.round(cs.iceLat)}°`);
+    parts.push(`ice line ${Math.round(cs.iceLat)}°`);
     parts.push(`A ${g[0]}% · B ${g[1]}% · C ${g[2]}% · D ${g[3]}% · E ${g[4]}% of land`);
   } else {
     const s = tec.stats();
     parts.push(`${s.plates} plates`, `land ${Math.round(100 * s.land)}%`, `sea level ${signed(Math.round((s.seaLevel - P.seaLevel0) * 1000), 'm')}`);
     if (runaway && runaway.boiled > 1e-4) parts.push(`${Math.round(100 * runaway.boiled)}% of the sea in the air`);
-    if (experiment.id !== 'iceages') parts.push(`ice ${Math.round(ice.stats.seaLevel)} m`);
+    parts.push(`ice ${Math.round(ice.stats.seaLevel)} m`);
     parts.push(`fastest ${s.fastest.toFixed(1)} cm/yr`, `seafloor ${Math.round(s.meanOceanAge)} Myr`, polarity.at(tec.t) > 0 ? 'field normal' : 'field reversed');
   }
   setCaption(parts.join(' · '), true);
@@ -928,7 +837,6 @@ function peopleCaption(name) {
   if (!m || !m.last) return [...parts, formatTime(P.years), 'waiting for the climate'].join(' · ');
   const h = m.last, F = m.flags;
   parts[0] = `${name}, ${m.era}`;
-  if (m.exp && m.exp.text && experiment.id !== 'people') parts.push(m.exp.text);   // the experiment's number first
   parts.push(`year ${Math.floor(m.t).toLocaleString('en')}`);
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   parts.push(`${headcount(h.earth)} people`);
@@ -1068,7 +976,7 @@ function modelSnapshot() {
 
 // ── Fig. 7 with people: their economy (src/render/economy.js), the planet's side from the mirrors ──
 // While the Carbon budget's people are held, the planet's carbon is the story again.
-const peopleModel = () => !!(people.msg && people.msg.last && !(experiment.id === 'budget' && people.released));
+const peopleModel = () => !!(people.msg && people.msg.last);
 function economyInputs() {
   const { rain = 0, la = 1 } = P.agg || {};
   return { m: people.msg, npp: life ? life.npp : 0, meanT: climate.stats.meanT, pco2: carbon.pco2, pco20: CARBON.PCO2_0, rain, la,
@@ -1206,11 +1114,10 @@ window.addEventListener('DOMContentLoaded', () => {
     { key: '.', group: 'Simulation', label: 'Step 0.5 Myr', action: () => stepOnce() },
     { key: ']', group: 'Simulation', label: 'Faster', action: () => nudgeDial(0.25) },
     { key: '[', group: 'Simulation', label: 'Slower', action: () => nudgeDial(-0.25) },
-    { key: '1', group: 'View', label: 'Relief', action: () => setView('relief') },
-    { key: '2', group: 'View', label: 'Climate', action: () => setView('climate') },
-    { key: '3', group: 'View', label: 'Weather', action: () => setView('weather') },
-    { key: '4', group: 'View', label: 'Tides', action: () => setView('tides') },
-    { key: '5', group: 'View', label: 'People', action: () => setView('people') },
+    { key: '1', group: 'View', label: 'Relief', action: () => setGroup('relief') },
+    { key: '2', group: 'View', label: 'Weather', action: () => setGroup('weather') },
+    { key: '3', group: 'View', label: 'People', action: () => setGroup('people') },
+    { key: 'm', group: 'View', label: 'Next map', action: () => nextMap() },
     { key: 'k', group: 'View', label: 'Key', action: () => setKey(els.key.hidden) },
     { key: '=', group: 'View', label: 'Zoom in', action: () => { camera.zoomBy(1.2); drawDirty = true; } },
     { key: '-', group: 'View', label: 'Zoom out', action: () => { camera.zoomBy(1 / 1.2); drawDirty = true; } },
@@ -1230,8 +1137,8 @@ window.addEventListener('DOMContentLoaded', () => {
         { label: 'Turn the globe', value: 'Drag' },
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
         { label: 'Rate', value: 'The dial, or [ and ]' },
-        { label: 'View', value: 'Relief, Climate, Weather, Tides, or People in its scenario; or 1 to 5' },
-        { label: 'Scenarios', value: 'The margin; each has one knob' },
+        { label: 'View', value: 'Relief, Weather, or People in its scenario; or 1 to 3, and M for the next map' },
+        { label: 'Scenario', value: 'World or People, and the controls, in the margin' },
       ],
       shortcuts,
       repo: 'https://github.com/a9lim/a9lim.github.io',
@@ -1269,6 +1176,7 @@ function tick(now) {
         setDial(follow.v);
       }
     }
+    lockControls();
     // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr, and
     // no shorter than the engine can keep up with; the clock waits while it is two steps behind,
     // or while the people are owed more than a quarter second's worth.
@@ -1360,10 +1268,12 @@ engine.onmessage = e => {
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
-if (query.get('exp')) setExperiment(query.get('exp'));
+if (peopleOn()) setDial(5);
+syncDial();
+lockControls();
 engine.postMessage({ type: 'init', seed, level: LEVEL, params: params() });
 engineStarted = true;
-if (experiment.people) { startPeople(); setView(experiment.view); }
+if (peopleOn()) { startPeople(); setView('people'); }
 engine.postMessage({ type: 'play', playing });
 
 gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
@@ -1386,4 +1296,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setExperiment, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, setClMode, setPmMode, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; } };
