@@ -29,12 +29,13 @@ test('the energy balance on the GPU: the CPU\'s fixed point, solved tightly', { 
   // One energy balance each way from the same state, Anderson's memory cleared (so neither
   // starts from the other's seasons), the CPU's solves converged far past their default.
   c.ebmWs.hist = 0;
-  const snap = { Tc: c.Tc.map(a => a.slice()), Tf: c.Tf.map(a => a.slice()), snow: c.snowAnn.slice(), ws: structuredClone(c.ebmWs) };
+  const snap = { Tc: c.Tc.map(a => a.slice()), Tf: c.Tf.map(a => a.slice()), snow: c.snowAnn.slice(), ws: structuredClone(c.ebmWs), mq: c.maritime.q.map(a => a.slice()) };
   const cg = CLIMATE.EBM_CG.slice();
   CLIMATE.EBM_CG.splice(0, 2, 1e-11, 3000);
   try { await drive(c.energyBalance()); } finally { CLIMATE.EBM_CG.splice(0, 4, ...cg); }
   const cpu = { Tc: c.Tc.map(a => a.slice()), Tf: c.Tf.map(a => a.slice()), snow: c.snowAnn.slice(), meanT: c.stats.meanT, steps: c.stats.ebmSteps };
   snap.Tc.forEach((a, k) => c.Tc[k].set(a)); snap.Tf.forEach((a, k) => c.Tf[k].set(a)); c.snowAnn.set(snap.snow); c.ebmWs = snap.ws;
+  snap.mq.forEach((a, k) => c.maritime.q[k].set(a));   // maritime air's transport warm-starts from its last solution
   c.ebmGpu = new GpuEnergyBalance(device, c);
   await drive(c.energyBalance());
   assert.equal(c.stats.ebmSteps, cpu.steps, 'the same number of fixed-point steps');

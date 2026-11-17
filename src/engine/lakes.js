@@ -621,18 +621,19 @@ export class Lakes {
     for (const b of this.lakeNodes || []) {
       if (!(this.held(b) > 0)) continue;
       const h = this.level[b];
-      let sum = 0;
-      for (let k = cellOff[b], e = cellOff[b + 1]; k < e; k++) {
+      let sum = 0, m = cellOff[b];
+      for (let k = cellOff[b], e = cellOff[b + 1]; k < e; k++, m++) {
         const i = cells[k], x = h - z[i];
         if (!(x > 0)) break;
-        const R = ramp[i], d = x >= R ? x - R / 2 : x * x / (2 * R);
-        w[i] += A[i] * d; sum += A[i] * d;
+        const R = ramp[i];
+        sum += A[i] * (x >= R ? x - R / 2 : x * x / (2 * R));
       }
-      // The level is solved to rounding; scale so the cells carry exactly what the lake held.
-      const V = this.held(b);
-      if (sum > 0 && V !== sum) {
-        const s = V / sum;
-        for (let k = cellOff[b], e = cellOff[b + 1]; k < e; k++) { const i = cells[k]; if (!(h - z[i] > 0)) break; w[i] *= s; }
+      // The level is solved to rounding; scale so the cells carry exactly what the lake held (this
+      // lake's share only: scaling a cell's whole sum had also scaled another lake's water on it).
+      const s = sum > 0 ? this.held(b) / sum : 0;
+      for (let k = cellOff[b]; k < m; k++) {
+        const i = cells[k], x = h - z[i], R = ramp[i];
+        w[i] += s * A[i] * (x >= R ? x - R / 2 : x * x / (2 * R));
       }
     }
     return w;

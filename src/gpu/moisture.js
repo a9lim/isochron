@@ -14,7 +14,9 @@
 import { kernel, storage, uniform } from './device.js';
 
 // Per cell, 16 floats: the six neighbours' coefficients in b (c₀..c₅), the diagonal a,
-// the constant part of b, k₀ and α of the convective rain, λ, W_s, the area A, A·P_max.
+// the constant part of b, k₀ and α of the convective rain, λ, W_s, the area A, A·P_max, r₀ (the
+// column's humidity where convection sets in, raised by descent: Climate.descent) and convection's
+// share by the surface's warmth.
 const SWEEP = /* wgsl */`
 struct Mu { n: u32, ca: f32, cr: f32, pmax: f32 };
 @group(0) @binding(0) var<uniform> U: Mu;
@@ -43,23 +45,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     w -= (a * w + ex - b) / (a + al * ex);
   }
   // The cap: rain held at P_max, the rest of the water carried on.
-  if (lam * w + ws / 60.0 * exp(min(40.0, U.ca * (w / ws - U.cr))) > U.pmax) {
+  if (lam * w + c3.w * ws / 60.0 * exp(min(40.0, U.ca * (w / ws - c3.z))) > U.pmax) {
     w = max(w, (b - c3.y) / max(1e-9, a - c3.x * lam));
   }
   wout[i] = max(0.0, w);
 }`;
 
 // The coefficients (the CPU's packing in Climate.moisture): per cell, from the carrying wind, the
-// temperature and β's factor (tb), the geography (s0: land, elevation km, the gyres' anomaly, area sr;
+// temperature, β's factor and the descent (tb), the geography (s0: land, elevation km, the gyres' anomaly, area sr;
 // s1: the slope's direction and size, the lakes' share; s2: trees' and grass's shares) and each edge
 // (et: the tangent × the edge's length, the eddy mixing's κℓ/d; pads zero).
 // a: (R_KM·86.4, R_KM², RAIN_BG, RAIN_ORO); b: (EVAP, land's evaporation, LAKE_ICE, LAPSE);
-// c: (CONV_A, CONV_R0, RAIN_MAX, cover?); d: (E_BARE, E_TREE, W0, WA).
+// c: (CONV_A, CONV_R0, RAIN_MAX, cover?); d: (E_BARE, E_TREE, W0, WA); e: (SUB_R0, SUB_BG, BG_R1, BG_R2);
+// f: (CONV_T0, CONV_T1).
+// tb: (T, β's factor, descent, the last solve's W: the background rain's humidity).
 const PACK = /* wgsl */`
-struct Pu { n: u32, p0: u32, p1: u32, p2: u32, a: vec4f, b: vec4f, c: vec4f, d: vec4f };
+struct Pu { n: u32, p0: u32, p1: u32, p2: u32, a: vec4f, b: vec4f, c: vec4f, d: vec4f, e: vec4f, f: vec4f };
 @group(0) @binding(0) var<uniform> U: Pu;
 @group(0) @binding(1) var<storage, read> wind: array<f32>;
-@group(0) @binding(2) var<storage, read> tb: array<vec2f>;
+@group(0) @binding(2) var<storage, read> tb: array<vec4f>;
 @group(0) @binding(3) var<storage, read> s0: array<vec4f>;
 @group(0) @binding(4) var<storage, read> s1: array<vec4f>;
 @group(0) @binding(5) var<storage, read> s2: array<vec2f>;
@@ -91,7 +95,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let Ts = select(max(-1.8, T + g.z), T - U.b.w * g.y, land);
   let ws = U.d.z * exp(U.d.w * (clamp(Ts, -45.0, 45.0) - 15.0));
   let div = dv / g.w / 6.371e6;
-  let lam = U.a.z * (0.25 + 0.75 * exp(-max(0.0, div) / 3e-6)) + U.a.w * max(0.0, dot(wi, h.xyz));
+  let sub = tb[i].z;
+  let lam = U.a.z * (0.25 + 0.75 * exp(-max(0.0, div) / 3e-6 - U.e.y * sub)) * ramp(tb[i].w / ws, U.e.z, U.e.w) + U.a.w * max(0.0, dot(wi, h.xyz));
+  let r0 = U.c.y + U.e.x * sub;
   var e = U.b.x * (length(wi) + 3.0) / 10.0;
   if (land) {
     let b = tb[i].y;
@@ -104,11 +110,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   a += A * (lam + e);
   co[4u * i] = vec4f(cin[0], cin[1], cin[2], cin[3]);
   co[4u * i + 1u] = vec4f(cin[4], cin[5], a, A * e * ws);
-  co[4u * i + 2u] = vec4f(A * ws / 60.0 * exp(-U.c.x * U.c.y), U.c.x / ws, lam, ws);
-  co[4u * i + 3u] = vec4f(A, A * U.c.z, 0.0, 0.0);
+  let cvf = ramp(Ts, U.f.x, U.f.y);
+  co[4u * i + 2u] = vec4f(cvf * A * ws / 60.0 * exp(-U.c.x * r0), U.c.x / ws, lam, ws);
+  co[4u * i + 3u] = vec4f(A, A * U.c.z, r0, cvf);
 }`;
 
-// The rain from the balance: P = min(P_max, λW + (W_s/60) e^{a(W/W_s − r₀)}) mm/day.
+// The rain from the balance: P = min(P_max, λW + (W_s/60) e^{a(W/W_s − r₀)}) mm/day, r₀ each cell's.
 const RAIN = /* wgsl */`
 struct Mu { n: u32, ca: f32, cr: f32, pmax: f32 };
 @group(0) @binding(0) var<uniform> U: Mu;
@@ -120,8 +127,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
   let c2 = co[4u * i + 2u];
+  let c3 = co[4u * i + 3u];
   let w = win[i];
-  pout[i] = min(U.pmax, c2.z * w + c2.w / 60.0 * exp(min(40.0, U.ca * (w / c2.w - U.cr))));
+  pout[i] = min(U.pmax, c2.z * w + c3.w * c2.w / 60.0 * exp(min(40.0, U.ca * (w / c2.w - c3.z))));
 }`;
 
 export class GpuMoisture {
@@ -153,15 +161,15 @@ export class GpuMoisture {
     }
     this.et = et;
     this.ET = storage(device, et.byteLength);
-    this.WIND = storage(device, 12 * n); this.TB = storage(device, 8 * n);
+    this.WIND = storage(device, 12 * n); this.TB = storage(device, 16 * n);
     this.S0 = storage(device, 16 * n); this.S1 = storage(device, 16 * n); this.S2 = storage(device, 8 * n);
     this.P = storage(device, 4 * n);
-    this.Pu = uniform(device, new Float32Array(20));
+    this.Pu = uniform(device, new Float32Array(28));
     this.KP = kernel(device, PACK, 'moisture-pack'); this.KR = kernel(device, RAIN, 'moisture-rain');
     this.pack = this.KP.bind({ U: this.Pu, wind: this.WIND, tb: this.TB, s0: this.S0, s1: this.S1, s2: this.S2, nb: this.nb, et: this.ET, co: this.co });
     this.rain = this.KR.bind({ U: this.U, co: this.co, win: this.A, pout: this.P });
     this.readWP = device.createBuffer({ size: 8 * n, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    this.s0 = new Float32Array(4 * n); this.s1 = new Float32Array(4 * n); this.s2 = new Float32Array(2 * n); this.tb = new Float32Array(2 * n);
+    this.s0 = new Float32Array(4 * n); this.s1 = new Float32Array(4 * n); this.s2 = new Float32Array(2 * n); this.tb = new Float32Array(4 * n);
     this.kappa = NaN;
   }
 
@@ -184,21 +192,22 @@ export class GpuMoisture {
       for (let k = 3; k < et.length; k += 4) et[k] *= C.KAPPA_W;
       q.writeBuffer(this.ET, 0, et); this.kappa = C.KAPPA_W;
     }
-    const u = new ArrayBuffer(80), ui = new Uint32Array(u), f = new Float32Array(u);
+    const u = new ArrayBuffer(112), ui = new Uint32Array(u), f = new Float32Array(u);
     ui[0] = n;
     f.set([6371 * 86.4, 6371 * 6371, C.RAIN_BG, C.RAIN_ORO, C.EVAP, cv ? C.LAND_EVAP_COVER : C.LAND_EVAP, C.LAKE_ICE, C.LAPSE,
-      C.CONV_A, C.CONV_R0, C.RAIN_MAX, cv ? 1 : 0, V.E_BARE, V.E_TREE, 25, 0.065], 4);
+      C.CONV_A, C.CONV_R0, C.RAIN_MAX, cv ? 1 : 0, V.E_BARE, V.E_TREE, 25, 0.065, C.SUB_R0, C.SUB_BG, C.BG_R1, C.BG_R2, C.CONV_T0, C.CONV_T1, 0, 0], 4);
     q.writeBuffer(this.Pu, 0, u);
   }
 
   /**
    * The balance at one point of the year from its inputs: the carrying wind (3n, m/s), the
    * sea-level temperature (n) and β's factor (n, land's evaporative efficiency with the live
-   * ground's ratio); `iters` Jacobi passes from W (overwritten), the rain into P (mm/day).
+   * ground's ratio), the descent (n, 0–1: Climate.descent) and the last solve's W (the background
+   * rain's humidity); `iters` Jacobi passes from W (overwritten), the rain into P (mm/day).
    */
-  async solveFrom(wind, T, beta, W, P, iters, ca, cr, pmax) {
+  async solveFrom(wind, T, beta, W, P, iters, ca, cr, pmax, sub = null, Wlast = null) {
     const dev = this.device, n = this.n, tb = this.tb;
-    for (let i = 0; i < n; i++) { tb[2 * i] = T[i]; tb[2 * i + 1] = beta[i]; }
+    for (let i = 0; i < n; i++) { tb[4 * i] = T[i]; tb[4 * i + 1] = beta[i]; tb[4 * i + 2] = sub ? sub[i] : 0; tb[4 * i + 3] = Wlast ? Wlast[i] : 0; }
     const ub = new ArrayBuffer(16);
     new Uint32Array(ub)[0] = n; new Float32Array(ub).set([ca, cr, pmax], 1);
     dev.queue.writeBuffer(this.U, 0, ub);

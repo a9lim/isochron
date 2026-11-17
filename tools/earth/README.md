@@ -14,6 +14,7 @@ Everything goes under `tools/earth/.cache/` (ignored), one directory per source:
 | `hotspots/` | `Hotspots.zip`, unzipped to `x/` | Whittaker et al. 2015's compilation: `https://www.earthbyte.org/webdav/ftp/earthbyte/GPlates/GPlates2.3_GeoData/Individual/Hotspots.zip` | cite Whittaker et al. 2015 |
 | `isochrons/` | `GTS2012.gpml` | EarthByte's GTS2012 isochrons: `https://www.earthbyte.org/webdav/ftp/earthbyte/agegrid/2020/FeatureData/Global_EarthByte_GTS2012_Isochrons_2019_v3.gpml` | CC BY 4.0 |
 | `bl91/` | `orbit91` | Berger and Loutre 1991, NOAA's World Data Service for Paleoclimatology: `https://www.ncei.noaa.gov/pub/data/paleo/climate_forcing/orbital_variations/insolation/orbit91` | cite Berger and Loutre 1991 |
+| `obs/` | `udel-air.nc`, `udel-precip.nc`, `oisst-sst.nc`, `oisst-icec.nc`, `gpcp-precip.nc` | NOAA PSL's long-term means: `https://downloads.psl.noaa.gov/Datasets/` + `udel.airt.precip/{air,precip}.mon.v501.ltm.1981-2010.nc`, `noaa.oisst.v2/{sst,icec}.ltm.1991-2020.nc`, `gpcp/precip.mon.ltm.1991-2020.nc` (~43 MB) | NOAA (UDel's: cite Willmott and Matsuura) |
 
 Müller et al. 2022 is not used for today: its README advises against it for present-day absolute motions and points to the 2019 model, which is also the one the 2020 age grid is built on. IMCCE refuses automated fetches of La2004 (403), so the orbit is fitted to Berger and Loutre instead.
 
@@ -30,6 +31,20 @@ node --test tests/earth.test.mjs
 ```
 
 - `cells.mjs` writes the grid's cell centres for the bake.
-- `bake.py` puts each data point in its nearest cell (its Voronoi cell), weighted by area: the mean bedrock, the mean grounded ice (ice shelves are left as sea), the share of the cell the age grid dates and its mean age, and each cell's plate (Müller et al. 2019's rigid plates, then its deforming networks for the cells those leave out, else the nearest plate), with each plate's motion over the last Myr and ten hotspots. ~45 s. pygplates 1.0.0 segfaults on `resolve_topology_types=ResolveTopologyType.boundary`, so the bake resolves everything and filters by type.
+- `bake.py` puts each data point in its nearest cell (its Voronoi cell), weighted by area: the mean bedrock, the mean grounded ice (ice shelves are left as sea), the share of the cell the age grid dates and its mean age, and each cell's plate (Müller et al. 2019's rigid plates, then its deforming networks for the cells those leave out: a network's own plate where that is a rigid one, else, cell by cell, the bordering rigid plate that moves most like it, so Sundaland rides the Sunda plate; else the nearest plate), with each plate's motion over the last Myr and ten hotspots. ~45 s. pygplates 1.0.0 segfaults on `resolve_topology_types=ResolveTopologyType.boundary`, so the bake resolves everything and filters by type.
 - `orbit-fit.py` fits the sim's orbital form (`OrbitCycles`: sums of cosines and a steady precession) to the last 5 Myr: twelve terms of eccentricity (rms 0.0043) and ten of obliquity (0.05°), the present exact.
 - `gpts.py` takes GTS2012's chron boundaries to 83.64 Ma from PmagPy (`pmag.get_ts('gts12')`, BSD-3) and the superchron's start from the M0 isochrons (125.93 Ma, 29 of 40).
+
+## Scoring and tuning
+
+```bash
+node tools/earth/cells.mjs 6
+uv run --no-project --with numpy --with scipy --with h5py python -I tools/earth/obs.py 6     # the observations on level 6
+node tools/earth/climate-score.mjs                     # the climate against them (JSON=1: a summary line; MAR, VEGO: overrides)
+node tools/earth/tune.mjs spec.json 12 temp            # a parallel pattern search over constants (see its header for spec.json)
+node tools/earth/plates-score.mjs                      # the plates' balance against Müller's motions, and their drift over 20 Myr
+```
+
+- `obs.py` puts the observed monthly climatologies on the grid: land temperature and rain (University of Delaware v5.01, 0.5°, 1981–2010), the sea's surface temperature and ice (NOAA OISST v2, 1991–2020), rain everywhere (GPCP v2.3).
+- `climate-score.mjs` runs the climate on today's Earth as `climate-check.mjs` does (the cover, the lakes, the regolith, the gyres, the year; the ice sheets held), settled at level 6 (~10 s), and scores it over land by region (January, July and the year's temperature, the year's rain, the Köppen groups), the sea's surface and its ice by latitude, and the Köppen classes: the observations are classified with the sim's own thresholds (hard), so the comparison is like with like.
+- `tune.mjs` tries each parameter a step up and down in parallel (16 processes), takes the best and every improving move together, and halves the steps when nothing improves; its objective weighs land temperature (year, January, July), the sea's surface and ice, the Köppen groups and, with `all`, the rain and the classes. The tuned values are in `src/engine/climate.js`'s CLIMATE (marked "Earth"), MARITIME and VEG.PLANETARY.

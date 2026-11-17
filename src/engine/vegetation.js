@@ -76,7 +76,7 @@ export const VEG = {
   // Feedbacks
   ALB_TREE: 0.13, ALB_GRASS: 0.20, ALB_BARE: 0.33,   // VECODE's surface albedos
   ALB_SNOW_TREE: 0.30, ALB_SNOW_OPEN: 0.75,          // snow under trees (masked) and in the open
-  PLANETARY: 0.5,                   // share of a surface contrast the climate's planetary albedo sees
+  PLANETARY: 0.55,                  // share of a surface contrast the climate's planetary albedo sees (tuned on today's Earth: tools/earth/)
   E_BARE: 0.4, E_TREE: 1.2, S_CRIT: 0.75,            // evaporation by cover against grass's; the bucket's knee
   W_BARE: 0.25, W_GRASS: 0.5,       // weathering: bare against forest; grass's share of forest's gain
 };

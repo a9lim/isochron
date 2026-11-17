@@ -146,8 +146,10 @@ test('vegetation: forest masks snow; the feedback factors', () => {
   near(grass, 0.62, 1e-12, "snowy grass is the climate's snow");
   near(bare, grass, 1e-12, 'snow hides bare ground and grass alike');
   near(landAlbedo(0, 1, 0), 0.27, 1e-12, "snow-free grass is the climate's land");
-  near(landAlbedo(1, 0, 0) - landAlbedo(0, 1, 0), -0.035, 1e-12, 'forest darker (zones: −0.03)');
-  near(landAlbedo(0, 0, 0) - landAlbedo(0, 1, 0), 0.065, 1e-12, 'bare brighter (zones: +0.07)');
+  // The planetary albedo sees VEG.PLANETARY of the surface contrasts (VECODE's: forest −0.07, bare +0.13 against grass).
+  near(landAlbedo(1, 0, 0) - landAlbedo(0, 1, 0), VEG.PLANETARY * (VEG.ALB_TREE - VEG.ALB_GRASS), 1e-12, 'forest darker');
+  near(landAlbedo(0, 0, 0) - landAlbedo(0, 1, 0), VEG.PLANETARY * (VEG.ALB_BARE - VEG.ALB_GRASS), 1e-12, 'bare brighter');
+  assert.ok(landAlbedo(1, 0, 0) < landAlbedo(0, 1, 0) && landAlbedo(0, 1, 0) < landAlbedo(0, 0, 0));
   assert.ok(transpiration(0.9, 0.05) > transpiration(0, 0.95) && transpiration(0, 0.95) > transpiration(0, 0), 'forest recycles most');
   assert.ok(transpiration(0.9, 0.05, 0.2) < transpiration(0.9, 0.05, 1), 'dry soil, less transpiration');
   assert.ok(transpiration(0.9, 0.05, 0.2) > transpiration(0, 0.95, 0.2), "trees' roots reach deeper");

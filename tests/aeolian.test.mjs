@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { Planet } from '../src/engine/planet.js';
 import { OceanCarbon, OC } from '../src/engine/oceancarbon.js';
 import { AEOLIAN } from '../src/engine/aeolian.js';
+import { VEG } from '../src/engine/vegetation.js';
 
 const R2 = 6.371e6 ** 2;
 let planet = null;
@@ -58,7 +59,7 @@ test('dusty snow darkens: the climate\'s snow and ice albedo, and the ice\'s deg
   assert.ok(dusty.ks > 1 && dusty.ki > 1 && dustier.ks > dusty.ks, 'the factors rise');
   // The surface's darkening against the form: ~0.02 at 100 ppm (DARK_A), half of it in the planetary albedo.
   const want = Math.min(AEOLIAN.DARK_MAX, AEOLIAN.DARK_A * Math.pow(dusty.conc / AEOLIAN.DARK_C, AEOLIAN.DARK_P));
-  assert.ok(Math.abs(-dusty.dark - 0.5 * want) < 1e-6);
+  assert.ok(Math.abs(-dusty.dark - VEG.PLANETARY * want) < 1e-6);
   // The ice's mass balance where ice would melt (a sheet laid on the snowy margins): more melt with the dust.
   const I = P.ice, H0 = Float64Array.from(I.H);
   for (let k = 0; k < n; k++) if (c.landMask[k] && c.snowAnn[k] > 0.2) I.H[k] = 500;

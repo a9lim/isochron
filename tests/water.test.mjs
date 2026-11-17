@@ -124,6 +124,10 @@ test('the lakes are rebuilt when the ice moves: an ice dam makes a lake, and its
   P.stepLakes(1, 10);
   assert.equal(L.builds, builds + 1, 'not rebuilt while the ice stays');
   const held = L.storage(), total0 = L.total.toSea;
+  // The opening's lakes sit at their balance with each climate cycle until the climate has settled
+  // (Planet.stepLakes), which moves water legitimately; only the rebuild is under test here.
+  const cs = P.climate.stats;
+  if (!(cs.settled && cs.cycles > cs.settled)) { cs.settled = 1; cs.cycles = Math.max(cs.cycles, 2); }
   H.set(saved); P.tec.iceWater -= 2 * PLANET.LAKES_ICE; P.years += PLANET.LAKES_ICE_YEARS;
   P.stepLakes(0, 10);   // the rebuild alone: what the old basins held is carried over or released
   assert.equal(L.builds, builds + 2, 'rebuilt when the dam went');

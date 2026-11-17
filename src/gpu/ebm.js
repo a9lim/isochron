@@ -177,7 +177,8 @@ fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u)
 // Each fine cell's absorbed sunlight through the year, as harmonics; its snow-and-ice share; the
 // continental seasons' admittances and forcing; the fields to restrict (rf, field-major over all levels).
 // pa: (o, c0, c1, c2): v = T + o, albedo c0 + c1 r₁(v) + c2 ramp(−v, 0, 4.5), r₁ land's ramp(−v, −1, 5)
-// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing).
+// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing); mar: maritime air
+// (src/engine/maritime.js), per cell its forcing on the two harmonics (re, im, re, im) and K m.
 const FORCING = /* wgsl */`
 struct Fu { n: u32, N: u32, off: u32, p0: u32, c: vec4f, ang: array<vec4f, ${NS}> };
 fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
@@ -189,6 +190,7 @@ fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1
 @group(0) @binding(5) var<storage, read_write> fh: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> yv: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> rf: array<f32>;
+@group(0) @binding(8) var<storage, read> mar: array<vec4f>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -212,12 +214,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     f0 += fa; a1 += fa * g.x; b1 -= fa * g.y; a2 += fa * g.z; b2 -= fa * g.w;
     cold += r1;
   }
-  let F = vec4f(2.0 * a1, 2.0 * b1, 2.0 * a2, 2.0 * b2) / ${NS}.0;
+  let F = vec4f(2.0 * a1, 2.0 * b1, 2.0 * a2, 2.0 * b2) / ${NS}.0 + mar[2u * i];
   let snow = cold / ${NS}.0;
   fh[i] = F;
   // Heat capacity: land, or the sea by its share of the year under ice; the admittances (c: B + K, C_LAND, C_OCEAN, C_ICE).
   let C = select(U.c.z + (U.c.w - U.c.z) * snow, U.c.y, land);
-  let bk = U.c.x;
+  let bk = U.c.x + mar[2u * i + 1u].x;
   let z1 = 6.283185307 * C;
   let m1 = 1.0 / (bk * bk + z1 * z1);
   let y1 = vec2f(bk * m1, -z1 * m1);
@@ -488,7 +490,8 @@ export class GpuEnergyBalance {
     this.Fu = uniform(device, new Float32Array(8 + 4 * NS));
     this.Su = [0, 1].map(() => uniform(device, new Float32Array(8)));
     const { topo, X, Y, Bv, Dg, RF, PF } = this, gb = this.geo;
-    const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF }), [wg(n)]]];
+    this.MAR = B(32 * n); this.mar = new Float32Array(8 * n); this.marOn = false;
+    const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF, mar: this.MAR }), [wg(n)]]];
     for (let k = top; k > ci; k--) step.push([K.rf, K.rf.bind({ U: Urf[k], topo, geo: gb, f: RF }), [wg(lv[k - 1].n)]]);
     step.push([K.setup, K.setup.bind({ U: this.Uc, geo: gb, rf: RF, dg: Dg, b: Bv }), [wg(lv[ci].n)]]);
     for (let k = ci; k >= 1; k--) step.push([K.diag, K.diag.bind({ U: this.Lu[k], topo, dg: Dg }), [wg(lv[k - 1].n), 1, 3]]);
@@ -604,6 +607,19 @@ export class GpuEnergyBalance {
     if (f === this.lastForcing) return;
     this.lastForcing = f;
     this.device.queue.writeBuffer(this.Uc, 0, this.lvBuf(this.ci, 0, [P.A, P.B, P.SUB_K, f]));
+  }
+
+  /** Maritime air's terms for the next step (src/engine/maritime.js: `km`, `F`), or none. */
+  setMaritime(m) {
+    const n = this.n, a = this.mar;
+    if (!m) { if (this.marOn) { a.fill(0); this.device.queue.writeBuffer(this.MAR, 0, a); this.marOn = false; } return; }
+    const km = m.km, F = m.F;
+    for (let i = 0; i < n; i++) {
+      const o = 8 * i;
+      a[o] = F[1][i]; a[o + 1] = F[2][i]; a[o + 2] = F[3][i]; a[o + 3] = F[4][i]; a[o + 4] = km[i];
+    }
+    this.device.queue.writeBuffer(this.MAR, 0, a);
+    this.marOn = true;
   }
 
   /** One step T ← G(T) (forcing, restriction, the solves, the fine temperature); resolves once G's coarse harmonics are in Tc. */

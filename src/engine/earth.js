@@ -102,25 +102,42 @@ function thickness(E, phi, age, extra = 0) {
 }
 
 /**
- * The plates (Müller et al. 2019's, today), the microplates joined to their largest neighbour as the
- * sim's own rule does (PARAMS.MICROPLATE), each with its motion over the last Myr: a plate index a cell.
+ * The plates (Müller et al. 2019's, today), each with its motion over the last Myr: a plate index a
+ * cell. Microplates (below PARAMS.MICROPLATE) join a neighbour, as the sim's own rule has them do, but
+ * the one they share the most boundary with that isn't across a subduction zone from them: an arc or a
+ * forearc sliver (Mariana, Izu, Tonga, Kamchatka) rides its overriding plate, so the trench stays a
+ * plate boundary. Joined to its largest neighbour, the Pacific, each took the Pacific's trench inside
+ * the Pacific and left it pulling at the back-arc. A neighbour is across a subduction zone where a
+ * quarter of the shared boundary closes faster than ~1.3 cm/yr with ocean on either side; with none
+ * other, the largest.
  */
-function platesOf(d, g, plate) {
+function platesOf(d, g, plate, ocean) {
   const n = g.n, K = d.plates.length, area = new Float64Array(K), label = Int32Array.from({ length: K }, (_, k) => k);
   for (let i = 0; i < n; i++) area[plate[i]] += g.area[i];
   const find = k => { while (label[k] !== k) k = label[k] = label[label[k]]; return k; };
+  const v = (m, i, o) => { const w = d.plates[m].w, p = g.pos; o[0] = w[1] * p[3 * i + 2] - w[2] * p[3 * i + 1]; o[1] = w[2] * p[3 * i] - w[0] * p[3 * i + 2]; o[2] = w[0] * p[3 * i + 1] - w[1] * p[3 * i]; return o; };
+  const va = new Float64Array(3), vb = new Float64Array(3);
   for (;;) {
+    // The smallest plate joins a neighbour while it's a microplate. (More plates than MAX_LIVE_PLATES
+    // may remain: it caps the plates the sim makes, not the ones it's given.)
     let small = -1, live = 0;
-    for (let k = 0; k < K; k++) if (find(k) === k && area[k] > 0) { live++; if (area[k] < PARAMS.MICROPLATE && (small < 0 || area[k] < area[small])) small = k; }
-    if (small < 0 || live <= PARAMS.MIN_PLATES) break;
-    let best = -1;
+    for (let k = 0; k < K; k++) if (find(k) === k && area[k] > 0) { live++; if (small < 0 || area[k] < area[small]) small = k; }
+    if (small < 0 || live <= PARAMS.MIN_PLATES || area[small] >= PARAMS.MICROPLATE) break;
+    const len = new Map(), sub = new Map();
     for (let i = 0; i < n; i++) {
       if (find(plate[i]) !== small) continue;
       for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
-        const b = find(plate[g.nbr[t]]);
-        if (b !== small && (best < 0 || area[b] > area[best])) best = b;
+        const j = g.nbr[t], b = find(plate[j]);
+        if (b === small) continue;
+        len.set(b, (len.get(b) || 0) + g.ell[t]);
+        v(plate[i], i, va); v(plate[j], j, vb);
+        const vn = (vb[0] - va[0]) * g.tan[3 * t] + (vb[1] - va[1]) * g.tan[3 * t + 1] + (vb[2] - va[2]) * g.tan[3 * t + 2];
+        if (vn < -0.002 && (ocean[i] > 0.5 || ocean[j] > 0.5)) sub.set(b, (sub.get(b) || 0) + g.ell[t]);
       }
     }
+    let best = -1;
+    for (const [b, l] of len) if ((sub.get(b) || 0) < 0.25 * l && (best < 0 || l > len.get(best))) best = b;
+    if (best < 0) for (const b of len.keys()) if (best < 0 || area[b] > area[best]) best = b;
     if (best < 0) break;
     label[small] = best; area[best] += area[small]; area[small] = 0;
   }
@@ -140,7 +157,7 @@ export function earthGenesis(tec, seed, d) {
   tec.rng = stream(seed, 'tectonics');
   const noise = tec.noise = makeNoise(seed);
   const f = fieldsOn(d, g), s0 = datum();
-  const { owner, plates } = platesOf(d, g, f.plate);
+  const { owner, plates } = platesOf(d, g, f.plate, f.ocean);
   for (const pl of plates) {
     const p = tec.allocPlate();
     p.w[0] = pl.w[0]; p.w[1] = pl.w[1]; p.w[2] = pl.w[2];

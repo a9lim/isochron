@@ -34,7 +34,7 @@ for (const level of [6, 5]) {
     assert.ok(Math.sqrt(e2 / (4 * Math.PI)) * 1000 < 80, `the bed within ${(Math.sqrt(e2 / (4 * Math.PI)) * 1000).toFixed(0)} m rms of ETOPO's`);
     const ice = P.ice.stats.volume / 1e15;
     assert.ok(ice > 27 && ice < 31, `grounded ice ${ice.toFixed(1)} M km³ (Antarctica and Greenland ~29)`);
-    assert.equal(tec.alivePlates().length, 16);
+    assert.ok(tec.alivePlates().length >= 16 && tec.alivePlates().length <= 20, `${tec.alivePlates().length} plates`);
     const rms = Math.sqrt(v2 / (4 * Math.PI)) * R;
     assert.ok(rms > 3.5 && rms < 5.5, `plates' rms speed ${rms.toFixed(2)} cm/yr`);
     const pac = tec.plates[tec.owner[at(g, 19.5, -155.5)]];

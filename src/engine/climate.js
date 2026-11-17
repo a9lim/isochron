@@ -66,7 +66,14 @@ import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit
 import { Soil, SOIL, potentialEvaporation } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
+import { Maritime } from './maritime.js';
 
+// Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
+// tune.mjs): the constants below marked "Earth" were set by a pattern search over the land's January,
+// July and annual temperature, the sea's surface and ice by latitude, the land's rain and the Köppen
+// map, settled at level 6. Before it the climate had been tuned to Earth's numbers from memory on
+// seeded planets; on Earth's own map it scored 25% of the land's Köppen classes and 56% of its groups
+// right (now 53% and 74%), with land 3.8 K cold in the year and 14 K off in January.
 export const CLIMATE = {
   A: 205.5, B: 2.09,       // OLR = A + B·T (W/m², T in °C): North's fit to Earth (203.3, from memory); A raised 2.2 W/m² (synthesis) to hold the converged mean near 14 °C under D's transport
   // Heat diffusion, W m⁻² K⁻¹ on the unit sphere (the annual mean), at the equator; it falls toward
@@ -76,14 +83,16 @@ export const CLIMATE = {
   // (0.75) made the polar cap a flat −7 °C (Earth's Arctic ~−18, from memory); falling poleward
   // (the polar air's stable layering carries less heat per kelvin of gradient) it gives 70–80°
   // at −9 to −14 °C, 60° near 0 and the sea ice at 8–11%: Earth's ~7% (from memory) with
-  // Antarctica's area as sea, as this planet's ocean poles have it.
-  D: 1.0, D_LAT: -0.6,
+  // Antarctica's area as sea, as this planet's ocean poles have it. Earth: 0.85 and −0.75 (from 1.0
+  // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold).
+  D: 0.85, D_LAT: -0.75,
   // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: with
   // the capacity mixed over each coarse cell, 0.1 left 55–65° continents with summers ~3 K cooler
   // than Earth's (from memory) and D climates at 15% of land, and 0.085 stood in for that mixing;
   // with each cell's own seasons (SUBGRID), 0.085 made 60–70° N land's summers 2–4 K warm, and 0.11
-  // holds them near Earth's (~11 °C in June–August, from memory).
-  D_SEASON: 0.11,
+  // holds them near Earth's (~11 °C in June–August, from memory). Earth: 0.29, with maritime air
+  // (src/engine/maritime.js) carrying the sea's seasons onto the land from windward.
+  D_SEASON: 0.29,
   // Continental seasons (`continentalSeasons`): each cell's seasonal harmonics from its own heat
   // capacity, not its coarse cell's mixed one.
   SUBGRID: true,
@@ -94,29 +103,53 @@ export const CLIMATE = {
   // Seattle's against Spokane's; from memory). 0: none below the coarse grid's scale; ∞: the mixed capacity.
   SUB_K: 8,
   C_OCEAN: 7.9,            // W yr m⁻² K⁻¹: a 60 m mixed layer
-  C_LAND: 0.3,
+  C_LAND: 0.46,            // Earth (from 0.3: the air's column with the ground's seasonal layer)
   C_ICE: 1.2,
-  LAPSE: 6.5,              // K/km
-  ALB_OCEAN: 0.25, ALB_LAND: 0.27, ALB_POLAR: 0.12,   // + ALB_POLAR·sin²φ (sun angle, cloud)
+  LAPSE: 5.6,              // K/km. Earth (from 6.5): the surface's, which broad uplands warm (Tibet's air)
+  // + ALB_POLAR·sin²φ (sun angle, cloud). ALB_LAND Earth (from 0.27): a diffusive balance imports heat
+  // only where land is colder than its neighbours, so land as bright as it is left subtropical land
+  // ~10 K cold (the Sahara, India; the descent that heats deserts isn't in the balance).
+  ALB_OCEAN: 0.25, ALB_LAND: 0.225, ALB_POLAR: 0.12,
   ALB_SNOW: 0.62, ALB_SEAICE: 0.56,
   ALB_DESERT: 0.07, ALB_FOREST: -0.03,
-  ALB_COVER: 0.03,         // snow-free land's offset under the plants' cover (which also masks snow): retuned so the opening's mean holds
+  ALB_COVER: 0,            // snow-free land's offset under the plants' cover (which also masks snow): Earth (from 0.03)
   CO2: 280, CO2_REF: 280,  // ppm
   S: S0,
   // Circulation and moisture
   OMEGA: 7.292e-5,         // rad/s, the planet's spin
   FRICTION: 4.5e-5,        // 1/s
+  ITCZ_PEN: 0.5,           // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6 before)
+  ITCZ_MAX: 0.5,           // rad: the ITCZ's reach from the equator (Earth; 0.35 kept India's monsoon trough at 20°)
+  ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
+  THERMAL: 0.4,            // hPa per K: the low over land warmer than its latitude, the high over land colder (Earth; 0.75 before)
+  // The subtropical highs' share that land takes away (smoothed over ~1,500 km): 0 zonal bands, 1
+  // oceanic cells (Earth's highs sit over the eastern oceans, and their western flanks carry the sea's
+  // air up the continents' east coasts: zonal bands left eastern China and the eastern US as deserts).
+  HIGH_LAND: 0.85,
   CARRY: 0.4,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes
-  KAPPA_W: 7e4,            // km²/day, eddy mixing of moisture
+  KAPPA_W: 1.45e5,         // km²/day, eddy mixing of moisture (Earth; 7e4 before)
   CONV_A: 15.6,            // convective rain = (W_s/60 mm) e^{a (r − r₀)} mm/day at column humidity r
-  CONV_R0: 0.603,          //   (the shape of Bretherton and others' tropical fit; constants from memory)
-  RAIN_BG: 0.08,           // 1/day where the air isn't sinking
-  RAIN_ORO: 2.5,           // 1/day per m/s of lift up a slope
-  EVAP: 0.35,              // 1/day toward saturation at 7 m/s
+  CONV_R0: 0.693,          //   (the shape of Bretherton and others' tropical fit, from memory; r₀ Earth, 0.603 before)
+  RAIN_BG: 0.12,           // 1/day where the air isn't sinking (Earth; 0.08 before, ungated)
+  // Descent (synthesis on Sverdrup's balance, βv = f ∂w/∂z: Rodwell and Hoskins's subtropical
+  // anticyclones): air moving equatorward in the subtropics is sinking aloft, poleward rising. The
+  // carrying wind's equatorward speed over SUB_V (tapered within 15° of the equator, where f fails)
+  // is a cell's descent, 0–1: it raises the humidity convection needs by SUB_R0 and holds back the
+  // background rain by e^{−SUB_BG}. So the Sahara under the trades is dry while eastern China under
+  // the summer's southerlies rains, at the same latitude.
+  SUB_V: 5, SUB_R0: 0.15, SUB_BG: 2.25,
+  // The background rain needs moist air: its rate rises from nothing at a column humidity of BG_R1
+  // to RAIN_BG at BG_R2 (smoothly; the humidity is the last solve's at that point of the year), so a
+  // hot desert's air, holding much water but far from saturation, doesn't drizzle (synthesis).
+  BG_R1: 0.2, BG_R2: 0.65,
+  // Convection needs a warm surface: its rain rises from nothing at a surface temperature of CONV_T0
+  // (°C) to Bretherton's curve at CONV_T1, so a cool plateau's humid winter air doesn't storm (synthesis).
+  CONV_T0: 17, CONV_T1: 28,
+  RAIN_ORO: 1.5,           // 1/day per m/s of lift up a slope (Earth; 2.5 rained 2 m a year on the Great Basin)
+  EVAP: 0.25,              // 1/day toward saturation at 7 m/s (Earth; 0.35 before)
   RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
   LAND_EVAP: 0.56,         // land's evaporation relative to the sea's, at the soil's full efficiency (β = 1): retuned
-  LAND_EVAP_COVER: 0.52,   // the same with the plants' cover (src/engine/vegetation.js's factors): retuned so land's rain holds
-                           // from 0.6 when the soil's β replaced P/(P + 2.5 mm/day), so land's rain stayed within 0.6%
+  LAND_EVAP_COVER: 0.46,   // the same with the plants' cover (src/engine/vegetation.js's factors): Earth (0.52 before)
   LAKE_ICE: 0.15,          // a frozen lake's evaporation relative to open water's
   SWEEPS: 6,               // Gauss–Seidel sweeps of the moisture balance on the CPU, warm-started (four times as many cold)
   GPU_PASSES: 160,         // Jacobi passes of the moisture balance on the GPU, warm-started (four times as many cold)
@@ -256,10 +289,14 @@ export class Climate {
     this.row = new Int16Array(n); this.roww = new Float32Array(n);
     this.sector = new Uint8Array(n); this.band = new Uint8Array(n);
     this.cor = new Float64Array(n);
+    this.eqw = new Float64Array(3 * n);   // per cell: the unit vector toward the equator, tapered within 15° of it (descent's)
+    this.sinking = new Float32Array(n);   // per cell: the descent at the point of the year being solved (`descent`)
     for (let i = 0; i < n; i++) {
       const z = fine.pos[3 * i + 2];
       const la = Math.asin(Math.max(-1, Math.min(1, z))), lo = Math.atan2(fine.pos[3 * i + 1], fine.pos[3 * i]);
       this.lat[i] = la; this.lon[i] = lo;
+      { const sl = Math.sin(la), tap = -Math.sign(la) * Math.min(1, Math.abs(la) / (15 * Math.PI / 180));
+        this.eqw[3 * i] = -sl * Math.cos(lo) * tap; this.eqw[3 * i + 1] = -sl * Math.sin(lo) * tap; this.eqw[3 * i + 2] = Math.cos(la) * tap; }
       const x = (la + Math.PI / 2) / Math.PI * (NLAT - 1);
       this.row[i] = Math.min(NLAT - 2, Math.floor(x)); this.roww[i] = x - this.row[i];
       this.sector[i] = Math.min(35, Math.floor((lo + Math.PI) / (2 * Math.PI) * 36));
@@ -309,6 +346,7 @@ export class Climate {
     this.elevPos = new Float64Array(n);
     this.landMask = new Uint8Array(n);
     this.landFracC = new Float64Array(nc);
+    this.landSmooth = new Float64Array(n);   // the land's share smoothed over ~1,500 km (`geography`)
     this.wind = new Float32Array(3 * n);   // the last phase's surface wind (m/s), for drawing
     this.windPhase = Array.from({ length: NP }, () => new Float32Array(3 * n));
     this.pres = new Float32Array(n);
@@ -333,6 +371,7 @@ export class Climate {
     this.peopleForcing = null;     // W/m² per cell: coal's sulfate where the winds carry it (src/engine/peoplelink.js)
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ebmGpu = null;  // src/gpu/ebm.js, where there's a device: the energy balance's steps
+    this.maritime = new Maritime(this);   // the sea's air over the land (src/engine/maritime.js): its winds from each cycle
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
     this.warm = false;
@@ -413,6 +452,20 @@ export class Climate {
     const f6 = this.scratch.f6;
     for (let i = 0; i < n; i++) f6[i] = this.landMask[i];
     restrict(this.T, f6, this.landFracC);
+    // The land's share smoothed over ~1,500 km (the subtropical highs' footprint: they stand over the sea).
+    {
+      const cg = this.coarse, w = this.ws.w, c5 = this.scratch.c5, c5b = this.scratch.c5b;
+      c5.set(this.landFracC);
+      for (let pass = 0, m = Math.round(10 * cg.n / 10242); pass < m; pass++) {
+        for (let I = 0; I < cg.n; I++) {
+          let a = 0, ws = 0;
+          for (let t = cg.nbrOff[I], e = cg.nbrOff[I + 1]; t < e; t++) { a += w[t] * c5[cg.nbr[t]]; ws += w[t]; }
+          c5b[I] = 0.4 * c5[I] + 0.6 * a / ws;
+        }
+        c5.set(c5b);
+      }
+      prolong(this.T, c5, this.landSmooth);
+    }
   }
 
   /** Albedo of fine cell i at sea-level temperature T (at sea, the surface's: the air's plus the gyres' anomaly). */
@@ -494,11 +547,12 @@ export class Climate {
       Zr: f64(), Zi: f64(), FYr: f64(), FYi: f64(),     // the coarse cells' impedance Z and ⟨F̂/(B + K + ikωC)⟩
       W: null, a: new Float64Array(n), b: new Float64Array(n), mr: new Float64Array(n), mi: new Float64Array(n), Lr: new Float64Array(nc), Li: new Float64Array(nc),
     });
+    const mar = this.maritime && this.maritime.on ? this.maritime.km : null;   // land's exchange with the sea's air
     for (let k = 1; k <= 2; k++) {
       const om = 2 * Math.PI * k, Yr = sub.Yr[k - 1], Yi = sub.Yi[k - 1], Fr = sub.Fr[k - 1], Fi = sub.Fi[k - 1];
       const a = sub.a, b = sub.b, Fk = F[2 * k - 1], Fk2 = F[2 * k];
       for (let i = 0; i < n; i++) {
-        const z = om * Cf[i], m = 1 / ((B + K) * (B + K) + z * z), yr = (B + K) * m, yi = -z * m;
+        const bk = B + K + (mar ? mar[i] : 0), z = om * Cf[i], m = 1 / (bk * bk + z * z), yr = bk * m, yi = -z * m;
         Yr[i] = yr; Yi[i] = yi; Fr[i] = Fk[i]; Fi[i] = Fk2[i];
         a[i] = Fk[i] * yr - Fk2[i] * yi; b[i] = Fk[i] * yi + Fk2[i] * yr;
       }
@@ -603,6 +657,10 @@ export class Climate {
       this.snowAnn[i] = cold / NS;
     }
     yield;
+    // Maritime air (src/engine/maritime.js): land's seasons exchange with the sea's air over it,
+    // K m on the diagonal (`continentalSeasons`) and K m T_mar in the forcing.
+    const mar = this.maritime && this.maritime.carry(this.Tc) ? this.maritime : null;
+    if (mar) for (let k = 1; k < 5; k++) { const Fk = F[k], Mk = mar.F[k]; for (let i = 0; i < n; i++) Fk[i] += Mk[i]; }
     for (let k = 0; k < 5; k++) restrict(this.T, F[k], this.Fc[k]);
     // Heat capacity: land, open sea, and sea under ice, per cell; the coarse cells' is its mean.
     const f6 = this.scratch.f6, cap = this.scratch.c5, Cf = this.capF || (this.capF = new Float64Array(n));
@@ -734,7 +792,7 @@ export class Climate {
     if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
     for (let it = 0; it < maxIt; it++) {
       this.olrCorrection();
-      if (gpu) yield gpu.step(Tc, this.warm); else yield* this.ebm();
+      if (gpu) { gpu.setMaritime(this.maritime && this.maritime.carry(Tc) ? this.maritime : null); yield gpu.step(Tc, this.warm); } else yield* this.ebm();
       this.olrMeasure();
       for (let k = 0; k < 5; k++) g.set(Tc[k], k * nc);
       // Remember (x, G(x)) as the residual f = G(x) − x and G(x), oldest first.
@@ -781,17 +839,17 @@ export class Climate {
         const k = s * 30 + b;
         if (!(secA[k] > 0)) continue;
         const la = -29 + 2 * b;
-        const score = sec[k] / secA[k] - 0.6 * (la / 14) * (la / 14);
+        const score = sec[k] / secA[k] - C.ITCZ_PEN * (la / 14) * (la / 14);
         if (score > best) { best = score; bb = b; }
       }
       itcz[s] = (-29 + 2 * bb) * Math.PI / 180;
     }
     // Smooth around the globe, and bound.
-    for (let pass = 0; pass < 3; pass++) {
+    for (let pass = 0; pass < C.ITCZ_SMOOTH; pass++) {
       const t = itcz.slice();
       for (let s = 0; s < 36; s++) itcz[s] = 0.25 * t[(s + 35) % 36] + 0.5 * t[s] + 0.25 * t[(s + 1) % 36];
     }
-    for (let s = 0; s < 36; s++) { itcz[s] = Math.max(-0.35, Math.min(0.35, itcz[s])); this.itcz[p * 36 + s] = itcz[s]; }
+    for (let s = 0; s < 36; s++) { itcz[s] = Math.max(-C.ITCZ_MAX, Math.min(C.ITCZ_MAX, itcz[s])); this.itcz[p * 36 + s] = itcz[s]; }
     // Hadley edge: Held and Hou's scaling from the equator-to-pole contrast and the spin.
     const zAt = la => { const x = (la + Math.PI / 2) / Math.PI * 90 - 0.5, b = Math.max(0, Math.min(88, Math.floor(x))), w = Math.min(1, Math.max(0, x - b)); return zm[b] * (1 - w) + zm[b + 1] * w; };
     const dT = Math.max(5, zAt(0) - 0.5 * (zAt(1.05) + zAt(-1.05)));
@@ -824,8 +882,8 @@ export class Climate {
       const la = this.lat[i], pi = itcz[this.sector[i]];
       const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
       const NL = Math.min(1.2, 2.05 * phiH) + 0.3 * pi, SL = -Math.min(1.2, 2.05 * phiH) + 0.3 * pi;
-      pres[i] = -7 * G(la - pi, 0.2) + 11 * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
-        + 8 * polarHi[i] - 0.75 * anom[i];
+      pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * this.landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
+        + 8 * polarHi[i] - C.THERMAL * anom[i];
     }
     this.presPhase[p].set(pres);
     // Winds: r u + f k×u = −∇p/ρ.
@@ -837,6 +895,13 @@ export class Climate {
     yield* this.moisture(p, T, carry);
     // Dust's sources on these winds and this rain (src/engine/aeolian.js).
     if (this.dust) { yield; yield* this.dust.phaseSteps(p, T); }
+  }
+
+  /** Each cell's descent (0–1) under the carrying wind (CLIMATE.SUB_V; see SUB_R0): its equatorward speed over SUB_V. */
+  descent(wind) {
+    const n = this.grid.n, e = this.eqw, sub = this.sinking, v0 = CLIMATE.SUB_V;
+    for (let i = 0; i < n; i++) sub[i] = Math.min(1, Math.max(0, (wind[3 * i] * e[3 * i] + wind[3 * i + 1] * e[3 * i + 1] + wind[3 * i + 2] * e[3 * i + 2]) / v0));
+    return sub;
   }
 
   /** The steady moisture balance at phase p, by fast sweeping. */
@@ -851,7 +916,7 @@ export class Climate {
       const beta = this.betaPh[p], G = this.ground, gw = G && G.betaSlow ? G.weight : 0, gratio = gw > 0 ? G.betaRatio : null;
       const bf = this.betaF || (this.betaF = new Float32Array(n));
       if (gw > 0) for (let i = 0; i < n; i++) bf[i] = beta[i] * (1 - gw + gw * gratio[i]); else bf.set(beta);
-      yield this.gpu.solveFrom(wind, T, bf, this.W[p], this.Pph[p], this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, C.CONV_A, C.CONV_R0, pmax);
+      yield this.gpu.solveFrom(wind, T, bf, this.W[p], this.Pph[p], this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, C.CONV_A, C.CONV_R0, pmax, this.descent(wind), this.W[p]);
       return;
     }
     if (!this.edgeU) { this.edgeU = new Float32Array(m); this.coefA = new Float64Array(n); this.ws_ = new Float64Array(n); this.lam = new Float64Array(n); this.ecoef = new Float64Array(n); }
@@ -870,7 +935,9 @@ export class Climate {
       div[i] = dv / g.area[i] / R_M;   // 1/s
     }
     const P = this.Pph[p], W = this.W[p];
-    const areaKm = R_KM * R_KM;
+    const areaKm = R_KM * R_KM, sub = this.descent(wind);
+    const r0 = this.r0 || (this.r0 = new Float64Array(n));   // each cell's convective threshold: CONV_R0, raised by descent
+    const cvf = this.cvf || (this.cvf = new Float64Array(n)); // and its convection's share by the surface's warmth
     // The live ground's slow mean of β against the closure's (src/engine/ground.js), by the year's live weight.
     const beta = this.betaPh[p], G = this.ground, gw = G && G.betaSlow ? G.weight : 0, gratio = gw > 0 ? G.betaRatio : null;
     for (let i = 0; i < n; i++) {
@@ -880,7 +947,9 @@ export class Climate {
       const speed = Math.hypot(wind[3 * i], wind[3 * i + 1], wind[3 * i + 2]);
       const lift = wind[3 * i] * this.upz[3 * i] + wind[3 * i + 1] * this.upz[3 * i + 1] + wind[3 * i + 2] * this.upz[3 * i + 2];
       const sink = Math.max(0, div[i]) / 3e-6;
-      lam[i] = C.RAIN_BG * (0.25 + 0.75 * Math.exp(-sink)) + C.RAIN_ORO * Math.max(0, lift);
+      lam[i] = C.RAIN_BG * (0.25 + 0.75 * Math.exp(-sink - C.SUB_BG * sub[i])) * ramp(W[i] / Ws[i], C.BG_R1, C.BG_R2) + C.RAIN_ORO * Math.max(0, lift);
+      r0[i] = C.CONV_R0 + C.SUB_R0 * sub[i];
+      cvf[i] = ramp(Ts, C.CONV_T0, C.CONV_T1);
       let e = C.EVAP * (speed + 3) / 10;
       if (land) {
         // The soil's evaporative efficiency at this point of the year, and a lake's open water.
@@ -910,8 +979,8 @@ export class Climate {
         a += Ai * (lam[i] + ec[i]);
         co[o] = cin[0]; co[o + 1] = cin[1]; co[o + 2] = cin[2]; co[o + 3] = cin[3];
         co[o + 4] = cin[4]; co[o + 5] = cin[5]; co[o + 6] = a; co[o + 7] = Ai * ec[i] * ws;
-        co[o + 8] = Ai * ws / 60 * Math.exp(-ca * cr); co[o + 9] = ca / ws; co[o + 10] = lam[i]; co[o + 11] = ws;
-        co[o + 12] = Ai; co[o + 13] = Ai * pmax; co[o + 14] = 0; co[o + 15] = 0;
+        co[o + 8] = cvf[i] * Ai * ws / 60 * Math.exp(-ca * r0[i]); co[o + 9] = ca / ws; co[o + 10] = lam[i]; co[o + 11] = ws;
+        co[o + 12] = Ai; co[o + 13] = Ai * pmax; co[o + 14] = r0[i]; co[o + 15] = cvf[i];
       }
       yield this.gpu.solve(co, W, this.warm ? C.GPU_PASSES : 4 * C.GPU_PASSES, ca, cr, pmax);
     } else for (let s = 0, moved = 0, top = Math.max(sweeps, this.warm ? C.MOIST_MAX : 4 * C.MOIST_MAX); s < top; s++) {
@@ -931,7 +1000,7 @@ export class Climate {
         const Ai = A[i], ws = Ws[i];
         a += Ai * (lam[i] + ec[i]);
         b += Ai * ec[i] * ws;
-        const k0 = Ai * ws / 60 * Math.exp(-ca * cr), al = ca / ws;
+        const k0 = cvf[i] * Ai * ws / 60 * Math.exp(-ca * r0[i]), al = ca / ws;
         let w = Math.min(W[i], b / a);
         for (let it = 0; it < 4; it++) {
           const ex = k0 * Math.exp(Math.min(40, al * w));
@@ -940,7 +1009,7 @@ export class Climate {
           if (Math.abs(step) < 1e-3) break;
         }
         // The cap: rain held at RAIN_MAX, the rest of the water carried on.
-        if (lam[i] * w + ws / 60 * Math.exp(Math.min(40, ca * (w / ws - cr))) > pmax) {
+        if (lam[i] * w + cvf[i] * ws / 60 * Math.exp(Math.min(40, ca * (w / ws - r0[i]))) > pmax) {
           w = Math.max(w, (b - Ai * pmax) / Math.max(1e-9, a - Ai * lam[i]));
         }
         w = Math.max(0, w);
@@ -957,7 +1026,7 @@ export class Climate {
     }
     for (let i = 0; i < n; i++) {
       const w = W[i], ws = Ws[i];
-      P[i] = Math.min(pmax, lam[i] * w + ws / 60 * Math.exp(Math.min(40, ca * (w / ws - cr))));
+      P[i] = Math.min(pmax, lam[i] * w + this.cvf[i] * ws / 60 * Math.exp(Math.min(40, ca * (w / ws - this.r0[i]))));
     }
   }
 
@@ -1132,6 +1201,8 @@ export class Climate {
     yield;
     yield* this.energyBalance();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
+    // The year's winds carry the sea's air over the land in the next cycle's energy balance.
+    if (this.maritime) this.maritime.setWind();
     // The gyres after the winds they're driven by (before them, the first cycle's saw none).
     if (this.ocean) yield* this.ocean.solve();
     yield* this.finishSteps();

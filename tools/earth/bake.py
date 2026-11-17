@@ -149,15 +149,45 @@ def plates():
             pid[i] = p
             names.setdefault(p, f.get_name())
     gaps = np.count_nonzero(pid < 0)
-    # A network's cells go to its plate when that is one of the rigid plates (a network of its own,
-    # East China's or Southeast Asia's, would be a plate the rigid ones don't have).
+    # A network's cells go to its plate when that is one of the rigid plates. A network with a plate of
+    # its own (Southeast Asia's, East China's: plates the rigid ones don't have) goes, cell by cell, to
+    # whichever of the rigid plates bordering it moves most like it there, so Sundaland rides Eurasia
+    # (within ~0.3 cm/yr of it) rather than whatever polygon happens to be nearest (Australia, across
+    # the Java trench); compared with every plate, a distant one's motion can match by chance.
     part = pygplates.PlatePartitioner(nets, rm)
+    omega = {}
+    def w_of(p):
+        if p not in omega:
+            fr = rm.get_rotation(0.0, int(p), 1.0)
+            pole, ang = fr.get_euler_pole_and_angle() if not fr.represents_identity_rotation() else (None, 0.0)
+            omega[p] = np.array(pole.to_xyz()) * ang if pole is not None else np.zeros(3)
+        return omega[p]
+    net = {}
     for i in np.flatnonzero(pid < 0):
         rt = part.partition_point(pygplates.PointOnSphere(float(lat[i]), float(lon[i])))
-        if rt is not None and rt.get_feature().get_reconstruction_plate_id() in names:
-            pid[i] = rt.get_feature().get_reconstruction_plate_id()
-    print(f'  {gaps} cells in no rigid plate, {gaps - np.count_nonzero(pid < 0)} of them given their network\'s')
-    # The rest (a gap between topologies, or a network of its own) take their nearest partitioned cell's plate.
+        if rt is None:
+            continue
+        q = rt.get_feature().get_reconstruction_plate_id()
+        if q in names:
+            pid[i] = q
+        else:
+            net.setdefault(q, []).append(i)
+    rigid_cells = np.flatnonzero(pid >= 0)
+    near = cKDTree(cells[rigid_cells])
+    spacing = 2.5 * np.sqrt(4 * np.pi / n)   # a cell and a half past the network's edge
+    own = 0
+    for q, idx in net.items():
+        border = set()
+        for hits in near.query_ball_point(cells[idx], spacing):
+            border.update(pid[rigid_cells[hits]].tolist())
+        if not border:
+            continue
+        for i in idx:
+            vq = np.cross(w_of(q), cells[i])
+            pid[i] = min(border, key=lambda p: np.linalg.norm(np.cross(w_of(p), cells[i]) - vq))
+            own += 1
+    print(f'  {gaps} cells in no rigid plate: {gaps - np.count_nonzero(pid < 0) - own} given their network\'s, {own} the plate their network moves with')
+    # The rest (gaps between topologies) take their nearest partitioned cell's plate.
     if (pid < 0).any():
         ok = np.flatnonzero(pid >= 0)
         _, j = cKDTree(cells[ok]).query(cells[pid < 0])
