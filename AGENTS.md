@@ -2,7 +2,7 @@
 
 An Earth-like planet on one globe, from plate tectonics down to weather, with every layer coupled to the others. `docs/PLAN.md` is the plan of record: the thesis (one planet, one state, one dial), the nine layers, their couplings, the scene, the figures, the experiments, the phases, and the roadmap ahead (phases 6–10: the year, ice that carves, minimal life, dust, the engine on the GPU). This file describes the code as it is.
 
-It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron). It is registered on the site (`content/projects/isochron.md`, with its social card) and staged by the parent's build; the parent's dev server serves it. The root `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build.
+It is a submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron). It is registered on the site (`content/projects/isochron.md`, with its social card) and staged by the parent's build; the parent's dev server serves it. The card (`og-image.webp`; the parent's `tools/og/paint/isochron.py`) is painted from a seeded run of the people on the follow dial's axis, exported by the parent's `tools/og/paint/isochron-run.mjs`: a change to the people's model doesn't repaint it, so re-export and repaint when the card should follow one. The root `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build.
 
 ## Status
 
