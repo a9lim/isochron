@@ -314,7 +314,13 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.arc(cx, cy, r, 0, 2 * Math.PI);
   ctx.stroke();
   const climate = layers.view === 'climate', weather = layers.view === 'weather', tides = layers.view === 'tides', folk = layers.view === 'people';
-  if (layers.rivers) drawRivers(ctx, cx, cy, r, camera, layers.rivers, palette.ocean, layers.air || weather || tides || folk ? 0.35 : climate ? 0.55 : 0.9, layers.riverMonth);
+  // Rivers are painted over the land, opaque, so nothing under them shows through and their joins
+  // don't darken (a9: over the relief's colours, the farms and the cities): in the sea's ink on the
+  // Surface and the People maps, paler toward the paper on the Zones' mosaic and on the charts.
+  if (layers.rivers) {
+    const ink = layers.air || weather || tides ? mixHex(palette.ocean, palette.canvas, 0.6) : climate ? mixHex(palette.ocean, palette.canvas, 0.35) : palette.ocean;
+    drawRivers(ctx, cx, cy, r, camera, layers.rivers, ink, 1, layers.riverMonth);
+  }
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   // The Climate view's Air chart: the winds as streamlines (src/render/streamlines.js).
   if (layers.air) drawStreamlines(ctx, cx, cy, r, camera, layers.air.sets, withAlpha(palette.text, 0.62), Math.sqrt(symbolScale(r)));
@@ -423,6 +429,13 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
   ctx.stroke(openTeeth);
   ctx.fillStyle = palette.accent;
   ctx.fill(arcs);
+}
+
+/** Hex a mixed toward hex b by t, as hex. */
+function mixHex(a, b, t) {
+  const p = x => { const h = x.replace('#', ''); return [0, 2, 4].map(k => parseInt(h.slice(k, k + 2), 16)); };
+  const A = p(a), B = p(b);
+  return `#${A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
 }
 
 function withAlpha(hex, a) {
