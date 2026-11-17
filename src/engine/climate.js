@@ -137,7 +137,7 @@ export const CLIMATE = {
   OMEGA: 7.292e-5,         // rad/s, the planet's spin
   FRICTION: 4.5e-5,        // 1/s
   ITCZ_PEN: 0.5,           // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6 before)
-  ITCZ_MAX: 0.5,           // rad: the ITCZ's reach from the equator (Earth; 0.35 kept India's monsoon trough at 20°)
+  ITCZ_MAX: 0.4,           // rad: the ITCZ's reach from the equator (Earth; 0.5 before the land's own evaporation; 0.35 kept India's monsoon trough at 20°)
   ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
   // hPa per K: the low where it's warmer than its latitude, the high where it's colder, bounded softly at
   // THERMAL_MAX (hPa). Earth's winter highs over cold continents and lows over warm seas are ~1 hPa/K
@@ -145,7 +145,7 @@ export const CLIMATE = {
   // 0.6–1 carried a summer continent's heat into its interior (Siberia's July 25–28 °C against 16) and at
   // 1.5 ran away; with the clouds, which shade a summer continent's rain, 1.0 holds (against 0.12:
   // January's land 6.4 → 5.7 K rms, eastern North America's January 2 K colder; Siberia's July 2.5 K warm).
-  THERMAL: 1.0, THERMAL_MAX: 30,
+  THERMAL: 1.15, THERMAL_MAX: 30,   // Earth (1.0 before the land's own evaporation)
   // The Hadley edge, where the subtropical highs stand: Held and Hou's √ΔT/Ω, HADLEY degrees at
   // an equator-to-60° contrast of HADLEY_DT; the subpolar lows at LOWS of it. Earth: its highs at
   // ~30–35° and its lows at ~60–65° (the Southern Ocean's trough ~65° S; from memory), so its
@@ -156,14 +156,14 @@ export const CLIMATE = {
   // The subtropical highs' share that land takes away (smoothed over ~1,500 km): 0 zonal bands, 1
   // oceanic cells (Earth's highs sit over the eastern oceans, and their western flanks carry the sea's
   // air up the continents' east coasts: zonal bands left eastern China and the eastern US as deserts).
-  HIGH_LAND: 0.75,         // Earth (0.85 before the sea's heat transport)
-  CARRY: 0.4,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes
-  KAPPA_W: 1.65e5,         // km²/day, eddy mixing of moisture (Earth; 7e4, then 1.45e5)
+  HIGH_LAND: 0.85,         // Earth (0.75 before the land's own evaporation)
+  CARRY: 0.5,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes (Earth; 0.4 before)
+  KAPPA_W: 1.95e5,         // km²/day, eddy mixing of moisture in the storm tracks (Earth; 1.65e5 everywhere before)
   // The eddies' mixing is the storm tracks': KW_TROP of it in the deep tropics, the whole past KW_LAT[1]°
   // (smoothly from KW_LAT[0]°), where the mean circulation carries the water (standard in kind).
-  KW_TROP: 0.3, KW_LAT: [10, 30],
-  CONV_A: 15.6,            // convective rain = (W_s/60 mm) e^{a (r − r₀)} mm/day at column humidity r
-  CONV_R0: 0.743,          //   (the shape of Bretherton and others' tropical fit, from memory; r₀ Earth, 0.603, then 0.693)
+  KW_TROP: 0.075, KW_LAT: [10, 30],   // Earth
+  CONV_A: 13.6,            // convective rain = (W_s/60 mm) e^{a (r − r₀)} mm/day at column humidity r (Earth; 15.6 before)
+  CONV_R0: 0.593,          //   (the shape of Bretherton and others' tropical fit, from memory; r₀ Earth, 0.743 before)
   RAIN_BG: 0.14,           // 1/day where the air isn't sinking (Earth; 0.08 ungated, then 0.12)
   // Descent (synthesis on Sverdrup's balance, βv = f ∂w/∂z: Rodwell and Hoskins's subtropical
   // anticyclones): air moving equatorward in the subtropics is sinking aloft, poleward rising. The
@@ -171,16 +171,16 @@ export const CLIMATE = {
   // is a cell's descent, 0–1: it raises the humidity convection needs by SUB_R0 and holds back the
   // background rain by e^{−SUB_BG}. So the Sahara under the trades is dry while eastern China under
   // the summer's southerlies rains, at the same latitude.
-  SUB_V: 5, SUB_R0: 0.15, SUB_BG: 2.25,
+  SUB_V: 3, SUB_R0: 0.11, SUB_BG: 3.25,   // Earth (5, 0.15, 2.25 before the land's own evaporation)
   // The background rain needs moist air: its rate rises from nothing at a column humidity of BG_R1
   // to RAIN_BG at BG_R2 (smoothly; the humidity is the last solve's at that point of the year), so a
   // hot desert's air, holding much water but far from saturation, doesn't drizzle (synthesis).
-  BG_R1: 0.2, BG_R2: 0.65,
+  BG_R1: 0.2, BG_R2: 0.69,   // Earth (0.65 before)
   // Convection needs a warm surface: its rain rises from nothing at a surface temperature of CONV_T0
   // (°C) to Bretherton's curve at CONV_T1, so a cool plateau's humid winter air doesn't storm (synthesis).
-  CONV_T0: 17, CONV_T1: 28,
-  RAIN_ORO: 1.5,           // 1/day per m/s of lift up a slope (Earth; 2.5 rained 2 m a year on the Great Basin)
-  EVAP: 0.25,              // 1/day toward saturation at 7 m/s (Earth; 0.35 before)
+  CONV_T0: 15, CONV_T1: 28,   // Earth (17 before)
+  RAIN_ORO: 3.1,           // 1/day per m/s of lift up a slope (Earth; 1.5 before the land's own evaporation)
+  EVAP: 0.3,               // 1/day toward saturation at 7 m/s (Earth; 0.25 before)
   RAIN_MAX: 25,            // mm/day in a cell: past it the column stays supersaturated and carries on (precipitation efficiency)
   LAND_EVAP: 0.56,         // land's evaporation relative to the sea's, at the soil's full efficiency (β = 1): retuned
   LAND_EVAP_COVER: 0.46,   // the same with the plants' cover (src/engine/vegetation.js's factors): Earth (0.52 before)
