@@ -164,7 +164,8 @@ export function earthGenesis(tec, seed, d) {
     h[i] = thickness(target[i], phi[i], -tf[i]);
   }
   framesFromWorld(tec);
-  hangSlabs(tec);
+  // Earth's slabs mostly reach the transition zone (~660 km, from memory), so they hang at SLAB_MAX, where the pull saturates.
+  hangSlabs(tec, PARAMS.SLAB_MAX);
   tec.seaLevel = s0;
   tec.updateElevation();
   fillSea(tec, s0);

@@ -18,7 +18,9 @@
 //                    continent against continent thickens the crust, marks a
 //                    suture, and, along a long enough front, merges the plates.
 // Then ω comes from a torque balance on each plate: slab pull and ridge push
-// against basal drag, continents dragging harder (their keels). A plate is one
+// against basal drag, continents dragging harder (their keels), and each slab's
+// own resistance to sinking, so a plate its slabs drive moves at about their
+// sinking speed whatever its size (Forsyth and Uyeda's result). A plate is one
 // connected body: a piece the step cuts off becomes a plate of its own or joins
 // the plate around it (resolveFragments).
 //
@@ -44,13 +46,15 @@ export const PARAMS = {
   CLOSING: 0.3,  // share of the relative motion that must close for an overlap to consume
   COLLIDE_FRAC: 0.6,  // share of a consumed continent's crust that stacks
   ARC_TAU: 5,  // Myr, arc volcanism after subduction stops
-  SLAB_TAU: 4,  // Myr, a slab's pull where subduction has stopped (or the trench has moved on)
+  SLAB_TAU: 15,  // Myr, a slab's memory: how long its upper-mantle part takes to sink away once subduction stops (or the trench moves on)
   SLAB_MAX: 0.11,  // rad, ~700 km of slab: the pull saturates
   MERGE_EVENTS: 150,  // collision events (decaying over MERGE_TAU) that weld two plates (at level 6; per area elsewhere)
   MERGE_TAU: 20,
   K_COLLIDE: 0.03,  // resistance of a collision front, per cell, against convergence
   COLLIDE_TAU: 8,  // Myr
-  K_SLAB: 0.008,  // slab pull per cell of trench (at level 6; × √res elsewhere: see balance); 0.005 while plates' stray pieces pulled too (resolveFragments)
+  K_SLAB: 0.04,  // slab pull per cell of trench (any level: see balance); 0.008 (× √res) before the slab's resistance, 0.005 while plates' stray pieces pulled too (resolveFragments)
+  K_TRENCH: 2,  // a slab's resistance to sinking per cell of trench, along its pull: a saturated slab sinks at K_SLAB/K_TRENCH (0.02 rad/Myr, 12.7 cm/yr) × its age's factor
+  SLAB_CLOSING: 0.6,  // share of the relative motion that must close across a boundary for a slab to hang there (CLOSING consumes from 0.3: where plates mostly slide past, consumption is the grid's rounding)
   FOUNDER_AGE: 140,  // Myr: seafloor this old at a plate's edge, or at its own continent's margin, begins to sink
   INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active (at level 6; per length elsewhere)
   INITIATE_GAP: 20,  // Myr between initiations anywhere on the planet
@@ -61,7 +65,7 @@ export const PARAMS = {
   MIN_PLATES: 7,
   MAX_LIVE_PLATES: 16,
   MICROPLATE: 0.004 * 4 * Math.PI,  // a plate smaller than this joins its largest neighbour
-  MAX_PLATE_AREA: 0.2 * 4 * Math.PI,
+  MAX_PLATE_AREA: 0.25 * 4 * Math.PI,  // a plate larger than this rifts (Earth's Pacific is ~20% of the surface, 22% in the sim with its slivers)
   STEP_CELLS: 1,  // cells of the grid the fastest plate may move in one step; past it the step runs as substeps
   FRAGMENTS: 0.5,  // Myr of plate time between checks that each plate is one piece (resolveFragments)
   RIFT_TAU: 25,  // Myr, how long a rift's opening torque lasts
@@ -405,18 +409,24 @@ export class Tectonics {
             this.pairs.set(key, (this.pairs.get(key) || 0) + 1);
             this.counters.collided++;
           } else {
-            // Subduction: a slab hangs here and pulls its plate toward the trench.
-            // The slab's length so far follows the trench: inherit the longest
-            // slab of this plate beside the cell, so a migrating trench keeps it.
-            let len = this.slabPlate[i] === k ? this.slab[i] : 0;
-            for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-              const jn = nbr[t];
-              if (this.slabPlate[jn] === k && this.slab[jn] > len) len = this.slab[jn];
+            // Subduction: a slab hangs here and pulls its plate toward the trench,
+            // down-dip, across the boundary (n̂, toward the top plate). Only where
+            // the plates close across it (SLAB_CLOSING): where they mostly slide
+            // past, the overlap is the grid's rounding of a transform. The slab's
+            // length so far follows the trench: inherit the longest slab of this
+            // plate beside the cell, so a migrating trench keeps it.
+            const rn = Math.hypot(nx, ny, nz);
+            if (closing > PARAMS.SLAB_CLOSING * r * rn) {
+              let len = this.slabPlate[i] === k ? this.slab[i] : 0;
+              for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+                const jn = nbr[t];
+                if (this.slabPlate[jn] === k && this.slab[jn] > len) len = this.slab[jn];
+              }
+              this.slab[i] = Math.min(PARAMS.SLAB_MAX, len + cellLen);
+              this.slabPlate[i] = k;
+              this.slabAge[i] = Math.max(0, this.t - Q.tf[j]);
+              this.slabDir[3 * i] = nx / rn; this.slabDir[3 * i + 1] = ny / rn; this.slabDir[3 * i + 2] = nz / rn;
             }
-            this.slab[i] = Math.min(PARAMS.SLAB_MAX, len + cellLen);
-            this.slabPlate[i] = k;
-            this.slabAge[i] = Math.max(0, this.t - Q.tf[j]);
-            if (r > 0) { this.slabDir[3 * i] = dx / r; this.slabDir[3 * i + 1] = dy / r; this.slabDir[3 * i + 2] = dz / r; }
             // The arc on the plate above.
             P.h[jt] = Math.min(H_MAX, P.h[jt] + PARAMS.ARC_DH * this.res);
             P.phi[jt] = Math.min(1, P.phi[jt] + PARAMS.ARC_DPHI * this.res);
@@ -666,27 +676,57 @@ export class Tectonics {
    */
   airDatum() { return this.boiled > 0 ? Math.max(this.seaLevel, this.datum) : this.seaLevel; }
 
-  /** Ridge push and slab pull per unit, scaled with the cell (see balance); src/gpu/plates.js reads them here too. */
-  forceScales() { return { kRidge: PARAMS.K_RIDGE * this.res ** 0.2, kSlab: PARAMS.K_SLAB * Math.sqrt(this.res) }; }
+  /** Ridge push, slab pull and the slab's resistance per unit, scaled with the cell (see balance); src/gpu/plates.js reads them here too. */
+  forceScales() { return { kRidge: PARAMS.K_RIDGE * this.res ** 0.2, kSlab: PARAMS.K_SLAB, kTrench: PARAMS.K_TRENCH }; }
 
   /**
-   * ω from slab pull and ridge push against basal drag, per plate.
+   * ω from slab pull and ridge push against basal drag and the slabs' resistance, per plate.
    *
-   * The forces are discretized on the cells, and the same planet on a finer grid
-   * pushes and pulls harder: refined from level 6 to 7 its plates settled ~30%
-   * faster (rms 4.4 against 3.4 cm/yr; kicked slower or faster, each level returns
-   * to its own speed, so it's a stable equilibrium, not a runaway), and at level 5
-   * ~40% slower. Ridge push sums a one-sided gradient at the plate's edge, which ends
-   * at the edge cell's own depth, nearer the axis on a finer grid (read on one state
-   * at both levels, level 7's ~12% stronger); slab pull counts the edge cells beside
-   * slab memory one cell wide, whose band and staircase change with the cell. PARAMS
-   * are tuned at level 6, so the two scale with the cell, fitted (a calibration, not
-   * a derivation): × res^0.2 and × √res, under which level 7 opens as level 6 does.
+   * Each slab pulls its plate across the trench with K_SLAB (s/SLAB_MAX) √(age/100) per cell of
+   * trench and resists the plate's motion that way with K_TRENCH (s/SLAB_MAX) (standard in kind: a
+   * slab sinks against the mantle's viscous resistance, which grows with its length as its weight
+   * does; Forsyth and Uyeda 1975's slab resistance). So a plate its slabs drive moves at about their
+   * sinking speed, K_SLAB/K_TRENCH × the age's factor, whatever its size, and one that basal drag
+   * holds (a big plate with a short trench, a continent's keel) moves slower: plates' speeds follow
+   * the share of their edge that subducts, as Forsyth and Uyeda found, rather than its ratio to
+   * their area. Without it a small plate with a trench ran to V_MAX.
+   *
+   * The forces are discretized on the cells and PARAMS are tuned at level 6. Ridge push sums a
+   * one-sided gradient at the plate's edge, which ends at the edge cell's own depth, nearer the axis
+   * on a finer grid (read on one state at both levels, level 7's ~12% stronger), so it scales as
+   * res^0.2 (fitted). Slab pull and its resistance need no scaling since slabs hang only where the
+   * plates close across the boundary and pull across it (SLAB_CLOSING): each trench cell pulls
+   * cellLen, so a trench pulls by its length at any level (measured: Earth's opening balances at rms
+   * 3.38 cm/yr at level 7 against 3.35 at level 6 and runs at 3.28 over 20 Myr at both; seeded
+   * planets at level 7 within ~4% of level 6). Before, slabs grew at every closing overlap and
+   * pulled along the relative motion, the band beside a trench and its staircase changed with the
+   * cell, and slab pull went as √res.
    */
   balance(dt) {
+    const { M, T } = this.torques(true);
+    this.solveBalance(M, T, dt);
+  }
+
+  /**
+   * The balance's ω per plate without relaxing toward it or changing anything (no foundering, no
+   * decay of rifts' torques): a map from plate index to ω. `cap: false` leaves V_MAX off, so the
+   * balance is linear in the torques (tools/earth/plates-score.mjs splits it by force).
+   */
+  balanceTarget({ cap = true } = {}) {
+    const { M, T } = this.torques(false), out = new Map();
+    this.solveBalance(M, T, 0, (k, w) => {
+      const wm = Math.hypot(w[0], w[1], w[2]);
+      const s = cap && wm > PARAMS.V_MAX ? PARAMS.V_MAX / wm : 1;
+      out.set(k, Float64Array.of(w[0] * s, w[1] * s, w[2] * s));
+    });
+    return out;
+  }
+
+  /** The balance's drag matrices M (upper triangle, 9 per plate) and torques T; `founder` lets old seafloor at an edge founder. */
+  torques(founder) {
     const g = this.grid, n = g.n, pos = g.pos, area = g.area;
     const cellLen = Math.sqrt(4 * Math.PI / n);
-    const { kRidge, kSlab } = this.forceScales();
+    const { kRidge, kSlab, kTrench } = this.forceScales();
     const np = this.plates.length;
     const M = new Float64Array(9 * np), T = new Float64Array(3 * np);
     for (let k = 0; k < np; k++) { const p = this.plates[k]; p.area = 0; p.land = 0; T[3 * k] = p.torqueExt[0]; T[3 * k + 1] = p.torqueExt[1]; T[3 * k + 2] = p.torqueExt[2]; }
@@ -716,7 +756,8 @@ export class Tectonics {
       T[3 * k] += y * fz - z * fy; T[3 * k + 1] += z * fx - x * fz; T[3 * k + 2] += x * fy - y * fx;
     }
     // Slab pull, along the trench line only: each cell of a plate's edge pulls
-    // with the longest slab of that plate hanging within a cell of it. (The
+    // with the longest slab of that plate hanging within a cell of it, and the
+    // slab resists motion along its pull (M += c q qᵀ with q = x × d̂). (The
     // slab memory behind a migrating trench is a band; counting the band
     // would make pull grow with speed and run away.)
     for (let i = 0; i < n; i++) {
@@ -732,7 +773,7 @@ export class Tectonics {
       if (s < 1e-4) {
         // Old seafloor at a plate's edge founders: subduction begins there.
         const age = this.t - this.tf[i];
-        if (phi[i] >= CONTINENTAL || age < PARAMS.FOUNDER_AGE) continue;
+        if (!founder || phi[i] >= CONTINENTAL || age < PARAMS.FOUNDER_AGE) continue;
         let dx = 0, dy = 0, dz = 0;
         for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (owner[nbr[t]] !== k) { dx += g.tan[3 * t]; dy += g.tan[3 * t + 1]; dz += g.tan[3 * t + 2]; }
         const r = Math.hypot(dx, dy, dz);
@@ -742,9 +783,14 @@ export class Tectonics {
         this.counters.foundered = (this.counters.foundered || 0) + 1;
       }
       const f = kSlab * (s / PARAMS.SLAB_MAX) * Math.sqrt(Math.max(0, Math.min(this.slabAge[si], 150)) / 100) * cellLen;
-      const fx = f * this.slabDir[3 * si], fy = f * this.slabDir[3 * si + 1], fz = f * this.slabDir[3 * si + 2];
+      const dx = this.slabDir[3 * si], dy = this.slabDir[3 * si + 1], dz = this.slabDir[3 * si + 2];
+      const fx = f * dx, fy = f * dy, fz = f * dz;
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
       T[3 * k] += y * fz - z * fy; T[3 * k + 1] += z * fx - x * fz; T[3 * k + 2] += x * fy - y * fx;
+      const c = kTrench * (s / PARAMS.SLAB_MAX) * cellLen;
+      const qx = y * dz - z * dy, qy = z * dx - x * dz, qz = x * dy - y * dx, o = 9 * k;
+      M[o] += c * qx * qx; M[o + 1] += c * qx * qy; M[o + 2] += c * qx * qz;
+      M[o + 4] += c * qy * qy; M[o + 5] += c * qy * qz; M[o + 8] += c * qz * qz;
     }
     // Collision fronts resist convergence: equal and opposite on the two plates.
     for (let i = 0; i < n; i++) {
@@ -760,11 +806,14 @@ export class Tectonics {
       T[3 * a] += tx; T[3 * a + 1] += ty; T[3 * a + 2] += tz;
       T[3 * b] -= tx; T[3 * b + 1] -= ty; T[3 * b + 2] -= tz;
     }
-    this.solveBalance(M, T, dt);
+    return { M, T };
   }
 
-  /** ω per plate from its drag matrix M (upper triangle, 9 per plate) and torque T, relaxed over V_RELAX. */
-  solveBalance(M, T, dt) {
+  /**
+   * ω per plate from its drag matrix M (upper triangle, 9 per plate) and torque T, relaxed over V_RELAX;
+   * with `target`, each plate's solved ω (before V_MAX) goes to it instead and nothing changes.
+   */
+  solveBalance(M, T, dt, target = null) {
     const np = this.plates.length;
     // Symmetric fill and solve.
     const w = new Float64Array(3), mk = new Float64Array(9), tk = new Float64Array(3);
@@ -783,6 +832,7 @@ export class Tectonics {
       solve3(mk, tk, w);
       let wm = Math.hypot(w[0], w[1], w[2]);
       if (!Number.isFinite(wm)) { w[0] = w[1] = w[2] = 0; wm = 0; }
+      if (target) { target(k, w); continue; }
       if (wm > PARAMS.V_MAX) { const s = PARAMS.V_MAX / wm; w[0] *= s; w[1] *= s; w[2] *= s; }
       for (let c = 0; c < 3; c++) { p.w[c] += (w[c] - p.w[c]) * a; p.torqueExt[c] *= ke; }
       if (p.area < 1e-9) p.alive = false;

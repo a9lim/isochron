@@ -46,7 +46,7 @@ const EXTRA = Object.keys(FRAME_EXTRA);
 
 const MAXP = 32, NONE = 0xffffffff, SEG = 4096;
 const C_PAIRS = 0, C_MADE = 1024, C_CONSUMED = 1025, C_COLLIDED = 1026, C_RELAXED = 1027, C_FOUNDERED = 1028, C_EDITS = 1029, NCNT = 1040;
-const U_BYTES = 112 + 64 * MAXP;
+const U_BYTES = 128 + 64 * MAXP;
 
 const HEAD = /* wgsl */`
 const NONE: u32 = 0xffffffffu;
@@ -59,6 +59,7 @@ struct Uni {
   kc: f32, kRidge: f32, kSlab: f32, keel: f32,
   kCollide: f32, founderAge: f32, volume: f32, guess: f32,
   segLen: u32, tb: u32, nseg: u32, npatch: u32,
+  kTrench: f32, slabClosing: f32, pad0: f32, pad1: f32,
   plates: array<Plate, ${MAXP}>,
 };
 `;
@@ -83,7 +84,7 @@ const DECL = {
   memW: 'var<storage, read_write> mem: array<vec4f>',
   memN: 'var<storage, read> memN: array<vec4f>',
   memNW: 'var<storage, read_write> memN: array<vec4f>',
-  rec: 'var<storage, read> rec: array<vec4u>',            // 2 per cell: (top, jt, flags, bitcast collision dh), consumed frame cells
+  rec: 'var<storage, read> rec: array<vec4u>',            // 2 per cell: (top, jt, flags, bitcast collision dh), consumed frame cells; flags: 1 gap, 2 collision, ncons << 2, arcs << 8, subducted slot << 16, slab hung by slot << 20
   recW: 'var<storage, read_write> rec: array<vec4u>',
   recP: 'var<storage, read> recP: array<vec4u>',          // the first decide pass's records (the second's input)
   rlx: 'var<storage, read> rlx: array<vec2u>',
@@ -256,17 +257,23 @@ fn taken(f: u32, i: u32) -> bool {
           m2 = vec4f(d / r, bitcast<f32>((k & 0xffffu) | (tp << 16u)));
         }
       } else {
-        // The slab inherits the longest of its plate's beside the cell (as they stood at the step's start).
-        var len = 0.0;
-        if (bitcast<u32>(m0.y) == k) { len = m0.x; }
-        for (var e = 0u; e < 6u; e++) {
-          let jn = nb(i, e);
-          if (jn == NONE) { break; }
-          let mj = mem[3u * jn];
-          if (bitcast<u32>(mj.y) == k && mj.x > len) { len = mj.x; }
+        // A slab only where the plates close across the boundary (the CPU's SLAB_CLOSING), pulling down-dip
+        // across it; it inherits the longest of its plate's beside the cell (as they stood at the step's start).
+        let ln = length(nn);
+        if (dot(d, nn) > U.slabClosing * r * ln) {
+          var len = 0.0;
+          if (bitcast<u32>(m0.y) == k) { len = m0.x; }
+          for (var e = 0u; e < 6u; e++) {
+            let jn = nb(i, e);
+            if (jn == NONE) { break; }
+            let mj = mem[3u * jn];
+            if (bitcast<u32>(mj.y) == k && mj.x > len) { len = mj.x; }
+          }
+          m0 = vec4f(min(U.slabMax, len + U.cellLen), bitcast<f32>(k), max(0.0, U.t - Q.z), m0.w);
+          m1 = vec4f(nn / ln, m1.w);
+          if (slot < 4u) { flags |= 1u << (20u + slot); }
         }
-        m0 = vec4f(min(U.slabMax, len + U.cellLen), bitcast<f32>(k), max(0.0, U.t - Q.z), m0.w + 1.0);
-        if (r > 0.0) { m1 = vec4f(d / r, m1.w); }
+        m0.w += 1.0;
         narc++;
         if (slot < 4u) { flags |= 1u << (16u + slot); }
       }
@@ -401,13 +408,13 @@ fn taken(f: u32, i: u32) -> bool {
   chain: mk(['U', 'geo', 'rec', 'mem', 'cin', 'cout'], MAIN + `
   let n = U.n;
   let fl = rec[2u * i].z;
-  if ((fl >> 16u) == 0u) { cout[i] = cin[i]; return; }
+  if (((fl >> 20u) & 15u) == 0u) { cout[i] = cin[i]; return; }
   let r1 = rec[2u * i + 1u];
   var s = mem[3u * i].x;
   var sp = bitcast<u32>(mem[3u * i].y);
   let nc = (fl >> 2u) & 7u;
   for (var c = 0u; c < nc; c++) {
-    if (((fl >> (16u + c)) & 1u) == 0u) { continue; }
+    if (((fl >> (20u + c)) & 1u) == 0u) { continue; }
     let k = r1[c] / n;
     var len = 0.0;
     if (sp == k) { len = s; }
@@ -576,7 +583,7 @@ fn main(@builtin(local_invocation_index) tid: u32) {
   }
   fout[i] = f;
 }`),
-  // Each cell's share of its plate's drag, ridge push and slab pull; founders take their slabs.
+  // Each cell's share of its plate's drag, ridge push, slab pull and the slab's resistance; founders take their slabs.
   contrib: mk(['U', 'geo', 'egw', 'oref', 'bal', 'memW', 'fnd', 'contribW', 'cnt'], MAIN + `
   let k = oref[i].x;
   let x = X(i);
@@ -584,6 +591,8 @@ fn main(@builtin(local_invocation_index) tid: u32) {
   let b = bal[i];
   let c = A * (1.0 + U.keel * b.x);
   var T = vec3f(0.0);
+  var Ma = vec4f(c * (1.0 - x.x * x.x), -c * x.x * x.y, -c * x.x * x.z, c * (1.0 - x.y * x.y));
+  var Mb = vec2f(-c * x.y * x.z, c * (1.0 - x.z * x.z));
   var edge = false;
   if (b.x < 0.5) {
     // Ridge push: the subsidence's gradient within the plate's own ocean.
@@ -627,10 +636,15 @@ fn main(@builtin(local_invocation_index) tid: u32) {
     if (s >= 1e-4) {
       let f = U.kSlab * (s / U.slabMax) * sqrt(clamp(age, 0.0, 150.0) / 100.0) * U.cellLen;
       T += cross(x, f * dir);
+      // The slab's resistance along its pull: c q qᵀ, q = x × d̂.
+      let ct = U.kTrench * (s / U.slabMax) * U.cellLen;
+      let q = cross(x, dir);
+      Ma += ct * vec4f(q.x * q.x, q.x * q.y, q.x * q.z, q.y * q.y);
+      Mb += ct * vec2f(q.y * q.z, q.z * q.z);
     }
   }
-  contrib[3u * i] = vec4f(c * (1.0 - x.x * x.x), -c * x.x * x.y, -c * x.x * x.z, c * (1.0 - x.y * x.y));
-  contrib[3u * i + 1u] = vec4f(-c * x.y * x.z, c * (1.0 - x.z * x.z), A, select(0.0, A, b.x >= 0.5));
+  contrib[3u * i] = Ma;
+  contrib[3u * i + 1u] = vec4f(Mb, A, select(0.0, A, b.x >= 0.5));
   contrib[3u * i + 2u] = vec4f(T, 0.0);
 }`),
   // Per plate and segment of cells, the sums (one workgroup each; the CPU adds the segments).
@@ -892,8 +906,9 @@ export class GpuPlates {
       ex(Pm.COLLIDE_TAU), fs.kRidge, fs.kSlab, Pm.KEEL,
       Pm.K_COLLIDE, Pm.FOUNDER_AGE, tec.seaWater(), tec.seaLevel], 4);
     u[24] = SEG; u[26] = this.S;
+    f[28] = fs.kTrench; f[29] = Pm.SLAB_CLOSING;
     for (let k = 0; k < MAXP; k++) {
-      const o = 28 + 16 * k, p = plates[k];
+      const o = 32 + 16 * k, p = plates[k];
       if (!p) { f.fill(0, o, o + 16); continue; }
       const R = p.R;
       f[o] = R[0]; f[o + 1] = R[3]; f[o + 2] = R[6]; f[o + 4] = R[1]; f[o + 5] = R[4]; f[o + 6] = R[7];
