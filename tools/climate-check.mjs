@@ -1,4 +1,4 @@
-// The climate on a seeded planet, converged: global means, the zonal profile, the zones' shares.
+// The climate on a seeded planet (or today's Earth: `earth`), converged: global means, the zonal profile, the zones' shares.
 // It runs cycles until the climate has settled (the engine's criterion, `stats.settled`: two
 // cycles running that moved the mean temperature less than CLIMATE.SETTLE_T and rain, global and
 // on land, less than SETTLE_P), with the moisture converged each cycle; the opening's first
@@ -11,6 +11,8 @@ import { buildGrid } from '../src/grid/icosphere.js';
 import { Tectonics } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
 import { genesis } from '../src/engine/genesis.js';
+import { isEarth, loadEarth, earthGenesis, earthIce } from '../src/engine/earth.js';
+import { Ice } from '../src/engine/ice.js';
 import { Climate, CLIMATE, ZONES, NZ } from '../src/engine/climate.js';
 import { Year } from '../src/engine/year.js';
 import { Lakes } from '../src/engine/lakes.js';
@@ -19,9 +21,13 @@ import { Vegetation } from '../src/engine/vegetation.js';
 import { coverClimate } from '../src/engine/life.js';
 import { Ocean } from '../src/engine/ocean.js';
 Object.assign(CLIMATE, JSON.parse(process.argv[3] || '{}'));
+const seed = process.argv[2] || 'earthlike';
 const g = buildGrid(+(process.env.LEVEL || 6)), tec = new Tectonics(g), land = new Landscape(tec);
-genesis(tec, process.argv[2] || 'earthlike', { spinup: 40, landscape: land });
+// Today's Earth (`earth`) from its data, with its ice sheets held as they are (src/engine/earth.js).
+const earth = isEarth(seed) ? earthGenesis(tec, seed, await loadEarth()) : null;
+if (!earth) genesis(tec, seed, { spinup: 40, landscape: land });
 const clim = new Climate(tec, land);
+if (earth) { clim.ice = new Ice(tec, clim); earthIce({ tec, ice: clim.ice, grid: g }, earth); land.reroute(); }
 // The gyres, as the planet has them (NOOCEAN=1: none, as before the retune).
 if (!process.env.NOOCEAN) clim.ocean = new Ocean(clim, clim.coarse);
 // The year's spread sets the zones' widths (FIXED=1 in the env: the fixed widths, as before phase 6).

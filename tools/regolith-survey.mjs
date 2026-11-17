@@ -4,11 +4,11 @@
 // through a 20 kyr window, as at 10 kyr/s), and the ice's volume is read for its dominant period
 // in successive windows, with the bed's softness and the regolith under the ice.
 // usage: node tools/regolith-survey.mjs [seed] [CO₂ ppm] [start m] [kyr] [periodogram window kyr] [orbit window kyr]
-import { Planet, CARBON } from '../src/engine/planet.js';
+import { openPlanet, CARBON } from '../src/engine/planet.js';
 import { REGOLITH } from '../src/engine/regolith.js';
 const [seed = 'earthlike', co2 = '220', start = '-1', kyr = '800', win = '200', orbitWin = '20'] = process.argv.slice(2);
 CARBON.FIXED = +co2; REGOLITH.START = +start;
-const P = new Planet(seed, { level: 6 });
+const P = await openPlanet(seed, { level: 6 });
 P.settleClimate();   // the opening's closure: until the climate has settled
 if (+start >= 0) P.regolith.init();
 const vol = [], soft = [], t0 = performance.now();

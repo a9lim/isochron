@@ -2,13 +2,13 @@
 // against the theory (src/engine/pulse.js), driven as the page drives it at its dial
 // (3.2 kyr/s: the climate every ~3 kyr, the carbon each ~200 years).
 // usage: node tools/pulse-run.mjs [seed] [Pg C ...]
-import { Planet } from '../src/engine/planet.js';
+import { openPlanet } from '../src/engine/planet.js';
 
 const [seed = 'earthlike', ...sizes] = process.argv.slice(2);
 const pct = v => (v == null ? '  —' : `${(100 * v).toFixed(1)}%`.padStart(6));
 for (const PgC of (sizes.length ? sizes : ['1000', '5000']).map(Number)) {
   const t0 = performance.now();
-  const P = new Planet(seed);
+  const P = await openPlanet(seed);
   P.settleClimate();   // the opening's closure: until the climate has settled (the sea settles then)
   const fast = 200, climateEvery = 3200;
   const p0 = P.carbon.pco2, tag = P.carbon.startPulse(PgC);

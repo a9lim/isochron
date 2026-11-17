@@ -10,13 +10,25 @@ const LOG_RATE_SD = 0.9;
 const LOG_RATE_RELAX = 25;             // Myr
 
 export class Polarity {
-  constructor(seed, start = -400) {
+  /**
+   * `known`: a record to hold to, { reversals: ages (Ma, ascending) back to the end of a superchron,
+   * quietFrom: its start (Ma) } (today's Earth's: src/engine/gpts.js). The seeded process runs up to
+   * the superchron, the field is normal through it (an even count before it), the record's reversals
+   * follow, and from today (t = 0) the seeded process carries on.
+   */
+  constructor(seed, start = -400, known = null) {
     this.rng = stream(seed, 'polarity');
     this.start = start;
     this.times = [];                   // reversal times, ascending
     this.end = start;                  // generated up to here
     this.logRate = MEAN_LOG_RATE;
-    this.generate(start + 1000);
+    if (!known) { this.generate(start + 1000); return; }
+    const quiet = -known.quietFrom;
+    this.generate(quiet);
+    while (this.times.length && this.times[this.times.length - 1] >= quiet) this.times.pop();
+    if (this.times.length % 2) this.times.pop();
+    for (let k = known.reversals.length - 1; k >= 0; k--) this.times.push(-known.reversals[k]);
+    this.end = 0;
   }
 
   generate(until) {

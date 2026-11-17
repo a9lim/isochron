@@ -1,6 +1,6 @@
 // The coupled planet, headless: global values every so often.
 // usage: node tools/planet-run.mjs [seed] [kyr] [fastStep yr] [print every kyr] [overrides json {CLIMATE, CARBON, ICE, REGOLITH, CRUSTFLEX}]
-import { Planet, CLIMATE, CARBON } from '../src/engine/planet.js';
+import { openPlanet, CLIMATE, CARBON } from '../src/engine/planet.js';
 import { ICE } from '../src/engine/ice.js';
 import { REGOLITH } from '../src/engine/regolith.js';
 import { CRUSTFLEX } from '../src/engine/crustflex.js';
@@ -8,7 +8,7 @@ const [seed = 'earthlike', kyr = '200', fast = '1000', every = '20', ov = '{}'] 
 const o = JSON.parse(ov); Object.assign(CLIMATE, o.CLIMATE || {}); Object.assign(CARBON, o.CARBON || {});
 Object.assign(ICE, o.ICE || {}); Object.assign(REGOLITH, o.REGOLITH || {}); Object.assign(CRUSTFLEX, o.CRUSTFLEX || {});
 let t0 = performance.now();
-const P = new Planet(seed);
+const P = await openPlanet(seed);
 console.log(`built in ${(performance.now() - t0).toFixed(0)} ms`);
 t0 = performance.now();
 P.settleClimate();   // the opening's closure: until the climate has settled

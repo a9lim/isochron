@@ -13,7 +13,7 @@
 // the page; the ice runs on the CPU (its reference).
 //
 //   node tools/iceage-survey.mjs [seed] [baseline ppm] [free|held] [kyr] [orbit window kyr] [nodust] [out.json]
-import { Planet, CARBON } from '../src/engine/planet.js';
+import { openPlanet, CARBON } from '../src/engine/planet.js';
 import { monthPhase } from '../src/engine/orbit.js';
 
 const [seed = 'earthlike', base = '260', mode = 'free', kyr = '800', orbitWin = '20', dustArg = 'dust', outFile = ''] = process.argv.slice(2);
@@ -28,7 +28,7 @@ CARBON.FIXED = +base;
 let device = null;
 { const { hasGPU } = await import('../tests/webgpu-node.mjs'); if (hasGPU) device = await (await import('../src/gpu/device.js')).gpuDevice(); }
 const t0 = performance.now();
-const P = new Planet(seed, { level, dust: dustArg !== 'nodust' });
+const P = await openPlanet(seed, { level, dust: dustArg !== 'nodust' });
 const c = P.climate, g = P.grid, n = g.n;
 if (device) {
   c.gpu = new (await import('../src/gpu/moisture.js')).GpuMoisture(device, g);

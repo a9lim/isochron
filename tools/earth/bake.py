@@ -1,0 +1,226 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["numpy", "scipy", "h5py", "pygplates"]
+# ///
+"""Today's Earth on the sim's grid: the data `?seed=earth` opens on (src/engine/earth.js).
+
+    node tools/earth/cells.mjs 7
+    uv run --no-project --with numpy --with scipy --with h5py --with pygplates python -I tools/earth/bake.py
+
+Reads tools/earth/.cache/ (ignored; where to fetch each file is in tools/earth/README.md) and writes
+earth/earth.json and earth/earth-7.bin. Each data point goes to its nearest cell centre (its Voronoi
+cell) and is weighted by its area (cos latitude). Per cell, little-endian, n cells each:
+
+  bed    int16   m     the mean bedrock (ETOPO 2022's bed: under the ice sheets, the rock)
+  ice    uint16  m     the mean grounded ice (surface less bed where the ice stands above flotation;
+                       ice shelves are sea, as the sim has none)
+  ocean  uint8   /255  the share of the cell with a seafloor age (Seton et al. 2020): its oceanic crust
+  age    uint16  /100  Myr, the mean age over that share
+  plate  uint8         an index into earth.json's plates (Müller et al. 2019's plates today: the rigid
+                       plates, then the deforming networks for the cells they leave out)
+
+Each plate's ω (rad/Myr, x y z) is its motion over the last Myr in the model's absolute frame;
+earth.json also carries the ten hotspots (Whittaker et al. 2015's compilation).
+"""
+import json
+import pathlib
+import time
+
+import h5py
+import numpy as np
+import pygplates
+from scipy.spatial import cKDTree
+
+HERE = pathlib.Path(__file__).resolve().parent
+CACHE = HERE / '.cache'
+OUT = HERE.parent.parent / 'earth'
+LEVEL = 7
+RHO_I, RHO_W = 917.0, 1028.0
+
+
+def xyz(lat, lon):
+    la, lo = np.radians(lat), np.radians(lon)
+    c = np.cos(la)
+    return np.stack([c * np.cos(lo), c * np.sin(lo), np.sin(la)], axis=-1)
+
+
+def var(f, *names):
+    for k in names:
+        if k in f:
+            return f[k]
+    raise KeyError(f'none of {names} in {list(f)}')
+
+
+cells = np.fromfile(CACHE / f'cells-{LEVEL}.f64', dtype='<f8').reshape(-1, 3)
+n = len(cells)
+tree = cKDTree(cells)
+print(f'level {LEVEL}: {n} cells')
+
+
+# ── ETOPO 2022, 60″: bed and ice, averaged 2 × 2 (2′, ~3.7 km) before they're assigned ──
+def etopo():
+    t0 = time.time()
+    fb = h5py.File(CACHE / 'etopo' / 'bed.nc', 'r')
+    fs = h5py.File(CACHE / 'etopo' / 'surface.nc', 'r')
+    lat, lon = var(fb, 'lat', 'y')[:], var(fb, 'lon', 'x')[:]
+    zb, zs = var(fb, 'z'), var(fs, 'z')
+    assert zb.shape == (len(lat), len(lon)) and zs.shape == zb.shape, (zb.shape, zs.shape)
+    W, B, I, L = (np.zeros(n) for _ in range(4))
+    other = 0
+    nr = len(lat) - len(lat) % 2
+    step = 600
+    lon2 = lon[: len(lon) // 2 * 2].reshape(-1, 2).mean(1)
+    for r0 in range(0, nr, step):
+        r1 = min(nr, r0 + step)
+        b = zb[r0:r1, : len(lon2) * 2].astype(np.float64)
+        s = zs[r0:r1, : len(lon2) * 2].astype(np.float64)
+        thick = s - b
+        on = thick > 0.5
+        # Grounded where the ice is thicker than the water it displaces would float.
+        grounded = on & ((b >= 0) | (thick >= -b * RHO_W / RHO_I))
+        la = lat[r0:r1]
+        other += int(np.count_nonzero(on[np.abs(la) < 59]))
+        ice = np.where(grounded, thick, 0.0)
+        blk = lambda a: a.reshape(a.shape[0] // 2, 2, -1, 2).mean(axis=(1, 3))
+        bb, ii, ll = blk(b), blk(ice), blk((b > 0).astype(np.float64))
+        la2 = la.reshape(-1, 2).mean(1)
+        LA, LO = np.meshgrid(la2, lon2, indexing='ij')
+        _, idx = tree.query(xyz(LA, LO).reshape(-1, 3), workers=-1)
+        w = np.cos(np.radians(LA)).ravel()
+        W += np.bincount(idx, w, n); B += np.bincount(idx, w * bb.ravel(), n)
+        I += np.bincount(idx, w * ii.ravel(), n); L += np.bincount(idx, w * ll.ravel(), n)
+        print(f'  etopo rows {r0}–{r1} of {nr} ({time.time() - t0:.0f} s)', end='\r', flush=True)
+    print()
+    if other:
+        print(f'  note: {other} pixels equatorward of 59° where the surface stands above the bed (not ice sheets)')
+    return B / W, I / W, L / W, W
+
+
+# ── Seton et al. 2020: the seafloor's age, 6′, gridline-registered. What it leaves blank is
+# continental crust, and also some deep floor it can't date (forearcs, the Canada Basin, the
+# eastern Mediterranean, the Japan Sea): src/engine/earth.js decides those by their depth ──
+def ages():
+    f = h5py.File(CACHE / 'agegrid' / 'age.2020.1.GTS2012.6m.nc', 'r')
+    lat, lon = var(f, 'lat', 'y')[:], var(f, 'lon', 'x')[:]
+    z = var(f, 'z')[:].astype(np.float64)
+    fill = var(f, 'z').attrs.get('_FillValue')
+    if fill is not None:
+        z[z == np.asarray(fill).ravel()[0]] = np.nan
+    if np.isclose(lon[-1] - lon[0], 360):
+        lon, z = lon[:-1], z[:, :-1]
+    z[~(z >= 0)] = np.nan
+    LA, LO = np.meshgrid(lat, lon, indexing='ij')
+    _, idx = tree.query(xyz(LA, LO).reshape(-1, 3), workers=-1)
+    w = np.cos(np.radians(LA)).ravel()
+    zz = z.ravel()
+    ok = np.isfinite(zz)
+    Wa = np.bincount(idx, w, n)
+    Wo = np.bincount(idx[ok], w[ok], n)
+    Ao = np.bincount(idx[ok], w[ok] * zz[ok], n)
+    share = np.where(Wa > 0, Wo / np.maximum(Wa, 1e-30), 0)
+    age = np.where(Wo > 0, Ao / np.maximum(Wo, 1e-30), 0)
+    print(f'  ages: {ok.mean():.1%} of points dated, oldest {np.nanmax(zz):.1f} Myr')
+    return share, age
+
+
+# ── Müller et al. 2019: the plates today, and each one's motion over the last Myr ──
+def plates():
+    root = CACHE / 'muller2019' / 'model'
+    simp = next(root.glob('*/SimplifiedFiles'))
+    rm = pygplates.RotationModel(str(simp / 'Muller_etal_2019_CombinedRotations.rot'))
+    topo = pygplates.FeatureCollection(str(simp / 'Muller_etal_2019_PlateBoundaries_DeformingNetworks.gpmlz'))
+    resolved = []
+    # The rigid plates first, then the deforming networks (the western interior of North America,
+    # the Andes, Tibet: the plates' polygons leave them out) for the cells no plate holds. Filtered
+    # here: pygplates 1.0.0 segfaults on resolve_topology_types=ResolveTopologyType.boundary.
+    pygplates.resolve_topologies(topo, rm, resolved, 0.0)
+    rigid = [r for r in resolved if isinstance(r, pygplates.ResolvedTopologicalBoundary)]
+    nets = [r for r in resolved if isinstance(r, pygplates.ResolvedTopologicalNetwork)]
+    pid = np.full(n, -1, dtype=np.int64)
+    names = {}
+    lat = np.degrees(np.arcsin(np.clip(cells[:, 2], -1, 1)))
+    lon = np.degrees(np.arctan2(cells[:, 1], cells[:, 0]))
+    part = pygplates.PlatePartitioner(rigid, rm)
+    for i in range(n):
+        rt = part.partition_point(pygplates.PointOnSphere(float(lat[i]), float(lon[i])))
+        if rt is not None:
+            f = rt.get_feature()
+            p = f.get_reconstruction_plate_id()
+            pid[i] = p
+            names.setdefault(p, f.get_name())
+    gaps = np.count_nonzero(pid < 0)
+    # A network's cells go to its plate when that is one of the rigid plates (a network of its own,
+    # East China's or Southeast Asia's, would be a plate the rigid ones don't have).
+    part = pygplates.PlatePartitioner(nets, rm)
+    for i in np.flatnonzero(pid < 0):
+        rt = part.partition_point(pygplates.PointOnSphere(float(lat[i]), float(lon[i])))
+        if rt is not None and rt.get_feature().get_reconstruction_plate_id() in names:
+            pid[i] = rt.get_feature().get_reconstruction_plate_id()
+    print(f'  {gaps} cells in no rigid plate, {gaps - np.count_nonzero(pid < 0)} of them given their network\'s')
+    # The rest (a gap between topologies, or a network of its own) take their nearest partitioned cell's plate.
+    if (pid < 0).any():
+        ok = np.flatnonzero(pid >= 0)
+        _, j = cKDTree(cells[ok]).query(cells[pid < 0])
+        pid[pid < 0] = pid[ok[j]]
+    ids = sorted(set(pid.tolist()))
+    out = []
+    for p in ids:
+        fr = rm.get_rotation(0.0, int(p), 1.0)
+        pole, ang = fr.get_euler_pole_and_angle() if not fr.represents_identity_rotation() else (None, 0.0)
+        w = (np.array(pole.to_xyz()) * ang).tolist() if pole is not None else [0.0, 0.0, 0.0]
+        out.append({'id': int(p), 'name': names.get(p, ''), 'w': w})
+    index = {p: k for k, p in enumerate(ids)}
+    return np.array([index[p] for p in pid], dtype=np.uint8), out
+
+
+# ── Hotspots: the sim keeps ten (PLUMES.HOTSPOTS). Courtillot et al. 2003's seven primary plumes,
+# with Iceland, Galápagos and Yellowstone, from Whittaker et al. 2015's compilation ──
+HOTSPOTS = ['Hawaii', 'Iceland', 'Afar', 'Reunion', 'Tristan_da_Cunha', 'Easter', 'Louisville', 'Samoa', 'Galapagos', 'Yellowstone']
+
+
+def hotspots():
+    fc = pygplates.FeatureCollection(str(CACHE / 'hotspots' / 'x' / 'Hotspots' / 'Hotspots_Compilation_Whittaker_etal.gpmlz'))
+    at = {}
+    for f in fc:
+        for g in f.get_geometries():
+            at.setdefault(f.get_name(), g.to_lat_lon())
+    missing = [h for h in HOTSPOTS if h not in at]
+    assert not missing, f'hotspots not in the compilation: {missing}'
+    return [{'name': h.replace('_', ' '), 'lat': at[h][0], 'lon': at[h][1]} for h in HOTSPOTS]
+
+
+print('ETOPO 2022…')
+bed, ice, landShare, _ = etopo()
+print('Seafloor ages…')
+ocean, age = ages()
+print('Plates…')
+plate, plist = plates()
+hot = hotspots()
+
+area = 4 * np.pi * 6371.0 ** 2 / n
+print(f'land (bed above sea level): {landShare.mean():.1%} of the sphere by area-share; cells with mean bed > 0: {(bed > 0).mean():.1%}')
+print(f'grounded ice: {(ice * area * 1e-3).sum() / 1e6:.1f} M km³ over {(ice > 0).sum()} cells')
+print(f'oceanic crust: {ocean.mean():.1%} of cells by share; mean age where dated {np.average(age, weights=ocean):.1f} Myr')
+for k, p in enumerate(plist):
+    cnt = int((plate == k).sum())
+    if cnt * area > 1e6:
+        print(f'  plate {p["id"]:4d} {p["name"][:28]:28s} {cnt * area / 1e6:6.1f} M km²  |ω| {np.linalg.norm(p["w"]) * 637.1:5.2f} cm/yr at 90°')
+
+OUT.mkdir(exist_ok=True)
+fields = [
+    ('bed', '<i2', np.clip(np.round(bed), -32768, 32767)),
+    ('ice', '<u2', np.clip(np.round(ice), 0, 65535)),
+    ('ocean', 'u1', np.clip(np.round(ocean * 255), 0, 255)),
+    ('age', '<u2', np.clip(np.round(age * 100), 0, 65535)),
+    ('plate', 'u1', plate),
+]
+meta = {'level': LEVEL, 'n': n, 'fields': [], 'plates': plist, 'hotspots': hot}
+off = 0
+with open(OUT / f'earth-{LEVEL}.bin', 'wb') as fh:
+    for name, dt, a in fields:
+        b = np.asarray(a).astype(dt).tobytes()
+        meta['fields'].append({'name': name, 'type': dt.lstrip('<'), 'offset': off})
+        fh.write(b)
+        off += len(b)
+(OUT / 'earth.json').write_text(json.dumps(meta, separators=(',', ':')) + '\n')
+print(f'wrote {OUT / f"earth-{LEVEL}.bin"} ({off / 1e6:.2f} MB) and earth.json')

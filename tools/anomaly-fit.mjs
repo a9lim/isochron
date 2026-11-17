@@ -13,7 +13,7 @@
 // zigzag from node to node went unset).
 // usage: node tools/anomaly-fit.mjs [seed] [days per season] [weathers per season]
 import { hasGPU } from '../tests/webgpu-node.mjs';
-import { Planet } from '../src/engine/planet.js';
+import { openPlanet } from '../src/engine/planet.js';
 import { Year, YEAR } from '../src/engine/year.js';
 import { gpuDevice } from '../src/gpu/device.js';
 import { GpuWeather, weatherForcing } from '../src/gpu/weather.js';
@@ -21,7 +21,7 @@ import { monthPhase } from '../src/engine/orbit.js';
 
 if (!hasGPU) { console.error('no WebGPU in node (npm install in tests/)'); process.exit(1); }
 const seed = process.argv[2] || 'earthlike', DAYS = +(process.argv[3] || 120), RUNS = +(process.argv[4] || 1), SPIN = 15, LAG = 30;
-const P = new Planet(seed, { level: 6 });
+const P = await openPlanet(seed, { level: 6 });
 P.settleClimate();   // the converged climate (its first cycles are a transient)
 const c = P.climate, g = P.grid, n = g.n, device = await gpuDevice();
 const lat = Float64Array.from({ length: n }, (_, i) => Math.asin(g.pos[3 * i + 2]) * 180 / Math.PI);

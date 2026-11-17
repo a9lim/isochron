@@ -26,12 +26,17 @@ export const PLUMES = {
 };
 
 export class Plumes {
-  constructor(tec, seed) {
+  /** `at`: the hotspots' places ({ lat, lon } in degrees: today's Earth's, src/engine/earth.js), else seeded. */
+  constructor(tec, seed, at = null) {
     this.tec = tec;
     this.rng = stream(seed, 'plumes');
     this.hot = [];        // { p: [x,y,z], born }
     this.lips = [];       // { p, t0, cell, released }
-    for (let k = 0; k < PLUMES.HOTSPOTS; k++) this.hot.push({ p: this.rng.unitVector(), born: tec.t - this.rng.range(0, 150) });
+    for (let k = 0; k < PLUMES.HOTSPOTS; k++) {
+      let p = this.rng.unitVector();
+      if (at && at[k]) { const la = at[k].lat * Math.PI / 180, lo = at[k].lon * Math.PI / 180; p = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)]; }
+      this.hot.push({ p, born: tec.t - this.rng.range(0, 150) });
+    }
     this.nextLip = tec.t + this.rng.exponential(PLUMES.LIP_EVERY);
     this.swell = new Float32Array(tec.grid.n);
     this.updateSwell();

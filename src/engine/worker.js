@@ -38,6 +38,7 @@
 // The page sends a tick each frame it plays (the years to advance and the
 // plate steps its scheduler planned).
 import { Planet, CLIMATE, CARBON } from './planet.js';
+import { isEarth, loadEarth } from './earth.js';
 import { PLUMES } from './plumes.js';
 import { Year, YEAR } from './year.js';
 import { monthAt } from './orbit.js';
@@ -83,40 +84,45 @@ function schedule() { if (!scheduled) { scheduled = true; ch.port2.postMessage(0
 
 self.onmessage = e => {
   const m = e.data;
-  if (m.type === 'init') {
-    P = new Planet(m.seed, { level: m.level });
-    // The ground steps live on the GPU only (on the CPU a month costs ~13 ms at level 7); the
-    // lakes rebuild for the ice at most once a second.
-    P.ground.cpuLive = false; P.lakesMinGap = 1000;
-    // The regolith takes the ice's integrals as they come back (~400 ms), at most every 250 ms.
-    P.regolith.minGap = 250;
-    // The engine's own GPU device: the ice, the climate's heavy solves, the plates and the rest.
-    deviceP.then(device => {
-      P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
-      P.climate.ebmGpu = new GpuEnergyBalance(device, P.climate, { have: P.ice.flex.levels.map(l => l.g) });
-      if (P.aeolian) P.aeolian.gpu = new GpuDust(device, P.aeolian.dust);
-      // The bed's ELRA and the crust's flexure on this device (src/gpu/flexure.js), sharing the coarser grids.
-      const have = P.ice.flex.levels.map(l => l.g);
-      P.iceGpu.attachFlexure(new GpuFlexure(device, P.grid, { have }));
-      if (P.crustFlex) P.crustFlex.useSolver(new GpuFlexure(device, P.grid, { have }));
-      P.ground.gpu = new GpuSoil(device, P.grid.n, 0);
-      // The plates' step and the drawn surface too (src/gpu/plates.js says what stays here).
-      try { P.tec.gpu = new GpuPlates(device, P.tec); surfaceGpu = new GpuSurface(device, P.grid); } catch (err) { console.warn('[isochron] plates on the GPU:', err.message); }
-      // The tide at level 6 at most (its cells nest first in a finer grid), so the Moon recedes alike at every level.
-      const tg = P.grid.level > 6 ? buildGrid(6) : P.grid;
-      tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };
-    }, err => console.warn('[isochron] engine GPU:', err.message)).finally(() => { gpuWait = false; schedule(); });
-    post({ type: 'ready', seaLevel0: P.seaLevel0, years: P.years, pco2: P.carbon.pco2 });
-    sea0 = P.seaLevel0;
-    sendSurface(false);
-    sendLakes();
-    sendFast(true);
-  } else if (m.type === 'people') startPeople(m.port);
+  if (m.type === 'init') boot(m);
+  else if (m.type === 'people') startPeople(m.port);
   else if (m.type === 'tick') ticks.push(m);
   else if (m.type === 'play') playing = m.playing;
   else if (m.type === 'climate') pending = Math.max(pending, m.cycles);
   schedule();
 };
+
+// The planet, from its seed (today's Earth from its data: src/engine/earth.js).
+async function boot(m) {
+  P = new Planet(m.seed, { level: m.level, earth: isEarth(m.seed) ? await loadEarth() : null });
+  // The ground steps live on the GPU only (on the CPU a month costs ~13 ms at level 7); the
+  // lakes rebuild for the ice at most once a second.
+  P.ground.cpuLive = false; P.lakesMinGap = 1000;
+  // The regolith takes the ice's integrals as they come back (~400 ms), at most every 250 ms.
+  P.regolith.minGap = 250;
+  // The engine's own GPU device: the ice, the climate's heavy solves, the plates and the rest.
+  deviceP.then(device => {
+    P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
+    P.climate.ebmGpu = new GpuEnergyBalance(device, P.climate, { have: P.ice.flex.levels.map(l => l.g) });
+    if (P.aeolian) P.aeolian.gpu = new GpuDust(device, P.aeolian.dust);
+    // The bed's ELRA and the crust's flexure on this device (src/gpu/flexure.js), sharing the coarser grids.
+    const have = P.ice.flex.levels.map(l => l.g);
+    P.iceGpu.attachFlexure(new GpuFlexure(device, P.grid, { have }));
+    if (P.crustFlex) P.crustFlex.useSolver(new GpuFlexure(device, P.grid, { have }));
+    P.ground.gpu = new GpuSoil(device, P.grid.n, 0);
+    // The plates' step and the drawn surface too (src/gpu/plates.js says what stays here).
+    try { P.tec.gpu = new GpuPlates(device, P.tec); surfaceGpu = new GpuSurface(device, P.grid); } catch (err) { console.warn('[isochron] plates on the GPU:', err.message); }
+    // The tide at level 6 at most (its cells nest first in a finer grid), so the Moon recedes alike at every level.
+    const tg = P.grid.level > 6 ? buildGrid(6) : P.grid;
+    tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };
+  }, err => console.warn('[isochron] engine GPU:', err.message)).finally(() => { gpuWait = false; schedule(); });
+  post({ type: 'ready', seaLevel0: P.seaLevel0, years: P.years, pco2: P.carbon.pco2 });
+  sea0 = P.seaLevel0;
+  sendSurface(false);
+  sendLakes();
+  sendFast(true);
+  schedule();
+}
 
 // The plates step on the GPU, so a pump awaits them; one pump at a time. While pumps run back
 // to back the climate takes a slice every 100 ms (a tenth of the thread; every 30 ms until it has

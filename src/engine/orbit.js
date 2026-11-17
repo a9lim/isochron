@@ -115,8 +115,24 @@ export function monthPhase(m) {
 // window W: each periodic term of period P is scaled by sinc(W/P), so at plate
 // speed the cycles average out and at a few kyr a second they come through
 // whole. Times in kyr.
+// Today's Earth's (`?seed=earth`, src/engine/earth.js): the same form, twelve terms of eccentricity and
+// ten of obliquity, fitted to Berger and Loutre 1991's solution for the last 5 Myr by
+// tools/earth/orbit-fit.py, which prints this: rms 0.0043 in eccentricity and 0.05° in obliquity, the
+// present (1950) exact, the sun's longitude at perihelion today 281.4°. From today the sim runs on
+// these terms past the solution's end.
+export const EARTH_CYCLES = {
+  e0: 0.027528, eTerms: [{ P: 404.484, a: 0.0108029, p: 2.9940 }, { P: 94.854, a: 0.00818399, p: 1.9435 }, { P: 98.953, a: 0.00598289, p: 4.6069 }, { P: 124.140, a: 0.00581307, p: 5.0726 }, { P: 131.016, a: 0.00385538, p: 1.4924 }, { P: 974.066, a: 0.00264441, p: 0.6435 }, { P: 2133.570, a: 0.0025386, p: 4.1927 }, { P: 483.416, a: 0.00248953, p: 2.8635 }, { P: 106.137, a: 0.00227302, p: 6.1707 }, { P: 100.840, a: 0.00199343, p: 6.2818 }, { P: 54.757, a: 0.00182789, p: 1.3505 }, { P: 695.630, a: 0.00179427, p: 2.5214 }],
+  ob0: 0.406543, obTerms: [{ P: 41.084, a: 0.0104234, p: 1.2846 }, { P: 39.724, a: 0.00437782, p: 1.8305 }, { P: 40.403, a: 0.00305606, p: 1.4060 }, { P: 53.864, a: 0.00292253, p: 5.4062 }, { P: 41.813, a: 0.00176857, p: 3.9974 }, { P: 41.410, a: 0.00157123, p: 6.2143 }, { P: 28.934, a: 0.00134241, p: 3.1829 }, { P: 29.825, a: 0.00127656, p: 1.2401 }, { P: 29.965, a: 0.000753083, p: 3.2918 }, { P: 39.986, a: 0.000394383, p: 3.9967 }],
+  precP: 21.302, prec0: 4.9108,
+};
+
 export class OrbitCycles {
-  constructor(seed) {
+  /** `cycles`: fixed terms (EARTH_CYCLES) in place of the seeded ones. */
+  constructor(seed, cycles = null) {
+    if (cycles) {
+      Object.assign(this, structuredClone(cycles));
+      return;
+    }
     const r = stream(seed, 'orbit');
     const jit = (v, f) => v * (1 + f * (2 * r.uniform() - 1));
     const ph = () => 2 * Math.PI * r.uniform();

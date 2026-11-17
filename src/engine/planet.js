@@ -34,9 +34,10 @@ import { Runaway } from './runaway.js';
 import { Ice } from './ice.js';
 import { Carbon, CARBON } from './carbon.js';
 import { Plumes } from './plumes.js';
-import { OrbitCycles } from './orbit.js';
+import { OrbitCycles, EARTH_CYCLES } from './orbit.js';
 import { Ocean } from './ocean.js';
 import { genesis } from './genesis.js';
+import { earthGenesis, earthIce, isEarth, loadEarth } from './earth.js';
 import { refineTectonics } from './refine.js';
 import { Moon } from './tides.js';
 import { Volcanoes } from './volcanoes.js';
@@ -59,20 +60,32 @@ export const PLANET = {
 export { Record, SERIES } from './record.js';
 import { Record } from './record.js';
 
+/** A planet from its seed: today's Earth (`earth`) with its data loaded, any other seed as is. */
+export async function openPlanet(seed, opts = {}) {
+  return new Planet(seed, { ...opts, earth: opts.earth ?? (isEarth(seed) ? await loadEarth() : null) });
+}
+
 export class Planet {
   constructor(seed, opts = {}) {
     this.seed = seed;
     // The plates start from rest and speed up for tens of Myr, so the spin-up runs 80 Myr
     // (the opening is then settled: its activity is the carbon cycle's reference), on level 6
     // at most, then the planet is carried onto finer grids (src/engine/refine.js).
+    // Today's Earth (opts.earth, src/engine/earth.js: loadEarth) opens on its data at the level asked, without a spin-up.
     const level = opts.level ?? 6, spinLevel = Math.min(level, opts.spinLevel ?? 6), spinup = opts.spinup ?? 80;
-    let tec = new Tectonics(buildGrid(spinLevel));
-    genesis(tec, seed, { spinup, landscape: new Landscape(tec) });
-    for (let L = spinLevel + 1; L <= level; L++) tec = refineTectonics(tec, buildGrid(L));
+    let tec;
+    if (opts.earth) {
+      tec = new Tectonics(buildGrid(level));
+      this.earth = earthGenesis(tec, seed, opts.earth);
+    } else {
+      tec = new Tectonics(buildGrid(spinLevel));
+      genesis(tec, seed, { spinup, landscape: new Landscape(tec) });
+      for (let L = spinLevel + 1; L <= level; L++) tec = refineTectonics(tec, buildGrid(L));
+    }
     this.grid = tec.grid;
     this.tec = tec;
     this.land = new Landscape(this.tec);
-    this.plumes = new Plumes(this.tec, seed);
+    this.plumes = new Plumes(this.tec, seed, opts.earth ? opts.earth.hotspots : null);
     this.tec.swell = this.plumes.swell;
     this.tec.updateElevation();
     this.land.reroute();
@@ -83,6 +96,8 @@ export class Planet {
     // the two solvers share the coarser grids. In the page both run on the engine's GPU.
     const iceFlex = new Flexure(this.grid);
     this.ice.attachFlexure(iceFlex);
+    // Earth's ice sheets, on a bed bent to its balance under them, and the crust refitted to the measured bed.
+    if (this.earth) { earthIce(this, this.earth); this.land.reroute(); }
     this.crustFlex = opts.crustFlex === false ? null : new CrustFlex(this.tec, new Flexure(this.grid, { have: iceFlex.levels.map(l => l.g) }));
     // The regolith on the crust, from the rates the rivers would cut at (the opening has no step yet).
     this.land.preview();
@@ -96,7 +111,7 @@ export class Planet {
     this.climate.runaway = this.runaway;
     // Minimal life: the plants' cover and its carbon, and the sea's inputs (src/engine/life.js).
     this.life = new Life(this);
-    this.orbit = new OrbitCycles(seed);
+    this.orbit = new OrbitCycles(seed, opts.earth ? EARTH_CYCLES : null);
     // The year: the anomaly, the volcanoes' veil, and (when plugged in) the soil and the lakes.
     this.volcanoes = new Volcanoes(this.tec, this.plumes, this.carbon, seed);
     this.year = new Year(this.climate, this.volcanoes, seed);

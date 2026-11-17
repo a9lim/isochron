@@ -3,10 +3,10 @@
 // linear, so the tag's response is the eruption's alone), against the analytic response
 // of independent boxes under the veil's decaying forcing.
 // usage: node tools/eruption-run.mjs [seed] [Pinatubos...]
-import { Planet } from '../src/engine/planet.js';
+import { openPlanet } from '../src/engine/planet.js';
 
 const seed = process.argv[2] || 'earthlike', sizes = process.argv.slice(3).map(Number);
-const P = new Planet(seed, { level: 6 });
+const P = await openPlanet(seed, { level: 6 });
 P.settleClimate();   // the opening's closure: until the climate has settled
 const yr = v => v == null ? '—' : `${v.toFixed(2)} yr`, K = v => `${v.toFixed(3)} K`;
 for (const M of sizes.length ? sizes : [1, 10, 30]) {

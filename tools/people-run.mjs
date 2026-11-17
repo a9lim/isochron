@@ -18,9 +18,9 @@ const planet = await planetFields(seed, level, { log: s => console.log(s) });
 let Pl = null, live = null, Live = null;
 if (LIVE) {
   const t0 = performance.now();
-  const { Planet } = await import('../src/engine/planet.js');
+  const { openPlanet } = await import('../src/engine/planet.js');
   ({ Live } = await import('./people/couple.mjs'));
-  Pl = new Planet(seed, { level });
+  Pl = await openPlanet(seed, { level });
   Pl.settleClimate();
   console.log(`live planet built and settled in ${((performance.now() - t0) / 1e3).toFixed(1)} s (CO₂ ${Pl.carbon.pco2.toFixed(0)} ppm, the sea's carbon ${Pl.carbon.settled ? 'settled' : 'NOT settled: the air is held'})`);
 }

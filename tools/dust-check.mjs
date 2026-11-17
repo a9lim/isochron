@@ -5,7 +5,7 @@
 // the dust are solved on the GPU as the page's engine solves them; else on the CPU.
 //
 //   node tools/dust-check.mjs [seed] [level] [cycles] [cpu]
-import { Planet } from '../src/engine/planet.js';
+import { openPlanet } from '../src/engine/planet.js';
 
 const [seed = 'earthlike', level = '7', cycles = '8', cpu] = process.argv.slice(2);
 let device = null;
@@ -14,7 +14,7 @@ if (cpu !== 'cpu') {
   if (hasGPU) device = await (await import('../src/gpu/device.js')).gpuDevice();
 }
 const t0 = performance.now();
-const P = new Planet(seed, { level: +level });
+const P = await openPlanet(seed, { level: +level });
 const tBoot = performance.now() - t0;
 const c = P.climate, a = P.aeolian, g = P.grid, n = g.n, R2 = 6.371e6 ** 2;
 if (device) {

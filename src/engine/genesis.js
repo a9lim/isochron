@@ -146,32 +146,8 @@ export function genesis(tec, seed, opts = {}) {
     tf[i] = -Math.min(180, Math.max(0, age));
   }
 
-  // ── Plate frames are the world frame at t = 0 ──
-  for (let i = 0; i < n; i++) {
-    const p = tec.plates[owner[i]];
-    p.mask[i] = 1; p.h[i] = h[i]; p.phi[i] = phi[i]; p.tf[i] = tf[i];
-    tec.ref[i] = i;
-  }
-
-  // ── Slabs on the trenches the initial motions close ──
-  for (let i = 0; i < n; i++) {
-    const a = owner[i];
-    for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
-      const j = g.nbr[t], b = owner[j];
-      if (a === b) continue;
-      tec.velocity(a, i, va); tec.velocity(b, j, vb);
-      const vn = (vb[0] - va[0]) * g.tan[3 * t] + (vb[1] - va[1]) * g.tan[3 * t + 1] + (vb[2] - va[2]) * g.tan[3 * t + 2];
-      if (vn > -0.002) continue;
-      if (tec.buoyancyAt(i) >= tec.buoyancyAt(j)) continue;   // i sinks only if it's the denser side
-      const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
-      let dx = va[0] - vb[0], dy = va[1] - vb[1], dz = va[2] - vb[2];
-      const dot = dx * x + dy * y + dz * z;
-      dx -= dot * x; dy -= dot * y; dz -= dot * z;
-      const r = Math.hypot(dx, dy, dz) || 1;
-      tec.slab[i] = 0.07; tec.slabPlate[i] = a; tec.slabAge[i] = -tf[i];
-      tec.slabDir[3 * i] = dx / r; tec.slabDir[3 * i + 1] = dy / r; tec.slabDir[3 * i + 2] = dz / r;
-    }
-  }
+  framesFromWorld(tec);
+  hangSlabs(tec);
 
   tec.updateElevation();
   tec.water = waterForLand(g, tec.elev, landFraction);
@@ -196,6 +172,40 @@ export function genesis(tec, seed, opts = {}) {
   tec.landTarget = landFraction;
   tec.t0 = tec.t;
   return tec;
+}
+
+/** Plate frames are the world frame at t = 0: each plate's crust where its world cells are. */
+export function framesFromWorld(tec) {
+  const n = tec.grid.n, owner = tec.owner, h = tec.h, phi = tec.phi, tf = tec.tf;
+  for (let i = 0; i < n; i++) {
+    const p = tec.plates[owner[i]];
+    p.mask[i] = 1; p.h[i] = h[i]; p.phi[i] = phi[i]; p.tf[i] = tf[i];
+    tec.ref[i] = i;
+  }
+}
+
+/** Slabs on the trenches the plates' motions close: under the denser side, pulling along its approach. */
+export function hangSlabs(tec, length = 0.07) {
+  const g = tec.grid, n = g.n, pos = g.pos, owner = tec.owner, tf = tec.tf;
+  const va = new Float64Array(3), vb = new Float64Array(3);
+  for (let i = 0; i < n; i++) {
+    const a = owner[i];
+    for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+      const j = g.nbr[t], b = owner[j];
+      if (a === b) continue;
+      tec.velocity(a, i, va); tec.velocity(b, j, vb);
+      const vn = (vb[0] - va[0]) * g.tan[3 * t] + (vb[1] - va[1]) * g.tan[3 * t + 1] + (vb[2] - va[2]) * g.tan[3 * t + 2];
+      if (vn > -0.002) continue;
+      if (tec.buoyancyAt(i) >= tec.buoyancyAt(j)) continue;   // i sinks only if it's the denser side
+      const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
+      let dx = va[0] - vb[0], dy = va[1] - vb[1], dz = va[2] - vb[2];
+      const dot = dx * x + dy * y + dz * z;
+      dx -= dot * x; dy -= dot * y; dz -= dot * z;
+      const r = Math.hypot(dx, dy, dz) || 1;
+      tec.slab[i] = length; tec.slabPlate[i] = a; tec.slabAge[i] = -tf[i];
+      tec.slabDir[3 * i] = dx / r; tec.slabDir[3 * i + 1] = dy / r; tec.slabDir[3 * i + 2] = dz / r;
+    }
+  }
 }
 
 function nearestByScan(g, s) {

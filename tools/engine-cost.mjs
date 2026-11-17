@@ -6,7 +6,7 @@
 // usage: node tools/engine-cost.mjs [level] [steps] [dt Myr] [seed] [gpu]
 //   gpu: the plates, the surface and the crust's flexure on the GPU (src/gpu/;
 //   needs tests/node_modules)
-import { Planet } from '../src/engine/planet.js';
+import { openPlanet } from '../src/engine/planet.js';
 import { surfaceFields } from '../src/render/surface.js';
 import { traceBoundaries } from '../src/render/lines.js';
 import { traceRivers, drainage, RIVER_MIN } from '../src/render/rivers.js';
@@ -15,7 +15,7 @@ import { route } from '../src/engine/landscape.js';
 const level = +(process.argv[2] || 7), steps = +(process.argv[3] || 20), dt = +(process.argv[4] || 0.1);
 const seed = process.argv[5] || 'earthlike', useGpu = process.argv[6] === 'gpu';
 let t0 = performance.now();
-const P = new Planet(seed, { level });
+const P = await openPlanet(seed, { level });
 console.log(`level ${level} (${P.grid.n} cells), boot ${(performance.now() - t0).toFixed(0)} ms`);
 const tec = P.tec, T = {};
 let surfaceGpu = null;

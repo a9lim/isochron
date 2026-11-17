@@ -17,7 +17,9 @@
 import { buildGrid, cellCount } from './src/grid/icosphere.js';
 import { Record } from './src/engine/record.js';
 import { ClimateView, YearView } from './src/engine/mirror.js';
-import { OrbitCycles } from './src/engine/orbit.js';
+import { OrbitCycles, EARTH_CYCLES } from './src/engine/orbit.js';
+import { isEarth } from './src/engine/earth.js';
+import { GTS2012, CNS_START } from './src/engine/gpts.js';
 import { PARAMS } from './src/engine/plates.js';
 import { CLIMATE, NZ } from './src/engine/climate.js';
 import { CARBON } from './src/engine/carbon.js';
@@ -86,9 +88,9 @@ const land = { flux: { eroded: 0, toSea: 0 } };
 const plumes = { hot: [], lips: [] };
 const year = new YearView();
 const eruptionSeen = new Map();     // each eruption's key → when (ms) the page's clock passed it
-const P = { years: 0, seaLevel0: 0, landBank: 0, record: new Record(), orbit: new OrbitCycles(seed), agg: null, get ocean() { return climate.ocean; } };
+const P = { years: 0, seaLevel0: 0, landBank: 0, record: new Record(), orbit: new OrbitCycles(seed, isEarth(seed) ? EARTH_CYCLES : null), agg: null, get ocean() { return climate.ocean; } };
 let wx = null;                     // the weather, on the GPU (src/gpu/weather.js), once there is a device
-const polarity = new Polarity(seed);
+const polarity = new Polarity(seed, -400, isEarth(seed) ? { reversals: GTS2012, quietFrom: CNS_START } : null);
 const scheduler = new Scheduler([{ name: 'plates', step: PLATE_STEP, budget: 4 }]);
 const camera = new Orbit();
 
@@ -589,6 +591,7 @@ function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 // slower, where the weather is live (weatherLive, below): its button is disabled faster, and in it
 // the dial stops there (and doesn't follow the people).
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
+const EARTH_DIAL = -0.3;      // log₁₀ yr/s: today's Earth opens at half a year a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
 const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
@@ -1202,6 +1205,9 @@ engine.onmessage = e => {
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
+// Today's Earth opens at half a year a second: its seasons over its own continents (faster, its plates
+// leave Earth's map for the sim's balance within a few Myr).
+if (isEarth(seed) && !peopleOn()) els.dial.value = String(EARTH_DIAL);
 syncDial();
 showPeopleParts();
 syncControls();

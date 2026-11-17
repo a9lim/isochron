@@ -23,9 +23,9 @@ export async function planetFields(seed = 'earthlike', level = 6, { log = () => 
     for (const [name, w] of Object.entries(FIELDS)) { f[name] = all.subarray(k, k + w * n); k += w * n; }
     log(`planet ${seed} at level ${level} from the cache`);
   } else {
-    const { Planet } = await import('../../src/engine/planet.js');
+    const { openPlanet } = await import('../../src/engine/planet.js');
     const t0 = performance.now();
-    const P = new Planet(seed, { level });
+    const P = await openPlanet(seed, { level });
     P.settleClimate();
     f = fieldsOf(P);
     const meta = { seed, level, n, co2: f.co2, meanT: f.meanT, settled: f.settled };
