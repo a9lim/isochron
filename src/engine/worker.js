@@ -249,8 +249,8 @@ function solveTides() {
 async function sendSurface(fromStep, steps = 0, ms = 0) {
   // What a step costs, with drawing's share, so the page can plan steps the engine keeps up with.
   if (steps) { stepsDone += steps; msPerStep = 0.7 * msPerStep + 0.3 * ms / steps; }
-  const { grid, tec, land, ice } = P, tSend = performance.now();
-  const f = surfaceGpu ? await surfaceGpu.fields(tec) : surfaceFields(grid, tec, land, ice);
+  const { grid, tec, land, ice, lakes } = P, tSend = performance.now();
+  const f = surfaceGpu ? await surfaceGpu.fields(tec, lakes) : surfaceFields(grid, tec, land, ice, lakes);
   seaSent = tec.seaLevel;
   const m = {
     type: 'surface', fromStep, t: tec.t, seaLevel: tec.seaLevel, ...f,
@@ -277,7 +277,7 @@ function sendLakes() {
   lastLakes = performance.now(); lakesSent = P.lakesVersion;
   const f = lakeFields(P.grid, P.tec, P.lakes, P.ice.H);
   lakesDraw = Float32Array.from(f.draw);      // kept: rivers run to the lakes the page draws
-  post({ type: 'lakes', draw: f.draw, salt: f.salt }, [f.draw.buffer, f.salt.buffer]);
+  post({ type: 'lakes', draw: f.draw, salt: f.salt, tint: f.tint }, [f.draw.buffer, f.salt.buffer, f.tint.buffer]);
 }
 
 // The plants' cover as the Relief view draws it: eight colour weights a cell.

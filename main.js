@@ -320,11 +320,11 @@ function coalHaze() {
 }
 // Coal's sulfate's pattern on the engine's grid (mean 1), from the engine after each cycle that carried it.
 let sulfPattern = null;
-// The lakes as drawn (their depth from their water, and the salt flats), eased in by the globe.
+// The lakes as drawn (their shore's field and tint from their water, and the salt flats), eased in by the globe.
 let lakesDrawn = null;
 function onLakes(m) {
   lakesDrawn = m;
-  if (globe) globe.setLakes(m.draw, m.salt);
+  if (globe) globe.setLakes(m.draw, m.salt, m.tint);
   if (rivers) lakeAlong(grid, rivers.concat(riversGone), m.draw);
   drawDirty = true;
 }
@@ -394,7 +394,6 @@ function uploadSurface(m, mode) {
     polarityReady = true;
   }
   globe.setFields(m.elevRel, m.tfDraw, m.felsic, m.coast, m.normals, mode);
-  season.setSurface(m.coast);
 }
 let polarityReady = false;
 
@@ -1215,7 +1214,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   season = new GpuSeason(g.device, grid, g.climBuffer);
   wx = new GpuWeather(g.device, mesh, seed, g.refiner, moon.Omega);
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
-  if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt);
+  if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt, lakesDrawn.tint);
   if (coverDrawn) g.setCover(coverDrawn);
   if (people.drawn) g.setPeople(people.drawn, people.grid);
   if (sulfPattern) g.setSulfate(sulfPattern);

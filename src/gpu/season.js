@@ -4,6 +4,13 @@
 // one-cell patches melt away, and eased over ~0.8 s when a new climate
 // cycle lands. Written straight into the globe's climate buffer with the sea
 // surface temperature, the gyres' streamfunction and the ice sheets' thickness.
+// The land's snow and the sea's ice are two fields, each smoothed among its own
+// side's cells and carried two rings across the coast onto the other's, so the
+// globe draws each side by its own up to the coast however the coast falls
+// between the cells. As one field smoothed across the coast, a bay's sea ice
+// took the summer's bare land around it and opened short of the shore, and a
+// cell the drawn coast puts in the sea (as it does ~40% of coastal land cells)
+// had its snow and ice dropped.
 // The year's anomaly (src/engine/year.js) shifts the date's temperature: the
 // page keeps the anomaly at the year's last two step ends and blends them by
 // its clock, weighted by how live the year is.
@@ -15,65 +22,92 @@ struct Su { c1: f32, s1: f32, c2: f32, s2: f32, sw: f32, lapse: f32, ease: f32, 
 fn ramp(a: f32, b: f32, x: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
 `;
 // Per cell, clim: (T̄, T₁ cos, T₁ sin, T₂ cos) · (T₂ sin, snow share, height km, land) · (sea-surface °C, gyre Sv, 0, 0).
+// The state between passes, per cell: (the land's field, the sea's, the ice's thickness, k), k the
+// cell's side (1 land, 0 sea, by the climate's) plus 2 once the other side's field is carried onto it.
 const COLD = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> clim: array<vec4f>;
 @group(0) @binding(2) var<storage, read> iceH: array<f32>;
-@group(0) @binding(3) var<storage, read> elevRel: array<f32>;
-@group(0) @binding(4) var<storage, read_write> ci: array<vec2f>;
-@group(0) @binding(5) var<storage, read> anA: array<f32>;
-@group(0) @binding(6) var<storage, read> anB: array<f32>;
+@group(0) @binding(3) var<storage, read_write> ci: array<vec4f>;
+@group(0) @binding(4) var<storage, read> anA: array<f32>;
+@group(0) @binding(5) var<storage, read> anB: array<f32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
   let a = clim[3u * i];
   let b = clim[3u * i + 1u];
+  let land = b.w > 0.5;
   var cold = b.y;
   if (U.sw > 0.001) {
     // At sea, the surface's temperature: the air's plus the gyres' anomaly (clim's sea-surface slot less T̄);
     // everywhere, the year's anomaly between its last two steps.
-    let tp = select(clim[3u * i + 2u].x - a.x, 0.0, b.w > 0.5);
+    let tp = select(clim[3u * i + 2u].x - a.x, 0.0, land);
     let an = U.aw * mix(anA[i], anB[i], U.af);
     let T = a.x + a.y * U.c1 - a.z * U.s1 + a.w * U.c2 - b.x * U.s2 + tp + an;
-    let now = select(ramp(1.5, 6.0, -T), ramp(-1.0, 5.0, -(T - U.lapse * b.z)), b.w > 0.5);
+    let now = select(ramp(1.5, 6.0, -T), ramp(-1.0, 5.0, -(T - U.lapse * b.z)), land);
     cold = U.sw * now + (1.0 - U.sw) * cold;
   }
-  // Land newly dry or drowned since the climate last saw it takes no snow or ice.
-  let H = iceH[i];
-  if (((elevRel[i] > 0.0) != (b.w > 0.5)) && !(H > 0.0)) { cold = 0.0; }
-  ci[i] = vec2f(cold, H);
+  ci[i] = select(vec4f(0.0, cold, iceH[i], 0.0), vec4f(cold, 0.0, iceH[i], 1.0), land);
 }`;
+// One pass: each side's field smoothed among that side's cells (a cell with none of its side beside
+// it keeps its own), and carried onto the other side's cells as the mean of the neighbours that
+// hold it (that side's cells, or the other's it was carried onto last pass: two passes, two rings).
+// The ice's thickness is smoothed over every neighbour.
 const SMOOTH = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> nbr: array<u32>;
-@group(0) @binding(2) var<storage, read> src: array<vec2f>;
-@group(0) @binding(3) var<storage, read_write> dst: array<vec2f>;
+@group(0) @binding(2) var<storage, read> src: array<vec4f>;
+@group(0) @binding(3) var<storage, read_write> dst: array<vec4f>;
+fn isLand(k: f32) -> bool { return k - 2.0 * floor(0.5 * k) > 0.5; }
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
-  var s = vec2f(0.0);
+  let a = src[i];
+  let land = isLand(a.w);
+  var own = 0.0;      // this side's field among this side's neighbours
+  var mOwn = 0.0;
+  var other = 0.0;    // the other side's field, from the neighbours that hold it
+  var mOther = 0.0;
+  var h = 0.0;
   var m = 0.0;
   for (var k = 0u; k < 6u; k++) {
     let j = nbr[6u * i + k];
-    if (j != i) { s += src[j]; m += 1.0; }
+    if (j == i) { continue; }
+    let b = src[j];
+    let bl = isLand(b.w);
+    let bc = b.w > 1.5;
+    h += b.z; m += 1.0;
+    if (bl == land) {
+      own += select(b.y, b.x, land); mOwn += 1.0;
+      if (bc) { other += select(b.x, b.y, land); mOther += 1.0; }
+    } else {
+      other += select(b.x, b.y, land); mOther += 1.0;
+    }
   }
-  dst[i] = 0.4 * src[i] + 0.6 * s / m;
+  let mine = select(a.y, a.x, land);
+  let v = select(mine, 0.4 * mine + 0.6 * own / max(mOwn, 1.0), mOwn > 0.0);
+  let o = select(0.0, other / max(mOther, 1.0), mOther > 0.0);
+  let kk = select(0.0, 1.0, land) + select(0.0, 2.0, mOther > 0.0);
+  dst[i] = vec4f(select(o, v, land), select(v, o, land), 0.4 * a.z + 0.6 * h / max(m, 1.0), kk);
 }`;
+// The land's field and the sea's, eased from where they stood; the climate buffer takes two vec4s a
+// cell: (the land's snow, sea-surface °C, gyre Sv, ice m) and (the sea's ice, 0, 0, 0).
 const COMPOSE = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> clim: array<vec4f>;
-@group(0) @binding(2) var<storage, read> ci: array<vec2f>;
-@group(0) @binding(3) var<storage, read> prior: array<f32>;
-@group(0) @binding(4) var<storage, read_write> shown: array<f32>;
+@group(0) @binding(2) var<storage, read> ci: array<vec4f>;
+@group(0) @binding(3) var<storage, read> prior: array<vec2f>;
+@group(0) @binding(4) var<storage, read_write> shown: array<vec2f>;
 @group(0) @binding(5) var<storage, read_write> out: array<vec4f>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= U.n) { return; }
   let v = ci[i];
-  let c = prior[i] + U.ease * (v.x - prior[i]);
+  let c = prior[i] + U.ease * (v.xy - prior[i]);
   shown[i] = c;
   let o = clim[3u * i + 2u];
-  out[i] = vec4f(c, o.x, o.y, v.y);
+  out[2u * i] = vec4f(c.x, o.x, o.y, v.z);
+  out[2u * i + 1u] = vec4f(c.y, 0.0, 0.0, 0.0);
 }`;
 
 export class GpuSeason {
@@ -88,16 +122,15 @@ export class GpuSeason {
     this.nbr = storage(device, nbr.byteLength, nbr);
     this.clim = storage(device, 48 * n);
     this.iceH = storage(device, 4 * n);
-    this.elevRel = storage(device, 4 * n);
-    this.A = storage(device, 8 * n); this.B = storage(device, 8 * n);
-    this.from = storage(device, 4 * n); this.shown = storage(device, 4 * n);
+    this.A = storage(device, 16 * n); this.B = storage(device, 16 * n);
+    this.from = storage(device, 8 * n); this.shown = storage(device, 8 * n);
     this.anA = storage(device, 4 * n); this.anB = storage(device, 4 * n);
     this.u = new ArrayBuffer(48);
     this.U = uniform(device, new Uint32Array(this.u));
     const K = { cold: kernel(device, COLD, 'cold'), smooth: kernel(device, SMOOTH, 'smooth'), compose: kernel(device, COMPOSE, 'compose') };
     const x = Math.ceil(n / 64), U = this.U;
     this.list = [
-      [K.cold, K.cold.bind({ U, clim: this.clim, iceH: this.iceH, elevRel: this.elevRel, ci: this.A, anA: this.anA, anB: this.anB }), x],
+      [K.cold, K.cold.bind({ U, clim: this.clim, iceH: this.iceH, ci: this.A, anA: this.anA, anB: this.anB }), x],
       [K.smooth, K.smooth.bind({ U, nbr: this.nbr, src: this.A, dst: this.B }), x],
       [K.smooth, K.smooth.bind({ U, nbr: this.nbr, src: this.B, dst: this.A }), x],
       [K.compose, K.compose.bind({ U, clim: this.clim, ci: this.A, prior: this.from, shown: this.shown, out }), x],
@@ -116,7 +149,7 @@ export class GpuSeason {
     }
     this.device.queue.writeBuffer(this.clim, 0, a);
     const enc = this.device.createCommandEncoder();
-    enc.copyBufferToBuffer(this.shown, 0, this.from, 0, 4 * n);
+    enc.copyBufferToBuffer(this.shown, 0, this.from, 0, 8 * n);
     this.device.queue.submit([enc.finish()]);
   }
   setIce(H) { this.device.queue.writeBuffer(this.iceH, 0, H); }
@@ -126,7 +159,6 @@ export class GpuSeason {
     else { const enc = this.device.createCommandEncoder(); enc.copyBufferToBuffer(this.anB, 0, this.anA, 0, 4 * this.n); this.device.queue.submit([enc.finish()]); }
     this.device.queue.writeBuffer(this.anB, 0, next);
   }
-  setSurface(elevRel) { this.device.queue.writeBuffer(this.elevRel, 0, elevRel); }
 
   /**
    * Draw the season at year phase τ with weight sw (1: the date, 0: the year's share), eased by

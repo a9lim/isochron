@@ -43,7 +43,7 @@ if (tec.gpu) tec.gpu.prof = null;
 async function stepOnce() {
   await lap('plateStep', () => P.plateStepAsync(dt * 1e6));
   await lap('landscape', () => { if (P.landBank >= 2.5e5) { P.land.step(P.landBank); P.landBank = 0; } });
-  const f = await lap('surface', () => surfaceGpu ? surfaceGpu.fields(tec, P.land, P.ice) : surfaceFields(P.grid, tec, P.land, P.ice));
+  const f = await lap('surface', () => surfaceGpu ? surfaceGpu.fields(tec, P.lakes) : surfaceFields(P.grid, tec, P.land, P.ice, P.lakes));
   await lap('lines', () => traceBoundaries(tec));
   return f;
 }

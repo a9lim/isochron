@@ -200,13 +200,39 @@ test('the drawn surface on the GPU: the CPU\'s fields', { skip }, async () => {
   const { t: tec, land } = planet(20, true);
   land.step(5e5);
   const ice = { H: new Float64Array(grid6.n) };
-  const c = surfaceFields(grid6, tec, land, ice), gs = new GpuSurface(await gpuDevice(), grid6), f = await gs.fields(tec);
+  // A lake on each low coast's land cell's inland neighbour (made up: the coast's rule, not the lakes'),
+  // so its rim, beside the sea, draws as land on both paths.
+  const wet = new Float32Array(grid6.n), off = grid6.nbrOff, nbr = grid6.nbr;
+  const ocean = j => tec.sea[j];
+  let rims = 0;
+  for (let i = 0; i < grid6.n && rims < 400; i++) {
+    if (ocean(i) || tec.elev[i] - tec.seaLevel > 0.1) continue;
+    let coastal = false;
+    for (let t = off[i]; t < off[i + 1]; t++) if (ocean(nbr[t])) coastal = true;
+    if (!coastal) continue;
+    for (let t = off[i]; t < off[i + 1]; t++) {
+      const j = nbr[t];
+      let inland = !ocean(j);
+      for (let r = off[j]; r < off[j + 1] && inland; r++) if (ocean(nbr[r])) inland = false;
+      if (inland) { wet[j] = 1; rims++; break; }
+    }
+  }
+  const lakes = { wet, mem: new Float32Array(grid6.n) };
+  const c = surfaceFields(grid6, tec, land, ice, lakes), gs = new GpuSurface(await gpuDevice(), grid6), f = await gs.fields(tec, lakes);
   const worst = k => { let w = 0; for (let i = 0; i < c[k].length; i++) w = Math.max(w, Math.abs(c[k][i] - f[k][i])); return w; };
   assert.ok(worst('elevRel') < 1e-4, `relief off by ${worst('elevRel')} km`);
   let basins = 0;
   for (let i = 0; i < grid6.n; i++) if (!tec.sea[i] && tec.elev[i] < tec.seaLevel) basins++;
   assert.ok(worst('coast') < 1e-4, `coast off by ${worst('coast')} km (${basins} cells in basins the sea doesn't reach)`);
   for (let i = 0; i < grid6.n; i++) if (!tec.sea[i] && tec.elev[i] < tec.seaLevel) assert.ok(c.coast[i] > 0, 'a basin below sea level draws as land');
+  let held = 0;
+  for (let i = 0; i < grid6.n; i++) {
+    if (tec.sea[i]) continue;
+    let lake = wet[i] > 0;
+    for (let t = off[i]; t < off[i + 1]; t++) lake = lake || wet[nbr[t]] > 0;
+    if (lake) { held++; assert.ok(c.coast[i] > 0, 'land at or beside a lake draws as land'); }
+  }
+  assert.ok(rims > 50 && held > rims, `${rims} lakes, ${held} cells kept as land`);
   assert.ok(worst('normals') < 1e-4, `normals off by ${worst('normals')}`);
   assert.ok(worst('tfDraw') < 1e-3, `stripes off by ${worst('tfDraw')} Myr`);
   assert.deepEqual(Object.keys(f).sort(), Object.keys(c).sort(), 'the same fields');

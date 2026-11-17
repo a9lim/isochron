@@ -11,7 +11,7 @@
 // the lakes change).
 import { kernel, storage } from './device.js';
 import { gridBuffers } from './plates.js';
-import { LIFT } from '../render/surface.js';
+import { LIFT, lakeHeld } from '../render/surface.js';
 
 const HEAD = /* wgsl */`
 const NONE: u32 = 0xffffffffu;
@@ -51,20 +51,25 @@ ${MAIN}
 }`,
   coast: `
 @group(0) @binding(2) var<storage, read> elev: array<f32>;
-@group(0) @binding(3) var<storage, read> sea: array<u32>;
+@group(0) @binding(3) var<storage, read> sea: array<u32>;   // bit 0 the ocean, bit 1 a lake's (lakeHeld)
 @group(0) @binding(4) var<storage, read> fin: array<f32>;
 @group(0) @binding(5) var<storage, read_write> fout: array<f32>;
-fn dry(i: u32) -> bool { return sea[i] == 0u && elev[i] < U.sea; }
+fn ocean(i: u32) -> bool { return (sea[i] & 1u) == 1u; }
+fn held(i: u32) -> bool { return (sea[i] & 2u) == 2u; }
+fn dry(i: u32) -> bool { return !ocean(i) && elev[i] < U.sea; }
 fn raw(i: u32) -> f32 { return select(elev[i] - U.sea, ${LIFT.toFixed(6)}, dry(i)); }
 ${MAIN}
-  fout[i] = fin[i];
+  var c = fin[i];
   var near = dry(i);
+  var lake = held(i);
   var s = 0.0;
   var d = 0.0;
-  for (var k = 0u; k < 6u; k++) { let j = nb(i, k); if (j == NONE) { break; } near = near || dry(j); s += raw(j); d += 1.0; }
-  if (!near) { return; }
-  var c = 0.5 * raw(i) + 0.5 * s / d;
-  if (sea[i] == 0u) { c = max(c, ${LIFT.toFixed(6)}); }
+  for (var k = 0u; k < 6u; k++) { let j = nb(i, k); if (j == NONE) { break; } near = near || dry(j); lake = lake || held(j); s += raw(j); d += 1.0; }
+  if (near) {
+    c = 0.5 * raw(i) + 0.5 * s / d;
+    if (!ocean(i)) { c = max(c, ${LIFT.toFixed(6)}); }
+  }
+  if (lake && !ocean(i)) { c = max(c, ${LIFT.toFixed(6)}); }
   fout[i] = c;
 }`,
   normals: `
@@ -126,16 +131,16 @@ export class GpuSurface {
     this.ownerBuf = new Uint32Array(n); this.seaBuf = new Uint32Array(n);
   }
 
-  /** surfaceFields (src/render/surface.js) for the engine's current state, on the GPU. */
-  async fields(tec) {
+  /** surfaceFields (src/render/surface.js) for the engine's current state (and its lakes, for the coast), on the GPU. */
+  async fields(tec, lakes = null) {
     const n = this.n, dev = this.device, q = dev.queue, b = this.b;
     q.writeBuffer(b.elev, 0, tec.elev instanceof Float32Array ? tec.elev : Float32Array.from(tec.elev));
     q.writeBuffer(b.tA, 0, tec.tf); q.writeBuffer(b.phi, 0, tec.phi);
     const o = this.ownerBuf;
     for (let i = 0; i < n; i++) o[i] = tec.owner[i];
     q.writeBuffer(b.owner, 0, o);
-    const sm = this.seaBuf;
-    for (let i = 0; i < n; i++) sm[i] = tec.sea ? tec.sea[i] : tec.elev[i] < tec.seaLevel ? 1 : 0;
+    const sm = this.seaBuf, held = lakes && tec.sea ? lakeHeld(lakes) : null;
+    for (let i = 0; i < n; i++) sm[i] = (tec.sea ? tec.sea[i] : tec.elev[i] < tec.seaLevel ? 1 : 0) | (held && held[i] ? 2 : 0);
     q.writeBuffer(b.sea, 0, sm);
     const u = new ArrayBuffer(16);
     new Uint32Array(u)[0] = n; new Float32Array(u).set([tec.seaLevel, RELIEF / R_KM], 2);

@@ -16,7 +16,8 @@
 //                    savanna, steppe, desert, boreal forest, tundra and rock),
 //                    rock toward the summits; the cover lags its climate, so
 //                    after the ice goes bare ground and grass come first
-//   snow, sea ice    a light fill with a hard edge, as a map draws them
+//   snow, sea ice    a light fill with a hard edge, as a map draws them; the
+//                    land's snow and the sea's ice each up to the coast
 //   phytoplankton    the sea's tint turns a milky teal where its export
 //                    production is high (src/engine/life.js), as a bloom looks
 //                    from orbit: quiet in the gyres, seen at upwelling coasts
@@ -114,7 +115,7 @@ struct VOut {
   @location(9) iv: vec4f,
   @location(10) wx: vec4f,
   @location(11) td: vec4f,
-  @location(12) lw: vec4f,
+  @location(12) lw: vec4f,   // the lakes' drawn field, salt flats, the sea's ice, the lakes' tint
   @location(13) cv: vec4f,   // the cover's colour (premultiplied) and its weight
   @location(14) pp: vec4f,   // the people (folk), and the robots
   @location(15) pq: vec4f,
@@ -127,7 +128,8 @@ fn toView(p: vec3f) -> vec3f {
 @vertex fn vs(@location(0) p: vec3f, @location(1) fc: vec4f, @location(2) nc: vec3f, @location(3) c: vec4f,
               @location(4) z0: vec4f, @location(5) z1: vec4f, @location(6) z2: vec4f, @location(7) z3: vec4f,
               @location(8) iv: vec4f, @location(9) wx: vec4f, @location(10) fp: vec4f, @location(11) np: vec3f,
-              @location(12) td: vec4f, @location(13) lw: vec4f, @builtin(vertex_index) vi: u32) -> VOut {
+              @location(12) td: vec4f, @location(13) lw: vec4f, @location(14) c2: vec4f, @location(15) lt: vec4f,
+              @builtin(vertex_index) vi: u32) -> VOut {
   // Between plate steps the surface blends from the last step's state to this
   // one's (each step moves the crust less than half a cell), so it moves
   // continuously rather than in ticks.
@@ -147,7 +149,9 @@ fn toView(p: vec3f) -> vec3f {
   // sulfate's optical depth, its haze where the winds carry it (the vertex has no varyings to spare).
   o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, 0.0, 0.0, 0.0), u.mode.x > 5.5);
   o.td = td;
-  o.lw = lw;
+  // The lakes eased from the last drawn to the new here (linear, so as the fragments would), which
+  // leaves room beside them for the sea's ice (c holds the land's snow) and their tint.
+  o.lw = vec4f(mix(lw.x, lw.z, u.tide2.w), mix(lw.y, lw.w, u.tide2.w), c2.x, mix(lt.x, lt.y, u.tide2.w));
   // The cover's colour: its classes (src/engine/vegetation.js, COLOURS) in the biomes' colours,
   // rock as the summits' (linear in the weights, so blending here is blending the weights).
   o.pp = folk[2u * vi];
@@ -377,9 +381,11 @@ fn hair(d: f32, w: f32) -> f32 {
   let cst = i.f.w;         // the coast: negative on the ocean (a basin below sea level that the sea doesn't reach is land)
   let tf = i.f.y;          // formation time, Myr after the polarity origin
   let phi = i.f.z;         // felsic fraction
-  let lake = mix(i.lw.x, i.lw.z, u.tide2.w);   // lake depth, km (signed: dry land below zero)
-  let salt = mix(i.lw.y, i.lw.w, u.tide2.w);   // the share of salt flat
-  let cold = i.c.x;        // snow on land, ice on the sea (0..1)
+  let lake = i.lw.x;       // the lakes' drawn field: signed, the shore at zero (src/render/surface.js, lakeFields)
+  let salt = i.lw.y;       // the share of salt flat
+  let snowL = i.c.x;       // the land's snow (0..1), carried onto the sea's cells beside it
+  let iceS = i.lw.z;       // the sea's ice (0..1), carried onto the land's cells beside it
+  let lakeQ = i.lw.w;      // the lakes' tint: √(depth / 6 km)
   let sst = i.c.y;         // sea-surface temperature, °C
   let psi = i.c.z;         // the gyres' streamfunction, Sv
   let age = u.frame.z - tf;
@@ -411,7 +417,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let wH = i.wx.w;         // the column's relative humidity (0..1)
   let fwH = fwidth(wH);
   let fpsi = fwidth(psi);
-  let fcold = max(fwidth(cold), 1e-3);
+  let fsnow = max(fwidth(snowL), 1e-3);
+  let fseaice = max(fwidth(iceS), 1e-3);
   let fice = max(fwidth(iceH), 1.0);
   let flake = max(fwidth(lake), 1e-4);
   let fsalt = max(fwidth(salt), 1e-3);
@@ -453,7 +460,7 @@ fn hair(d: f32, w: f32) -> f32 {
   sea = mix(sea, mix(u.canvas.rgb, mix(u.inkD.rgb, u.ocean.rgb, 0.3), 0.4), PLANKTON_WASH * bloom);
   let w = max(1.5 * ftf, u.frame.w);
   let pbar = (polC(tf + w) - polC(tf - w)) / (2.0 * w);
-  sea = mix(sea, u.text.rgb, 0.075 * (0.5 + 0.5 * pbar) * oceanic * (1.0 - cold));
+  sea = mix(sea, u.text.rgb, 0.075 * (0.5 + 0.5 * pbar) * oceanic * (1.0 - iceS));
   sea = mix(sea, u.text.rgb, 0.09 * hair(abs(d - round(d)), fe) * step(0.5, d));
   // In the Climate view the sea is a plain wash, with isotherms every 5 °C and
   // the gyres' streamlines every 3 Sv (the currents run along them).
@@ -470,10 +477,11 @@ fn hair(d: f32, w: f32) -> f32 {
   // Snow and sea ice: a light fill with a hard edge, as a map draws them.
   let iceInk = select(mix(u.canvas.rgb, u.ocean.rgb, 0.05), mix(u.canvas.rgb, u.text.rgb, 0.16), dark);
   let snowInk = select(u.canvas.rgb, mix(u.canvas.rgb, u.text.rgb, 0.2), dark);
-  let ice = clamp(0.5 + (cold - 0.5) / fcold, 0.0, 1.0);
-  let iceEdge = hair(abs(cold - 0.5), fcold);
-  sea = mix(sea, iceInk, ice);
-  sea = mix(sea, u.ocean.rgb, 0.55 * iceEdge);
+  let seaIce = clamp(0.5 + (iceS - 0.5) / fseaice, 0.0, 1.0);
+  sea = mix(sea, iceInk, seaIce);
+  sea = mix(sea, u.ocean.rgb, 0.55 * hair(abs(iceS - 0.5), fseaice));
+  let ice = clamp(0.5 + (snowL - 0.5) / fsnow, 0.0, 1.0);   // snow on land
+  let iceEdge = hair(abs(snowL - 0.5), fsnow);
 
   // Land: the plants' cover (the height's umber where it isn't known yet), rock
   // toward the summits, contours every kilometre.
@@ -504,7 +512,7 @@ fn hair(d: f32, w: f32) -> f32 {
   // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
   // depth is smoothed and signed (dry land below zero), so the shore is a curve.
   let lk = clamp(0.5 + lake / flake, 0.0, 1.0) * (1.0 - ice);   // a lake under snow is frozen over
-  land = mix(land, mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(lake / 6.0, 0.0, 1.0))), lk);
+  land = mix(land, mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * lakeQ), lk);
   land = mix(land, u.text.rgb, 0.55 * hair(abs(lake), flake));
 
   // The Climate view: the zones' mosaic on land.
@@ -656,7 +664,7 @@ fn hair(d: f32, w: f32) -> f32 {
   // Nothing stands on open water: the lakes over the uses, as the Relief view draws them where people
   // have reached (Settlement) and in the chart's water everywhere (Density), with their shore.
   let pwet = lk * select(explored, 1.0, folkD);
-  pland = mix(pland, select(mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(lake / 6.0, 0.0, 1.0))), mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkD), pwet);
+  pland = mix(pland, select(mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * lakeQ), mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkD), pwet);
   pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkD) * hair(abs(lake), flake) * (1.0 - ice) * select(explored, 1.0, folkD));
   land = select(land, pland, folkV);
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkD);
@@ -705,13 +713,14 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   device.queue.writeBuffer(posBuf, 0, Float32Array.from(mesh.pos));
   const fieldBuf = device.createBuffer({ size: nm * 32, usage: VS });   // current, previous
   const normBuf = device.createBuffer({ size: nm * 32, usage: VS });    // current, previous (vec3 in vec4)
-  const climBuf = device.createBuffer({ size: nm * 16, usage: VS });
+  const climBuf = device.createBuffer({ size: nm * 32, usage: VS });   // the season's two vec4s (src/gpu/season.js)
   const zoneBuf = device.createBuffer({ size: nm * 64, usage: VS });
   const iceBuf = device.createBuffer({ size: nm * 16, usage: VS });
   const wxBuf = device.createBuffer({ size: nm * 16, usage: VS });      // written by the weather's kernels, on the mesh
-  // The tide's harmonic and dissipation and the permafrost's share, then the lakes' drawn depth and
-  // salt (the last and the new): one buffer, as a pipeline has eight vertex buffers at most.
-  const tideBuf = device.createBuffer({ size: nm * 32, usage: VS });
+  // The tide's harmonic and dissipation and the permafrost's share, then the lakes' drawn field and
+  // salt (the last and the new), then their tint (the last and the new): one buffer, as a pipeline
+  // has eight vertex buffers at most.
+  const tideBuf = device.createBuffer({ size: nm * 48, usage: VS });
   // The cover's eight colour weights a vertex, read by the vertex shader from storage (a ninth vertex buffer is past the limit).
   const coverBuf = storage(device, nm * 32);
   // The people's eight values a vertex (the People scenario), refined from their grid (src/engine/people-worker.js).
@@ -721,7 +730,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   let folkS = null, folkRef = null;
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
-  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 16, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 32, tideBuf), coverS = S(n * 32, coverBuf);
+  const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 32, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 48, tideBuf), coverS = S(n * 32, coverBuf);
   const refiner = refining ? new Refiner(device, mesh, coarse) : null;
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
@@ -738,11 +747,11 @@ export async function createGlobe(canvas, mesh, coarse, device) {
         { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
         { arrayStride: 32, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }, { shaderLocation: 10, offset: 16, format: 'float32x4' }] },
         { arrayStride: 32, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x3' }, { shaderLocation: 11, offset: 16, format: 'float32x3' }] },
-        { arrayStride: 16, attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x4' }] },
+        { arrayStride: 32, attributes: [{ shaderLocation: 3, offset: 0, format: 'float32x4' }, { shaderLocation: 14, offset: 16, format: 'float32x4' }] },
         { arrayStride: 64, attributes: [0, 1, 2, 3].map(k => ({ shaderLocation: 4 + k, offset: 16 * k, format: 'float32x4' })) },
         { arrayStride: 16, attributes: [{ shaderLocation: 8, offset: 0, format: 'float32x4' }] },
         { arrayStride: 16, attributes: [{ shaderLocation: 9, offset: 0, format: 'float32x4' }] },
-        { arrayStride: 32, attributes: [{ shaderLocation: 12, offset: 0, format: 'float32x4' }, { shaderLocation: 13, offset: 16, format: 'float32x4' }] },
+        { arrayStride: 48, attributes: [{ shaderLocation: 12, offset: 0, format: 'float32x4' }, { shaderLocation: 13, offset: 16, format: 'float32x4' }, { shaderLocation: 15, offset: 32, format: 'float32x4' }] },
       ],
     },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
@@ -756,7 +765,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   let blend = 1;
   let polN = 0, polDT = 1, polT0 = 0;
   // The lakes ease from the last drawn to the new over LAKE_EASE ms.
-  const LAKE_EASE = 400, tideLake = new Float32Array(8 * n);
+  const LAKE_EASE = 400, tideLake = new Float32Array(12 * n);
   let lakeAt = -Infinity;
   const lakeMix = () => { const t = Math.min(1, Math.max(0, (performance.now() - lakeAt) / LAKE_EASE)); return t * t * (3 - 2 * t); };
 
@@ -815,37 +824,39 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       }
     },
 
-    /** Per cell of the engine's grid: snow or sea ice (0..1), sea-surface temperature, the gyres' streamfunction (Sv), ice thickness (m); the season writes it, then `refineClimate`. */
+    /** Per cell of the engine's grid, two vec4s: the land's snow (0..1), sea-surface temperature, the gyres' streamfunction (Sv), ice thickness (m); the sea's ice (0..1); the season writes it, then `refineClimate`. */
     climBuffer: climS,
-    refineClimate() { refine(climS, climBuf, 1); },
+    refineClimate() { refine(climS, climBuf, 2); },
     /** Per cell: the zones' probabilities, 16 floats (14 used). */
     setZones(z) { device.queue.writeBuffer(zoneS, 0, z); refine(zoneS, zoneBuf, 4); },
     /** Per cell: the tide's harmonic per unit equilibrium tide (C, S) and dissipation per unit² (W/m²). */
     setTides(C, S, diss) {
       const a = tideLake;
-      for (let i = 0; i < n; i++) { a[8 * i] = C[i]; a[8 * i + 1] = S[i]; a[8 * i + 2] = diss[i]; }
-      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
+      for (let i = 0; i < n; i++) { a[12 * i] = C[i]; a[12 * i + 1] = S[i]; a[12 * i + 2] = diss[i]; }
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 3);
     },
     /** Per cell: the permafrost's share (0..1; src/engine/soil.js), as the worker draws it (`drawnPermafrost`). */
     setPermafrost(p) {
       const a = tideLake;
-      for (let i = 0; i < n; i++) a[8 * i + 3] = p[i];
-      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
+      for (let i = 0; i < n; i++) a[12 * i + 3] = p[i];
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 3);
     },
     /**
-     * Per cell: the lakes' drawn depth (km, signed: dry land below zero) and salt flats' share
-     * (src/render/surface.js, lakeFields), eased from what is drawn now.
+     * Per cell: the lakes' drawn field (signed: the shore at zero), salt flats' share and the lakes'
+     * tint (src/render/surface.js, lakeFields), eased from what is drawn now.
      */
-    setLakes(draw, salt) {
+    setLakes(draw, salt, tint) {
       const f = lakeMix(), first = lakeAt === -Infinity, a = tideLake;
       for (let i = 0; i < n; i++) {
-        const o = 8 * i + 4;
+        const o = 12 * i + 4, q = tint ? tint[i] : 0;
         a[o] = first ? draw[i] : a[o] + (a[o + 2] - a[o]) * f;
         a[o + 1] = first ? salt[i] : a[o + 1] + (a[o + 3] - a[o + 1]) * f;
         a[o + 2] = draw[i]; a[o + 3] = salt[i];
+        a[o + 4] = first ? q : a[o + 4] + (a[o + 5] - a[o + 4]) * f;
+        a[o + 5] = q;
       }
       lakeAt = performance.now();
-      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 2);
+      device.queue.writeBuffer(tideS, 0, a); refine(tideS, tideBuf, 3);
     },
     get lakesEasing() { return performance.now() - lakeAt < LAKE_EASE; },
     /** Per cell: the plants' cover as eight colour weights (src/engine/vegetation.js, COLOURS; zero off its land). */
