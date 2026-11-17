@@ -65,7 +65,7 @@ import { PeopleLink, fieldsOf, soilOf, peopleLevel } from './peoplelink.js';
 const CLIMATE_MS = 10, CLIMATE_OPENING = 3, ICE_MS = 4;
 let P = null, playing = false, pending = 3, scheduled = false, tides = null;
 const ticks = [];
-let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
+let samples = [], sea0 = 0, lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
 let yearSent = -1, yearLiveSent = -1, riversId = 0, riversCells = null, riversQ12 = null, riversRt = null, lastRate = 1;
 let lakesSent = -1, lastLakes = 0;
 let coverSent = -1, lastCover = 0;
@@ -107,6 +107,7 @@ self.onmessage = e => {
       tides = { gpu: new GpuTides(device, tg), T: tg === P.grid ? null : makeTransfer(P.grid, tg), at: -Infinity, running: false };
     }, err => console.warn('[isochron] engine GPU:', err.message)).finally(() => { gpuWait = false; schedule(); });
     post({ type: 'ready', seaLevel0: P.seaLevel0, years: P.years, pco2: P.carbon.pco2 });
+    sea0 = P.seaLevel0;
     sendSurface(false);
     sendLakes();
     sendFast(true);
@@ -146,6 +147,9 @@ async function pumpTicks() {
     P.fast(m.adv, ICE_MS, m.rate ?? m.window / 2);
     if (people) people.link.afterFast();
     lap('fast');
+    // Sea level is measured from the settled opening once there is one (Planet.zeroSea): the samples
+    // waiting here move with it, and the page's record with the next message's seaLevel0.
+    if (P.seaLevel0 !== sea0) { for (let k = 3; k < samples.length; k += 8) samples[k] += (sea0 - P.seaLevel0) * 1000; sea0 = P.seaLevel0; }
     if (m.adv > 0) samples.push(P.years, ...P.sample());
     lap('sample');
   }
@@ -411,7 +415,7 @@ function sendFast(first) {
   // The live ground's last twelve months and this month's runoff, read back for the next message.
   if (P.ground.live && P.ground.gpu) P.ground.readBack(monthAt(((P.years % 1) + 1) % 1).i, P.years).catch(err => console.warn('[isochron] ground:', err.message));
   const m = {
-    type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, samples: Float64Array.from(samples),
+    type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, seaLevel0: P.seaLevel0, samples: Float64Array.from(samples),
     iceH: Float32Array.from(ice.H), iceVel: drawnFlow(ice), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out),
       sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 } },

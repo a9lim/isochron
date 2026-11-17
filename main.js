@@ -261,6 +261,8 @@ function stepTau(dt) {
   return Math.min(1, Math.max(0, (tau - shownFrom) / Math.max(1e-9, shown.t - shownFrom)));
 }
 function onFast(m) {
+  // Sea level from the settled opening once the engine has one (Planet.zeroSea): the record so far moves with it.
+  if (m.seaLevel0 !== undefined && m.seaLevel0 !== P.seaLevel0) { P.record.shift('sea', (P.seaLevel0 - m.seaLevel0) * 1000); P.seaLevel0 = m.seaLevel0; }
   for (let k = 0; k < m.samples.length; k += 8) P.record.push(m.samples[k], m.samples.subarray(k + 1, k + 8));
   ice.H = m.iceH; ice.vel = m.iceVel; ice.stats = m.iceStats;
   Object.assign(carbon, m.carbon);

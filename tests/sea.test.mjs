@@ -1,6 +1,7 @@
 // The ocean and the basins it doesn't reach (src/engine/crust.js, seaMask; src/engine/plates.js,
 // solveSea): on a made-up planet, an ocean, a continent, and in the continent a basin below sea
-// level joined to the ocean by a channel. The sea holds its water over the ocean alone; a basin it
+// level joined to the ocean by a channel, floored by continental crust (one floored by the
+// ocean's is trapped ocean, joined below the grid's scale). The sea holds its water over the ocean alone; a basin it
 // leaves keeps its water for the lakes and the level doesn't move; a sill short of STRAIT keeps
 // the strait open; a basin it reaches gives its lakes back to the sea.
 import { test } from 'node:test';
@@ -21,9 +22,9 @@ for (let i = 0; i < n; i++) {
   else if (kind[i] === 1 && x > 0 && Math.abs(y) < 0.03 && z < Math.cos(42 * deg)) kind[i] = 3;
 }
 
-function planet(channel) {
+function planet(channel, oceanicBasin = false) {
   const tec = new Tectonics(grid);
-  for (let i = 0; i < n; i++) tec.elev[i] = [-4, 0.5, -1, channel][kind[i]];
+  for (let i = 0; i < n; i++) { tec.elev[i] = [-4, 0.5, -1, channel][kind[i]]; tec.phi[i] = kind[i] === 0 || (oceanicBasin && kind[i] === 2) ? 0 : 1; }
   tec.water = 0;
   for (let i = 0; i < n; i++) if (kind[i] === 0) tec.water += 4 * A[i];
   tec.solveSea();
@@ -42,6 +43,12 @@ test('the sea holds its water over the ocean alone, and a closed basin lies dry'
   let land = 0;
   for (let i = 0; i < n; i++) if (!tec.sea[i]) land += A[i];
   assert.ok(Math.abs(land - (4 * Math.PI - tec.oceanArea)) < 1e-12);
+});
+
+test('a basin floored by oceanic crust is trapped ocean: the sea, joined below the grid\'s scale', () => {
+  const tec = planet(0.3, true);
+  for (const i of basinCells()) assert.equal(tec.sea[i], 1);
+  assert.ok(Math.abs(oceanVol(tec) - tec.seaWater()) < 1e-9 * tec.water);
 });
 
 test('a basin the sea leaves keeps its water for the lakes; the level holds', () => {

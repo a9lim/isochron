@@ -262,6 +262,7 @@ export class Planet {
     // settled, whatever the dial (the first, from a cold start, holds about half the lakes the
     // third does).
     const cs = this.climate.stats, open = this.climate.soilWarm && !(cs.settled && cs.cycles > cs.settled) && this.climate.version !== this.lakesClimate;
+    if (!this.seaZeroed && cs.settled && cs.cycles > cs.settled) this.zeroSea();
     const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(rate < PLANET.LAKES_SEASON ? 1 / 12 : 1, rate / 20);
     if (!open && (live ? this.lakesBank < due : this.lakesBank < due && this.climate.version === this.lakesClimate)) return;
     const { runoff, pe } = this.lakeForcing(live ? this.lakesBank : 0);
@@ -269,6 +270,20 @@ export class Planet {
     this.syncLakes();
     this.lakesBank = 0; this.lakesClimate = this.climate.version;
     this.lakesVersion++;
+  }
+
+  /**
+   * The opening over (the climate settled and the lakes at their balance with it, holding ~10 m
+   * of the sea): the sea re-solved, and sea level measured from here (`seaLevel0`; the record's
+   * and Fig. 2's), so it doesn't start at the lakes' filling.
+   */
+  zeroSea() {
+    this.syncLakes();
+    this.tec.updateElevation();
+    this.iceWaterSolved = this.tec.iceWater + this.tec.lakeWater;
+    if (this.record) this.record.shift('sea', (this.seaLevel0 - this.tec.seaLevel) * 1000);
+    this.seaLevel0 = this.tec.seaLevel;
+    this.seaZeroed = true;
   }
 
   /** The lakes' water off the sea's (km·sr), with any basin's the lakes haven't taken up yet. */

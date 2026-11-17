@@ -20,6 +20,11 @@ export class Record {
       L.n = Math.min(KEEP, L.n + 1);
     }
   }
+  /** Add dv to every sample of series `name` held (a new reference: the sea measured from the settled opening). */
+  shift(name, dv) {
+    const k = SERIES.indexOf(name);
+    for (const L of this.levels) for (let j = 0; j < KEEP; j++) L.v[k][j] += dv;
+  }
   /** The finest level whose span covers `span` years, as arrays oldest first. */
   window(span) {
     let L = this.levels[this.levels.length - 1];

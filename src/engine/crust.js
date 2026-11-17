@@ -76,23 +76,24 @@ export function solveSeaLevel(grid, elev, volume, guess = null, excl = null) {
 export const SEA = {
   STRAIT: 0.025,      // km: a sill stands this far clear of the sea before it closes (the sub-grid relief's half range, LAND.ROUGH)
   OCEAN_MIN: 0.02,    // of the sphere (~10 M km²): a body this large is ocean wherever it stands (0: every basin below sea level is sea, as before 2026-11-17)
+  TRAPPED: 0.5,       // a body this much floored by oceanic crust is ocean too (2 or more: none is)
 };
-export function seaMask(grid, elev, s, sea, strait, scratch = null) {
+export function seaMask(grid, elev, s, sea, strait, scratch = null, felsic = null) {
   const n = grid.n, area = grid.area, nbrOff = grid.nbrOff, nbr = grid.nbr, S2 = s + SEA.STRAIT;
   const id = scratch && scratch.id && scratch.id.length === n ? scratch.id : new Int32Array(n);
   const stack = scratch && scratch.stack && scratch.stack.length === n ? scratch.stack : new Int32Array(n);
   if (scratch) { scratch.id = id; scratch.stack = stack; }
   id.fill(-1);
-  const wet = [];
+  const wet = [], oce = [];
   let big = -1, bigA = -1;
   for (let i0 = 0; i0 < n; i0++) {
     if (id[i0] >= 0 || !(elev[i0] < s)) continue;
     const c = wet.length;
-    let sp = 0, a = 0;
+    let sp = 0, a = 0, ao = 0;
     id[i0] = c; stack[sp++] = i0;
     while (sp) {
       const i = stack[--sp];
-      if (elev[i] < s) a += area[i];
+      if (elev[i] < s) { a += area[i]; if (felsic && felsic[i] < 0.5) ao += area[i]; }
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
         const j = nbr[t];
         if (id[j] >= 0) continue;
@@ -100,13 +101,13 @@ export function seaMask(grid, elev, s, sea, strait, scratch = null) {
         if (z < s || (strait[j] && z < S2)) { id[j] = c; stack[sp++] = j; }
       }
     }
-    wet.push(a);
+    wet.push(a); oce.push(ao);
     if (a > bigA) { bigA = a; big = c; }
   }
   const min = SEA.OCEAN_MIN * 4 * Math.PI;
   let ocean = 0;
   for (let i = 0; i < n; i++) {
-    const c = id[i], o = c >= 0 && (c === big || wet[c] >= min);
+    const c = id[i], o = c >= 0 && (c === big || wet[c] >= min || oce[c] >= SEA.TRAPPED * wet[c]);
     sea[i] = o && elev[i] < s ? 1 : 0;
     strait[i] = o ? 1 : 0;
     if (sea[i]) ocean += area[i];

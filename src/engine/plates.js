@@ -600,7 +600,7 @@ export class Tectonics {
     const scr = this.maskScratch && this.maskScratch.n === n ? this.maskScratch : (this.maskScratch = { n });
     const prev = scr.prev || (scr.prev = new Uint8Array(n)), excl = scr.excl || (scr.excl = new Uint8Array(n));
     prev.set(sea);
-    seaMask(g, elev, s0, sea, strait, scr);
+    seaMask(g, elev, s0, sea, strait, scr, this.phi);
     let events = 0;
     const join = i => {
       const w = ((held ? this.lakeDepth[i] : 0) + this.cutWater[i]) * area[i];
