@@ -1,0 +1,22 @@
+# Threads, the GPU and costs
+
+## Threads
+
+- **The page** (`main.js`) keeps the clock: each frame it plays, it posts a tick (the years, the plate steps its scheduler planned, the orbit's window, the dial's rate) to the engine's worker. Plate steps are planned no shorter than the engine keeps up with (its reported cost a step), and the clock holds while two steps are outstanding, so the dial's top runs at what the engine manages. The page's mirrors (`src/engine/mirror.js` and plain objects in `main.js`) have the engine's shapes, so drawing and figures read them unchanged.
+- **The engine's worker** (`src/engine/worker.js`) owns the `Planet` (`src/engine/planet.js`) and its own GPU device, asked for as the thread starts. It runs the ticks' steps, and the climate alongside as an async loop of 10 ms slices, waiting on a timer between slices and awaiting the GPU where the cycle yields a promise. Once settled, a new cycle waits for 30 years of the clock or 4 s unless a plate step asks for one (`CYCLE_YEARS`). It posts `surface` after steps (the drawn fields, boundaries and rivers traced, rotations), `climate` after each cycle, `tides`, `year`, `lakes`, `cover` when changed, and `fast` ~10 times a second (ice, carbon, plumes, the regolith, the year's rates, the record, the model figure's sums).
+- **The chart's worker** (`src/render/chart-worker.js`) traces the synoptic chart and the Air map's streamlines from the weather read back, one read and one trace in flight.
+- **The people's worker**: `people.md`.
+- **The shown moment.** Surfaces queue on the page as they arrive; the globe shows a moment τ following them a step and a half behind at the engine's pace, eased, and blends the two surfaces either side of τ.
+
+## The GPU
+
+One device per thread (`src/gpu/device.js`): the page's draws the globe (`src/render/globe.js`), steps the weather (`src/gpu/weather.js`) and the season (`src/gpu/season.js`), and refines (`src/gpu/refine.js`); the engine's steps the ice (`src/gpu/ice.js`), the energy balance (`src/gpu/ebm.js`), the moisture (`src/gpu/moisture.js`), the dust (`src/gpu/dust.js`), the tide (`src/gpu/tides.js`), the ground (`src/gpu/soil.js`), the plates (`src/gpu/plates.js`), the surface's fields (`src/gpu/surface.js`) and two plates of flexure (`src/gpu/flexure.js`: the ice's bed, read in place, and the crust's correction). Kernels declare only the bindings their entry uses (`kernel()` binds by name under the 'auto' layout), at most eight storage buffers each. WebGPU is required in the page; the CPU code is the headless reference, and `tests/gpu-*.test.mjs` check the GPU against it on Dawn in node.
+- **The plates on the GPU.** The CPU's frames stay authoritative (the landscape and plumes write them; merges, rifts and initiation rewrite whole plates on the CPU); the GPU mirrors every frame and the world's memories, and one read back a step brings down owners, the crust on top, elevation, sea level, the balance's sums (ω solved on the CPU in f64) and every frame cell the step changed, as edits. It reproduces the CPU's order of effects and agrees at 99.99% of cells after one step, statistically over 40–60 Myr; it isn't repeatable run to run from the second step (`roadmap.md`).
+- **The engine's device is busy at fast dials** (the ice's advance, up to 48 steps a tick), and every readback queues behind it, so a port pays only where its work outweighs a readback's wait. The landscape, the lakes' routing and the tracing of lines and rivers stay on the worker's CPU.
+
+## Costs (M5 Max)
+
+- **Page**: 60 fps, ~2.8 ms of the page's thread a frame at the dial's top; 1 Myr/s held; the top ~5 Myr/s at level 7 (node ~5.8). The clock runs ~2 s after load (the spin-up), the first climate cycle at ~4 s, the climate settled by ~15 s.
+- **Engine, level 7**: a plate step ~5.5 ms on the GPU (18 on the CPU); a landscape step ~19 ms; the surface's fields ~1.4 ms; boundaries ~5 ms; the rivers' retrace ~11 ms; the lakes' rebuild ~13 ms. A warm climate cycle ~350 ms of the worker's CPU (the ground's year, the template, the dust, the zones, the moisture's packing, the gyres; the energy balance ~10 ms on the GPU, ~400 on the CPU); no slice past ~27 ms once warm.
+- **Weather**: ~0.33 ms of GPU a step; live to ~5 days a second.
+- Measured visible (headless Chrome with WebGPU via `puppeteer` from the parent's `tools/og`); a hidden pane runs as a background page, so its timings read low. To drive a hidden tab, call `window.__isochron.tick(performance.now())` in a `MessageChannel` loop.

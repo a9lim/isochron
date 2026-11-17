@@ -1,0 +1,33 @@
+# Drawing
+
+The root `AGENTS.md`'s "Inside the scene" rules hold (depict, don't decorate; open on a living frame; pattern before hue; show, don't tell). Isochron's medium is a physiographic globe in WebGPU (`src/render/globe.js`, its shader) with a 2D overlay for lines, symbols and labels (`src/render/overlay.js`). The one red is where the mantle reaches the surface: ridge axes, arc volcanoes, hotspots, flood basalts, eruptions (and with people, the people). Inks: ocean prussian, land umber (`colors.js`).
+
+## The surface
+
+- **Mesh.** The globe draws a level-7 mesh; a level-6 engine's fields are refined onto it by one step of Loop subdivision on the GPU (`src/gpu/refine.js`). The surface's fields are prepared on the engine's GPU (`src/gpu/surface.js`; `src/render/surface.js` is the reference).
+- **The coast** (`coastField`): a field signed like the eased relief, except at and beside a basin the sea doesn't reach (eased with its floor 5 m above the sea, so it draws as land) and at a lake's rim (held 5 m above it).
+- **Relief view (Surface).** Land takes the plants' cover in eight biome colours blended from eight weights a vertex (`biome`), rock toward the summits; umber height before the climate has run. The sea's tint turns milky teal by log export production. Isobaths are eased. Stripes are chrons, box-filtered through polarity's running integral so unresolved chrons go to mid-tone.
+- **Snow and ice**: the land's snow and the sea's ice as two fields, each smoothed on its side and carried two rings across the coast, eased over ~0.8 s (`src/gpu/season.js`); a light fill with a hard antialiased edge and a hairline; ice sheets with a stronger outline and surface contours every 500 m; ice streams as prussian dashes along the flow where sliding carries more than half of it (`flowDash`). A lake is frozen where the land's snow field, read at its surface, passes ½.
+- **Lakes** from their water (`lakeFields`): a smoothed field signed so its zero is where a cell is half under water, with a hard shore, from two cells up; a tint by √(depth/6 km) carried apart; eased over 0.4 s. Salt flats: a pale crust under short graphite strokes. Permafrost: a violet hatch on the Zones mosaic's tesserae, each frozen with probability the share.
+- **Rivers** above 1,500 m³/s in the sea's ink, weight the discharge, as the edges of a graph of the flow (`traceRivers`: a node where a confluence's second inflow carries at least `NODE` 0.4 of the first's); short streams dropped by their branch's longest path; relaxed and corner-cut; ending where the drawn relief crosses sea level and cut at drawn lake shores (`lakeAlong`). Where the globe shows the season each river's weight is that month's discharge; under a tenth of its mean it is a dotted bed.
+- **Patterns** (screens, stipple, strokes) are fixed to the globe and scale with the zoom: triplanar, octave-blended (`octave`, `hatch`, `stipple`), marks of constant width on screen. Symbols scale with the globe's radius on screen within ×0.75–3.5.
+
+## The other maps
+
+- **Zones**: a mosaic of tesserae fixed to the globe, each taking one class with probability ∝ p²; each class its group's ink (A viridian, B ochre, C sap, D verdigris, E indigo) in its second letter's pattern (`zoneColor` in the shader and `zonePattern` in `figures.js` must match); A, C and D also step in value. The sea a plain wash with isotherms every 5 °C, the gyres' streamlines every 3 Sv and viridian strokes by export production.
+- **Air**: a chart's base; the climate's surface wind (`surfaceWind`) as evenly spaced streamlines (Jobard and Lefer; `src/render/streamlines.js`, traced in the chart's worker), weight by speed, arrowheads downwind; the dust as ochre stipple; the sulfate veil as graphite hatching along circles of latitude; eruptions as red triangles.
+- **Weather**: pale land, paper sea; isobars, isotherms (5 °C, 0 °C heavier) or the column's relative humidity; cold fronts prussian with triangles toward the warm air, warm fronts sienna with semicircles, occlusions mulberry, stationary alternating; dry lines ochre with open scallops; troughs umber dashed, ridges umber zigzag, shear lines prussian dash-dot; H and L (`weather.md`).
+- **Tides** and **People**: `weather.md`, `people.md`.
+- **The key** (`src/render/key.js`) draws each view's symbols as the scene does; K toggles it.
+
+## Plate boundaries
+
+`traceBoundaries` (`src/render/lines.js`) walks the Voronoi edges between plates into polylines between triple junctions, smoothed (Laplacian passes, then Chaikin; points ~27 km apart) and classified from the two plates' rotations (the relative velocity across against along, averaged along the line, held in runs). Geologic-map symbols placed along each line (`along.js`): trenches a rule with sawteeth on the overriding plate and red arc marks where ocean sinks; collisions open sawteeth and no arc; ridges a red rule; transforms a lighter rule with half-arrows; inactive boundaries dotted. Hotspots are red ringed points, an erupting province a red stippled disc. A cold front's triangles are the trench's glyph, so they never share a view.
+
+## Motion
+
+- **Between plate steps** the vertex shader blends the last two steps' fields (`blend`) over the time between their arrivals. Boundaries turn with their plates' mean rotation and each new line morphs from its predecessor (`placeLine`, `matchLines`). Symbols are pinned to their line by a coordinate along it, inherited across retraces (`along.js`), so they move with the line rather than along it.
+- **Rivers** turn with their plate and don't morph: at a retrace each new point takes the alpha of a drawn course within `SAME` (0.15 cells), so a changed river crossfades only where it moved (`succeedRivers`).
+- **The weather chart** drifts each line and centre with its mean wind between charts and morphs to the next.
+- **The season.** Below ~0.8 yr/s the globe shows snow and ice at the planet's date and the year's anomaly below ~1 yr/s; above ~3 yr/s the share of the year under them; a blend between (`seasonShown`, `anomalyShown`).
+- The dark theme gives land more ink (`palette().tint`) so it stays lighter than the sea. WGSL derivatives (`fwidth`) stay in uniform control flow, which is why the fragment shader computes sea and land and then selects.

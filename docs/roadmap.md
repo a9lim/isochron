@@ -1,0 +1,16 @@
+# Open work
+
+In rough order. Earth's own errors are listed in `earth.md`.
+
+- **Eastern North America.** Its coast's sea (a cold Labrador Current inshore of the warm boundary current, so the Gulf of St Lawrence freezes) and Canada's winter (the template's pressure is the latitude's belts and the thermal departure; the continents' winter troughs and the high behind them aren't in it).
+- **Clouds.** Deep convection's longwave (a convective cloud from the convective rain alone), the layer cloud reaching into deserts (by the column's humidity and its descent), eastern China's and Southeast Asia's shortwave.
+- **Central Asia's water** (the Caspian fills to its spill with the Aral's water) and **India's monsoon** (the land's seasonal phase, the template's trough).
+- **Ice that keeps orbital time.** The sheets barely answer the orbit: the lowlands at 55–70° where Earth's paced sheets grew are too warm in summer and too dry for ice to start. Levers not pulled: the moisture reaching high latitudes (the template carries little poleward), refreezing in the degree-day scheme (Reeh's, standard), the snow–albedo and tundra feedbacks. Run the ice-age survey on Earth (`tools/iceage-survey.mjs earth`) to tell geography from model. A free-CO₂ survey at ≤ 1 kyr/s would show the dust–iron swing.
+- **The crust's flexure** is capped at 2 km because the grid stacks a collision into one cell; spreading the stacking over a thrust belt would let the cap go.
+- **The GPU's plate step isn't repeatable** run to run (a float reduction's order or a race in a pass feeding the elevation), so a seed's page run can't be replayed.
+- **Deltas.** First the supply (three quarters of the eroded rock stops in closed depressions on land, and the load is spread over thousands of mouths), then delta plains (sediment building to sea level at a mouth before the shelf), then drawn deltas (distributaries by Galloway's triangle, standard).
+- **Speed.** The plate step's latency (its GPU round trips, pipelined with the landscape), the spin-up's ~1.7 s, then the ground's periodic year, the dust's packing and the template on the GPU, and the landscape. Targets: the dial's top at 10 Myr/s at level 7, a climate cycle under ~100 ms.
+- **Earth at past dates** (`?seed=earth-66`): snapshots baked like today's, each with its CO₂, sunlight, day and Moon. The PaleoDEMs (Scotese and Wright 2018, CC BY 4.0) are in PALEOMAP's frame, whose plate model has continental blocks only; the leaning is PALEOMAP throughout, ocean plates grown around the continents as genesis does.
+- **Not built**: the Storm track, Spin, Tilt and Supercontinent experiments; floodplain lakes and backflow; an Equal Earth view; a spindle diagram of the lineages; moving sea ice (built once and dropped: at 220 km its drift didn't move the ice edge).
+- **People, open**: off-world people born and dying as Earth's; capital's weight (K/Y ~2.3 against Earth's 3–4); a runaway's end (carbonates baked into a CO₂ atmosphere); the swarm's pace (launch and mining would slow it); surveys across seeds (how often a world tips, farming's origins, the follow dial's length).
+- **Risks**: the weather–climate seam; the supercontinent cycle may not cycle; show-don't-tell under nine layers; tuning drift.

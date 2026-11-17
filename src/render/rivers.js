@@ -9,7 +9,7 @@
 // between them), so every line meeting at a node shares its point exactly. A
 // river reaches the sea where the drawn coast crosses zero along its
 // course, so it ends on the coast the globe draws. Each point keeps its
-// discharge, which sets line weight (docs/PLAN.md, "Depict, don't decorate").
+// discharge, which sets line weight (the parent AGENTS.md's "Depict, don't decorate").
 // Rivers stop at lakes and start again at their outlets. With the climate's
 // months (`Q12`), each point also keeps its discharge month by month, and
 // rivers big enough only in their wet season are traced too (the page draws

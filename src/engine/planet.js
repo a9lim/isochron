@@ -1,5 +1,4 @@
-// The planet: every layer on one grid, stepped together (docs/PLAN.md, "One
-// planet, one state, one dial"). The page and the headless tools both drive
+// The planet: every layer on one grid, stepped together (docs/design.md). The page and the headless tools both drive
 // this, so they run the same coupled model.
 //
 //   per plate step (0.5 Myr)   plates, plumes, landscape, the crust's flexure

@@ -1,0 +1,48 @@
+# The surface: landscape, regolith, ice, ground and lakes
+
+## Landscape (`src/engine/landscape.js`, `LAND`)
+
+Steps after every plate step, on the same crust.
+- **Routing.** The ocean's cells are outlets (a basin the sea doesn't reach is a depression like any other). A priority flood fills depressions with a small rise so flats drain; each cell drains to its steepest neighbour on the filled surface. Only outlets beside dry ground seed the flood. The pop order is topological, so accumulation and the solver are single passes. Water routes over the surface plus ±25 m of roughness fixed to each plate's cells (`LAND.ROUGH`), so flats drain in branching networks; erosion uses the true surface.
+- **Erosion.** Stream power with n = 1, dz/dt = −K Qᵐ S, solved implicitly from the outlets upstream (Braun and Willett), Q the drainage area weighted by the climate's runoff. Removing rock lowers the surface by (1 − ρ_crust/ρ_mantle) of its thickness (rebound), so erosion takes thickness.
+- **Sediment** goes downstream with the water; lakes keep what fits; at the coast it builds a shelf to `SHELF` below sea level and then moves to the deepest neighbouring sea. Deposits mix felsic material in, so a thick delta turns oceanic crust continental. The ice's outwash (`sedIn`) joins it where it melted out.
+- **Diffusion.** Continental thickness diffuses between continental cells, faster under thick crust, explicit in substeps (`plan`) over a typed edge list. Erosion, sediment and diffusion move crust and make none (tested).
+- `preview(dt)` gives the rates a step would cut without cutting (the regolith's opening).
+
+## Regolith (`src/engine/regolith.js`, `REGOLITH`)
+
+A weathered layer in m of rock equivalent, part of the crust's h, kept in each plate's frame (`reg`). Production P₀e^{−h/h₀} (Heimsath's form, from memory; h₀ 0.5 m, P₀ 0.1 mm/yr at 15 °C and 0.3 m/yr of runoff, scaled by runoff^0.25 e^{(T−15)/30}), none under ice or sea; the rivers' erosion strips it first, solved exactly (h* = h₀ ln(P₀/E), tested); the ice's erosion takes it before rock; till melting out is regolith again, less the half its meltwater carries off (`OUTWASH`). It sets the ice bed's softness (1 − e^{−h/1 m}), the soil's water capacity (40 mm on bare rock to 260 mm), and weathering's supply. The opening's layer is `OPEN_MYR` (30 Myr) of production against the rivers' preview rates. It steps from `Planet.fast`, at most every 250 ms in the page.
+
+## The crust's flexure (`src/engine/crustflex.js`, `CRUSTFLEX`)
+
+An incremental correction to the Airy elevation in the frames (`cf`, m), every `EVERY` (1 Myr) of plate steps: each column's load change since it was last seen, Δq = g(ρh − mq) (erosion, deposition, stacking, arcs, till; motion is no load), relaxes the correction c toward Δq/ρₘg − w(Δq, Tₑ) over τ (∞ on oceans, 50 Myr on continents, speculation), capped at `C_MAX` (2 km, the plate's strength). It reduces to Airy at Tₑ → 0 and τ → 0 (tested). Tₑ comes from the plates (`elasticThickness`), shared with the ice's bed; on the GPU eight cold V-cycles a solve.
+
+## Ice (`src/engine/ice.js`, `ICE`; on the GPU `src/gpu/ice.js`)
+
+Thickness on the surface grid in the mantle's frame.
+- **Flow.** The shallow-ice flux −Γ H⁵ |∇s|² ∇s plus sliding, explicit with the step their sum allows; `advance(years, ms)` steps within a real-time budget, so at fast dials the ice lags the climate. Ice flows only out of a cell that has it. A speed limit holds the depth-mean speed at `U_MAX` (3 km/yr, synthesis).
+- **Mass balance.** Snow below freezing at the ice's surface less melt by positive degree days less basal melt. The ice's water comes from the sea by its volume above flotation (`tec.iceWater`). The climate counts grounded ice as land and its albedo as `ALB_ICE`. The budget (`stats.snow`, `melt`, `basal`, `calving`) closes against the volume's change.
+- **Marine margins** (`frontRate`, `calveOf`, `frontFactor`; standard forms, synthesis), only where the sea reaches: the surface over open sea is sea level and floating ice's its freeboard; floating ice doesn't flow and persists only beside grounded ice as a sub-grid front. Each ice–sea edge ablates u_f H_f ℓ a year, u_f = `CALVE` d (TF₊ + `TF_COLD`)/(`TF_REF` + `TF_COLD`): Pelto and Warren's water-depth law scaled by the sea's thermal forcing (from memory). Tested in `tests/ice-margins.test.mjs`.
+- **The bed's temperature** (Robin's steady column, standard, from memory), with the deformation's heat at the bed; the thawed share is a logistic of T_b − T_pm over 1 K; G from the plates every 0.5 Myr.
+- **Sliding** (Weertman-type, standard): u_b = C τ_b³ × thawed, C log-linear from `C_HARD` to `C_SOFT` by the bed's softness (the regolith).
+- **Glacial erosion** (ė = K_g u_b, K_g 2e-6, calibrated to Hallet's ice-sheet rates, from memory): rock carried as debris with the ice and melted out as till where it ablates; meltwater runs down the surface to the first ice-free cell. `takeGlacial()` hands on eroded, till and outwash; Σ eroded = Σ till + Δ Σ debris exactly.
+- **The bed** (ELRA, standard) relaxes over 3 kyr toward the plate's flexural response (`Flexure` / `GpuFlexure`), or local isostasy without one; the crust takes it as `tec.load`.
+- **Behaviour.** The sheets live where summers stay well below freezing (polar land, cold highlands), their margins pinned by topography and coast; melt takes 36–49% of the snow, calving the rest; they track the orbit with a swing of ~1% and no robust period (`roadmap.md`).
+
+## The ground (`src/engine/soil.js`, `SOIL`; live `src/engine/ground.js`, GPU `src/gpu/soil.js`)
+
+Manabe's bucket (standard) with synthesis around it: soil water to a capacity (the regolith's; none at sea or under grounded ice), evaporating at the potential times β = min(1, S/0.75 S_max), overflowing from its saturated share w⁴, draining at 0.4 S_max w⁴ a month; a snowpack by degree days; one ground-heat store insulated by snow whose annual mean below 0 °C is permafrost (its share a logistic over `PERMA_W` 1 K, drawn only); groundwater emptying over 4 months as baseflow. Potential evaporation is Budyko's scale by the month, 55/12 (T + 4) mm.
+- **The closure** (`Climate.groundYear`, each cycle): the periodic year under the climate's months gives the climate's runoff by month and year, the lakes' open-water balance and β at the moisture's six points of the year.
+- **Live** (`Ground`, the year's `soil`): stepped by the year's steps on the GPU (the climate's months resident, the anomaly uploaded per step) or headless on the CPU; handed over from the closure's state and dropped when outrun. The worker reads back the last twelve months, the rivers' month and the bank (the water the ground let go) ~10 times a second. Consumers weigh it by the year's `live`.
+
+## Lakes (`src/engine/lakes.js`, `LAKES`)
+
+Routed on the smooth surface (the ground plus its ice, so ice dams them), on each cell's channel (`gz`, so a gorge narrower than a cell drains its basin), to the ocean's mask (a dry basin is a depression). Rebuilt after each landscape step, when the sea reaches or leaves a basin, or when the ice has moved enough; each rebuild carries the water over.
+- **Stepping** (`stepLakes`, backward Euler): where the globe shows the season a month a step under that month's rain and open-water evaporation, so closed lakes breathe; above it a year at least; above ~10⁴ yr/s at their balance (`equilibrium`, down the depression hierarchy, each basin once).
+- **Sub-grid floors**: each cell's ground spans [z, z + ramp], the ramp its relief within 5–50 m (`RAMP_MIN`, `RAMP`).
+- **Forcing**: the ground's runoff (the closure's, and by `live` the live ground's bank) and rain less potential evaporation on open water. The lakes' water is off the sea's (`tec.lakeWater`); sea level is measured from the settled opening's (`Planet.zeroSea`).
+- **Feedback**: the climate reads the lakes' wet share over about the last year (`wetY`) for evaporation and albedo, and a lake's level for the cell's height (relaxed halfway each cycle). Salt flats are the share a closed lake has dried from over ~3 kyr.
+
+## Rivers (`src/render/rivers.js`, `drainage`)
+
+The landscape's drainage, except that in a closed lake's depression cells drain to the lake's sink, and below a spilling lake a river carries the lake's outflow against its inflow (over about the last year). By the month (where the globe shows the season) each river's weight is that month's runoff routed down this drainage; the year's discharge picks the rivers. Drawing is in `scene.md`.

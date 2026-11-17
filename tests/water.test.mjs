@@ -1,4 +1,4 @@
-// The ground and the lakes wired into the planet (docs/PLAN.md, phase 6): water
+// The ground and the lakes wired into the planet (docs/surface.md): water
 // kept from the rain through the soil, the rivers and the lakes to the sea; the
 // closure-to-live handover continuous (on the CPU, and on the GPU where node has
 // WebGPU); the lakes rebuilt when the ice moves; rivers ending at closed lakes.

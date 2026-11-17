@@ -1,4 +1,4 @@
-// Plate boundaries as smooth lines (docs/PLAN.md, "The scene").
+// Plate boundaries as smooth lines (docs/scene.md).
 //
 // The boundary between two plates runs along Voronoi edges of the grid, so
 // drawn edge by edge it is a stair of hexagon sides, and classified edge by

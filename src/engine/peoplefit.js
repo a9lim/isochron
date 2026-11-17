@@ -1,4 +1,4 @@
-// The people's hyperbola, read off their record (Roadmap 2.0: docs/PLAN.md), for the headless runs
+// The people's hyperbola, read off their record (docs/people.md), for the headless runs
 // (tools/people-run.mjs) and the People figure (Fig. 8, from the people's thread).
 
 /**

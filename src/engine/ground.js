@@ -1,4 +1,4 @@
-// The ground, live (docs/PLAN.md, phase 6): the year's member for soil water,
+// The ground, live (docs/surface.md): the year's member for soil water,
 // the snowpack and the ground's heat (src/engine/soil.js has the physics).
 // Two states:
 //

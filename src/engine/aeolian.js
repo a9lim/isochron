@@ -1,4 +1,4 @@
-// Dust wired into the planet (docs/PLAN.md, phase 9). The balance itself is
+// Dust wired into the planet (docs/life.md). The balance itself is
 // src/engine/dust.js (emission, transport, deposition; tested alone); this is
 // where it takes its sources from the rest of the planet and where what it
 // deposits goes. It runs inside the climate's cycle: each of the six points

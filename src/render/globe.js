@@ -1,7 +1,7 @@
 // The physiographic globe in WebGPU: the geodesic grid's triangles, each cell's
 // fields as vertex attributes, every mark procedural in the fragment shader.
 //
-// What each mark reads (docs/PLAN.md, "The scene"):
+// What each mark reads (docs/scene.md):
 //   ocean tint       depth below sea level (prussian, deepening)
 //   land tint        height above sea level (umber)
 //   hillshade        the relief's slope, lit from the upper left, as maps are
@@ -52,8 +52,7 @@
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
 // tesserae fixed to the surface (a jittered 3D lattice), each taking one class
 // with the cell's probability, so a boundary is an ecotone that interleaves.
-// Each class is its group's ink in its second letter's pattern (docs/PLAN.md,
-// "Climate zones"): solid f, cross-hatch m, hatch / for w and \ for s, dense
+// Each class is its group's ink in its second letter's pattern (docs/scene.md): solid f, cross-hatch m, hatch / for w and \ for s, dense
 // and sparse stipple for BW and BS, fine hatch for ET, bare paper for EF.
 // Patterns and the mosaic are fixed to the globe and scale with the zoom.
 // The Tides view is a co-tidal chart: the semidiurnal tide's amplitude as a

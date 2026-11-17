@@ -1,4 +1,4 @@
-// The crust's flexure (docs/PLAN.md, phase 7): loads bend the lithosphere over
+// The crust's flexure (docs/surface.md): loads bend the lithosphere over
 // the flexural length instead of only beneath themselves (src/engine/flexure.js
 // has the plate and its solver).
 //

@@ -1,4 +1,4 @@
-// The year (docs/PLAN.md, phase 6): a stepper for the state that lives between
+// The year (docs/climate.md): a stepper for the state that lives between
 // the season and the plate step, and the interannual anomaly it carries.
 //
 // The stepper (synthesis). A step of whole months on the engine's thread, live

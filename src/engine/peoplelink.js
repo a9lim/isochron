@@ -1,4 +1,4 @@
-// The people and the planet (Roadmap 2.0: docs/PLAN.md; the people are src/engine/people.js).
+// The people and the planet (docs/people.md; the people are src/engine/people.js).
 // The people read the planet's fields after each climate cycle and write back through the
 // planet's own inputs, so nothing else in the engine knows of them:
 //   emissions   fossil carbon burned (less what capture takes back) goes to `carbon.pulse` before

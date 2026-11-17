@@ -1,4 +1,4 @@
-// Plates and crust (docs/PLAN.md, layer 1). Times in Myr, lengths on the unit
+// Plates and crust (docs/plates.md). Times in Myr, lengths on the unit
 // sphere (radians), speeds in rad/Myr (× 637.1 for cm/yr on Earth's radius).
 //
 // Each plate is a rotation Q (plate frame → mantle frame) and an angular

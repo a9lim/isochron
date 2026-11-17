@@ -1,4 +1,4 @@
-// The people's thread (Roadmap 2.0: docs/PLAN.md; the model is src/engine/people.js), beside the
+// The people's thread (docs/people.md; the model is src/engine/people.js), beside the
 // engine's. The People scenario starts it with a port to the engine's thread:
 //   from the engine   `fields` after each climate cycle (the planet's fields on the people's grid,
 //                     src/engine/peoplelink.js), `air` a few times a second (CO₂, the regolith)

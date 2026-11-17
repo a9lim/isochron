@@ -1,5 +1,4 @@
-// People, from the first hominins to the takeoff and the ending (Roadmap 2.0: docs/PLAN.md, with
-// v1's design and the log of runs). It reads a planet's fields (src/engine/peoplelink.js,
+// People, from the first hominins to the takeoff and the ending (docs/people.md). It reads a planet's fields (src/engine/peoplelink.js,
 // `fieldsOf`): held fixed on a cached opening (tools/people/planet.mjs), or re-read from a live
 // Planet after each climate cycle and written back to it through the planet's own inputs (the
 // page: src/engine/people-worker.js beside the engine's worker; headless: tools/people/couple.mjs).
@@ -193,7 +192,7 @@ export const PEOPLE = {
   S_RD: 0.03, Q_R: 0.4,                             // research's share of output (Earth's R&D ~2.5% of GDP, from memory), spent on compute as far as AI can do research (β_c); and research's share of AI's compute (training and research against deployment, speculation)
   C_R0: 50, Z_RC: 2, DELTA_R: 0.1, W_R: 400,        // a robot's body: sy at Z_AI (a humanoid's ~$25k, from memory), cheaper e-fold per Z_RC; wear /yr; its power (W)
   T_ROB: 1.44, B_SEED: 1e6,                         // the working fleet grows at most e-fold per T_ROB years (doubling a year: factories building the robots that build factories; synthesis on the industrial explosion's robot doubling times, ~a year at first, from memory), from B_SEED bodies (industrial robots now ~4 M, humanoids a few thousand)
-  // Food bought with energy, space, and the endings (speculation; docs/PLAN.md, v1.4)
+  // Food bought with energy, space, and the endings (speculation)
   W_FOOD: 3000, Z_SYN: 10.35, W_SYN: 0.25, H_NEED: 1, H_FOOD: 19, F_ROOM: 0.01,   // W a person fed and housed indoors (synthetic or controlled-environment food, ~1 kW electrochemical-microbial to ~20 kW under LEDs, and shelter); where it matures (z) and the logistic's width; bought for the unfed, × (1 + H_NEED), whatever it costs; and room to (1 + H_FOOD) × the people (crowding's deaths negligible at replacement births) as far as it costs under F_ROOM of their income at energy's price at the margin
   Z_SPACE: 12, W_SPACE: 0.5, R_ES0: 1000, F_DYSON: 0.1, L_SUN: 3.83e26, E_SPACE: 100,   // industry off-world: where it matures; W a sy of space solar; the share of the Sun's output it may take (harmonic); the Sun's output (W, standard); materials' energy from asteroids (W per unit a year)
   P_ALIGN: 0.5, P_PRESERVE: 0.5, ENDING: null,      // the endings' odds on two axes (a9: "up to chance"), drawn at early takeoff from the seed: aligned or not, Earth preserved or not ('1a' misaligned and Earth sacrificed, '1b' misaligned and preserved, '2a' aligned and sacrificed, '2b' aligned and preserved); ENDING forces one

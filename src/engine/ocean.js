@@ -1,4 +1,4 @@
-// The wind-driven ocean (docs/PLAN.md, layer 7).
+// The wind-driven ocean (docs/climate.md).
 //
 // Gyres. The depth-integrated circulation under the annual-mean wind stress,
 // steady, in Stommel's form on the sphere (standard):

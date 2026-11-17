@@ -1,4 +1,4 @@
-// The planet's fields for the people, cached (docs/PLAN.md, Roadmap 2.0): `planetFields(seed, level)`
+// The planet's fields for the people, cached (docs/people.md): `planetFields(seed, level)`
 // builds the opening, settles its climate and caches its fields (src/engine/peoplelink.js,
 // `fieldsOf`) in tools/people/.cache/ (ignored), so iterating on the people costs nothing on the
 // planet's side.

@@ -1,5 +1,5 @@
-// The review of the roadmap run (docs/LOG.md, "Review fixes"): each finding's own case, which
-// failed before its fix. The water's cross-ledger check (finding 4) is in water.test.mjs.
+// Regression cases from a code review: each finding's own case. The water's cross-ledger check
+// (finding 4) is in water.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { hasGPU } from './webgpu-node.mjs';

@@ -1,4 +1,4 @@
-// Lakes that breathe (docs/PLAN.md, phase 6): the priority flood's depressions
+// Lakes that breathe (docs/surface.md): the priority flood's depressions
 // hold water, which fills them, spills from them and dries out of them.
 //
 //   basins       (standard: Barnes, Callaghan and Wickert's depression

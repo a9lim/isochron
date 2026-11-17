@@ -1,5 +1,4 @@
-// The margin's figures, drawn from the model's own state (docs/PLAN.md,
-// "Figures"): zonal means, hypsometry, the polarity record, and the key to
+// The margin's figures, drawn from the model's own state (docs/design.md): zonal means, hypsometry, the polarity record, and the key to
 // the Climate view's zones. Hairline axes, Newsreader, the inks for data.
 
 import { ZONES } from '../engine/climate.js';

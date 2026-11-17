@@ -1,4 +1,4 @@
-// The dial and the scheduler (docs/PLAN.md, "The dial and the scheduler").
+// The dial and the scheduler (docs/design.md).
 //
 // The dial is log10 of simulated years per real second. Each layer declares
 // its step (years) and a substep budget per frame, and optionally a closure

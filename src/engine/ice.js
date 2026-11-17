@@ -1,4 +1,4 @@
-// Ice sheets (docs/PLAN.md, layer 5, and phase 7's ice that carves).
+// Ice sheets (docs/surface.md).
 //
 //   flow         the shallow-ice approximation with Glen's law (n = 3): flux
 //                q = −Γ H⁵ |∇s|² ∇s, Γ = 2A(ρg)³/5 (standard), explicit in

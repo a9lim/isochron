@@ -1,4 +1,4 @@
-// Mantle plumes (docs/PLAN.md, layer 1): hotspots fixed in the mantle's
+// Mantle plumes (docs/plates.md): hotspots fixed in the mantle's
 // frame, and the large igneous provinces that plume heads make.
 //
 //   hotspot   a plume tail. It builds volcanic crust on whatever passes over

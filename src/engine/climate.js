@@ -1,4 +1,4 @@
-// The climate (docs/PLAN.md, layers 4 and 9): temperature through the year,
+// The climate (docs/climate.md): temperature through the year,
 // the winds' template, moisture and rain, and the soft climate zones.
 //
 // Temperature. A seasonal energy-balance model (standard: Budyko, Sellers,

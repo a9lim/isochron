@@ -1,4 +1,4 @@
-// The regolith (docs/PLAN.md, phase 7): the weathered layer on the crust, kept
+// The regolith (docs/surface.md): the weathered layer on the crust, kept
 // in each plate's frame (FRAME_EXTRA's `reg`, src/engine/plates.js), so it
 // rides with the crust it lies on.
 //
@@ -42,7 +42,7 @@
 //
 // Thick regolith makes thin, fast ice; stripped beds make thick, slow ice
 // (Clark and Pollard's regolith hypothesis for the mid-Pleistocene transition;
-// speculation as a rhythm here: see docs/LOG.md).
+// speculation as a rhythm here: docs/roadmap.md).
 //
 // The layer is stepped with the fast layers (Planet.fast), at most every
 // `minGap` ms of the wall clock (the page) or every call (headless), the years

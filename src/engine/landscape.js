@@ -1,4 +1,4 @@
-// The landscape (docs/PLAN.md, layer 3): rivers cut the land the plates raise,
+// The landscape (docs/surface.md): rivers cut the land the plates raise,
 // and carry it to lakes and the sea.
 //
 //   routing     depressions filled by priority flood (lakes), then steepest
@@ -415,7 +415,7 @@ export class Landscape {
    * Thickness spreads between continental cells, faster under thick crust. Explicit and
    * conservative, edge by edge. (On the GPU, as a gather per cell, it cost 1.8 ms against
    * 5.4 here at level 7, but in the engine's worker its readback queued behind the ice's
-   * steps and the step cost the same: docs/LOG.md, phase 10b.)
+   * steps and the step cost the same.)
    */
   diffuse(dt) {
     const tec = this.tec, g = this.grid, n = g.n, h = tec.h, A = this.areaKm;

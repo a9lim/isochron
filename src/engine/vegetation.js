@@ -1,4 +1,4 @@
-// Vegetation as state (docs/PLAN.md, phase 8): cover that lags its climate,
+// Vegetation as state (docs/life.md): cover that lags its climate,
 // and a land carbon store that trades with the air.
 //
 //   cover        per land cell, trees f_t and grass f_g, bare ground the rest

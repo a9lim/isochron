@@ -1,4 +1,4 @@
-// Isochron: an Earth-like planet on one globe (docs/PLAN.md). The planet runs
+// Isochron: an Earth-like planet on one globe (docs/design.md; AGENTS.md maps the rest). The planet runs
 // on its own thread (src/engine/worker.js): it boots a seeded planet, spins it
 // up so it opens in motion, and steps it as this page's clock asks (plates,
 // plumes and landscape in banked steps; carbon and ice each frame; the

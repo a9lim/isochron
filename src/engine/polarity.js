@@ -1,4 +1,4 @@
-// The geomagnetic polarity record (docs/PLAN.md, layer 1). Reversals are a
+// The geomagnetic polarity record (docs/plates.md). Reversals are a
 // Poisson process whose log-rate wanders (an Ornstein–Uhlenbeck walk), so
 // long stretches without reversals (superchrons) happen on their own. Oceanic
 // crust remembers the polarity at its formation time, which draws the stripes.
