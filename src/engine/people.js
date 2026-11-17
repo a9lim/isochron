@@ -519,25 +519,33 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     // worth as power came free, and a step's saving went to robots: below, at most what the ramp fields.)
     const MPf = E.Kf > 0 ? sKL * P.ALPHA * Y / E.Kf : Infinity;
     const MPc = YL > 0 && uc >= 1 ? Math.max(0, sKL * YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, run, P, E.Kq, bmax).L - T.L) / hc - lamE * P.W_C) : 0;
-    let MPr = 0;
+    let wf = 1, wc = 0;
+    if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, t = a + b; if (t > 0) { wf = a / t; wc = b / t; } }
+    const RU = MPf === Infinity ? Infinity : Math.max(MPf / (P.DELTA_F + P.R_MIN), MPc / (P.DELTA_C + P.R_MIN)) / emb;
+    // Robots apart (a9: "robots turn on and off"). A body costs little (past the dial ~0.003 sy) and
+    // its power much, so their margin net of power against the body's cost read ~1,000× the moment the
+    // work's worth edged past the power's and nothing a hair below: past the dial, where the two sit
+    // close, the fleet was bought to the ramp every few steps and wore down between. A unit's yearly
+    // product against all it costs a year (its power at energy's worth, its wear and return) takes the
+    // same smooth switch as the other stocks, of what the ramp can field; and the margin is taken as if
+    // the ramp could field them (taken at the ramp, a fleet bought up to it read nothing until the ramp
+    // had outgrown it).
+    let Rr = 0;
     if (YL > 0 && ur >= urMax && urMax >= 1) {
-      const Tr = labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq, bmax);
-      MPr = Math.max(0, (sKL * YL * Math.max(0, Tr.L - T.L) - lamE * P.W_R * Math.max(0, Tr.Ap - T.Ap)) / hr);
+      const Tu = labour(Lh, E.Kc, E.Kr, z, run, P, E.Kq), Tr = labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq);
+      const gain = sKL * YL * Math.max(0, Tr.L - Tu.L) / hr, cost = lamE * P.W_R * Math.max(0, Tr.Ap - Tu.Ap) / hr;
+      Rr = gain / (cost + (P.DELTA_R + P.R_MIN) * emb);
     }
-    let wf = 1, wc = 0, wr = 0;
-    if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, c = MPr ** 4, t = a + b + c; if (t > 0) { wf = a / t; wc = b / t; wr = c / t; } }
-    const RU = MPf === Infinity ? Infinity : Math.max(MPf / (P.DELTA_F + P.R_MIN), MPc / (P.DELTA_C + P.R_MIN), MPr / (P.DELTA_R + P.R_MIN)) / emb;
-    let Ir = (RU === Infinity ? 1 : sig(Math.log(Math.max(RU, 1e-300)) / P.W_INV)) * Isave;
-    const gK = Isave > 0 ? Ir / Isave : 0;
     // Robots past what the fleet's ramp can field (a step's ramp ahead), or past what AI's physical
-    // work can drive (a quarter over), aren't built: the rest is consumed. (With the ramp alone the
-    // fleet quadrupled in a year's step past the minds that drive it, stood idle and wore down, a
-    // cycle every ~40 years.)
+    // work can drive (a quarter over), aren't built. (With the ramp alone the fleet quadrupled in a
+    // year's step past the minds that drive it, stood idle and wore down, a cycle every ~40 years.)
     const Krmax = Math.min(bmax * Math.exp(dt / P.T_ROB), Math.max(P.B_SEED, 1.25 * P.PHI * T.Aprod)) * bodyCost, ed = Math.exp(-P.DELTA_R * dt);
-    const IrMax = Math.max(0, (Krmax - E.Kr * ed) * P.DELTA_R / (1 - ed)), Irr = (1 - P.S_IT) * Ir * wr;
-    if (Irr > IrMax) { Ir -= (Irr - IrMax) / (1 - P.S_IT); wr = Ir > 0 ? IrMax / ((1 - P.S_IT) * Ir) : 0; const o = wf + wc; if (o > 0) { wf *= (1 - wr) / o; wc *= (1 - wr) / o; } }
-    const Iall = Ie + Iq + Ir;
-    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Ies, Iq, Ir, wf, wc, wr, Iall };
+    const IrMax = Math.max(0, (Krmax - E.Kr * ed) * P.DELTA_R / (1 - ed));
+    const Irob = Math.min(Isave, IrMax * sig(Math.log(Math.max(Rr, 1e-300)) / P.W_INV));
+    const Ir = (RU === Infinity ? 1 : sig(Math.log(Math.max(RU, 1e-300)) / P.W_INV)) * (Isave - Irob);
+    const gK = Isave > 0 ? (Ir + Irob) / Isave : 0;
+    const Iall = Ie + Iq + Ir + Irob;
+    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Ies, Iq, Ir, Irob, wf, wc, Iall };
   };
   let st = plan(E.sInv ?? P.SAVE);
   if (Math.abs(st.sReal - st.s) > 1e-5) {
@@ -545,8 +553,8 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     for (let k = 0; k < 24; k++) { const m = 0.5 * (a + b), x = plan(m); if (x.sReal > m) a = m; else b = m; }
     st = plan(0.5 * (a + b));
   }
-  const { Y, Ypot, Eo, T, run, Er, Es, Eu, Ef, sup, need, Ie, Ies, Iq, Ir, wf, wc, wr } = st, avail = Ypot > 0 ? Y / Ypot : 1;
-  const Ica = (1 - P.S_IT) * Ir * wc, Ic = P.S_IT * Ir + Ica, Ir_ = (1 - P.S_IT) * Ir * wr, If = (1 - P.S_IT) * Ir * wf;
+  const { Y, Ypot, Eo, T, run, Er, Es, Eu, Ef, sup, need, Ie, Ies, Iq, Ir, Irob, wf, wc } = st, avail = Ypot > 0 ? Y / Ypot : 1;
+  const Ica = (1 - P.S_IT) * Ir * wc, Ic = P.S_IT * Ir + Ica, Ir_ = Irob, If = (1 - P.S_IT) * Ir * wf;
   // Labs keep research's share of AI's compute: for each unit deployed, Q_R/(1 − Q_R) for training and research.
   const Iq2 = Math.min(If, P.Q_R / (1 - P.Q_R) * Ica), IfNet = If - Iq2;
   const grow = (K, inflow, d) => K * Math.exp(-d * dt) + inflow * (1 - Math.exp(-d * dt)) / d;
@@ -558,7 +566,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   const Iall = st.Iall, Emat = em * P.M_K * Iall;
   E.S -= burned; E.X += P.M_K * Iall * dt; E.I = Iall; E.sInv = st.s;
   E.sup = sup;
-  Object.assign(E, { Y, Ypot, avail, A, run, Es, EfoodGot: st.sF, EcdrGot: st.sC, capU, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, eY, em, wc, wr,
+  Object.assign(E, { Y, Ypot, avail, A, run, Es, EfoodGot: st.sF, EcdrGot: st.sC, capU, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, eY, em, wc, wr: Ir + Irob > 0 ? Irob / (Ir + Irob) : 0,
     sKL: st.sKL, lamE: st.lamE, gK: st.gK, gE: st.gE, grade, sReal: st.sReal, A0: T0.A });
   E.heat = (Ef + Eu) / AREA_M2;
   E.aer = dt > 0 ? -P.AER * (burned / dt) * Math.exp(-Math.max(0, z - P.Z_IND) / P.Z_SCRUB) : 0;
