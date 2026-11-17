@@ -219,12 +219,15 @@ export class Planet {
       if (this.iceGpu) this.iceGpu.advance(dt); else this.ice.advance(dt, iceMs);
       // The regolith: the ice's erosion and till into it and the crust, production against the rivers.
       this.regolith.advance(dt);
-      // Re-solve the sea only when the ice and the lakes have moved ~10 cm of it (the solve is ~5 ms).
+      // Re-solve the sea only when the ice and the lakes have moved ~10 cm of it (the solve is ~5 ms),
+      // and at most every twentieth of a second of the dial (at the top the ice moves that much
+      // every frame, and a glacial cycle passes in a few frames).
       const held = this.tec.iceWater + this.tec.lakeWater;
-      if (Math.abs(held - (this.iceWaterSolved ?? 0)) > 3.5e-6 || this.loadSince++ > 30) {
+      this.yearsSinceSea = (this.yearsSinceSea || 0) + dt;
+      if ((Math.abs(held - (this.iceWaterSolved ?? 0)) > 3.5e-6 && this.yearsSinceSea >= rate / 20) || this.loadSince++ > 30) {
         this.tec.updateElevation();
         this.iceWaterSolved = this.tec.iceWater + this.tec.lakeWater;
-        this.loadSince = 0;
+        this.loadSince = 0; this.yearsSinceSea = 0;
       }
     }
     this.year.advance(this.years, rate);

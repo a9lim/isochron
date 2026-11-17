@@ -311,7 +311,7 @@ export class Dust {
       const S = source ? source[i] : 0;
       let e = emission ? emission[i] : 0;
       if (S > 0) {
-        const V = Math.hypot(wind[3 * i], wind[3 * i + 1], wind[3 * i + 2]);
+        const ux = wind[3 * i], uy = wind[3 * i + 1], uz = wind[3 * i + 2], V = Math.sqrt(ux * ux + uy * uy + uz * uz);
         e += C * S * windFactor(V, typeof ut === 'number' ? ut : ut[i], typeof gust === 'number' ? gust : gust[i]);
       }
       const P = Math.max(0, rain[i]);

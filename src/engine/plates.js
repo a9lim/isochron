@@ -34,7 +34,7 @@
 // moves between frames (relaxation, merges, rifts, initiation), set to their
 // defaults where crust is new.
 import { nearest, gradient } from '../grid/icosphere.js';
-import { elevation, subsidence, solveSeaLevel, seaMask, SEA, H_OCEANIC } from './crust.js';
+import { elevation, subsidence, solveSeaLevel, seaMask, SEA, H_OCEANIC, RHO_OCEANIC, RHO_CONTINENTAL, RHO_MANTLE } from './crust.js';
 
 export const EARTH_RADIUS_KM = 6371;
 export const CM_PER_YR = EARTH_RADIUS_KM * 1e5 / 1e6;   // per rad/Myr
@@ -612,11 +612,12 @@ export class Tectonics {
   }
 
   updateElevation() {
-    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc;
+    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc, t = this.t, tf = this.tf, phi = this.phi, h = this.h, subs = this.subs, elev = this.elev;
     for (let i = 0; i < n; i++) {
-      const age = this.t - this.tf[i];
-      this.subs[i] = this.phi[i] < CONTINENTAL ? subsidence(age) : 0;
-      this.elev[i] = elevation(this.h[i], this.phi[i], age) + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
+      // elevation() (crust.js), the age's subsidence once.
+      const f = phi[i], sa = f < 1 ? subsidence(t - tf[i]) : 0, rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f;
+      subs[i] = f < CONTINENTAL ? sa : 0;
+      elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
     }
     if (this.water > 0) this.solveSea();
   }
@@ -709,13 +710,18 @@ export class Tectonics {
     const strait = this.strait, s = this.seaLevel, top = s + SEA.STRAIT;
     const scr = this.maskScratch && this.maskScratch.n === n ? this.maskScratch : (this.maskScratch = { n });
     const chan = seaChannel(this, scr.chan || (scr.chan = new Float64Array(n)));
-    const seen = scr.seen || (scr.seen = new Set());
-    seen.clear();
+    // Each frame cell once: a stamp per plate's cell, this call's number (1–255), a plate's stamps
+    // cleared the first time it's met in each run of 255 calls.
+    const calls = this.scourCalls = (this.scourCalls || 0) + 1, stamp = calls % 255 + 1, epoch = Math.floor(calls / 255);
     const keep = Math.exp(-dt / SEA.FILL), R = SEA.SCOUR * dt, D = SEA.SCOUR_D, cap = SEA.CHANNEL_MAX;
     for (let i = 0; i < n; i++) {
-      const p = plates[owner[i]], j = ref[i], key = owner[i] * n + j;
-      if (!p || seen.has(key)) continue;
-      seen.add(key);
+      const p = plates[owner[i]], j = ref[i];
+      if (!p) continue;
+      let seen = p.scoured;
+      if (!seen || seen.length !== p.gs.length) { seen = p.scoured = new Uint8Array(p.gs.length); p.scourEpoch = epoch; }
+      else if (p.scourEpoch !== epoch) { seen.fill(0); p.scourEpoch = epoch; }
+      if (seen[j] === stamp) continue;
+      seen[j] = stamp;
       let gs = p.gs[j] * keep;
       if (strait[i] && chan[i] < top) {
         // Runs of water round the ring (neighbours counter-clockwise): two or more, and the sea passes through.

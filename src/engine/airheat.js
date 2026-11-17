@@ -32,6 +32,7 @@
 //                    src/engine/climate.js) and by the GPU's multigrid with the inflow on each
 //                    level's edges (src/gpu/ebm.js), each level's flow from ψ̄ at its own corners.
 import { restrict } from '../grid/transfer.js';
+import { LaplaceMG, mgcg } from '../grid/multigrid.js';
 
 /** Tunable; tools and tests may change them. */
 export const AIRHEAT = {
@@ -39,7 +40,7 @@ export const AIRHEAT = {
   SEASONS: 1,            // the year's mean wind carries the seasons' harmonics too (1), or the mean alone (0)
   CROSS: 1,              // the seasons' winds carry heat (1), or the year's mean wind alone (0)
   RHO_CP: 1206,          // J m⁻³ K⁻¹: air's, at the surface
-  CG: [1e-5, 400, 15],   // ψ's Poisson solves: relative residual, iterations at most (warm-started), a slice's (the flows are ψ's differences, so free of divergence whatever ψ's error; their strength isn't)
+  CG: [1e-7, 60, 4],     // ψ's Poisson solves: relative residual, iterations at most (warm-started), a slice's (the flows are ψ's differences, so free of divergence whatever ψ's error; their strength isn't)
 };
 
 const R = 6.371e6;
@@ -98,13 +99,24 @@ export class AirHeat {
         for (let h = 0; h < 5; h++) { const u = U[h]; zA[h][I] += 0.5 * ((u[3 * I] + u[3 * J]) * ex + (u[3 * I + 1] + u[3 * J + 1]) * ey + (u[3 * I + 2] + u[3 * J + 2]) * ez); }
       }
     }
-    // ∇²ψ = ζ: Σ w (ψ_I − ψ_J) = −ζ_I A_I for the mean and each harmonic's two parts, by conjugate
-    // gradients preconditioned by Jacobi, warm-started from the last, kept across slices (restarting
-    // every slice, the harmonics' solves wandered: one came back ten times too strong, and its lagged
-    // heat ran the energy balance away), the constant (the operator's null space) taken out.
+    // ∇²ψ = ζ: Σ w (ψ_I − ψ_J) = −ζ_I A_I for the mean and each harmonic's two parts, warm-started
+    // from the last, each solve's state kept across slices (restarting every slice, the harmonics'
+    // solves wandered: one came back ten times too strong, and its lagged heat ran the energy balance
+    // away), the constant (the operator's null space) taken out.
     const K = C.CROSS ? 5 : 1, b = zA.slice(0, K).map(z => { let m = 0; for (let I = 0; I < nc; I++) m += z[I]; m /= nc; return Float64Array.from(z, v => -(v - m)); });
     for (let h = K; h < 5; h++) this.psi[h].fill(0);
-    const it = yield* poisson(cg, this.c.ws.w, b, this.psi.slice(0, K), C.CG[0], C.CG[1], C.CG[2], this.cgWork || (this.cgWork = Array.from({ length: 20 }, () => new Float64Array(nc))));
+    // By CG preconditioned with the coarse grid's multigrid (src/grid/multigrid.js), warm from the last.
+    if (!this.mg) { this.mg = new LaplaceMG(cg); this.mg.setOperator(this.c.ws.w); }
+    const work = this.cgWork || (this.cgWork = Array.from({ length: 3 }, () => new Float64Array(nc)));
+    let it = 0;
+    for (let h = 0; h < K; h++) {
+      it += yield* mgcg(this.mg, b[h], this.psi[h], { tol: C.CG[0], maxIt: C.CG[1], slice: C.CG[2], work });
+      const x = this.psi[h];
+      let m = 0;
+      for (let I = 0; I < nc; I++) m += x[I];
+      m /= nc;
+      for (let I = 0; I < nc; I++) x[I] -= m;
+    }
     this.stats.it = it;
     for (let h = 0; h < 5; h++) flows(cg, this.psi[h], this.F[h]);
     const k0 = this.k0, F0 = this.F[0];
@@ -157,62 +169,6 @@ export class AirHeat {
       for (let k = 0; k < 6; k++) out[6 * (off + i) + k] = k < d ? Math.max(0, -fl[o + k]) * k0 : 0;
     }
   }
-}
-
-/**
- * Σ w (x_I − x_J) = b on g for each field (b[k], x[k]: zero-sum right-hand sides), by Jacobi-
- * preconditioned CG, all fields in one pass over the edges, warm-started from x, yielding every
- * `slice` iterations without restarting; each x's mean taken out at the end (the constant is the
- * operator's null space). work: at least 4 × fields arrays of g.n. Returns the iterations.
- */
-function* poisson(g, w, b, x, tol, maxIt, slice, work) {
-  const n = g.n, K = b.length, off = g.nbrOff, nbr = g.nbr;
-  const r = work.slice(0, K), z = work.slice(K, 2 * K), p = work.slice(2 * K, 3 * K), q = work.slice(3 * K, 4 * K);
-  const M = new Float64Array(n);
-  for (let i = 0; i < n; i++) { let s = 0; for (let e = off[i]; e < off[i + 1]; e++) s += w[e]; M[i] = 1 / s; }
-  const apply = (u, out, on) => {
-    for (let i = 0; i < n; i++) for (let k = 0; k < K; k++) {
-      if (!on[k]) continue;
-      const v = u[k], ui = v[i];
-      let s = 0;
-      for (let e = off[i]; e < off[i + 1]; e++) s += w[e] * (ui - v[nbr[e]]);
-      out[k][i] = s;
-    }
-  };
-  const on = new Uint8Array(K).fill(1), rz = new Float64Array(K), bn = new Float64Array(K);
-  apply(x, q, on);
-  for (let k = 0; k < K; k++) {
-    let s = 0, t = 0;
-    for (let i = 0; i < n; i++) { r[k][i] = b[k][i] - q[k][i]; z[k][i] = M[i] * r[k][i]; p[k][i] = z[k][i]; s += r[k][i] * z[k][i]; t += b[k][i] * b[k][i]; }
-    rz[k] = s; bn[k] = Math.sqrt(t) || 1;
-  }
-  let it = 0;
-  for (; it < maxIt; it++) {
-    let any = 0;
-    for (let k = 0; k < K; k++) {
-      let s = 0;
-      for (let i = 0; i < n; i++) s += r[k][i] * r[k][i];
-      on[k] = Math.sqrt(s) / bn[k] > tol ? 1 : 0; any += on[k];
-    }
-    if (!any) break;
-    apply(p, q, on);
-    for (let k = 0; k < K; k++) {
-      if (!on[k]) continue;
-      const P = p[k], Q = q[k], R = r[k], Z = z[k], X = x[k];
-      let pq = 0;
-      for (let i = 0; i < n; i++) pq += P[i] * Q[i];
-      if (!(pq > 0)) { on[k] = 0; continue; }
-      const al = rz[k] / pq;
-      let s = 0;
-      for (let i = 0; i < n; i++) { X[i] += al * P[i]; R[i] -= al * Q[i]; Z[i] = M[i] * R[i]; s += R[i] * Z[i]; }
-      const be = s / rz[k];
-      rz[k] = s;
-      for (let i = 0; i < n; i++) P[i] = Z[i] + be * P[i];
-    }
-    if ((it + 1) % slice === 0) yield;
-  }
-  for (let k = 0; k < K; k++) { let m = 0; for (let i = 0; i < n; i++) m += x[k][i]; m /= n; for (let i = 0; i < n; i++) x[k][i] -= m; }
-  return it;
 }
 
 /** Each edge's outward flow from ψ on g's cells (the first g.n of ψ), into out: ψ at the corners as their triangles' means. */

@@ -102,7 +102,7 @@ export const SOIL = {
   PET_K: 55 / 12,     // PET = PET_K · max(0, T + PET_T0), mm a month (the climate's Budyko PET by the month)
   PET_T0: 4,
   PERMA_W: 1.0,       // K, the width of permafrost's logistic in the ground's mean: the spread of the ground's mean within a cell (see above)
-  NEWTON: 5,          // iterations a month (monotone from the right: four reach 1e-8 of capacity)
+  NEWTON: 6,          // iterations a month at most (four reach 1e-8 of capacity from the bound; warm from the year before, two)
 };
 
 const DAYS = 30.44;
@@ -121,32 +121,42 @@ export function potentialEvaporation(T, out = new Float32Array(T.length)) {
 }
 
 /**
- * The root of a w + c w⁴ = d in [0, hi] (a > 0, c ≥ 0), by Newton from the right: from
- * the least of hi, d/a and (d/c)^¼, each of which bounds it from above.
+ * The root of a w + c w⁴ = d in [0, hi] (a > 0, c ≥ 0), by Newton: from the least of hi, d/a
+ * and (d/c)^¼, each of which bounds it from above, or from `guess` below that (the function is
+ * convex and rising, so a start below the root lands above it in a step, and from above Newton
+ * falls monotonically), until a step is under 1e-12 of w (quadratic: the next would be below
+ * round-off) or `iters` steps.
  */
-function root4(a, c, d, hi, iters) {
+function root4(a, c, d, hi, iters, guess) {
   if (d <= 0) return 0;
   let w = Math.min(hi, d / a);
   if (c > 0) w = Math.min(w, Math.sqrt(Math.sqrt(d / c)));
+  if (guess > 0 && guess < w) w = guess;
   for (let k = 0; k < iters; k++) {
-    const w3 = w * w * w;
-    w -= (a * w + c * w3 * w - d) / (a + 4 * c * w3);
+    const w3 = w * w * w, dw = (a * w + c * w3 * w - d) / (a + 4 * c * w3);
+    w -= dw;
+    if (Math.abs(dw) <= 1e-12 * w) break;
   }
   return Math.max(0, w);
 }
 
 // One month of one cell. The results land in R: quick, base, E, S, SWE, Tg, the ground's
-// decay factor over the month (Tg's sensitivity to its start), and the pack's excess.
-const R = new Float64Array(8);
+// decay factor over the month (Tg's sensitivity to its start), the pack's excess, and the
+// bucket's root w (a guess for the same month a year on).
+const R = new Float64Array(9);
 function month(S0, W0, G0, smax, T, p, pet) {
+  const C = SOIL;
+  // The snowpack: snow on the month's freezing days, melt by its positive degree-days.
+  const x = T / C.SIGMA, below = PhiN(-x);
+  const snow = p * below;
+  monthOf(S0, W0, G0, smax, T, pet, snow, p - snow, DAYS * (C.SIGMA * phiN(x) + T * (1 - below)), -1);
+}
+/** A month with its snow, rain and positive degree-days given (they read only the month's forcing). */
+function monthOf(S0, W0, G0, smax, T, pet, snow, rain, pdd, guess) {
   const C = SOIL;
   // Water past the capacity (it was cut since: the regolith thinned) runs off this month.
   const over = Math.max(0, S0 - smax);
   S0 -= over;
-  // The snowpack: snow on the month's freezing days, melt by its positive degree-days.
-  const x = T / C.SIGMA, below = PhiN(-x);
-  const snow = p * below, rain = p - snow;
-  const pdd = DAYS * (C.SIGMA * phiN(x) + T * (1 - below));
   let W = W0 + snow;
   const melt = Math.min(W, C.DDF * pdd);
   W -= melt;
@@ -164,17 +174,17 @@ function month(S0, W0, G0, smax, T, p, pet) {
   const Li = L * (1 - fz), ep = pet * (1 - Wm / (Wm + C.COVER));
   const kd = C.KD * smax * thaw, c = Li + kd;
   // β = 1 above FC (a = S_max, d = S₀ + Lᵢ − E_p); below it β = w/FC (a = S_max + E_p/FC, d = S₀ + Lᵢ).
-  const d1 = S0 + Li - ep;
+  const d1 = S0 + Li - ep, FC = C.FC, FC2 = FC * FC;
   let w;
-  if (smax * C.FC + c * C.FC ** 4 <= d1) w = root4(smax, c, d1, 1, C.NEWTON);
-  else w = root4(smax + ep / C.FC, c, S0 + Li, C.FC, C.NEWTON);
+  if (smax * FC + c * FC2 * FC2 <= d1) w = root4(smax, c, d1, 1, C.NEWTON, guess);
+  else w = root4(smax + ep / FC, c, S0 + Li, FC, C.NEWTON, guess);
   const w4 = w * w * w * w;
   let quick = over + ice + L * fz + Li * w4, base = kd * w4, E = ep * Math.min(1, w / C.FC);
   // The store from the fluxes, so water is kept exactly; any residual of the solve goes to its bounds.
   let S = S0 + Li - Li * w4 - base - E;
   if (S < 0) { E += S; S = 0; if (E < 0) { base += E; E = 0; } }
   else if (S > smax) { quick += S - smax; S = smax; }
-  R[0] = quick; R[1] = base; R[2] = E; R[3] = S; R[4] = W; R[5] = G; R[6] = decay; R[7] = ice;
+  R[0] = quick; R[1] = base; R[2] = E; R[3] = S; R[4] = W; R[5] = G; R[6] = decay; R[7] = ice; R[8] = w;
 }
 
 export class Soil {
@@ -237,7 +247,7 @@ export class Soil {
    * warm start that has nothing to do takes one).
    */
   equilibrium(T, P, PET, { tol = 0.05, maxYears = 30, cold = false, from = 0, to = this.n } = {}) {
-    const o = this.out, C = SOIL;
+    const o = this.out, C = SOIL, snowM = new Float64Array(12), rainM = new Float64Array(12), pddM = new Float64Array(12), wM = new Float64Array(12);
     let years = 0, worst = 0, cells = 0, unconverged = 0;
     for (let i = from; i < to; i++) {
       const smax = this.Smax[i];
@@ -252,13 +262,19 @@ export class Soil {
       // The snow doesn't read the ground or the soil, nor the ground the soil: once the snow
       // and the ground repeat, S's year is a monotone map of [0, S_max] into itself, whose
       // fixed point is found by secant steps inside a bracket that each year tightens.
+      // The months' snow, rain and degree-days, the same every year.
+      for (let m = 0; m < 12; m++) {
+        const t = T[b + m], p = P[b + m], x = t / C.SIGMA, below = PhiN(-x);
+        snowM[m] = p * below; rainM[m] = p - snowM[m]; pddM[m] = DAYS * (C.SIGMA * phiN(x) + t * (1 - below)); wM[m] = -1;
+      }
       let lo = 0, hi = smax, xPrev = NaN, gPrev = 0, y = 0, done = false;
       while (y < maxYears) {
         const S0 = S, W0 = W, G0 = G;
         let a = 1, wmin = Infinity, capped = false;
         for (let m = 0; m < 12; m++) {
           const k = b + m;
-          month(S, W, G, smax, T[k], P[k], PET[k]);
+          monthOf(S, W, G, smax, T[k], PET[k], snowM[m], rainM[m], pddM[m], wM[m]);
+          wM[m] = R[8];
           o.quick[k] = R[0]; o.base[k] = R[1]; o.evap[k] = R[2]; o.S[k] = R[3]; o.SWE[k] = R[4]; o.Tg[k] = R[5];
           S = R[3]; W = R[4]; G = R[5]; a *= R[6];
           if (W < wmin) wmin = W;

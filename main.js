@@ -1091,6 +1091,7 @@ function frame(now) {
 }
 // Where the frame's time goes, in ms (an exponential mean), for tuning: __isochron.prof.
 const prof = {};
+const held = {};   // frames played, by what held the clock (the engine's steps, the people's, the People opening) or free
 let profT = 0;
 const lap = k => { const t = performance.now(); prof[k] = 0.95 * (prof[k] || 0) + 0.05 * (t - profT); profT = t; };
 function tick(now) {
@@ -1119,7 +1120,9 @@ function tick(now) {
     scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10, keep));
     // The People scenario holds the planet at its opening while its climate settles (the climate's
     // cycles run back to back on the engine's thread meanwhile), then runs from the first hominins.
-    const behind = stepsSent - stepsDone >= 2 || (people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4)) || (peopleOn() && !people.msg);
+    const heldBy = stepsSent - stepsDone >= 2 ? 'engine' : people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4) ? 'people' : peopleOn() && !people.msg ? 'opening' : null;
+    const behind = heldBy !== null;
+    if (heldBy) held[heldBy] = (held[heldBy] || 0) + 1; else held.free = (held.free || 0) + 1;
     const { dt: adv, plan } = scheduler.advance(behind ? 0 : rate() * dt);
     P.years += adv;
     const p = plan[0];
@@ -1240,4 +1243,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; }, get sulfate() { return sulfPattern; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null, held }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; }, get sulfate() { return sulfPattern; } };

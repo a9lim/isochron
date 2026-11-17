@@ -1100,7 +1100,7 @@ export class Climate {
       const land = this.landMask[i];
       const Ts = land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, T[i] + (this.ocean ? this.ocean.fine.sst[i] : 0));
       Ws[i] = wsat(Ts);
-      const speed = Math.hypot(wind[3 * i], wind[3 * i + 1], wind[3 * i + 2]);
+      const ux = wind[3 * i], uy = wind[3 * i + 1], uz = wind[3 * i + 2], speed = Math.sqrt(ux * ux + uy * uy + uz * uz);
       const lift = wind[3 * i] * this.upz[3 * i] + wind[3 * i + 1] * this.upz[3 * i + 1] + wind[3 * i + 2] * this.upz[3 * i + 2];
       const sink = Math.max(0, div[i]) / 3e-6;
       lam[i] = C.RAIN_BG * (0.25 + 0.75 * Math.exp(-sink - C.SUB_BG * sub[i])) * ramp(W[i] / Ws[i], C.BG_R1, C.BG_R2) + C.RAIN_ORO * Math.max(0, lift);
@@ -1235,7 +1235,7 @@ export class Climate {
           if (pm[m] < pdry) pdry = pm[m];
         }
         if (!this.landMask[i]) continue;
-        if (sp) { wT = Math.hypot(sp.T[i] / 1.7, C.ZONE_FLOOR_T); wP = Math.hypot(this.year.annualRainSpread(i, map) / 1.7, C.ZONE_FLOOR_P); }
+        if (sp) { const a = sp.T[i] / 1.7, b = this.year.annualRainSpread(i, map) / 1.7; wT = Math.sqrt(a * a + C.ZONE_FLOOR_T * C.ZONE_FLOOR_T); wP = Math.sqrt(b * b + C.ZONE_FLOOR_P * C.ZONE_FLOOR_P); }
         // Summer is April–September in the north, October–March in the south.
         const north = this.lat[i] >= 0;
         let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;

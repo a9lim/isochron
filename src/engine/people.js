@@ -1078,7 +1078,10 @@ export class People {
     this.economy(live, dt);
     if (this.debug) this.check('economy', live);
     lap('economy');
-    // Minds within reach, and culture.
+    // Minds within reach, and culture; research's intensity by the cell's output a person, the
+    // same for every lineage.
+    const sR = this.sR || (this.sR = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) sR[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0;
     let rate = 0;
     for (const L of live) rate = Math.max(rate, this.culture(L, live, dt));
     this.lastRate = rate;
@@ -1133,15 +1136,20 @@ export class People {
     const u = this.dens || (this.dens = new Float64Array(nL)), kd = this.kden || (this.kden = new Float64Array(nL)), K = L.K;
     const Dc = this.dcell || (this.dcell = new Float64Array(nL)), D0 = this.Dz(0);
     const nmin = this.nmin || (this.nmin = H.area.map(a => this.P.N_MIN * a));
-    for (let c = 0; c < nL; c++) kd[c] = L.K2[c] / H.area[c];
+    // Only what the step can reach moves: people cross one edge a substep, by land (across the sea
+    // only between coasts both settled), so after s substeps they lie within s rings of where they
+    // were. The edges with an end within nsub − 1 rings are all that carry anyone, in their order
+    // (the same sums as over every edge); their cells are within nsub rings.
+    const { cells: act, nc: na, edges: ae, ne } = this.reach(N, nsub);
+    for (let q = 0; q < na; q++) { const c = act[q]; kd[c] = L.K2[c] / H.area[c]; }
     for (let s = 0; s < nsub; s++) {
-      dN.fill(0); dZ.fill(0);
+      for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; }
       // Each cell's dispersal at its own culture; an edge's is the geometric mean of its ends' (the
       // law at the ends' mean culture wherever it is exponential in z, below its cap: a root a
       // edge in place of the law's exponential and powers).
-      for (let c = 0; c < nL; c++) { u[c] = L.K2[c] > 1e-12 ? N[c] / L.K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
-      for (let e = 0; e < F.m; e++) {
-        const c = F.a[e], d = F.b[e], uc = u[c], ud = u[d];
+      for (let q = 0; q < na; q++) { const c = act[q]; u[c] = L.K2[c] > 1e-12 ? N[c] / L.K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
+      for (let x = 0; x < ne; x++) {
+        const e = ae[x], c = F.a[e], d = F.b[e], uc = u[c], ud = u[d];
         if (uc === ud) continue;
         const kc = kd[c], kk = kd[d], rho = kc > 0 && kk > 0 ? 2 * kc * kk / (kc + kk) : 0;
         if (!(rho > 0)) continue;
@@ -1157,7 +1165,8 @@ export class People {
         const zc = flux > 0 ? Z[d] : Z[c];
         dN[c] += flux; dN[d] -= flux; dZ[c] += flux * zc; dZ[d] -= flux * zc;
       }
-      for (let c = 0; c < nL; c++) {
+      for (let q = 0; q < na; q++) {
+        const c = act[q];
         if (dN[c] === 0) continue;
         let Nn = N[c] + dN[c];
         const zz = N[c] * Z[c] + dZ[c];
@@ -1165,6 +1174,32 @@ export class People {
         N[c] = Nn;
       }
     }
+  }
+
+  /**
+   * The cells within `rings` land edges of where N > 0 (ascending), and the flat edges (F) with an
+   * end within rings − 1 (ascending): what a spread of `rings` substeps can touch.
+   */
+  reach(N, rings) {
+    const nL = this.nL, E = this.E, F = this.F;
+    const ring = this.ringOf || (this.ringOf = new Int8Array(nL));
+    const cells = this.actCells || (this.actCells = new Int32Array(nL)), edges = this.actEdges || (this.actEdges = new Int32Array(F.m));
+    ring.fill(-1);
+    let nc = 0;
+    for (let c = 0; c < nL; c++) if (N[c] > 0) { ring[c] = 0; cells[nc++] = c; }
+    for (let r = 1, from = 0; r <= rings; r++) {
+      const to = nc;
+      for (let q = from; q < to; q++) {
+        const c = cells[q];
+        for (let o = E.off[c]; o < E.off[c + 1]; o++) { const d = E.nb[o]; if (!E.hop[o] && ring[d] < 0) { ring[d] = r; cells[nc++] = d; } }
+      }
+      from = to;
+    }
+    cells.subarray(0, nc).sort();
+    let ne = 0;
+    const inner = rings - 1;
+    for (let e = 0; e < F.m; e++) { const ra = ring[F.a[e]], rb = ring[F.b[e]]; if ((ra >= 0 && ra <= inner) || (rb >= 0 && rb <= inner)) edges[ne++] = e; }
+    return { cells, nc, edges, ne };
   }
 
   // Voyages (synthesis): an empty shore across the sea is settled by a founding party, an event
@@ -1340,15 +1375,15 @@ export class People {
   }
 
   culture(L, live, dt) {
-    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = L.N, Z = L.Z, M = L.M, Ntot = this.Ntot, Out = this.Out;
+    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = L.N, Z = L.Z, M = L.M, Ntot = this.Ntot;
     // People's minds in each cell: this lineage's × research intensity, the others' at η.
     const m = this.mbuf || (this.mbuf = new Float64Array(nL));
+    const sR = this.sR;
     m.fill(0);
     let zmax = 0;
     for (let c = 0; c < nL; c++) {
       if (!(Ntot[c] > 0)) continue;
-      const y = Out[c] / Ntot[c], sR = softMin(Math.pow(Math.max(y, 1e-3), P.RHO_R), P.S_R_MAX, 4);
-      m[c] = sR * (N[c] + P.ETA * (Ntot[c] - N[c]));
+      m[c] = sR[c] * (N[c] + P.ETA * (Ntot[c] - N[c]));
       if (N[c] > 0) zmax = Math.max(zmax, Z[c]);
     }
     // Minds within reach: the body's total, or a disc of radius ℓ of the local density; AI's
@@ -1361,6 +1396,7 @@ export class People {
     for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) tot[comp.id[c]] += m[c];
     const disc = Math.PI * ell * ell, ai = this.econ.on ? this.econ.AIr : 0, beta = this.econ.on ? this.econ.beta : 0;
     for (let c = 0; c < nL; c++) {
+      if (!(N[c] > 0)) continue;   // read only where this lineage lives (below)
       let ring = m[c];
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
       const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];

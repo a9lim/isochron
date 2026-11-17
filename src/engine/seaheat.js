@@ -42,6 +42,7 @@
 //                    src/gpu/ebm.js).
 import { nearest } from '../grid/icosphere.js';
 import { restrict } from '../grid/transfer.js';
+import { LaplaceMG, mgcg } from '../grid/multigrid.js';
 import { CLIMATE } from './climate.js';
 
 /** Tunable; tools and tests may change them. */
@@ -208,49 +209,31 @@ export class SeaHeat {
   /**
    * The potential flow through the ocean `sea` (depths `dep`, in DEPTH) with divergence b = S − K
    * (each summing to the same): its potential x and its flux F on each coarse edge, outward.
-   * Conjugate gradients (Jacobi's preconditioner) on the sea's singular Laplacian, from x0, to a
-   * relative residual of 1e-7, yielding every 16 iterations (~3 ms at 220 km).
+   * Conjugate gradients on the sea's singular Laplacian (each edge's conductance its length over
+   * its span × the shallower end's depth), preconditioned by the coarse grid's multigrid on the
+   * sea alone (src/grid/multigrid.js, built once for each sea), from x0, to a relative residual of
+   * 1e-7, yielding every 4 iterations (~6 a solve).
    */
   *potentialSteps(S, K, sea, dep, x0 = null) {
-    const cg = this.c.coarse, nc = cg.n, m = cg.nbrOff[nc];
-    const b = new Float64Array(nc), d = new Float64Array(nc), x = x0 ? Float64Array.from(x0) : new Float64Array(nc);
-    const r = new Float64Array(nc), p = new Float64Array(nc), q = new Float64Array(nc), zz = new Float64Array(nc);
-    const own = this.own, cond = t => cg.ell[t] / cg.dist[t] * Math.max(0.01, Math.min(dep[own[t]], dep[cg.nbr[t]]));
+    const cg = this.c.coarse, nc = cg.n, m = cg.nbrOff[nc], own = this.own;
+    if (!this.mgSea || this.mgSea.sea !== sea || this.mgSea.dep !== dep) {
+      const w = new Float64Array(m), d = new Float64Array(nc);
+      for (let I = 0; I < nc; I++) if (sea[I]) for (let t = cg.nbrOff[I]; t < cg.nbrOff[I + 1]; t++) if (sea[cg.nbr[t]]) {
+        w[t] = cg.ell[t] / cg.dist[t] * Math.max(0.01, Math.min(dep[own[t]], dep[cg.nbr[t]]));
+        d[I] += w[t];
+      }
+      const mg = this.mgSea ? this.mgSea.mg : new LaplaceMG(cg);
+      mg.setOperator(w, d);
+      this.mgSea = { sea, dep, mg, w };
+    }
+    const { mg, w } = this.mgSea;
+    const b = new Float64Array(nc), x = x0 ? Float64Array.from(x0) : new Float64Array(nc);
     let mean = 0, cnt = 0;
     for (let I = 0; I < nc; I++) if (sea[I]) { b[I] = S[I] - (K ? K[I] : 0); mean += b[I]; cnt++; }
     for (let I = 0; I < nc; I++) if (sea[I]) b[I] -= mean / cnt; else x[I] = 0;
-    for (let I = 0; I < nc; I++) if (sea[I]) for (let t = cg.nbrOff[I]; t < cg.nbrOff[I + 1]; t++) if (sea[cg.nbr[t]]) d[I] += cond(t);
-    const apply = (u, out) => {
-      for (let I = 0; I < nc; I++) {
-        if (!sea[I]) { out[I] = 0; continue; }
-        let s = 0;
-        for (let t = cg.nbrOff[I]; t < cg.nbrOff[I + 1]; t++) { const J = cg.nbr[t]; if (sea[J]) s += cond(t) * (u[I] - u[J]); }
-        out[I] = s;
-      }
-    };
-    apply(x, q);
-    let bn = 0;
-    for (let I = 0; I < nc; I++) { r[I] = b[I] - q[I]; zz[I] = d[I] > 0 ? r[I] / d[I] : 0; p[I] = zz[I]; bn += b[I] * b[I]; }
-    let rz = 0; for (let I = 0; I < nc; I++) rz += r[I] * zz[I];
-    const tol = 1e-14 * bn;
-    let it = 0;
-    for (; it < 4000 && bn > 0; it++) {
-      apply(p, q);
-      let pq = 0; for (let I = 0; I < nc; I++) pq += p[I] * q[I];
-      if (!(pq > 0)) break;
-      const a = rz / pq;
-      let rr = 0;
-      for (let I = 0; I < nc; I++) { x[I] += a * p[I]; r[I] -= a * q[I]; rr += r[I] * r[I]; }
-      if (rr < tol) break;
-      let rz2 = 0;
-      for (let I = 0; I < nc; I++) { zz[I] = d[I] > 0 ? r[I] / d[I] : 0; rz2 += r[I] * zz[I]; }
-      const beta = rz2 / rz; rz = rz2;
-      for (let I = 0; I < nc; I++) p[I] = zz[I] + beta * p[I];
-      if (it % 16 === 15) yield;
-    }
-    this.stats.iters = it;
+    this.stats.iters = yield* mgcg(mg, b, x, { tol: 1e-7, maxIt: 200, slice: 4, work: this.cgWork || (this.cgWork = Array.from({ length: 3 }, () => new Float64Array(nc))) });
     const F = new Float64Array(m);
-    for (let I = 0; I < nc; I++) if (sea[I]) for (let t = cg.nbrOff[I]; t < cg.nbrOff[I + 1]; t++) { const J = cg.nbr[t]; if (sea[J]) F[t] = cond(t) * (x[I] - x[J]); }
+    for (let I = 0; I < nc; I++) if (sea[I]) for (let t = cg.nbrOff[I]; t < cg.nbrOff[I + 1]; t++) { const J = cg.nbr[t]; if (sea[J]) F[t] = w[t] * (x[I] - x[J]); }
     return { F, x };
   }
 
@@ -290,11 +273,12 @@ export class SeaHeat {
   *flowSteps() {
     const c = this.c, C = SEAHEAT, g = c.grid, n = g.n, cg = c.coarse, nc = cg.n, np = c.windPhase.length;
     if (!this.pat) return;
-    const tx = new Float64Array(n), tc = new Float64Array(nc);
+    const tx = new Float64Array(n), tc = new Float64Array(nc), pos = g.pos, k = C.RHO_A * C.CD / np;
+    // Each cell's east, (−y, x)/|(x, y)|, once.
+    const east = this.east || (this.east = Float64Array.from({ length: 2 * n }, (_, j) => { const i = j >> 1, x = pos[3 * i], y = pos[3 * i + 1], h = Math.sqrt(x * x + y * y) || 1; return (j & 1 ? x : -y) / h; }));
     for (const w of c.windPhase) for (let i = 0; i < n; i++) {
-      const u = w[3 * i], v = w[3 * i + 1], s = w[3 * i + 2], sp = Math.hypot(u, v, s);
-      const x = g.pos[3 * i], y = g.pos[3 * i + 1], h = Math.hypot(x, y) || 1;
-      tx[i] += C.RHO_A * C.CD * sp * (-y * u + x * v) / h / np;   // the stress's eastward part
+      const u = w[3 * i], v = w[3 * i + 1], s = w[3 * i + 2], sp = Math.sqrt(u * u + v * v + s * s);
+      tx[i] += k * sp * (east[2 * i] * u + east[2 * i + 1] * v);   // the stress's eastward part
     }
     restrict(c.T, tx, tc);
     // Over the channel's band (its open circles ± CHANNEL, the current's width: Earth's westerlies peak

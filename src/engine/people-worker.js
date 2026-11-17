@@ -30,7 +30,7 @@ self.onmessage = e => {
   if (m.type === 'init') {
     grid = buildGrid(m.level); params = m.params || {};
     port = m.port; port.onmessage = onEngine;
-  } else if (m.type === 'tick') { if (people) { owed += m.adv; schedule(0); } }
+  } else if (m.type === 'tick') { if (people) { owed += m.adv; schedule(owed >= dtLast ? 0 : waitLeft()); } }
   else if (m.type === 'params') {
     Object.assign(params, m.params);
     if (people) Object.assign(people.P, m.params);
@@ -63,7 +63,16 @@ function onEngine(e) {
   }
 }
 
-function schedule(ms) { if (!timer) timer = setTimeout(() => { timer = 0; pump(); }, ms); }
+// The pump's next turn: the earliest asked for wins (a tick bringing a whole step's years doesn't
+// wait out a pending WAIT: waiting it out stepped ~40% of the time at the follow dial's top).
+let timerDue = Infinity;
+function schedule(ms) {
+  const due = performance.now() + ms;
+  if (timer) { if (due >= timerDue) return; clearTimeout(timer); }
+  timerDue = due;
+  timer = setTimeout(() => { timer = 0; timerDue = Infinity; pump(); }, ms);
+}
+const waitLeft = () => Math.max(0, lastStep + WAIT - performance.now());
 
 function pump() {
   if (!people) return;
@@ -80,7 +89,7 @@ function pump() {
   }
   if (owed < 1e-9) owed = 0;
   post(false);
-  if (owed > 0) schedule(performance.now() - lastStep < WAIT ? WAIT : 0);
+  if (owed > 0) schedule(owed >= dtLast ? 0 : waitLeft());
 }
 
 function post(force) {
