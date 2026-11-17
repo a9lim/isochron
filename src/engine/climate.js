@@ -66,8 +66,8 @@ import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit
 import { Soil, SOIL, potentialEvaporation } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
-import { Maritime } from './maritime.js';
 import { SeaHeat } from './seaheat.js';
+import { AirHeat, AIRHEAT } from './airheat.js';
 
 // Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
 // tune.mjs): the constants below marked "Earth" were set by a pattern search over the land's January,
@@ -85,14 +85,16 @@ export const CLIMATE = {
   // (the polar air's stable layering carries less heat per kelvin of gradient) it gives 70–80°
   // at −9 to −14 °C, 60° near 0 and the sea ice at 8–11%: Earth's ~7% (from memory) with
   // Antarctica's area as sea, as this planet's ocean poles have it. Earth: 0.85 and −0.75 (from 1.0
-  // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold); 0.91 and −0.85 with the sea's heat transport (src/engine/seaheat.js) beside it.
-  D: 0.91, D_LAT: -0.85,
+  // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold); 0.91 and −0.85 with the sea's heat transport (src/engine/seaheat.js) beside it;
+  // 0.86 with the air's (src/engine/airheat.js).
+  D: 0.86, D_LAT: -0.85,
   // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: with
   // the capacity mixed over each coarse cell, 0.1 left 55–65° continents with summers ~3 K cooler
   // than Earth's (from memory) and D climates at 15% of land, and 0.085 stood in for that mixing;
   // with each cell's own seasons (SUBGRID), 0.085 made 60–70° N land's summers 2–4 K warm, and 0.11
-  // holds them near Earth's (~11 °C in June–August, from memory). Earth: 0.29, with maritime air
-  // (src/engine/maritime.js) carrying the sea's seasons onto the land from windward; 0.49 with the sea's heat transport and the belts at Earth's latitudes (maritime air's K then 2).
+  // holds them near Earth's (~11 °C in June–August, from memory). Earth: 0.29 with maritime air (an
+  // exchange with the sea's air carried inland, since replaced by the wind's own transport,
+  // src/engine/airheat.js); 0.49 with the sea's heat transport and the belts at Earth's latitudes.
   D_SEASON: 0.49,
   // Continental seasons (`continentalSeasons`): each cell's seasonal harmonics from its own heat
   // capacity, not its coarse cell's mixed one.
@@ -122,7 +124,7 @@ export const CLIMATE = {
   ITCZ_PEN: 0.5,           // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6 before)
   ITCZ_MAX: 0.5,           // rad: the ITCZ's reach from the equator (Earth; 0.35 kept India's monsoon trough at 20°)
   ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
-  THERMAL: 0.2,            // hPa per K: the low over land warmer than its latitude, the high over land colder (Earth; 0.75, then 0.4)
+  THERMAL: 0.12,           // hPa per K: the low over land warmer than its latitude, the high over land colder (Earth; 0.75, then 0.4, 0.2, 0.12 with the air's heat transport: at 0.6–1 its winds carried a summer continent's heat into its interior, and at 1.5 the two ran away)
   // The Hadley edge, where the subtropical highs stand: Held and Hou's √ΔT/Ω, HADLEY degrees at
   // an equator-to-60° contrast of HADLEY_DT; the subpolar lows at LOWS of it. Earth: its highs at
   // ~30–35° and its lows at ~60–65° (the Southern Ocean's trough ~65° S; from memory), so its
@@ -278,6 +280,83 @@ export function cocg(g, D, dr, di, br, bi, xr, xi, ws, maxIt, tol) {
   return it;
 }
 
+/**
+ * A complex system with a lopsided part: (dr + i di) x + Σ (D w + a)(x_I − x_J) = b on g, a per
+ * directed edge (the air's inflow from the neighbour, src/engine/airheat.js), by BiCGSTAB (van der
+ * Vorst's) preconditioned by Jacobi on the right, warm-started from x (xr, xi). Its scratch is
+ * kept on ws. Returns the iterations taken.
+ */
+export function bicgstab(g, D, dr, di, br, bi, xr, xi, ws, a, maxIt, tol) {
+  const n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, w = ws.w;
+  const S = ws.bicg && ws.bicg.n === n ? ws.bicg : (ws.bicg = { n, v: Array.from({ length: 16 }, () => new Float64Array(n)) });
+  const [rr, ri, hr, hi, pr, pi, vr, vi, qr, qi, sr, si, tr, ti, mr, mi] = S.v;
+  const apply = (ur, ui, outr, outi) => {
+    for (let i = 0; i < n; i++) {
+      let s = 0, t = 0;
+      for (let e = nbrOff[i], f = nbrOff[i + 1]; e < f; e++) { const k = D * w[e] + a[e], j = nbr[e]; s += k * (ur[i] - ur[j]); t += k * (ui[i] - ui[j]); }
+      outr[i] = dr[i] * ur[i] - di[i] * ui[i] + s; outi[i] = dr[i] * ui[i] + di[i] * ur[i] + t;
+    }
+  };
+  // ⟨x, y⟩ = Σ conj(x) y
+  const dot = (ar, ai, cr, ci) => { let s = 0, t = 0; for (let i = 0; i < n; i++) { s += ar[i] * cr[i] + ai[i] * ci[i]; t += ar[i] * ci[i] - ai[i] * cr[i]; } return [s, t]; };
+  const cdiv = (p, q) => { const m = q[0] * q[0] + q[1] * q[1]; return [(p[0] * q[0] + p[1] * q[1]) / m, (p[1] * q[0] - p[0] * q[1]) / m]; };
+  const cmul = (p, q) => [p[0] * q[0] - p[1] * q[1], p[0] * q[1] + p[1] * q[0]];
+  for (let i = 0; i < n; i++) {
+    let s = dr[i];
+    for (let e = nbrOff[i], f = nbrOff[i + 1]; e < f; e++) s += D * w[e] + a[e];
+    const m = 1 / (s * s + di[i] * di[i]);
+    mr[i] = s * m; mi[i] = -di[i] * m;
+  }
+  apply(xr, xi, tr, ti);
+  let bn = 0, rn = 0;
+  for (let i = 0; i < n; i++) {
+    rr[i] = br[i] - tr[i]; ri[i] = bi[i] - ti[i]; hr[i] = rr[i]; hi[i] = ri[i];
+    pr[i] = pi[i] = vr[i] = vi[i] = 0;
+    bn += br[i] * br[i] + bi[i] * bi[i]; rn += rr[i] * rr[i] + ri[i] * ri[i];
+  }
+  bn = Math.sqrt(bn) || 1;
+  if (Math.sqrt(rn) / bn < tol) return 0;
+  let rho = [1, 0], alpha = [1, 0], omega = [1, 0], it = 0;
+  for (; it < maxIt; it++) {
+    const rho1 = dot(hr, hi, rr, ri);
+    if (!(Math.hypot(rho1[0], rho1[1]) > 0)) break;
+    const beta = cmul(cdiv(rho1, rho), cdiv(alpha, omega));
+    for (let i = 0; i < n; i++) {
+      const xr0 = pr[i] - (omega[0] * vr[i] - omega[1] * vi[i]), xi0 = pi[i] - (omega[0] * vi[i] + omega[1] * vr[i]);
+      pr[i] = rr[i] + beta[0] * xr0 - beta[1] * xi0; pi[i] = ri[i] + beta[0] * xi0 + beta[1] * xr0;
+      qr[i] = mr[i] * pr[i] - mi[i] * pi[i]; qi[i] = mr[i] * pi[i] + mi[i] * pr[i];   // p̂
+    }
+    apply(qr, qi, vr, vi);
+    const hv = dot(hr, hi, vr, vi);
+    if (!(Math.hypot(hv[0], hv[1]) > 0)) break;
+    alpha = cdiv(rho1, hv);
+    let sn = 0;
+    for (let i = 0; i < n; i++) {   // r becomes s
+      rr[i] -= alpha[0] * vr[i] - alpha[1] * vi[i]; ri[i] -= alpha[0] * vi[i] + alpha[1] * vr[i];
+      sn += rr[i] * rr[i] + ri[i] * ri[i];
+    }
+    if (Math.sqrt(sn) / bn < tol) {
+      for (let i = 0; i < n; i++) { xr[i] += alpha[0] * qr[i] - alpha[1] * qi[i]; xi[i] += alpha[0] * qi[i] + alpha[1] * qr[i]; }
+      it++; break;
+    }
+    for (let i = 0; i < n; i++) { sr[i] = mr[i] * rr[i] - mi[i] * ri[i]; si[i] = mr[i] * ri[i] + mi[i] * rr[i]; }   // ŝ
+    apply(sr, si, tr, ti);
+    const ts = dot(tr, ti, rr, ri), tt = dot(tr, ti, tr, ti);
+    omega = tt[0] > 0 ? [ts[0] / tt[0], ts[1] / tt[0]] : [0, 0];
+    rn = 0;
+    for (let i = 0; i < n; i++) {
+      xr[i] += alpha[0] * qr[i] - alpha[1] * qi[i] + omega[0] * sr[i] - omega[1] * si[i];
+      xi[i] += alpha[0] * qi[i] + alpha[1] * qr[i] + omega[0] * si[i] + omega[1] * sr[i];
+      rr[i] -= omega[0] * tr[i] - omega[1] * ti[i]; ri[i] -= omega[0] * ti[i] + omega[1] * tr[i];
+      rn += rr[i] * rr[i] + ri[i] * ri[i];
+    }
+    rho = rho1;
+    if (Math.sqrt(rn) / bn < tol) { it++; break; }
+    if (!(Math.hypot(omega[0], omega[1]) > 0)) break;
+  }
+  return it;
+}
+
 export class Climate {
   constructor(tec, land = null, opts = {}) {
     this.tec = tec;
@@ -379,7 +458,7 @@ export class Climate {
     this.peopleForcing = null;     // W/m² per cell: coal's sulfate where the winds carry it (src/engine/peoplelink.js)
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ebmGpu = null;  // src/gpu/ebm.js, where there's a device: the energy balance's steps
-    this.maritime = new Maritime(this);   // the sea's air over the land (src/engine/maritime.js): its winds from each cycle
+    this.airHeat = new AirHeat(this);     // the air's heat carried by the mean wind (src/engine/airheat.js): its wind from each cycle
     this.seaHeat = new SeaHeat(this);     // the sea's heat transport (src/engine/seaheat.js): the gyres and the overturning, their paths with the geography, their flows from each cycle's winds
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
@@ -557,12 +636,11 @@ export class Climate {
       Zr: f64(), Zi: f64(), FYr: f64(), FYi: f64(),     // the coarse cells' impedance Z and ⟨F̂/(B + K + ikωC)⟩
       W: null, a: new Float64Array(n), b: new Float64Array(n), mr: new Float64Array(n), mi: new Float64Array(n), Lr: new Float64Array(nc), Li: new Float64Array(nc),
     });
-    const mar = this.maritime && this.maritime.on ? this.maritime.km : null;   // land's exchange with the sea's air
     for (let k = 1; k <= 2; k++) {
       const om = 2 * Math.PI * k, Yr = sub.Yr[k - 1], Yi = sub.Yi[k - 1], Fr = sub.Fr[k - 1], Fi = sub.Fi[k - 1];
       const a = sub.a, b = sub.b, Fk = F[2 * k - 1], Fk2 = F[2 * k];
       for (let i = 0; i < n; i++) {
-        const bk = B + K + (mar ? mar[i] : 0), z = om * Cf[i], m = 1 / (bk * bk + z * z), yr = bk * m, yi = -z * m;
+        const bk = B + K, z = om * Cf[i], m = 1 / (bk * bk + z * z), yr = bk * m, yi = -z * m;
         Yr[i] = yr; Yi[i] = yi; Fr[i] = Fk[i]; Fi[i] = Fk2[i];
         a[i] = Fk[i] * yr - Fk2[i] * yi; b[i] = Fk[i] * yi + Fk2[i] * yr;
       }
@@ -667,10 +745,6 @@ export class Climate {
       this.snowAnn[i] = cold / NS;
     }
     yield;
-    // Maritime air (src/engine/maritime.js): land's seasons exchange with the sea's air over it,
-    // K m on the diagonal (`continentalSeasons`) and K m T_mar in the forcing.
-    const mar = this.maritime && this.maritime.carry(this.Tc) ? this.maritime : null;
-    if (mar) for (let k = 1; k < 5; k++) { const Fk = F[k], Mk = mar.F[k]; for (let i = 0; i < n; i++) Fk[i] += Mk[i]; }
     for (let k = 0; k < 5; k++) restrict(this.T, F[k], this.Fc[k]);
     // Heat capacity: land, open sea, and sea under ice, per cell; the coarse cells' is its mean.
     const f6 = this.scratch.f6, cap = this.scratch.c5, Cf = this.capF || (this.capF = new Float64Array(n));
@@ -687,8 +761,13 @@ export class Climate {
       dr[I] = A[I] * C.B + (sh ? sh.diag[I] : 0); di[I] = 0;
       br[I] = A[I] * (this.Fc[0][I] - C.A + forcing) + (sh ? sh.rhs[I] : 0); bi[I] = 0;
     }
-    const zero = this.scratch.c5b.fill(0);
-    cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, maxIt, tol);
+    // The air's heat carried by the wind (src/engine/airheat.js): the year's mean wind's upwind and
+    // implicit (lopsided, so BiCGSTAB), the seasons' winds' lagged from the last state.
+    const zero = this.scratch.c5b.fill(0), ah = this.airHeat && this.airHeat.on ? this.airHeat : null;
+    const X = ah && ah.cross(this.Tc) ? ah.X : null;
+    if (X) for (let I = 0; I < nc; I++) br[I] += X[0][I];
+    if (ah) bicgstab(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, ah.a, maxIt, tol);
+    else cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, maxIt, tol);
     yield;
     // The seasons: each harmonic's impedance B + ikωC, the coarse cells' from their cells'
     // (`continentalSeasons`), or with the heat capacity mixed over each coarse cell (SUBGRID off).
@@ -706,7 +785,9 @@ export class Climate {
           br[I] = A[I] * this.Fc[2 * k - 1][I]; bi[I] = A[I] * this.Fc[2 * k][I];
         }
       }
-      cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, maxIt, tol);
+      if (X) for (let I = 0; I < nc; I++) { br[I] += X[2 * k - 1][I]; bi[I] += X[2 * k][I]; }
+      if (ah && AIRHEAT.SEASONS) bicgstab(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, ah.a, maxIt, tol);
+      else cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, maxIt, tol);
       yield;
     }
     this.fineTemperature();
@@ -808,8 +889,8 @@ export class Climate {
     for (let it = 0; it < maxIt; it++) {
       this.olrCorrection();
       if (gpu) {
-        gpu.setMaritime(this.maritime && this.maritime.carry(Tc) ? this.maritime : null);
         gpu.setSeaHeat(this.seaHeat && this.seaHeat.terms(Tc[0]) ? this.seaHeat : null);
+        gpu.setAirHeat(this.airHeat, Tc);
         yield gpu.step(Tc, this.warm);
       } else yield* this.ebm();
       this.olrMeasure();
@@ -1221,8 +1302,8 @@ export class Climate {
     if (this.seaHeat) yield* this.seaHeat.solveSteps();   // the overturning's flows when the sea has moved (src/engine/seaheat.js)
     yield* this.energyBalance();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
-    // The year's winds carry the sea's air over the land in the next cycle's energy balance.
-    if (this.maritime) this.maritime.setWind();
+    // The year's winds carry the air's heat in the next cycle's energy balance (src/engine/airheat.js).
+    if (this.airHeat) yield* this.airHeat.windSteps();
     // The gyres after the winds they're driven by (before them, the first cycle's saw none), and
     // the sea's heat transport after both (src/engine/seaheat.js).
     if (this.ocean) yield* this.ocean.solve();

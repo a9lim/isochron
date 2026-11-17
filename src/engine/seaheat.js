@@ -54,6 +54,7 @@ export const SEAHEAT = {
   SINK0: 55, SINK1: 68, SINK2: 78, SINK3: 88,   // degrees: a sea cell's share of the sinking rises over SINK0–SINK1 and falls over SINK2–SINK3 (smoothsteps), by its area and depth
   CHANNEL: 10,           // degrees either side of a channel's open circles: its upwelling's band
   DEPTH: 1000,           // m: the overturning's upper limb, the depth an edge's water conducts it to
+  SURF: 0.3,             // the share of the water's departure from the air its surface shows (src/engine/ocean.js's `publish`: the sea's ice, evaporation and drawing). Earth (tuned: at 1 the Nordic Seas came right and the subpolar Atlantic, where θ runs warm, 4–6 K warm)
   THETA_F: -1.8,         // °C: the water's freezing point
   THETA_MAX: 60,         // °C: at most (a guard: the flows balance water in every cell, so θ is a mean of what flows in and the air's)
   RHO_CP: 4.1e6,         // J m⁻³ K⁻¹

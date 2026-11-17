@@ -15,7 +15,10 @@
 //             B T̄ − ∇·D∇T̄ = F̄ − A + ΔF and Z T̂ − ∇·D∇T̂ = ⟨F̂Y⟩/⟨Y⟩, by
 //             multigrid: V-cycles of damped Jacobi on the levels below
 //             (coarse diagonals by lumped Galerkin, own + half of each
-//             midpoint's), level 1 by sweeps in one workgroup
+//             midpoint's), level 1 by sweeps in one workgroup; the year's mean
+//             wind's upwind transport on each level's edges, from its stream
+//             function at that level's corners, and the seasons' winds' heat
+//             lagged in the right-hand side (src/engine/airheat.js)
 //   fine T    the annual mean prolonged; each cell's seasons from its own
 //             capacity, the transport prolonged and the exchange's net
 //             returned evenly (sums by a two-pass reduction)
@@ -25,6 +28,7 @@ import { kernel, storage, uniform } from './device.js';
 import { hierarchy } from './hierarchy.js';
 import { prolongT } from '../grid/transfer.js';
 import { CLIMATE } from '../engine/climate.js';
+import { AIRHEAT } from '../engine/airheat.js';
 
 const NS = 24, NLAT = 181, NR = 10, NPF = 9;   // samples of the year; latitude rows; restricted fields (+ snow); prolonged fields
 
@@ -36,7 +40,9 @@ fn cdiv(a: vec2f, b: vec2f) -> vec2f { return vec2f(a.x * b.x + a.y * b.y, a.y *
 fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
 `;
 
-// The operator, system s (id.z) at cell c: d x + D Σ w (x − x_j). k.x: Jacobi's weight.
+// The operator, system s (id.z) at cell c: d x + Σ (D w + a)(x − x_j), a the year's mean wind's inflow
+// from each neighbour (src/engine/airheat.js), on the systems below k.z (1: the annual mean alone,
+// 3: the seasons too). k.x: Jacobi's weight.
 const SMOOTH = HEAD + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
 @group(0) @binding(1) var<storage, read> topo: array<u32>;
@@ -45,6 +51,7 @@ const SMOOTH = HEAD + /* wgsl */`
 @group(0) @binding(4) var<storage, read> xin: array<vec2f>;
 @group(0) @binding(5) var<storage, read> b: array<vec2f>;
 @group(0) @binding(6) var<storage, read_write> xout: array<vec2f>;
+@group(0) @binding(7) var<storage, read> adv: array<f32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -52,17 +59,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let c = U.off + i;
   let o = id.z * U.N;
   let xi = xin[o + c];
+  let D = U.D[id.z];
+  let s0 = select(0.0, 1.0, id.z < u32(U.k.z));
   var kx = vec2f(0.0);
   var sw = 0.0;
   for (var k = 0u; k < 6u; k++) {
-    let w = geo[8u * c + k];
+    let w = D * geo[8u * c + k] + s0 * adv[6u * c + k];
     kx += w * (xi - xin[o + U.off + topo[12u * c + k]]);
     sw += w;
   }
-  let D = U.D[id.z];
   let d = dg[o + c];
-  let r = b[o + c] - cmul(d, xi) - D * kx;
-  xout[o + c] = xi + U.k.x * cdiv(r, d + vec2f(D * sw, 0.0));
+  let r = b[o + c] - cmul(d, xi) - kx;
+  xout[o + c] = xi + U.k.x * cdiv(r, d + vec2f(sw, 0.0));
 }`;
 
 // The residual to the next coarser level: a coarse cell's own and half of each midpoint's; x there zeroed.
@@ -73,12 +81,13 @@ const RESTRICT = HEAD + /* wgsl */`
 @group(0) @binding(3) var<storage, read> dg: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> x: array<vec2f>;
 @group(0) @binding(5) var<storage, read_write> b: array<vec2f>;
-fn resid(i: u32, o: u32, D: f32) -> vec2f {
+@group(0) @binding(6) var<storage, read> adv: array<f32>;
+fn resid(i: u32, o: u32, D: f32, s0: f32) -> vec2f {
   let c = U.off + i;
   let xi = x[o + c];
   var kx = vec2f(0.0);
-  for (var k = 0u; k < 6u; k++) { kx += geo[8u * c + k] * (xi - x[o + U.off + topo[12u * c + k]]); }
-  return b[o + c] - cmul(dg[o + c], xi) - D * kx;
+  for (var k = 0u; k < 6u; k++) { kx += (D * geo[8u * c + k] + s0 * adv[6u * c + k]) * (xi - x[o + U.off + topo[12u * c + k]]); }
+  return b[o + c] - cmul(dg[o + c], xi) - kx;
 }
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -86,11 +95,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (i >= U.nc) { return; }
   let o = id.z * U.N;
   let D = U.D[id.z];
+  let s0 = select(0.0, 1.0, id.z < u32(U.k.z));
   let c = U.off + i;
-  var r = resid(i, o, D);
+  var r = resid(i, o, D, s0);
   for (var k = 0u; k < 6u; k++) {
     let j = topo[12u * c + k];
-    if (j != i) { r += 0.5 * resid(j, o, D); }
+    if (j != i) { r += 0.5 * resid(j, o, D, s0); }
   }
   b[o + U.offc + i] = r;
   x[o + U.offc + i] = vec2f(0.0);
@@ -145,6 +155,7 @@ const COARSE = HEAD + /* wgsl */`
 @group(0) @binding(3) var<storage, read> dg: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> x: array<vec2f>;
 @group(0) @binding(5) var<storage, read> b: array<vec2f>;
+@group(0) @binding(6) var<storage, read> adv: array<f32>;
 var<workgroup> xs: array<vec2f, 64>;
 @compute @workgroup_size(64)
 fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u) {
@@ -154,19 +165,21 @@ fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u)
   let o = g.z * U.N;
   let c = U.off + ii;
   let D = U.D[g.z];
+  let s0 = select(0.0, 1.0, g.z < u32(U.k.z));
+  var wk: array<f32, 6>;
   var sw = 0.0;
-  for (var k = 0u; k < 6u; k++) { sw += geo[8u * c + k]; }
+  for (var k = 0u; k < 6u; k++) { wk[k] = D * geo[8u * c + k] + s0 * adv[6u * c + k]; sw += wk[k]; }
   let d = dg[o + c];
   let bb = b[o + c];
-  let den = d + vec2f(D * sw, 0.0);
+  let den = d + vec2f(sw, 0.0);
   xs[i] = select(vec2f(0.0), x[o + c], on);
   workgroupBarrier();
   let sweeps = u32(U.k.y);
   for (var s = 0u; s < sweeps; s++) {
     let xi = xs[ii];
     var kx = vec2f(0.0);
-    for (var k = 0u; k < 6u; k++) { kx += geo[8u * c + k] * (xi - xs[topo[12u * c + k]]); }
-    let nx = xi + U.k.x * cdiv(bb - cmul(d, xi) - D * kx, den);
+    for (var k = 0u; k < 6u; k++) { kx += wk[k] * (xi - xs[topo[12u * c + k]]); }
+    let nx = xi + U.k.x * cdiv(bb - cmul(d, xi) - kx, den);
     workgroupBarrier();
     if (on) { xs[i] = nx; }
     workgroupBarrier();
@@ -177,8 +190,7 @@ fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u)
 // Each fine cell's absorbed sunlight through the year, as harmonics; its snow-and-ice share; the
 // continental seasons' admittances and forcing; the fields to restrict (rf, field-major over all levels).
 // pa: (o, c0, c1, c2): v = T + o, albedo c0 + c1 r₁(v) + c2 ramp(−v, 0, 4.5), r₁ land's ramp(−v, −1, 5)
-// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing); mar: maritime air
-// (src/engine/maritime.js), per cell its forcing on the two harmonics (re, im, re, im) and K m.
+// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing).
 const FORCING = /* wgsl */`
 struct Fu { n: u32, N: u32, off: u32, p0: u32, c: vec4f, ang: array<vec4f, ${NS}> };
 fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
@@ -190,7 +202,6 @@ fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1
 @group(0) @binding(5) var<storage, read_write> fh: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> yv: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> rf: array<f32>;
-@group(0) @binding(8) var<storage, read> mar: array<vec4f>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -214,12 +225,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     f0 += fa; a1 += fa * g.x; b1 -= fa * g.y; a2 += fa * g.z; b2 -= fa * g.w;
     cold += r1;
   }
-  let F = vec4f(2.0 * a1, 2.0 * b1, 2.0 * a2, 2.0 * b2) / ${NS}.0 + mar[2u * i];
+  let F = vec4f(2.0 * a1, 2.0 * b1, 2.0 * a2, 2.0 * b2) / ${NS}.0;
   let snow = cold / ${NS}.0;
   fh[i] = F;
   // Heat capacity: land, or the sea by its share of the year under ice; the admittances (c: B + K, C_LAND, C_OCEAN, C_ICE).
   let C = select(U.c.z + (U.c.w - U.c.z) * snow, U.c.y, land);
-  let bk = U.c.x + mar[2u * i + 1u].x;
+  let bk = U.c.x;
   let z1 = 6.283185307 * C;
   let m1 = 1.0 / (bk * bk + z1 * z1);
   let y1 = vec2f(bk * m1, -z1 * m1);
@@ -281,7 +292,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }`;
 
 // On the energy balance's grid: each system's diagonal and right-hand side (k: A, B, K, ΔF); the
-// annual mean's with the sea's heat transport's (sea: its diagonal and forcing, src/engine/seaheat.js).
+// annual mean's with the sea's heat transport's (sea: its diagonal and forcing, src/engine/seaheat.js);
+// each with the heat the seasons' winds carry (xf, per system, lagged: src/engine/airheat.js's `cross`).
 const SETUP = HEAD + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
 @group(0) @binding(1) var<storage, read> geo: array<f32>;
@@ -289,6 +301,7 @@ const SETUP = HEAD + /* wgsl */`
 @group(0) @binding(3) var<storage, read_write> dg: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> b: array<vec2f>;
 @group(0) @binding(5) var<storage, read> sea: array<vec2f>;
+@group(0) @binding(6) var<storage, read> xf: array<vec2f>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -298,13 +311,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let A = geo[8u * c + 6u];
   let m = sea[i];
   dg[c] = vec2f(A * U.k.y + m.x, 0.0);
-  b[c] = vec2f(A * (rf[c] - U.k.x + U.k.w) + m.y, 0.0);
+  b[c] = vec2f(A * (rf[c] - U.k.x + U.k.w) + m.y + xf[i].x, 0.0);
   for (var h = 0u; h < 2u; h++) {
     let r = 1u + 4u * h;
     let Z = cdiv(vec2f(1.0, 0.0), vec2f(rf[r * N + c], rf[(r + 1u) * N + c])) - vec2f(U.k.z, 0.0);
     let G = vec2f(rf[(r + 2u) * N + c], rf[(r + 3u) * N + c]);
     dg[(h + 1u) * N + c] = A * Z;
-    b[(h + 1u) * N + c] = A * cmul(Z + vec2f(U.k.z, 0.0), G);
+    b[(h + 1u) * N + c] = A * cmul(Z + vec2f(U.k.z, 0.0), G) + xf[(h + 1u) * U.n + i];
   }
 }`;
 
@@ -493,27 +506,29 @@ export class GpuEnergyBalance {
     this.Fu = uniform(device, new Float32Array(8 + 4 * NS));
     this.Su = [0, 1].map(() => uniform(device, new Float32Array(8)));
     const { topo, X, Y, Bv, Dg, RF, PF } = this, gb = this.geo;
-    this.MAR = B(32 * n); this.mar = new Float32Array(8 * n); this.marOn = false;
     this.SEA = B(8 * cg.n); this.sea = new Float32Array(2 * cg.n); this.seaOn = false;
-    const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF, mar: this.MAR }), [wg(n)]]];
+    this.ADV = B(4 * 6 * N); this.adv = new Float32Array(6 * N); this.advOn = false; this.advVer = -1;
+    this.XF = B(8 * 3 * cg.n); this.xf = new Float32Array(6 * cg.n); this.xfOn = false;
+    const adv = this.ADV;
+    const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF }), [wg(n)]]];
     for (let k = top; k > ci; k--) step.push([K.rf, K.rf.bind({ U: Urf[k], topo, geo: gb, f: RF }), [wg(lv[k - 1].n)]]);
-    step.push([K.setup, K.setup.bind({ U: this.Uc, geo: gb, rf: RF, dg: Dg, b: Bv, sea: this.SEA }), [wg(lv[ci].n)]]);
+    step.push([K.setup, K.setup.bind({ U: this.Uc, geo: gb, rf: RF, dg: Dg, b: Bv, sea: this.SEA, xf: this.XF }), [wg(lv[ci].n)]]);
     for (let k = ci; k >= 1; k--) step.push([K.diag, K.diag.bind({ U: this.Lu[k], topo, dg: Dg }), [wg(lv[k - 1].n), 1, 3]]);
     this.stepList = step;
     const smooths = (k, m) => {
       const out = [];
       for (let s = 0; s < m; s += 2) {
-        out.push([K.smooth, K.smooth.bind({ U: this.Lu[k], topo, geo: gb, dg: Dg, xin: X, b: Bv, xout: Y }), [wg(lv[k].n), 1, 3]]);
-        out.push([K.smooth, K.smooth.bind({ U: this.Lu[k], topo, geo: gb, dg: Dg, xin: Y, b: Bv, xout: X }), [wg(lv[k].n), 1, 3]]);
+        out.push([K.smooth, K.smooth.bind({ U: this.Lu[k], topo, geo: gb, dg: Dg, xin: X, b: Bv, xout: Y, adv }), [wg(lv[k].n), 1, 3]]);
+        out.push([K.smooth, K.smooth.bind({ U: this.Lu[k], topo, geo: gb, dg: Dg, xin: Y, b: Bv, xout: X, adv }), [wg(lv[k].n), 1, 3]]);
       }
       return out;
     };
     const cyc = [];
     for (let k = ci; k >= 1; k--) {
       cyc.push(...smooths(k, EBM_GPU.PRE));
-      cyc.push([K.restrict, K.restrict.bind({ U: this.Lu[k], topo, geo: gb, dg: Dg, x: X, b: Bv }), [wg(lv[k - 1].n), 1, 3]]);
+      cyc.push([K.restrict, K.restrict.bind({ U: this.Lu[k], topo, geo: gb, dg: Dg, x: X, b: Bv, adv }), [wg(lv[k - 1].n), 1, 3]]);
     }
-    cyc.push([K.coarse, K.coarse.bind({ U: this.Lu[0], topo, geo: gb, dg: Dg, x: X, b: Bv }), [1, 1, 3]]);
+    cyc.push([K.coarse, K.coarse.bind({ U: this.Lu[0], topo, geo: gb, dg: Dg, x: X, b: Bv, adv }), [1, 1, 3]]);
     for (let k = 1; k <= ci; k++) {
       cyc.push([K.prolong, K.prolong.bind({ U: this.Lu[k], topo, x: X }), [wg(lv[k].n), 1, 3]]);
       cyc.push(...smooths(k, EBM_GPU.POST));
@@ -531,8 +546,8 @@ export class GpuEnergyBalance {
     this.qkey = null; this.hasSub = false;
   }
 
-  /** A level's uniform (Lv): sizes and offsets, p0, the systems' diffusivities, and k (default: Jacobi's weight, the coarsest sweeps). */
-  lvBuf(k, p0 = 0, kv = [EBM_GPU.JACOBI, EBM_GPU.COARSE_SWEEPS, 0, 0]) {
+  /** A level's uniform (Lv): sizes and offsets, p0, the systems' diffusivities, and k (default: Jacobi's weight, the coarsest sweeps, the systems the mean wind carries). */
+  lvBuf(k, p0 = 0, kv = [EBM_GPU.JACOBI, EBM_GPU.COARSE_SWEEPS, AIRHEAT.SEASONS ? 3 : 1, 0]) {
     const lv = this.H.levels, L = lv[k], c = k > 0 ? lv[k - 1] : null, ab = new ArrayBuffer(64), u = new Uint32Array(ab), f = new Float32Array(ab);
     u[0] = L.n; u[1] = L.off; u[2] = c ? c.n : 0; u[3] = c ? c.off : 0; u[4] = this.N; u[6] = p0;
     f[8] = CLIMATE.D; f[9] = CLIMATE.D_SEASON; f[10] = CLIMATE.D_SEASON;
@@ -613,19 +628,6 @@ export class GpuEnergyBalance {
     this.device.queue.writeBuffer(this.Uc, 0, this.lvBuf(this.ci, 0, [P.A, P.B, P.SUB_K, f]));
   }
 
-  /** Maritime air's terms for the next step (src/engine/maritime.js: `km`, `F`), or none. */
-  setMaritime(m) {
-    const n = this.n, a = this.mar;
-    if (!m) { if (this.marOn) { a.fill(0); this.device.queue.writeBuffer(this.MAR, 0, a); this.marOn = false; } return; }
-    const km = m.km, F = m.F;
-    for (let i = 0; i < n; i++) {
-      const o = 8 * i;
-      a[o] = F[1][i]; a[o + 1] = F[2][i]; a[o + 2] = F[3][i]; a[o + 3] = F[4][i]; a[o + 4] = km[i];
-    }
-    this.device.queue.writeBuffer(this.MAR, 0, a);
-    this.marOn = true;
-  }
-
   /** The sea's heat transport's terms for the next step (src/engine/seaheat.js: `diag`, `rhs`), or none. */
   setSeaHeat(m) {
     const nc = this.nc, a = this.sea;
@@ -633,6 +635,36 @@ export class GpuEnergyBalance {
     for (let I = 0; I < nc; I++) { a[2 * I] = m.diag[I]; a[2 * I + 1] = m.rhs[I]; }
     this.device.queue.writeBuffer(this.SEA, 0, a);
     this.seaOn = true;
+  }
+
+  /**
+   * The air's heat carried by the wind (src/engine/airheat.js) for the next step from the coarse state
+   * Tc, or none: each level's inflow weights from the year's mean wind's stream function when the wind
+   * is new, and the seasons' winds' heat (`cross`, lagged) each step.
+   */
+  setAirHeat(m, Tc) {
+    const a = this.adv, x = this.xf, q = this.device.queue, nc = this.nc;
+    if (!(m && m.on)) {
+      if (this.advOn) { a.fill(0); q.writeBuffer(this.ADV, 0, a); this.advOn = false; }
+      if (this.xfOn) { x.fill(0); q.writeBuffer(this.XF, 0, x); this.xfOn = false; }
+      return;
+    }
+    if (!this.advOn || m.version !== this.advVer) {
+      const lv = this.H.levels;
+      a.fill(0);
+      for (let k = 0; k <= this.ci; k++) m.levelWeights(lv[k].g, a, lv[k].off);
+      q.writeBuffer(this.ADV, 0, a);
+      this.advOn = true; this.advVer = m.version;
+    }
+    if (m.cross(Tc)) {
+      const X = m.X;
+      for (let I = 0; I < nc; I++) {
+        x[2 * I] = X[0][I]; x[2 * I + 1] = 0;
+        x[2 * (nc + I)] = X[1][I]; x[2 * (nc + I) + 1] = X[2][I];
+        x[2 * (2 * nc + I)] = X[3][I]; x[2 * (2 * nc + I) + 1] = X[4][I];
+      }
+      q.writeBuffer(this.XF, 0, x); this.xfOn = true;
+    } else if (this.xfOn) { x.fill(0); q.writeBuffer(this.XF, 0, x); this.xfOn = false; }
   }
 
   /** One step T ← G(T) (forcing, restriction, the solves, the fine temperature); resolves once G's coarse harmonics are in Tc. */

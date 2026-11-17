@@ -23,6 +23,7 @@ const R_M = 6.371e6, RHO_W = 1025, RHO_A = 1.2, CD = 1.3e-3;
 
 import { restrict, prolong } from '../grid/transfer.js';
 import { CLIMATE } from './climate.js';
+import { SEAHEAT } from './seaheat.js';
 
 export const OCEAN = {
   LAYER_CELLS: 2,     // the western boundary layer's width, in cells
@@ -71,11 +72,21 @@ export class Ocean {
     }
   }
 
-  /** ψ, the anomaly and the sea on the climate's grid. */
+  /**
+   * ψ, the anomaly and the sea on the climate's grid. The anomaly the surface shows is the surface
+   * layer's own and SEAHEAT.SURF of the sea heat's water's departure from the air (src/engine/seaheat.js:
+   * where the overturning's warm water lies under it, winter's mixing brings its heat up, and the sea
+   * stays open over it), so the sea's ice, evaporation and drawing see it.
+   */
   publish() {
     if (!this.coarse) return;
-    const c = this.climate, f = this.fine, fn = c.grid.n, [psi, sst] = this.up;
-    prolong(c.T, this.psi, psi); prolong(c.T, this.sst, sst);
+    const c = this.climate, f = this.fine, fn = c.grid.n, [psi, sst] = this.up, sh = c.seaHeat, sf = SEAHEAT.SURF;
+    if (sh && sh.on && sh.flowSea && sf > 0) {
+      const d = this.dTheta || (this.dTheta = new Float64Array(this.grid.n)), th = sh.theta, sea = sh.flowSea, T = c.Tc[0];
+      for (let I = 0; I < d.length; I++) d[I] = this.sst[I] + (sea[I] ? sf * (th[I] - T[I]) : 0);
+      prolong(c.T, d, sst);
+    } else prolong(c.T, this.sst, sst);
+    prolong(c.T, this.psi, psi);
     for (let i = 0; i < fn; i++) {
       const sea = c.landMask[i] ? 0 : 1;
       f.sea[i] = sea;

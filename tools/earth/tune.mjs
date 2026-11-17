@@ -3,7 +3,7 @@
 // processes), takes the best, then tries every improving move together; with none, the steps halve.
 // usage: node tools/earth/tune.mjs spec.json [rounds] [objective]
 //   spec.json: { "params": [{ "key": "CLIMATE.A", "lo": 200, "hi": 210, "x": 205.5, "step": 1 }, …],
-//                "fixed": { "CLIMATE": {…}, "MARITIME": {…}, "VEG": {…}, "SEAHEAT": {…} } }
+//                "fixed": { "CLIMATE": {…}, "VEG": {…}, "SEAHEAT": {…}, "AIRHEAT": {…} } }
 //   objective: temp (default: land temperature, the sea's surface and ice, the Köppen groups) or all (with rain)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -22,14 +22,14 @@ const OBJ = {
 const objective = OBJ[objName];
 
 function overrides(x) {
-  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, MARITIME: { ...(spec.fixed?.MARITIME || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) } };
+  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) }, AIRHEAT: { ...(spec.fixed?.AIRHEAT || {}) } };
   P.forEach((p, k) => { const [ns, key] = p.key.split('.'); o[ns][key] = x[k]; });
   return o;
 }
 function run(x) {
   const o = overrides(x);
   return new Promise(resolve => {
-    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', MAR: JSON.stringify(o.MARITIME), VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT) } });
+    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT), AIRO: JSON.stringify(o.AIRHEAT) } });
     let out = '';
     ch.stdout.on('data', d => { out += d; });
     ch.on('close', () => {

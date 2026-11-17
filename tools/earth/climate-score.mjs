@@ -4,7 +4,7 @@
 // year's temperature, the year's rain, the Köppen groups), the sea's surface and its ice by latitude,
 // and the Köppen classes (the observations classified with the sim's own thresholds, hard, as the
 // sim's months are).
-// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: MAR, VEGO and SEAO (overrides-json for MARITIME, VEG and SEAHEAT), LEVEL (6), MAX (40), QUIET=1 (summary only)
+// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO and AIRO (overrides-json for VEG, SEAHEAT and AIRHEAT), LEVEL (6), MAX (40), QUIET=1 (summary only)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildGrid } from '../../src/grid/icosphere.js';
@@ -19,13 +19,13 @@ import { coverClimate } from '../../src/engine/life.js';
 import { Ocean } from '../../src/engine/ocean.js';
 import { Ice } from '../../src/engine/ice.js';
 import { loadEarth, earthGenesis, earthIce } from '../../src/engine/earth.js';
-import { MARITIME } from '../../src/engine/maritime.js';
 import { SEAHEAT } from '../../src/engine/seaheat.js';
+import { AIRHEAT } from '../../src/engine/airheat.js';
 
 Object.assign(CLIMATE, JSON.parse(process.argv[2] || '{}'));
-Object.assign(MARITIME, JSON.parse(process.env.MAR || '{}'));
 Object.assign(VEG, JSON.parse(process.env.VEGO || '{}'));
 Object.assign(SEAHEAT, JSON.parse(process.env.SEAO || '{}'));
+Object.assign(AIRHEAT, JSON.parse(process.env.AIRO || '{}'));
 const LEVEL = +(process.env.LEVEL || 6), QUIET = !!process.env.QUIET;
 const cache = fileURLToPath(new URL('./.cache/', import.meta.url));
 const meta = JSON.parse(readFileSync(`${cache}obs-${LEVEL}.json`, 'utf8'));
@@ -144,6 +144,8 @@ const sum = `land T rms: year ${f1(Math.sqrt(e2y / la))} K (bias ${f1(bias / la)
 console.log(`settled ${s.settled || 'not'} (${((performance.now() - t0) / 1000).toFixed(0)} s) · mean ${f1(s.meanT)} °C · rain ${f1(s.meanP, 0)} mm/yr (land ${f1(s.landP, 0)}) · lakes ${f1(lakes.stats ? lakes.stats.area / 1e6 : NaN, 2)} M km²`);
 { const o = clim.seaHeat, L = [-50, -30, 0, 26, 45, 60, 70], h = o.transport(L);
   console.log(`sea: overturning ${f1(o.stats.sv)} Sv (channels' Ekman S ${f1(o.ek.S)} N ${f1(o.ek.N)}; sinking ${f1(o.deep)} °C), gyres ${f1(o.stats.gyre)} Sv at most, ${o.stats.sweeps} sweeps · its heat north, PW: ${L.map((la, k) => `${la}° ${h[k].toFixed(2)}`).join(', ')}`); }
+{ const a = clim.airHeat;
+  console.log(`air: H ${f1(AIRHEAT.H, 2)} km, the year's rotational wind ${f1(a.stats.urms)} m/s rms, ψ in ${a.stats.it} iterations`); }
 console.log(sum);
 console.log(`groups (sim/obs % of land): ${groups(ALL)}`);
 if (!QUIET) {
