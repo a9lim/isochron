@@ -330,6 +330,7 @@ export class Climate {
     this.dust = null;    // src/engine/aeolian.js, when there is one: its sources packed at each point of the year
     this.dustDark = null;      // its darkening of snow and ice (planetary albedo, ≤ 0), and its forcing (W/m²): the last cycle's
     this.dustForcing = null;
+    this.peopleForcing = null;     // W/m² per cell: coal's sulfate where the winds carry it (src/engine/peoplelink.js)
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ebmGpu = null;  // src/gpu/ebm.js, where there's a device: the energy balance's steps
     this.ocean = null;   // src/engine/ocean.js, when there is one
@@ -432,7 +433,7 @@ export class Climate {
    */
   packAlbedo(pa, pb) {
     const C = CLIMATE, n = this.grid.n, z = this.zones, cv = this.cover, H = this.ice ? this.ice.H : null;
-    const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing;
+    const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing, pF = this.peopleForcing;
     for (let i = 0; i < n; i++) {
       const s = Math.sin(this.lat[i]), polar = C.ALB_POLAR * s * s, dk = this.dustDark ? this.dustDark[i] : 0, snowA = C.ALB_SNOW + dk;
       const land = this.landMask[i], o = land ? -C.LAPSE * this.elevPos[i] : sstA ? sstA[i] : 0;
@@ -451,7 +452,7 @@ export class Climate {
         if (lw > 0) { const wa = C.ALB_OCEAN + polar; c0 = (1 - lw) * c0 + lw * wa; c1 *= 1 - lw; c2 = lw * (C.ALB_SEAICE - wa); }
       } else { c0 = C.ALB_OCEAN + polar; c1 = C.ALB_SEAICE + dk - c0; }
       pa[4 * i] = o; pa[4 * i + 1] = c0; pa[4 * i + 2] = c1; pa[4 * i + 3] = c2;
-      pb[4 * i] = this.row[i]; pb[4 * i + 1] = this.roww[i]; pb[4 * i + 2] = land; pb[4 * i + 3] = dF ? dF[i] : 0;
+      pb[4 * i] = this.row[i]; pb[4 * i + 1] = this.roww[i]; pb[4 * i + 2] = land; pb[4 * i + 3] = (dF ? dF[i] : 0) + (pF ? pF[i] : 0);
     }
   }
 
@@ -571,7 +572,7 @@ export class Climate {
     // Sea ice reads the sea's own surface: the air's temperature plus the gyres' anomaly
     // (warm currents keep a sea open poleward of its latitude's ice edge, cold ones carry
     // ice toward the equator), so the edge isn't the energy balance's latitude circle.
-    const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing;   // dust's forcing with the sunlight it scatters
+    const sstA = this.ocean ? this.ocean.fine.sst : null, dF = this.dustForcing, pF = this.peopleForcing;   // dust's forcing with the sunlight it scatters; coal's sulfate's (src/engine/peoplelink.js)
     for (let i = 0; i < n; i++) {
       const l = this.row[i], w = this.roww[i], land = this.landMask[i], tp = !land && sstA ? sstA[i] : 0;
       let f0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0, cold = 0;
@@ -584,7 +585,7 @@ export class Climate {
         f0 += fa; a1 += fa * c; b1 -= fa * sv; a2 += fa * c2; b2 -= fa * s2;
         cold += land ? ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5) : ramp(-T, 1.5, 6);
       }
-      F[0][i] = f0 / NS + (dF ? dF[i] : 0); F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
+      F[0][i] = f0 / NS + (dF ? dF[i] : 0) + (pF ? pF[i] : 0); F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
       this.snowAnn[i] = cold / NS;
     }
     yield;

@@ -46,8 +46,9 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   return {
     values: {
       climate: `${meanT.toFixed(1)} °C`, land: `NPP ${Math.round(npp)} Pg/yr`,
-      people: count(h.earth), minds: count(h.minds), culture: `z ${h.zmax.toFixed(2)}`,
-      farms: farms ? `${pc(farmed)} of land` : null,
+      // People and their fields leave the figure with the last of them on Earth (the minds stay: AI's research joins them).
+      people: h.earth >= 1 ? count(h.earth) : null, minds: count(h.minds), culture: `z ${h.zmax.toFixed(2)}`,
+      farms: farms && (h.earth >= 1 || farmed > 5e-4) ? `${pc(farmed)} of land` : null,
       sea: boiled > 0 ? `${Math.round(100 * boiled)}% boiled` : null,
       air: ind ? `${Math.round(pco2)} ppm` : null,
       output: ind ? (h.earth >= 1e3 ? `income ${income >= 1e6 ? sci(income) : g2(income)}×` : `${sci(Y)} sy/yr`) : null,
@@ -56,6 +57,8 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       compute: ai ? count(h.AI) : null,
       robots: bots ? (work ? count(h.Ap) : `${count(E.bodies)} idle`) : null,
     },
+    // Misaligned, AI's nodes are drawn in the red.
+    red: m.ending && !m.ending.aligned ? { compute: true, robots: true } : {},
     edges: [
       // Kremer's loop: the land feeds people, people make minds, minds ideas, and culture raises what the land carries.
       { from: 'climate', to: 'land', w: rain / la / 1.5, label: `${Math.round(1000 * rain / la)} mm/yr`, bend: 0 },
@@ -103,6 +106,8 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'culture', to: 'robots', w: 0.2, bend: 0.1 },
       // Space: its sunlight's power, and the people who go; misaligned, control passes to AI.
       { from: 'people', to: 'space', w: 0.3, label: h.Es >= 1e9 ? count(h.space) : '', bend: -0.25, on: h.space >= 1e3 },
+      // Alignment: people's hold on AI, 1 − its control (a9), in the ink; misaligned, the control AI takes back in the red.
+      { from: 'people', to: 'compute', w: 1 - dis, label: `alignment ${pc(1 - dis)}`, ink: 'text', bend: 0.2 },
       { from: 'compute', to: 'people', w: dis, label: `control ${pc(dis)}`, red: true, bend: -0.2, on: dis > 0.01 },
       // Past the runaway the climate boils the sea.
       { from: 'climate', to: 'sea', w: boiled, label: 'boils', bend: 0 },

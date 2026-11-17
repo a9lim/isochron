@@ -295,9 +295,10 @@ function yearFrame() {
   const lr = Math.log10(rate()), live = Year.liveWeight(rate()), f = yearPhase(), now = performance.now();
   const vis = live * (1 - smooth(0.5, 1.5, lr));
   const veil = new Float32Array(36);
-  // The people's sulfate (coal's, and a preserving AI's held against the forcing) as a standing veil at
-  // every dial, its optical depth by the volcanoes' −25 W/m² per unit (src/engine/volcanoes.js).
-  const tp = people.msg ? Math.max(0, -people.msg.forcing.aer / 25) : 0;
+  // A preserving AI's sprayed sulfate as a standing veil at every dial, global as the volcanoes' (its
+  // optical depth by their −25 W/m² per unit, src/engine/volcanoes.js); coal's is a haze where the
+  // winds carry it (`coalHaze`, src/engine/peoplelink.js).
+  const tp = people.msg ? Math.max(0, -(people.msg.forcing.geo || 0) / 25) : 0;
   for (let b = 0; b < 36; b++) veil[b] = vis * (year.bandsPrev[b] + f * (year.bands[b] - year.bandsPrev[b])) + tp;
   const marks = [];
   for (const e of year.eruptions) {
@@ -308,8 +309,15 @@ function yearFrame() {
     if (a > 0) marks.push({ p: e.p, M: e.M, a });
   }
   if (eruptionSeen.size > 200) for (const [k, t] of eruptionSeen) if (now - t > 5000) eruptionSeen.delete(k);
-  return { veil, marks };
+  return { veil, marks, coal: coalHaze() };
 }
+/** Coal's sulfate's optical depth where its burden's pattern is 1 (its global mean, by the same −25 W/m² per unit). */
+function coalHaze() {
+  const F = people.msg ? people.msg.forcing : null;
+  return F && sulfPattern ? Math.max(0, -(F.aer - (F.geo || 0)) / 25) : 0;
+}
+// Coal's sulfate's pattern on the engine's grid (mean 1), from the engine after each cycle that carried it.
+let sulfPattern = null;
 // The lakes as drawn (their depth from their water, and the salt flats), eased in by the globe.
 let lakesDrawn = null;
 function onLakes(m) {
@@ -340,10 +348,18 @@ const lunarTide = a => 0.75 * (7.342e22 / 5.972e24) * (6.371e6 / a) ** 3 * 6.371
  * at its mean motion; the Sun's comes from the date (the orbit's calendar). The lunar
  * semidiurnal tide's phase is 2(θ − the Moon's right ascension), the solar's likewise.
  */
-/** Rivers by the month where the globe shows the season (as the snow: below ~12 yr/s), else by the year. */
+/** Rivers by the month where the globe shows the season (as the snow: below ~1.4 yr/s), else by the year. */
 function riverMonth() {
-  if (1 - smooth(0.6, 1.6, Math.log10(rate())) < 0.5) return null;
-  return { ...monthAt(((P.years % 1) + 1) % 1), aw: year.live > 0 ? Year.liveWeight(rate()) : 0 };
+  if (seasonShown() < 0.5) return null;
+  return { ...monthAt(((P.years % 1) + 1) % 1), aw: anomalyShown() };
+}
+/** The Moon's city's uses as far as each has grown (0–1, log): residences by the people off-world, datacenters by off-world compute's power, factories by the rest of off-world power. */
+function moonbase() {
+  const m = people.msg;
+  if (!m || !m.last) return [0, 0, 0];
+  const lg = (v, a, b) => Math.max(0, Math.min(1, (Math.log10(Math.max(v, 1)) - a) / (b - a)));
+  const allE = m.last.energy || 0, Wc = m.econ ? m.econ.Wc : 0, Es = m.Es || 0, cs = allE > 0 ? Math.min(1, Wc / allE) : 0;
+  return [lg(m.space, 3, 10), lg(Es * cs, 10, 20), lg(Es * (1 - cs), 11, 21)];
 }
 function skyFrame() {
   const y = P.years, YR = 3.15576e7, lr = Math.log10(rate());
@@ -365,7 +381,7 @@ function skyFrame() {
   return {
     tides: { m: [Math.cos(m2) + rho * Math.cos(s2), Math.sin(m2) + rho * Math.sin(s2)], hw: [Math.cos(m2), Math.sin(m2)], amp: tide ? amp : 0, now },
     sky: { stars, theta: skyClock.thetaShown, sun, sunAlpha: 1 - smooth(-0.6, -0.2, lr), moon: mo, moonAlpha: 1 - smooth(-1.75, -1.3, lr), moonDist: moon.a,
-      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: people.msg && people.msg.Es > 0 ? (Math.log10(people.msg.Es) - 11) / 10 : 0 },
+      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase() },
   };
 }
 function uploadSurface(m, mode) {
@@ -381,17 +397,21 @@ function uploadSurface(m, mode) {
 let polarityReady = false;
 
 // ── The season, snow and ice ──
-// Below a few years a second the globe shows the season at the planet's
-// clock; above a few tens it shows the year's average (the share of it under
-// snow or ice). Between, it blends.
+// Where a year lasts long enough to watch (below ~0.8 yr/s) the globe shows the season at the
+// planet's clock, and the year's anomaly where a year lasts a second or more; above ~3 yr/s, the
+// year's average (the share of it under snow or ice), and no anomaly. Between, it blends. (From 4 to
+// 40 yr/s, as it was, the snow line and the sea ice swept through 4–40 seasons and as many years'
+// anomalies a second, and flickered.) The rivers' months and the caption's date follow the season.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const seasonShown = () => 1 - smooth(-0.1, 0.5, Math.log10(rate()));
+const anomalyShown = () => (year.live > 0 ? Year.liveWeight(rate()) : 0) * (1 - smooth(0, 0.5, Math.log10(rate())));
 let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, coldEaseStart = -1e9, season = null, anomDrawn = -1;
 function refreshClimate(force) {
   if (!season) return;
   const tau = ((P.years % 1) + 1) % 1, nowMs = performance.now();
-  const sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
-  // The year's anomaly, between its two step ends by the clock, as live as the year is.
-  const af = yearPhase(), aw = year.live > 0 ? Year.liveWeight(rate()) : 0, ak = aw * (1 + af);
+  const sw = seasonShown();
+  // The year's anomaly, between its two step ends by the clock, where a year lasts long enough to see.
+  const af = yearPhase(), aw = anomalyShown(), ak = aw * (1 + af);
   const moved = Math.abs(tau - seasonDrawn) > 1 / 240 || Math.abs(sw - seasonWeightDrawn) > 0.02 || Math.abs(ak - anomDrawn) > 0.01;
   const easing = nowMs - coldEaseStart < 900;
   if (!force && !moved && !easing && climate.version === climateVersionDrawn) return;
@@ -505,7 +525,7 @@ const air = { cur: null, prev: null, at: -1e9, busy: false, sent: null, sentAt: 
 const airShown = () => view === 'climate' && clMode === 'air';
 function refreshAir() {
   if (!airShown() || air.busy || climate.version < 0) return;
-  const now = performance.now(), tau = ((P.years % 1) + 1) % 1, sw = 1 - smooth(0.6, 1.6, Math.log10(rate()));
+  const now = performance.now(), tau = ((P.years % 1) + 1) % 1, sw = seasonShown();
   const k = Math.max(0, Math.min(1, Math.round(Math.log2(camera.radius(cssW, cssH) / 380))));
   const s = air.sent, dTau = s ? Math.abs(((tau - s.tau) % 1 + 1.5) % 1 - 0.5) : 1;
   const moved = !s || climate.version !== s.version || k !== s.k || Math.abs(sw - s.sw) > 0.05 || (sw > 0.02 && dTau > 1 / 48) || Math.abs(moon.Omega / s.omega - 1) > 0.003;
@@ -556,7 +576,7 @@ resize();
 
 // ── The dial ──
 // The People scenario's follow dial (below): while it holds the dial, the rate is its eased value.
-const follow = { on: true, secs: 3, v: null, active: false };
+const follow = { on: true, secs: 10, v: null, active: false };   // 10 s a doubling (a9)
 function rate() { return 10 ** (follow.active && follow.on && follow.v != null ? follow.v : +els.dial.value); }
 function syncDial() { els.dialOut.textContent = formatRate(rate()); }
 els.dial.addEventListener('input', () => { follow.on = false; clampDial(); syncDial(); syncControls(); caption(true); figuresDirty = true; });
@@ -638,10 +658,10 @@ for (const b of els.maps) b.addEventListener('click', () => { viewChosen = true;
 
 // ── Scenarios ──
 // Two, each from the planet's opening (choosing one reloads, keeping the seed; ?scenario=people for
-// the second): the planet alone, and people on it. The People scenario's planet first runs alone at
-// the world's pace until its climate has settled (the dry run: the climate, the cover, the lakes and
-// the sea come to their balance), then the first hominins come, the dial follows them, and their
-// view, Fig. 8's tab and the follow dial's switch appear (showPeopleParts).
+// the second): the planet alone, and people on it. The People scenario holds its planet at the
+// opening while it loads and its climate settles (the climate, the cover, the lakes and the sea come
+// to their balance, the climate's cycles back to back), then the first hominins come, the clock runs,
+// the dial follows them, and their view, Fig. 8's tab and the follow dial's switch appear.
 const scenario = query.get('scenario') === 'people' ? 'people' : 'world';
 const peopleOn = () => scenario === 'people';
 for (const b of els.scenarios) {
@@ -654,6 +674,12 @@ for (const b of els.scenarios) {
     location.search = q.toString();
   });
 }
+// A new planet: the link without its seed, in the same scenario.
+$('new-planet').addEventListener('click', () => {
+  const q = new URLSearchParams(location.search);
+  q.delete('seed'); q.delete('ending');
+  location.search = q.toString();
+});
 function showPeopleParts() {
   const on = !!people.worker;
   for (const b of els.views) if (b.dataset.group === 'people') b.hidden = !on;
@@ -732,10 +758,10 @@ function caption(force) {
   lastCaption = now;
   // The year (the planet's, or with people their own, from the first hominins), the date where the
   // globe shows the season, and with people how many and the largest city. The view names itself;
-  // the margin's figures carry the rest.
-  if (!shown) { setCaption('', true); return; }
+  // the margin's figures carry the rest. Nothing while the People scenario's planet settles.
+  if (!shown || (peopleOn() && !(people.msg && people.msg.last))) { setCaption('', true); return; }
   const m = people.msg, h = m && m.last, parts = [h ? `year ${Math.floor(m.t).toLocaleString('en')}` : formatTime(P.years)];
-  if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
+  if (seasonShown() >= 0.5) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (h) {
     parts.push(h.space >= 1e3 ? `${headcount(h.earth)} people, ${headcount(h.space)} off-world` : `${headcount(h.earth)} people`);
     if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
@@ -1083,7 +1109,9 @@ function tick(now) {
     // or while the people are owed more than a quarter second's worth.
     const keep = rate() * engineMsPerStep / 1000 * 1.3;
     scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10, keep));
-    const behind = stepsSent - stepsDone >= 2 || (people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4));
+    // The People scenario holds the planet at its opening while its climate settles (the climate's
+    // cycles run back to back on the engine's thread meanwhile), then runs from the first hominins.
+    const behind = stepsSent - stepsDone >= 2 || (people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4)) || (peopleOn() && !people.msg);
     const { dt: adv, plan } = scheduler.advance(behind ? 0 : rate() * dt);
     P.years += adv;
     const p = plan[0];
@@ -1144,7 +1172,7 @@ function tick(now) {
     lap('lines');
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0 });
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0 });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
@@ -1169,6 +1197,7 @@ engine.onmessage = e => {
   else if (m.type === 'year') onYear(m);
   else if (m.type === 'lakes') onLakes(m);
   else if (m.type === 'cover') onCover(m);
+  else if (m.type === 'sulfate') { sulfPattern = m.pat; if (globe) globe.setSulfate(m.pat); drawDirty = true; }
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
@@ -1187,6 +1216,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt);
   if (coverDrawn) g.setCover(coverDrawn);
   if (people.drawn) g.setPeople(people.drawn, people.grid);
+  if (sulfPattern) g.setSulfate(sulfPattern);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;
@@ -1199,4 +1229,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; }, get sulfate() { return sulfPattern; } };

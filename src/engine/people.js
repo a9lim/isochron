@@ -631,7 +631,7 @@ export class People {
       D: new Float64Array(nL), coast: new Uint8Array(nL), lat: new Float64Array(nL), lon: new Float64Array(nL),
       elev: new Float64Array(nL), zv: new Float32Array(14 * nL), deg: new Uint8Array(nL), mosaic: new Float64Array(nL),
       alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
-      hot: new Float64Array(nL), sun: new Float64Array(nL),
+      hot: new Float64Array(nL), sun: new Float64Array(nL), arable: new Float64Array(nL),
     };
     this.sol = new Float64Array(nL);   // the share of each cell under solar farms (People.placeSolar)
     this.X = { cells: new Int32Array(0), area: new Float64Array(0), sun: new Float64Array(0), sol: new Float64Array(0), mach: new Float64Array(0) };
@@ -672,6 +672,7 @@ export class People {
       const nppPot = 0.45e-3 * miami(Ta, Pa);
       const arable = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3) * (river ? 1 : Math.min(1, Pa / 400));
       H.a[c] = H.alive[c] ? P.F0 * nppPot / P.NPP_REF * arable * (1 - H.hot[c]) : 0;
+      H.arable[c] = H.alive[c] ? arable : 0;   // the most of a cell fields can take (none on permafrost: a9)
       H.Tc[c] = Tc; H.coast[c] = coast; H.elev[c] = f.elev[i]; H.slope[c] = slope; H.river[c] = river ? 1 : 0;
       H.arid[c] = f.zones[NZ * i + 4] + f.zones[NZ * i + 5];   // BW and BS: where solar farms go first
       H.sun[c] = sunAt(H.lat[c], H.arid[c]);
@@ -1435,8 +1436,10 @@ export class People {
       if (p0[c] >= 0) {
         // Logistic toward the package's suitability here, exactly (the live planet's climate moves
         // the suitability, so the share can sit above it and fall back), none past the heat limit,
-        // and none under the solar farms.
-        const s = Math.min(this.suit(p0[c], c) * (1 - this.rewild) * (1 - H.hot[c]), 1 - this.sol[c]), e = Math.exp(Math.min(50, P.R_ADOPT * dt));
+        // none under the solar farms, and no more than the cell's arable share: no fields on
+        // permafrost, however far breeding has carried the crops (a9: farms had stood on frozen
+        // ground whose yield was nil, since the share followed the package's climate alone).
+        const s = Math.min(this.suit(p0[c], c) * (1 - this.rewild) * (1 - H.hot[c]), 1 - this.sol[c], H.arable[c]), e = Math.exp(Math.min(50, P.R_ADOPT * dt));
         f[c] = s > 1e-9 ? s * f0[c] * e / (s + f0[c] * (e - 1)) : f0[c] / e;
       }
       const know = sig((zc[c] - (P.Z_FARM - 0.5)) / 0.25);
@@ -1450,7 +1453,7 @@ export class People {
       }
       if (bestQ >= 0) {
         if (p0[c] < 0 || this.suit(bestQ, c) > this.suit(p0[c], c)) pkg[c] = bestQ;
-        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c) * (1 - H.hot[c]), 1 - this.sol[c], f[c] + P.C_FARM * know * bestIn * dt));
+        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c) * (1 - H.hot[c]), 1 - this.sol[c], H.arable[c], f[c] + P.C_FARM * know * bestIn * dt));
       }
     }
   }
@@ -1659,10 +1662,17 @@ export class People {
 
   /** The write-back on the people's grid (src/engine/peoplelink.js): each cell's farmed share and tillage's erosion (mm/yr). */
   writeBack(out = null) {
-    const n = this.planet.grid.n;
-    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n), s: new Float32Array(n) };
-    out.f.fill(0); out.Ef.fill(0); out.s.fill(0);
-    for (let c = 0; c < this.nL; c++) { const i = this.cells[c]; out.f[i] = this.f[c]; out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c]; }
+    const n = this.planet.grid.n, area = this.planet.grid.area;
+    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n), s: new Float32Array(n), x: new Float32Array(n) };
+    out.f.fill(0); out.Ef.fill(0); out.s.fill(0); out.x.fill(0);
+    let any = false;
+    for (let c = 0; c < this.nL; c++) {
+      const i = this.cells[c]; out.f[i] = this.f[c]; out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c];
+      // Where coal's sulfate is lifted, per unit area: industry's workers (src/engine/peoplelink.js carries it).
+      const w = this.Ntot[c] * this.ind[c];
+      if (w > 0) { out.x[i] = w / area[i]; any = true; }
+    }
+    if (!any && this.mach) for (let c = 0; c < this.nL; c++) out.x[this.cells[c]] = this.mach[c] / area[this.cells[c]];   // an empty Earth's machines: their footprint
     const X = this.X;
     for (let k = 0; k < X.cells.length; k++) out.s[X.cells[k]] = X.sol[k];
     return out;

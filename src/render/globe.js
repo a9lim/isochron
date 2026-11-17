@@ -92,12 +92,13 @@ struct U {
   tide: vec4f,       // the tide's clock: Re, Im of e^{iφ₂} + ρ e^{iφs} (spring and neap), cos, sin φ₂
   tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now; w the lakes' ease (0 last, 1 new)
   veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
-  steam: vec4f,      // the runaway's steam (src/engine/runaway.js): x its wash's opacity, from the column's pressure
+  steam: vec4f,      // the runaway's steam (src/engine/runaway.js): x its wash's opacity, from the column's pressure; y coal's sulfate's optical depth where its pattern is 1
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
 @group(0) @binding(2) var<storage, read> cover: array<vec4f>;   // the cover's eight colour weights a vertex
-@group(0) @binding(3) var<storage, read> folk: array<vec4f>;    // the people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, and robots at work per km²
+@group(0) @binding(3) var<storage, read> folk: array<vec4f>;
+@group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)    // the people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, and robots at work per km²
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -142,7 +143,9 @@ fn toView(p: vec3f) -> vec3f {
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
-  o.wx = wx;
+  // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
+  // sulfate's optical depth, its haze where the winds carry it (the vertex has no varyings to spare).
+  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, 0.0, 0.0, 0.0), u.mode.x > 5.5);
   o.td = td;
   o.lw = lw;
   // The cover's colour: its classes (src/engine/vegetation.js, COLOURS) in the biomes' colours,
@@ -661,10 +664,11 @@ fn hair(d: f32, w: f32) -> f32 {
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(e), fe));
-  // The sulfate veil (Air): graphite hatching along the circles of latitude (the veil lies in bands),
-  // denser where its optical depth is (16 px apart at 0.02, 4 px at 1, by log optical depth).
+  // The sulfate veil (Air, People): graphite hatching along the circles of latitude (the volcanoes' and
+  // a sprayed veil lie in bands; coal's haze lies where the winds carry it), denser where its optical
+  // depth is (16 px apart at 0.02, 4 px at 1, by log optical depth).
   if (air || folkV) {
-    let aod = veilAt(wpn.z);
+    let aod = veilAt(wpn.z) + max(i.wx.x, 0.0);
     let va = smoothstep(-1.7, 0.0, log(max(aod, 1e-4)) / 2.302585);
     let vh = hatch1(vec2f(lat, 0.0), dlat, vec2f(1.0, 0.0), octave(mix(16.0, 4.0, va) * u.mode.z), 0.55 * u.mode.z);
     c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.3), select(0.5, 0.28, folkV) * vh * smoothstep(0.01, 0.04, aod));   // lighter over the people
@@ -710,6 +714,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const coverBuf = storage(device, nm * 32);
   // The people's eight values a vertex (the People scenario), refined from their grid (src/engine/people-worker.js).
   const folkBuf = storage(device, nm * 32);
+  // Coal's sulfate's pattern a vertex (the People scenario: src/engine/peoplelink.js), one vec4 for the refiner.
+  const sulfBuf = storage(device, nm * 16), sulfS = refining ? storage(device, n * 16) : sulfBuf;
   let folkS = null, folkRef = null;
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
@@ -755,7 +761,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   function rebind() {
     bind = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }, { binding: 3, resource: { buffer: folkBuf } }],
+      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }, { binding: 3, resource: { buffer: folkBuf } }, { binding: 4, resource: { buffer: sulfBuf } }],
     });
   }
 
@@ -845,6 +851,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       if (!folkS) { folkS = storage(device, pg.n * 32); folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg); }
       device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 2);
     },
+    /** Per cell of the engine's grid: coal's sulfate's burden, its pattern (mean 1), or null for none. */
+    setSulfate(p) {
+      const v = new Float32Array(4 * n);
+      if (p) for (let i = 0; i < n; i++) v[4 * i] = p[i];
+      device.queue.writeBuffer(sulfS, 0, v); refine(sulfS, sulfBuf, 1);
+    },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
     refiner,
@@ -881,7 +893,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const td = mode.tides || { m: [1, 0], hw: [1, 0], amp: 0, now: 0 };
       uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, lakeMix()], 76);
       if (mode.veil) uni.set(mode.veil, 84); else uni.fill(0, 84, 120);
-      uni[120] = mode.steam || 0;
+      uni[120] = mode.steam || 0; uni[121] = mode.sulf || 0;
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();

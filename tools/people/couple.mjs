@@ -49,8 +49,8 @@ export class Live {
     while (this.plateBank >= 5e5) { P.plateStep(5e5); this.plateBank -= 5e5; }
     P.setOrbit(0);
     // The people's forcing, whatever it is (past the limit the planet's runaway boils the sea: src/engine/runaway.js).
-    const F = p.forcing.heat + p.forcing.aer;
-    this.link.receive({ ...p.writeBack(), carbon: this.carbonBank, F });
+    const F = p.forcing.heat + p.forcing.geo, aerC = p.forcing.aer - p.forcing.geo;
+    this.link.receive({ ...p.writeBack(), carbon: this.carbonBank, F, aerC });
     this.carbonBank = 0;
     this.link.beforeFast();
     try { P.fast(h, 1e9, 10 * h); }
@@ -66,14 +66,15 @@ export class Live {
     // A climate cycle when due.
     this.since += h;
     const farm = this.farmShare(), L = this.last;
-    const moved = Math.abs(F - L.F) > COUPLE.D_F || Math.abs(P.carbon.pco2 - L.co2) > COUPLE.D_CO2 || Math.abs(farm - L.farm) > COUPLE.D_FARM;
-    if (this.since >= COUPLE.CLIMATE_MAX || (this.since >= COUPLE.CLIMATE_MIN && moved)) this.cycle(F, farm);
+    const moved = Math.abs(F + aerC - L.F) > COUPLE.D_F || Math.abs(P.carbon.pco2 - L.co2) > COUPLE.D_CO2 || Math.abs(farm - L.farm) > COUPLE.D_FARM;
+    if (this.since >= COUPLE.CLIMATE_MAX || (this.since >= COUPLE.CLIMATE_MIN && moved)) this.cycle(F + aerC, farm);
   }
 
   cycle(F, farm) {
     const P = this.P, p = this.p, t0 = performance.now();
     P.climate.solve(1);
     P.afterClimate();          // the cover's new balance, scaled by the farmed shares (Life.onCover)
+    this.link.sulfate();       // coal's sulfate carried on the new winds and rain
     fieldsOf(P, this.f);
     p.rates(this.f);
     this.since = 0;

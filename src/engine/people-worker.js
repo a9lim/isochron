@@ -88,8 +88,10 @@ function post(force) {
   // To the engine: the write-back.
   if (force || now - lastBack > 100) {
     lastBack = now;
-    const wb = people.writeBack(), F = people.forcing.heat + people.forcing.aer;
-    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, carbon: env.bank, F }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer]);
+    // The forcing: waste heat and a preserving AI's sprayed sulfate global (F), coal's sulfate (aerC,
+    // its global mean) carried by the planet's winds from where it's lifted (x).
+    const wb = people.writeBack(), Fo = people.forcing, F = Fo.heat + Fo.geo, aerC = Fo.aer - Fo.geo;
+    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, x: wb.x, carbon: env.bank, F, aerC }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer, wb.x.buffer]);
     env.bank = 0;
   }
   // To the page: the clock, the record's last row, the events.

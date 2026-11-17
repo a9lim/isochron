@@ -369,16 +369,21 @@ export function drawModel(canvas, s, pal) {
   const taken = nodes.map(n => n.box), clear = b => !taken.some(t => b[0] < t[2] && b[2] > t[0] && b[1] < t[3] && b[3] > t[1]);
   // Arrows first, under the nodes; their labels last, the heaviest first, each where it's clear.
   const labels = [];
+  // An arrowhead at (x, y) pointing along (hx, hy), hs long, at least as wide as the shaft.
+  const head = (x, y, hx, hy, hs, lw) => {
+    const hw = Math.max(0.55 * hs, 0.5 * lw + 2);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - hx * hs - hy * hw, y - hy * hs + hx * hw); ctx.lineTo(x - hx * hs + hy * hw, y - hy * hs - hx * hw); ctx.closePath(); ctx.fill();
+  };
   for (const e of live) {
     const A = boxOf[e.from], B = boxOf[e.to];
     if (e.from === e.to) {   // a stock its own flow keeps (capital, output kept): a loop on the roomier side
       const wgt = Math.max(0, Math.min(1, e.w)), ink = e.red ? pal.accent : pal.text, cy = (A[1] + A[3]) / 2;
       const sd = A[2] + 44 < w ? 1 : -1, x0 = sd > 0 ? A[2] + 3 : A[0] - 3, r = 27 * sd;
-      ctx.strokeStyle = alpha(ink, 0.25 + 0.6 * wgt); ctx.lineWidth = 0.6 + 2.6 * wgt;
-      ctx.beginPath(); ctx.moveTo(x0, cy - 5); ctx.bezierCurveTo(x0 + r, cy - 21, x0 + r, cy + 21, x0, cy + 5); ctx.stroke();
-      const hl = Math.hypot(r, 16), hx = -r / hl, hy = -16 / hl, hs = 4 + 2 * wgt;
+      const lw = 0.6 + 2.6 * wgt, hl = Math.hypot(r, 16), hx = -r / hl, hy = -16 / hl, hs = 4 + 2 * wgt + lw;
+      ctx.strokeStyle = alpha(ink, 0.25 + 0.6 * wgt); ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.moveTo(x0, cy - 5); ctx.bezierCurveTo(x0 + r, cy - 21, x0 + r, cy + 21, x0 - hx * hs * 0.8, cy + 5 - hy * hs * 0.8); ctx.stroke();
       ctx.fillStyle = alpha(ink, 0.35 + 0.6 * wgt);
-      ctx.beginPath(); ctx.moveTo(x0, cy + 5); ctx.lineTo(x0 - hx * hs - hy * hs * 0.55, cy + 5 - hy * hs + hx * hs * 0.55); ctx.lineTo(x0 - hx * hs + hy * hs * 0.55, cy + 5 - hy * hs - hx * hs * 0.55); ctx.closePath(); ctx.fill();
+      head(x0, cy + 5, hx, hy, hs, lw);
       if (e.label) { ctx.font = `italic 10px ${FONT}`; const tw = ctx.measureText(e.label).width; labels.push({ text: e.label, x: x0 + 0.78 * r + sd * (tw / 2 + 4), y: cy, red: e.red, w: 2 }); }
       continue;
     }
@@ -389,15 +394,16 @@ export function drawModel(canvas, s, pal) {
     const bend = (back ? c.bend ?? 0.12 : e.bend ?? 0.12) * (back ? 0.6 : 1), o = back ? 3.5 * sg : 0;
     const mx = (ax + bx) / 2 - uy * (L * bend + o), my = (ay + by) / 2 + ux * (L * bend + o);
     const [sx, sy] = exit(A, ax - uy * o, ay + ux * o, mx, my), [ex, ey] = exit(B, bx - uy * o, by + ux * o, mx, my);
-    const wgt = Math.max(0, Math.min(1, e.w));
-    const ink = e.red ? pal.accent : pal.text;
-    ctx.strokeStyle = alpha(ink, 0.25 + 0.6 * wgt);
-    ctx.lineWidth = 0.6 + 2.6 * wgt;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(mx, my, ex, ey); ctx.stroke();
-    // Head along the curve's end tangent.
-    const tx = ex - mx, ty = ey - my, tl = Math.hypot(tx, ty) || 1, hx = tx / tl, hy = ty / tl, hs = 4 + 2 * wgt;
-    ctx.fillStyle = alpha(ink, 0.35 + 0.6 * wgt);
-    ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - hx * hs - hy * hs * 0.55, ey - hy * hs + hx * hs * 0.55); ctx.lineTo(ex - hx * hs + hy * hs * 0.55, ey - hy * hs - hx * hs * 0.55); ctx.closePath(); ctx.fill();
+    const wgt = Math.max(0, Math.min(1, e.w)), lw = 0.6 + 2.6 * wgt;
+    const ink = e.ink ? pal[e.ink] : e.red ? pal.accent : pal.text;
+    // The head along the curve's end tangent, the shaft ending at its base (run to the tip, a heavy
+    // shaft stood out past the head's narrow point).
+    const tx = ex - mx, ty = ey - my, tl = Math.hypot(tx, ty) || 1, hx = tx / tl, hy = ty / tl, hs = 4 + 2 * wgt + lw;
+    ctx.strokeStyle = alpha(ink, e.ink ? 0.55 + 0.45 * wgt : 0.25 + 0.6 * wgt);
+    ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(mx, my, ex - hx * hs * 0.8, ey - hy * hs * 0.8); ctx.stroke();
+    ctx.fillStyle = alpha(ink, e.ink ? 0.65 + 0.35 * wgt : 0.35 + 0.6 * wgt);
+    head(ex, ey, hx, hy, hs, lw);
     // The flux's value at the bend.
     const t = back ? 0.38 : 0.5, q0 = (1 - t) * (1 - t), q1 = 2 * t * (1 - t), q2 = t * t;
     if (e.label) labels.push({ text: e.label, x: q0 * sx + q1 * mx + q2 * ex, y: q0 * sy + q1 * my + q2 * ey, red: e.red, w: wgt });
@@ -405,7 +411,7 @@ export function drawModel(canvas, s, pal) {
   for (const n of nodes) {
     const [x0, y0, x1, y1] = n.box;
     ctx.fillStyle = pal.canvas; ctx.fillRect(x0, y0, x1 - x0, y1 - y0 - 1);
-    label(ctx, N[n.k][2], n.x, n.y - 2, pal.text, 'center', 13);
+    label(ctx, N[n.k][2], n.x, n.y - 2, s.red && s.red[n.k] ? pal.accent : pal.text, 'center', 13);
     label(ctx, s.values[n.k], n.x, n.y + 11, pal.muted, 'center', 10.5);
   }
   for (const l of labels.sort((a, b) => b.w - a.w)) {

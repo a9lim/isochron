@@ -9,14 +9,26 @@
 //               litter to soil to the air), albedo and evaporation do the rest
 //   soil        tillage's erosion (mm/yr) is added to the landscape's erosion field around each
 //               fast step, so the regolith's exact step strips it; the people read the regolith back
-//   forcing     waste heat and sulfate (W/m²) as CLIMATE.F_PEOPLE in the energy balance, whatever
-//               it is: past the limit the planet's own runaway boils the sea (src/engine/runaway.js),
-//               and the people read back how much has boiled and how warm the planet is (`air`)
+//   forcing     waste heat and a preserving AI's sprayed sulfate (W/m²) as CLIMATE.F_PEOPLE in the
+//               energy balance, whatever it is: past the limit the planet's own runaway boils the sea
+//               (src/engine/runaway.js), and the people read back how much has boiled and how warm
+//               the planet is (`air`); coal's sulfate, a short-lived haze in the lower air, where the
+//               winds carry it from industry (`sulfate`), as `climate.peopleForcing` per cell, its
+//               global mean the people's (a9: "make factory/coal sulfates localized like the dust,
+//               and only make sprayed sulfates global")
 // The people run on a grid no finer than level 6 (their constants are fitted there, and a finer
 // grid would cost four times as much a step); on a finer engine the fields are restricted to it
 // and the write-back prolonged from it (src/grid/transfer.js).
 import { NZ, CLIMATE } from './climate.js';
 import { restrict, prolong } from '../grid/transfer.js';
+import { Dust, NP } from './dust.js';
+
+// Coal's sulfate as a haze carried by the climate's winds (src/engine/dust.js's balance, one bin,
+// solved on level 5): lifted where industry's workers are, washed out by rain and settled, so its
+// burden gathers over industry and downwind and its forcing with it (synthesis on the standard
+// picture; a lifetime of ~3–4 days against sulfate's ~4–5, from memory). Its global mean is the
+// people's (`aerC`); only the pattern is carried.
+export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
 export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigP: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1 };
@@ -99,13 +111,17 @@ export class PeopleLink {
     this.sEq0 = Float64Array.from(P.life.veg.sEq);
     this.carbon = 0; this.F = 0;
     this.stats = { pulsed: 0, farmed: 0, solar: 0 };
+    // Coal's sulfate: where it's lifted (per unit area, the people's), its global-mean forcing, the
+    // carried burden's pattern (mean 1 over the globe), and the forcing per cell the climate reads.
+    this.x = new Float32Array(n); this.aerC = 0; this.pat = null; this.sulf = null;
+    P.climate.peopleForcing = new Float32Array(n);
     this.tmp = T ? new Float64Array(n) : null;
     // The cover's tree balance as each climate cycle sets it, before people's land use scales it.
     P.life.onCover = () => { this.sEq0.set(P.life.veg.sEq); this.landUse(); };
   }
 
   /** The people's write-back on their grid: farmed share, tillage (mm/yr) and solar farms' share a cell, carbon (Pg C) since the last, forcing (W/m²). */
-  receive({ f, Ef, s, carbon = 0, F = 0 }) {
+  receive({ f, Ef, s, x, carbon = 0, F = 0, aerC = 0 }) {
     const put = (a, out) => {
       if (!this.T) { out.set(a.subarray(0, out.length)); return; }
       prolong(this.T, a, this.tmp); out.set(this.tmp);
@@ -113,9 +129,42 @@ export class PeopleLink {
     if (s) put(s, this.us);
     if (f) { put(f, this.u); this.landUse(); }
     if (Ef) put(Ef, this.ef);
+    if (x) put(x, this.x);
     this.carbon += carbon;
     this.F = F; CLIMATE.F_PEOPLE = F;
+    this.aerC = aerC; this.applySulfate();
   }
+
+  /** Coal's sulfate's forcing per cell: its global mean on the carried pattern (uniform until one is solved). */
+  applySulfate() {
+    const f = this.P.climate.peopleForcing, p = this.pat, a = this.aerC;
+    if (!f) return;
+    if (p) for (let i = 0; i < f.length; i++) f[i] = a * p[i]; else f.fill(a);
+  }
+
+  /** Coal's sulfate carried on the last climate cycle's winds and rain: the burden's pattern (a generator, sliced). */
+  *sulfateSteps() {
+    const P = this.P, C = P.climate, g = P.grid, n = g.n, area = g.area, x = this.x;
+    let s = 0, A = 0;
+    for (let i = 0; i < n; i++) { s += x[i] * area[i]; A += area[i]; }
+    if (!(this.aerC < -1e-4) || !(s > 0)) { this.pat = null; this.applySulfate(); return; }
+    if (!this.sulf) this.sulf = new Dust(g, { LEVEL: SULF.LEVEL, H: SULF.H, SCAV: SULF.SCAV, BINS: [{ name: 'sulfate', share: 1, vd: SULF.VD, mee: SULF.MEE }] });
+    const d = this.sulf, e = this.e || (this.e = new Float32Array(n)), k = A / s;
+    for (let i = 0; i < n; i++) e[i] = x[i] * k;      // mean 1: only the pattern is carried
+    for (let p = 0; p < NP; p++) yield* d.phaseSteps(p, { wind: C.windPhase[p], rain: C.Pph[p], emission: e });
+    d.solve();
+    yield;
+    yield* d.finishSteps();
+    const L = d.out.loadAnn;
+    let m = 0;
+    for (let i = 0; i < n; i++) m += L[i] * area[i];
+    m /= A;
+    if (!(m > 0)) { this.pat = null; this.applySulfate(); return; }
+    const pat = this.pat || (this.pat = new Float32Array(n));
+    for (let i = 0; i < n; i++) pat[i] = L[i] / m;
+    this.applySulfate();
+  }
+  sulfate() { for (const _ of this.sulfateSteps()); return this.pat; }
 
   /** Before the planet's fast step: the banked carbon into the air (drawn down no lower than 100 ppm), tillage into the erosion field. */
   beforeFast() {
@@ -156,5 +205,6 @@ export class PeopleLink {
     veg.sEq.set(this.sEq0);
     this.P.life.onCover = null;
     CLIMATE.F_PEOPLE = 0;
+    this.P.climate.peopleForcing = null;
   }
 }

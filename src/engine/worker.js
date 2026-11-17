@@ -169,8 +169,12 @@ async function pumpTicks() {
 }
 
 // The climate runs alongside: a slice of its cycle at a time, awaiting the GPU's work
-// where the cycle hands it some, and letting the ticks in between slices.
-let climateRunning = false, cycleStart = 0, cycleMs = 0;
+// where the cycle hands it some, and letting the ticks in between slices. Once it has settled, a
+// new cycle waits for CYCLE_YEARS of the clock (or CYCLE_WAIT ms) unless a plate step asks for one:
+// at slow dials its inputs barely move between cycles (the plates hold, the orbit's window is
+// short, CO₂ moves a few ppm), and run back to back its cycles kept the thread ~65% busy at 20 yr/s.
+const CYCLE_YEARS = 30, CYCLE_WAIT = 4000;
+let climateRunning = false, cycleStart = 0, cycleMs = 0, cycleEnd = 0, cycleEndYears = 0;
 const prof = {};                   // ms spent per section since the last fast message, for tuning
 // A macrotask's turn (one channel for all of them), and a wait until the climate's next slice is due
 // or the pump has ended, whichever is first: spinning on turns for it kept the thread busy and made garbage.
@@ -180,8 +184,9 @@ const nextTask = () => new Promise(res => { taskQ.push(res); taskCh.port2.postMe
 let wake = null;
 function wakeClimate() { if (wake) { const w = wake; wake = null; w(); } }
 const untilSlice = ms => new Promise(res => { const id = setTimeout(() => { wake = null; res(); }, ms); wake = () => { clearTimeout(id); res(); }; });
-// A cycle, then what follows one (src/engine/planet.js), each sliced alike.
-function* cycleThenAfter() { yield* P.climate.cycle(); yield* P.afterClimateSteps(); }
+// A cycle, then what follows one (src/engine/planet.js), then with people their coal's sulfate on
+// the cycle's winds and rain (src/engine/peoplelink.js), each sliced alike.
+function* cycleThenAfter() { yield* P.climate.cycle(); yield* P.afterClimateSteps(); if (people) yield* people.link.sulfateSteps(); }
 async function climateLoop() {
   climateRunning = true;
   const c = P.climate;
@@ -189,6 +194,7 @@ async function climateLoop() {
     while (playing || pending > 0) {
       const due = lastSlice + (c.stats.settled ? 10 : CLIMATE_OPENING) * CLIMATE_MS - performance.now();
       if (pumping && due > 0) { await untilSlice(due); continue; }
+      if (!c.it && c.stats.settled && pending === 0 && P.years - cycleEndYears < CYCLE_YEARS && performance.now() - cycleEnd < CYCLE_WAIT) { await untilSlice(100); continue; }
       if (!c.it) { c.it = cycleThenAfter(); cycleStart = performance.now(); }
       const t0 = performance.now();
       let r;
@@ -205,9 +211,11 @@ async function climateLoop() {
       lastSlice = performance.now();
       if (r.done) {
         c.it = null; cycleMs = performance.now() - cycleStart; pending = Math.max(0, pending - 1);
+        cycleEnd = performance.now(); cycleEndYears = P.years;
         const ts = performance.now();
         sendClimate();
         sendPeopleFields();
+        sendSulfate();
         prof.sendClimate = (prof.sendClimate || 0) + performance.now() - ts;
       }
       await nextTask();
@@ -379,6 +387,15 @@ function sendPeopleFields() {
   for (const v of Object.values(f)) if (ArrayBuffer.isView(v)) tr.push(v.buffer);
   delete f.grid;
   people.port.postMessage({ type: 'fields', f }, tr);
+}
+/** Coal's sulfate's pattern (mean 1) to the page, which draws its haze, after each cycle that carried it. */
+function sendSulfate() {
+  if (!people) return;
+  const p = people.link.pat;
+  if (!p && !people.sulfSent) return;
+  people.sulfSent = !!p;
+  const pat = p ? Float32Array.from(p) : null;
+  post({ type: 'sulfate', pat }, pat ? [pat.buffer] : []);
 }
 function sendPeopleAir() {
   if (!people || performance.now() - people.lastAir < 250) return;

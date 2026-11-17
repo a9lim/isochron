@@ -14,9 +14,13 @@
 //           industry off-world): graphite points on seeded orbits, as many as
 //           the share of the Sun's output they take (to a tenth), the disc
 //           dimmed by it
-//   base    the people's city on the Moon: an ochre grid of blocks spreading
-//           from one site on its near side (north up, by the planet's pole), as
-//           far as off-world power has grown on a log scale (100 GW to 10²¹ W)
+//   base    the people's city on the Moon, spreading from one site on its near
+//           side (north up, by the planet's pole), in the globe's patterns for
+//           its uses, interleaved: residences (the accent's blocks) as far as the
+//           people off-world have grown (10³ to 10¹⁰, log), datacenters (the
+//           verdigris's blocks) and factories (a sienna hatch) as far as
+//           off-world compute's and the rest of off-world power have (log, from
+//           10 GW and 100 GW to 10²⁰ and 10²¹ W)
 // Each shows only where the dial resolves its motion: the sky turns at the
 // slowest dials and holds still above; the Moon and the Sun fade out when a
 // month or a year would pass in under a few seconds.
@@ -44,7 +48,8 @@ const SUN_R = 6.957e8, AU = 1.496e11, MOON_R = 1.7374e6, BIG = 5;
 const SWARM = (() => { const r = stream('swarm', 'orbits'), a = new Float32Array(3 * 900); for (let k = 0; k < 900; k++) { a[3 * k] = 1.25 + 1.6 * r.uniform() ** 0.7; a[3 * k + 1] = 2 * Math.PI * r.uniform(); a[3 * k + 2] = 0.25 + 0.75 * r.uniform(); } return a; })();
 
 // The Moon's city: seeded points about one site on the near side (in the disc's units, north up),
-// nearest first, so the first lit are the site's and the city spreads outward.
+// nearest first, each given one use (0 residences, 1 datacenters, 2 factories) in turn, so each use
+// spreads outward from the site through the others.
 const BASE = (() => {
   const r = stream('moon', 'base'), pts = [];
   for (let k = 0; k < 420; k++) {
@@ -52,7 +57,10 @@ const BASE = (() => {
     const x = 0.28 + rr * Math.cos(a), y = -0.38 + 0.85 * rr * Math.sin(a);
     if (x * x + y * y < 0.88) pts.push([x, y, rr, 0.35 + 0.65 * r.uniform()]);
   }
-  return pts.sort((a, b) => a[2] - b[2]);
+  pts.sort((a, b) => a[2] - b[2]);
+  const use = [[], [], []];
+  pts.forEach((q, k) => use[k % 3].push(q));
+  return use;
 })();
 
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
@@ -126,32 +134,41 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       ctx.restore();
       ctx.strokeStyle = rgba(ink, 0.55); ctx.lineWidth = 0.8;
       ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.stroke();
-      // The city: the union of discs about its sites, as many as off-world power has grown (north up,
-      // along the pole's direction on screen), washed in ochre and ruled as a grid of blocks, as the
-      // globe draws a city; clipped to the disc.
-      const nB = Math.round(BASE.length * Math.min(1, Math.max(0, sky.moonbase || 0)) ** 1.3);
-      if (nB) {
+      // The city: each use the union of discs about its sites, as many as its own quantity has grown
+      // (north up, along the pole's direction on screen), washed and patterned as the globe draws it
+      // (residences and datacenters as blocks, factories as a heavy hatch); clipped to the disc.
+      const base = sky.moonbase || [0, 0, 0];
+      if (base.some(v => v > 0)) {
         const up = project(m[0], m[1], m[2] + 0.02), ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2;
         const ny = [Math.cos(ua), Math.sin(ua)], nx = [-ny[1], ny[0]];   // screen directions of the Moon's north and east
-        ctx.save();
-        ctx.beginPath(); ctx.arc(p[0], p[1], R - 0.4, 0, 2 * Math.PI); ctx.clip();
-        ctx.beginPath();
-        for (let k = 0; k < nB; k++) {
-          const [bx, by] = BASE[k], cx = p[0] + R * (bx * nx[0] + by * ny[0]), cy = p[1] + R * (bx * nx[1] + by * ny[1]);
-          ctx.moveTo(cx + 0.075 * R, cy); ctx.arc(cx, cy, 0.075 * R, 0, 2 * Math.PI);
+        const inks = [pal.accent, pal.inks.verdigris, pal.inks.sienna], step = Math.max(1.3, 0.07 * R);
+        for (let u = 0; u < 3; u++) {
+          const nB = Math.round(BASE[u].length * Math.min(1, Math.max(0, base[u])) ** 1.3);
+          if (!nB) continue;
+          ctx.save();
+          ctx.beginPath(); ctx.arc(p[0], p[1], R - 0.4, 0, 2 * Math.PI); ctx.clip();
+          ctx.beginPath();
+          for (let k = 0; k < nB; k++) {
+            const [bx, by] = BASE[u][k], cx = p[0] + R * (bx * nx[0] + by * ny[0]), cy = p[1] + R * (bx * nx[1] + by * ny[1]);
+            ctx.moveTo(cx + 0.075 * R, cy); ctx.arc(cx, cy, 0.075 * R, 0, 2 * Math.PI);
+          }
+          ctx.clip();
+          ctx.globalAlpha = sky.moonAlpha;
+          ctx.fillStyle = rgba(inks[u], 0.3); ctx.fillRect(p[0] - R, p[1] - R, 2 * R, 2 * R);
+          ctx.strokeStyle = inks[u]; ctx.lineWidth = Math.max(0.5, (u === 2 ? 0.03 : 0.02) * R);
+          ctx.beginPath();
+          if (u < 2) {
+            for (let t = -R; t <= R; t += step) {
+              ctx.moveTo(p[0] + t * nx[0] - R * ny[0], p[1] + t * nx[1] - R * ny[1]); ctx.lineTo(p[0] + t * nx[0] + R * ny[0], p[1] + t * nx[1] + R * ny[1]);
+              ctx.moveTo(p[0] + t * ny[0] - R * nx[0], p[1] + t * ny[1] - R * nx[1]); ctx.lineTo(p[0] + t * ny[0] + R * nx[0], p[1] + t * ny[1] + R * nx[1]);
+            }
+          } else {
+            const d = [(nx[0] + ny[0]) / Math.SQRT2, (nx[1] + ny[1]) / Math.SQRT2], e = [-d[1], d[0]];
+            for (let t = -1.5 * R; t <= 1.5 * R; t += 0.8 * step) { ctx.moveTo(p[0] + t * e[0] - 1.5 * R * d[0], p[1] + t * e[1] - 1.5 * R * d[1]); ctx.lineTo(p[0] + t * e[0] + 1.5 * R * d[0], p[1] + t * e[1] + 1.5 * R * d[1]); }
+          }
+          ctx.stroke();
+          ctx.restore();
         }
-        ctx.clip();
-        ctx.globalAlpha = sky.moonAlpha;
-        ctx.fillStyle = rgba(pal.inks.ochre, 0.35); ctx.fillRect(p[0] - R, p[1] - R, 2 * R, 2 * R);
-        ctx.strokeStyle = pal.inks.ochre; ctx.lineWidth = Math.max(0.5, 0.02 * R);
-        const step = Math.max(1.3, 0.07 * R);
-        ctx.beginPath();
-        for (let t = -R; t <= R; t += step) {
-          ctx.moveTo(p[0] + t * nx[0] - R * ny[0], p[1] + t * nx[1] - R * ny[1]); ctx.lineTo(p[0] + t * nx[0] + R * ny[0], p[1] + t * nx[1] + R * ny[1]);
-          ctx.moveTo(p[0] + t * ny[0] - R * nx[0], p[1] + t * ny[1] - R * nx[1]); ctx.lineTo(p[0] + t * ny[0] + R * nx[0], p[1] + t * ny[1] + R * nx[1]);
-        }
-        ctx.stroke();
-        ctx.restore();
       }
       ctx.globalAlpha = 1;
     }

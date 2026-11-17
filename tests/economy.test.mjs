@@ -48,6 +48,19 @@ test('industry brings output (capital its loop), energy and the air; AI brings c
   assert.ok(!fig.edges.some(e => live(e) && (e.from === 'robots' || e.to === 'robots') && e.from !== 'output' && e.from !== 'culture'), 'an idle fleet works nothing and draws no power');
 });
 
+test('alignment is people\'s hold on AI; misaligned, AI\'s nodes are red; extinct people leave the figure', () => {
+  const late = o => report(row({ Y: 1e14, Kf: 1e14, Ef: 2e13, Er: 5e12, AI: 1e12, Ap: 1e10, earth: 0, ...o }), { packages: 2, sA: 0.9, dis: 0.7, flags: { industry: true, present: true }, econ: econ({ bodies: 1e10, Ar: 1e11 }), ending: { aligned: false, preserve: false } });
+  let fig = economyOf({ m: late(), ...planet, farmed: 0 });
+  check(fig);
+  assert.equal(fig.values.people, null, 'no people node once they are gone');
+  assert.equal(fig.values.farms, null, 'nor their fields');
+  assert.deepEqual(fig.red, { compute: true, robots: true });
+  fig = economyOf({ m: late({ earth: 8e9 }), ...planet });
+  const al = fig.edges.find(e => e.from === 'people' && e.to === 'compute');
+  assert.ok(al && Math.abs(al.w - 0.3) < 1e-12 && al.ink === 'text', 'alignment is 1 − control, in the ink');
+  assert.ok(fig.edges.some(e => e.from === 'compute' && e.to === 'people' && e.red && e.on !== false), 'and the control AI took, in the red');
+});
+
 test('watts names its unit without exponents below an exawatt', () => {
   assert.equal(watts(1.9e11), '190 GW');
   assert.equal(watts(4.7e14), '470 TW');
