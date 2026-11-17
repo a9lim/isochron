@@ -648,6 +648,11 @@ fn hair(d: f32, w: f32) -> f32 {
       pland = mix(pland, u.inkE.rgb, 0.12 + 0.6 * furrows);
     }
   }
+  // Nothing stands on open water: the lakes over the uses, as the Relief view draws them where people
+  // have reached (Settlement) and in the chart's water everywhere (Density), with their shore.
+  let pwet = lk * select(explored, 1.0, folkD);
+  pland = mix(pland, select(mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * sqrt(clamp(lake / 6.0, 0.0, 1.0))), mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkD), pwet);
+  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkD) * hair(abs(lake), flake) * (1.0 - ice) * select(explored, 1.0, folkD));
   land = select(land, pland, folkV);
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkD);
   let chart = weather || tides || air || folkD;
@@ -703,7 +708,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const tideBuf = device.createBuffer({ size: nm * 32, usage: VS });
   // The cover's eight colour weights a vertex, read by the vertex shader from storage (a ninth vertex buffer is past the limit).
   const coverBuf = storage(device, nm * 32);
-  // The people's eight values a vertex (the People experiment), refined from their grid (src/engine/people-worker.js).
+  // The people's eight values a vertex (the People scenario), refined from their grid (src/engine/people-worker.js).
   const folkBuf = storage(device, nm * 32);
   let folkS = null, folkRef = null;
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.

@@ -10,7 +10,7 @@
 //           which its distance sets), lit on the side facing the Sun; drawn
 //           at its true size against the Sun's (×5 both, to be read), so a nearer Moon
 //           looks larger
-//   swarm   the people's collectors round the Sun (the People experiment's
+//   swarm   the people's collectors round the Sun (the People scenario's
 //           industry off-world): graphite points on seeded orbits, as many as
 //           the share of the Sun's output they take (to a tenth), the disc
 //           dimmed by it

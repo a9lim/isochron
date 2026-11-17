@@ -169,6 +169,12 @@ export const PEOPLE = {
   R_EF0: 1000, R_ER0: 1500, R_EU0: 1000,            // W per sy of energy capital: fossil (full stock, × √ of what's left), renewables and fusion when mature (solar near parity with fossil at Earth's present, from memory)
   Z_REN: 11.5, W_REN: 0.5, Z_FUS: 12.5, W_FUS: 0.5, // where renewables and fusion come of age: fossil carbon is still the cheaper delivered energy at the takeoff's start (Z_AI), as on Earth now (a9)
   MARGIN: 0.05, T_BUILD: 5, F_IE: 0.6,              // energy capacity's margin; years to close a shortfall; energy's most of investment
+  // Building power takes physical work (a9: "humans also seem able to tile the earth in factories and solar panels before
+  // there's even 10 million robots"): power plants on Earth are built at most at S_BUILD of the physical work (people's and
+  // robots', worker-years) × B_POW W of average power a worker-year at Z_AI (~10 kW: solar's jobs against its installs,
+  // from memory), e-fold per Z_BP of culture, to B_UP times it (better tools, but hands: speculation); space solar by the
+  // robots alone, B_SPACE W a robot-year (thin film from asteroids: speculation).
+  S_BUILD: 0.1, B_POW: 1e4, Z_BP: 2, B_UP: 10, B_SPACE: 1e8,
   M_K: 1, E_M0: 30, X_SCALE: 2e13, X_CRUST: 1e14, G_B: 0.3, SKINNER: 10,   // materials per sy invested; their energy (W per unit a year) at the first grades, rising as 1/grade while the grade falls arithmetically as the tonnage drawn rises geometrically (Lasky's rule, from memory), from X_SCALE to G_B of the first grade at the end of the crust's rich ores (X_CRUST), then ×SKINNER (common rock past Skinner's barrier; the lumped number speculation)
   R_MIN: 0.03, W_INV: 0.1,                          // the return beyond wear that investment must clear (a real interest rate, from memory); the switch's width in log return over cost
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
@@ -482,10 +488,19 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     // so each stock settles where its margin's return meets its cost): the rest is consumed.
     // Where energy binds, capital that can't be powered earns nothing and isn't built.
     const I = P.SAVE * Y, gap = Math.max(0, need * (1 + P.MARGIN) - (cf + cr + cu + cs));
-    let Ie = 0, gE = 0;
+    let Ie = 0, gE = 0, Ies = [0, 0, 0, 0];
     if (ws > 0) {
       gE = sig(Math.log(Math.max(lamE * rbar / ((P.DELTA_E + P.R_MIN) * emb), 1e-300)) / P.W_INV);
       Ie = gE * Math.min(P.F_IE * I, P.DELTA_E * Ke + gap / (rbar * P.T_BUILD));
+      // Each source by its return at the margin, then held to the power the physical work can
+      // build a year (BUILD, above): on Earth people's and the robots', in space the robots'.
+      Ies = wts.map(v => Ie * v / ws);
+      const kB = P.B_POW * Math.exp(Math.min(Math.log(P.B_UP), (z - P.Z_AI) / P.Z_BP));
+      const wE = Ies[0] * rf * keepF + Ies[1] * rr + Ies[2] * ru, bE = P.S_BUILD * kB * (P.PHI * Lh + T.Ap);
+      if (wE > bE) { const f = bE / wE; Ies[0] *= f; Ies[1] *= f; Ies[2] *= f; }
+      const wS = Ies[3] * rs, bS = P.S_BUILD * P.B_SPACE * T.Ap;
+      if (wS > bS) Ies[3] *= bS / wS;
+      Ie = Ies[0] + Ies[1] + Ies[2] + Ies[3];
     }
     // The rest: ordinary computing's share to compute, the remainder among fixed capital, compute
     // and robots by their marginal products (each by a small difference in labour, so compute's
@@ -522,7 +537,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     const IrMax = Math.max(0, (Krmax - E.Kr * ed) * P.DELTA_R / (1 - ed)), Irr = (1 - P.S_IT) * Ir * wr;
     if (Irr > IrMax) { Ir -= (Irr - IrMax) / (1 - P.S_IT); wr = Ir > 0 ? IrMax / ((1 - P.S_IT) * Ir) : 0; const o = wf + wc; if (o > 0) { wf *= (1 - wr) / o; wc *= (1 - wr) / o; } }
     const Iall = Ie + Iq + Ir;
-    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Iq, Ir, wf, wc, wr, Iall };
+    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Ies, Iq, Ir, wf, wc, wr, Iall };
   };
   let st = plan(E.sInv ?? P.SAVE);
   if (Math.abs(st.sReal - st.s) > 1e-5) {
@@ -530,8 +545,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     for (let k = 0; k < 24; k++) { const m = 0.5 * (a + b), x = plan(m); if (x.sReal > m) a = m; else b = m; }
     st = plan(0.5 * (a + b));
   }
-  const { Y, Ypot, Eo, T, run, Er, Es, Eu, Ef, sup, need, Ie, Iq, Ir, wf, wc, wr } = st, avail = Ypot > 0 ? Y / Ypot : 1;
-  const Ies = ws > 0 ? wts.map(v => Ie * v / ws) : [0, 0, 0, 0];
+  const { Y, Ypot, Eo, T, run, Er, Es, Eu, Ef, sup, need, Ie, Ies, Iq, Ir, wf, wc, wr } = st, avail = Ypot > 0 ? Y / Ypot : 1;
   const Ica = (1 - P.S_IT) * Ir * wc, Ic = P.S_IT * Ir + Ica, Ir_ = (1 - P.S_IT) * Ir * wr, If = (1 - P.S_IT) * Ir * wf;
   // Labs keep research's share of AI's compute: for each unit deployed, Q_R/(1 − Q_R) for training and research.
   const Iq2 = Math.min(If, P.Q_R / (1 - P.Q_R) * Ica), IfNet = If - Iq2;

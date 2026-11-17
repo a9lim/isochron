@@ -25,7 +25,7 @@
 //   cover     when the plants' cover has changed, at most twice a second: the
 //             Relief view's eight colour weights a cell (src/engine/life.js)
 //
-// In the People experiment the page hands this thread a port to the people's own
+// In the People scenario the page hands this thread a port to the people's own
 // (src/engine/people-worker.js): their fields go to it after each climate cycle and
 // the air and regolith a few times a second; their write-back (farmed shares,
 // tillage, carbon, forcing) comes from it and goes into the planet's own inputs
@@ -36,11 +36,9 @@
 // evaporation, and the rivers' month.
 //
 // The page sends a tick each frame it plays (the years to advance and the
-// plate steps its scheduler planned) and the experiments' parameters.
+// plate steps its scheduler planned).
 import { Planet, CLIMATE, CARBON } from './planet.js';
-import { PARAMS } from './plates.js';
 import { PLUMES } from './plumes.js';
-import { VOLC } from './volcanoes.js';
 import { Year, YEAR } from './year.js';
 import { monthAt } from './orbit.js';
 import { accumulatePass } from './landscape.js';
@@ -68,9 +66,9 @@ const CLIMATE_MS = 10, CLIMATE_OPENING = 3, ICE_MS = 4;
 let P = null, playing = false, pending = 3, scheduled = false, tides = null;
 const ticks = [];
 let samples = [], lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
-let yearSent = -1, yearLiveSent = -1, eruptId = null, eruptWaiting = null, riversId = 0, riversCells = null, riversQ12 = null, riversRt = null, lastRate = 1;
+let yearSent = -1, yearLiveSent = -1, riversId = 0, riversCells = null, riversQ12 = null, riversRt = null, lastRate = 1;
 let lakesSent = -1, lastLakes = 0;
-let coverSent = -1, lastCover = 0, pulseId = null, pulseWaiting = null;
+let coverSent = -1, lastCover = 0;
 
 const post = (m, transfer = []) => self.postMessage(m, transfer);
 // The engine's own GPU device, asked for as the thread starts, so the GPU's own start overlaps the
@@ -92,7 +90,6 @@ self.onmessage = e => {
     P.ground.cpuLive = false; P.lakesMinGap = 1000;
     // The regolith takes the ice's integrals as they come back (~400 ms), at most every 250 ms.
     P.regolith.minGap = 250;
-    apply(m.params);
     // The engine's own GPU device: the ice, the climate's heavy solves, the plates and the rest.
     deviceP.then(device => {
       P.iceGpu = new GpuIce(device, P.ice); P.climate.gpu = new GpuMoisture(device, P.grid);
@@ -115,29 +112,10 @@ self.onmessage = e => {
     sendFast(true);
   } else if (m.type === 'people') startPeople(m.port);
   else if (m.type === 'tick') ticks.push(m);
-  else if (m.type === 'params') { apply(m.params); pending = Math.max(pending, 2); }
   else if (m.type === 'play') playing = m.playing;
   else if (m.type === 'climate') pending = Math.max(pending, m.cycles);
   schedule();
 };
-
-function apply(p) {
-  if (!p) return;
-  Object.assign(CLIMATE, p.CLIMATE || {}); Object.assign(CARBON, p.CARBON || {}); Object.assign(PARAMS, p.PARAMS || {}); Object.assign(VOLC, p.VOLC || {});
-  // An experiment that holds CO₂ where it stands.
-  if (CARBON.FIXED === 'now') CARBON.FIXED = Math.round(P.carbon.pco2);
-  // The Eruption experiment: one tagged eruption each time its size is set, once the climate
-  // is warm (the anomaly's heat capacity reads its land and sea ice).
-  if (p.ERUPT && p.ERUPT.id !== eruptId) { eruptId = p.ERUPT.id; eruptWaiting = p.ERUPT.M; }
-  // The Pulse experiment: one pulse each time its size is set, once the sea has settled.
-  if (p.PULSE && p.PULSE.id !== pulseId) { pulseId = p.PULSE.id; pulseWaiting = p.PULSE.PgC; }
-}
-function pulseWhenSettled() {
-  if (pulseWaiting !== null && P.carbon.settled) { P.carbon.startPulse(pulseWaiting); pulseWaiting = null; }
-}
-function eruptWhenWarm() {
-  if (eruptWaiting !== null && P.climate.stats.cycles >= 2) { P.year.eruptTagged(eruptWaiting, P.years); eruptWaiting = null; }
-}
 
 // The plates step on the GPU, so a pump awaits them; one pump at a time. While pumps run back
 // to back the climate takes a slice every 100 ms (a tenth of the thread; every 30 ms until it has
@@ -157,8 +135,6 @@ async function pumpTicks() {
   const t0 = performance.now();
   let ta = performance.now();
   const lap = k => { const tb = performance.now(); prof[k] = (prof[k] || 0) + tb - ta; ta = tb; };
-  eruptWhenWarm();
-  pulseWhenSettled();
   while (ticks.length) {
     const m = ticks.shift();
     lastRate = m.rate ?? m.window / 2;
@@ -386,7 +362,7 @@ function drawnFlow(ice) {
   return v;
 }
 
-// The people (the People experiment): their link into the planet, and the transfer to their grid.
+// The people (the People scenario): their link into the planet, and the transfer to their grid.
 let people = null;
 function startPeople(port) {
   const level = peopleLevel(P.grid.level), T = level < P.grid.level ? makeTransfer(P.grid, buildGrid(level)) : null;
@@ -421,7 +397,7 @@ function sendFast(first) {
     type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, samples: Float64Array.from(samples),
     iceH: Float32Array.from(ice.H), iceVel: drawnFlow(ice), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out),
-      sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 }, pulse: carbon.tag ? carbon.tag.info : null },
+      sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 } },
     life: { ...P.life.stats }, runaway: P.runaway.stats(),
     people: people ? { ...people.link.stats, F: people.link.F, fieldsMs: people.fieldsMs || 0 } : null,
     landFlux: { ...land.flux },
@@ -429,7 +405,7 @@ function sendFast(first) {
     moon: { a: P.moon.a, Omega: P.moon.Omega, omega: P.moon.omega, P: P.moon.P, day: P.moon.day },
     plumes: { hot: plumes.hot.map(h => h.p), lips: plumes.active().map(L => ({ p: L.p, age: tec.t - L.t0, radius: PLUMES.LIP_R })) },
     year: { live: P.year.live, meanT: P.year.stats.meanT, sigma: P.year.stats.sigma, F: P.year.stats.F, Fmean: CLIMATE.F_VOLC, Frate: P.volcanoes.meanForcing(),
-      aod: P.year.stats.aod, rates: P.volcanoes.rates(), tag: P.year.tagInfo ? { ...P.year.tagInfo, theory: { ...P.year.tagInfo.theory } } : null },
+      aod: P.year.stats.aod, rates: P.volcanoes.rates() },
   };
   const ra = riverAnomaly();
   if (ra) { m.rivAnom = ra; m.riversId = riversId; }

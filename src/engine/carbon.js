@@ -93,7 +93,7 @@ export class Carbon {
 
   /** Weathering's map, from the climate's latest state. */
   measure() {
-    // A sea boiling away (the People experiment's runaway) keeps the map it had: drawn on the seafloor
+    // A sea boiling away (the People scenario's runaway) keeps the map it had: drawn on the seafloor
     // left dry, weathering would draw the air down as no sea-built cycle could (src/engine/peoplelink.js).
     if (this.boiling && this.wF > 0) return;
     const c = this.climate, g = c.grid, n = g.n, L = c.landMask, erosion = this.land ? this.land.erosion : null;

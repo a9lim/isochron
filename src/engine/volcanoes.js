@@ -145,7 +145,7 @@ export class Volcanoes {
     while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < x) lo = m + 1; else hi = m; }
     return lo;
   }
-  /** The most active arc cell within `maxLat` of the equator (for the experiment's eruption). */
+  /** The most active arc cell within `maxLat` of the equator (where tools/eruption-run.mjs erupts). */
   topArc(maxLat = 25) {
     const tec = this.tec, g = tec.grid, s = Math.sin(maxLat * DEG);
     let best = -1, bv = 0, any = -1, av = 0;

@@ -32,7 +32,7 @@ import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
 import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
-import { ECONOMY, economyOf, economyCaption, watts } from './src/render/economy.js';
+import { ECONOMY, economyOf, economyCaption } from './src/render/economy.js';
 import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
@@ -54,7 +54,9 @@ const SPINUP_DAYS = 5;        // the weather's spin-up from the climate's state 
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
 const query = new URLSearchParams(location.search);
-const seed = query.get('seed') || 'earthlike';
+// The planet's seed: the link's, or a new one written into it, so the link always names this planet.
+const seed = query.get('seed') || Array.from(crypto.getRandomValues(new Uint32Array(6)), v => 'abcdefghijkmnpqrstuvwxyz23456789'[v % 32]).join('');
+if (!query.get('seed')) { query.set('seed', seed); history.replaceState(null, '', `${location.pathname}?${query}${location.hash}`); }
 const $ = id => document.getElementById(id);
 const els = {
   stage: document.querySelector('.globe-stage'),
@@ -63,7 +65,7 @@ const els = {
   views: document.querySelectorAll('#view-picker .view-btn'),
   mapPickers: document.querySelectorAll('.map-picker'), maps: document.querySelectorAll('.map-picker .view-btn'),
   keyBtn: $('key-btn'), key: $('globe-key'), keyCanvas: $('key-canvas'),
-  scenarios: document.querySelectorAll('#scenario-picker .view-btn'), controls: $('controls'), eruptBtn: null,
+  scenarios: document.querySelectorAll('#scenario-picker .view-btn'), followBtn: $('follow-btn'), peopleTab: document.querySelector('.tab-btn[data-tab="people"]'),
   figRecord: $('fig-record'), capRecord: $('cap-record'), figOrbit: $('fig-orbit'), capOrbit: $('cap-orbit'),
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
@@ -557,29 +559,30 @@ resize();
 const follow = { on: true, secs: 3, v: null, active: false };
 function rate() { return 10 ** (follow.active && follow.on && follow.v != null ? follow.v : +els.dial.value); }
 function syncDial() { els.dialOut.textContent = formatRate(rate()); }
-els.dial.addEventListener('input', () => { follow.on = false; clampDial(); syncDial(); lockControls(); caption(true); figuresDirty = true; });
+els.dial.addEventListener('input', () => { follow.on = false; clampDial(); syncDial(); syncControls(); caption(true); figuresDirty = true; });
 function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 
 // ── The views ──
 // Three groups of maps, by timescale: Relief (the surface, the climate's zones, the air), Weather
 // (its three charts and the tides) and People. The Weather group's maps run only at WX_TOP or
 // slower, where the weather is live (weatherLive, below): its button is disabled faster, and in it
-// the dial stops there. An eruption shows only where the year steps (YEAR_TOP: src/engine/year.js).
+// the dial stops there (and doesn't follow the people).
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
-const YEAR_TOP = 1.75;        // log₁₀ yr/s: ~56 years a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
 const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
 const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
 function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
 const weatherLocked = () => GROUP[view] !== 'weather' && Math.log10(rate()) > WX_TOP + 1e-6;
-// Controls disabled at dials where they'd show nothing, checked each frame (the follow dial moves the rate).
-let wxLockShown = null, eruptLockShown = null;
-function lockControls() {
+// The Weather button disabled where it would show nothing, and the follow dial's switch as it stands,
+// checked each frame (the follow dial moves the rate; the dial taken by hand turns it off).
+let wxLockShown = null, followShown = null;
+function syncControls() {
   const wl = weatherLocked();
   if (wl !== wxLockShown) { wxLockShown = wl; for (const b of els.views) if (b.dataset.group === 'weather') b.disabled = wl; }
-  const el = Math.log10(rate()) > YEAR_TOP + 1e-6;
-  if (el !== eruptLockShown && els.eruptBtn) { eruptLockShown = el; els.eruptBtn.disabled = el; }
+  const fo = follow.on ? 'true' : 'false';
+  if (fo !== followShown) { followShown = fo; els.followBtn.setAttribute('aria-pressed', fo); }
+  els.followBtn.disabled = GROUP[view] === 'weather';
 }
 
 // ── The key ──
@@ -609,7 +612,7 @@ function setView(v) {
     refreshWeather(true);
   }
   if (v === 'climate') refreshAir();
-  lockControls();
+  syncControls();
   drawDirty = true;
   caption(true);
 }
@@ -628,17 +631,19 @@ function setGroup(g) {
 }
 /** The next map in the group shown. */
 function nextMap() { const ms = MAPS[GROUP[view]]; setMap(ms[(ms.indexOf(mapOf()) + 1) % ms.length]); }
-for (const b of els.views) b.addEventListener('click', () => setGroup(b.dataset.group));
-for (const b of els.maps) b.addEventListener('click', () => setMap(b.dataset.map));
+// A view the reader picks stays: the People scenario's dry run opens the People view only if they haven't.
+let viewChosen = false;
+for (const b of els.views) b.addEventListener('click', () => { viewChosen = true; setGroup(b.dataset.group); });
+for (const b of els.maps) b.addEventListener('click', () => { viewChosen = true; setMap(b.dataset.map); });
 
-// ── Scenarios and controls ──
-// Two scenarios, each from the planet's opening (choosing one reloads, with ?scenario=people for
-// the second): the world alone, and people on it from the first hominins, the People view and
-// Fig. 8 with them. The controls act live in either.
+// ── Scenarios ──
+// Two, each from the planet's opening (choosing one reloads, keeping the seed; ?scenario=people for
+// the second): the planet alone, and people on it. The People scenario's planet first runs alone at
+// the world's pace until its climate has settled (the dry run: the climate, the cover, the lakes and
+// the sea come to their balance), then the first hominins come, the dial follows them, and their
+// view, Fig. 8's tab and the follow dial's switch appear (showPeopleParts).
 const scenario = query.get('scenario') === 'people' ? 'people' : 'world';
 const peopleOn = () => scenario === 'people';
-for (const b of els.views) if (b.dataset.group === 'people') b.hidden = !peopleOn();
-$('fig-people-wrap').hidden = !peopleOn();   // Fig. 8, under the model
 for (const b of els.scenarios) {
   b.setAttribute('aria-checked', b.dataset.scenario === scenario ? 'true' : 'false');
   b.addEventListener('click', () => {
@@ -649,56 +654,14 @@ for (const b of els.scenarios) {
     location.search = q.toString();
   });
 }
-const BASE = { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX };
-// An eruption (Pinatubos) and a pulse of carbon (Pg C), each with a count, so the engine erupts or
-// pulses once per press: the eruption at the most active tropical arc once the climate is warm,
-// the pulse into the air once the sea has settled.
-const erupt = { M: 10, id: 0 }, pulse = { PgC: 2000, id: 0 };
-const pgc = v => (v < 1000 ? Math.round(v / 10) * 10 : Math.round(v / 100) * 100).toLocaleString('en');
-const pinatubos = M => M < 1 ? M.toFixed(1) : M < 10 ? M.toFixed(1).replace(/\.0$/, '') : Math.round(M).toString();
-const CO2_FREE = 2;           // the CO₂ control below 10^2 ppm: free (the carbon cycle's); above, held there
-const CONTROLS = [
-  // The People scenario's: the follow dial's seconds a doubling (until the dial is taken by hand).
-  { id: 'doubling', label: 'Doubling', people: true, min: 1, max: 10, step: 0.5, value: 3, fmt: v => `${(+v).toFixed(1).replace(/\.0$/, '')} s`,
-    apply: v => { follow.secs = +v; follow.on = true; follow.v = null; } },
-  { id: 'sun', label: 'Sunlight', min: 82, max: 106, step: 0.5, value: 100, fmt: v => `${(+v).toFixed(1)}%`, apply: v => { CLIMATE.S = S0 * v / 100; } },
-  { id: 'co2', label: 'CO₂', min: 1.96, max: Math.log10(2000), step: 0.01, value: 1.96, fmt: v => v < CO2_FREE ? 'free' : `${Math.round(10 ** v / 5) * 5} ppm`,
-    apply: v => { CARBON.FIXED = v < CO2_FREE ? 0 : Math.round(10 ** v / 5) * 5; } },
-  { id: 'outgas', label: 'Outgassing', min: 0.25, max: 4, step: 0.05, value: 1, fmt: v => `${(+v).toFixed(2)}×`, apply: v => { CARBON.OUTGAS = +v; } },
-  { id: 'mantle', label: 'Mantle heat', min: 0.5, max: 2, step: 0.05, value: 1, fmt: v => `${(+v).toFixed(2)}×`,
-    apply: v => { PARAMS.K_SLAB = BASE.K_SLAB * v; PARAMS.K_RIDGE = BASE.K_RIDGE * v; PARAMS.V_MAX = BASE.V_MAX * Math.sqrt(v); } },
-  { id: 'erupt', label: 'Eruption', min: -1, max: Math.log10(30), step: 0.01, value: 1, fmt: v => `${pinatubos(10 ** v)} Pinatubos`, apply: v => { erupt.M = 10 ** v; },
-    act: { label: 'Erupt', fire: () => { erupt.id++; } } },
-  { id: 'pulse', label: 'Carbon', min: Math.log10(500), max: 4, step: 0.01, value: Math.log10(2000), fmt: v => `${pgc(10 ** v)} Pg C`, apply: v => { pulse.PgC = 10 ** v; },
-    act: { label: 'Release', fire: () => { pulse.id++; } } },
-];
-for (const c of CONTROLS) {
-  if (c.people && !peopleOn()) continue;
-  const row = document.createElement('div'), head = document.createElement('div');
-  const lab = document.createElement('label'), out = document.createElement('output'), inp = document.createElement('input');
-  row.className = 'ctl'; head.className = 'ctl-head'; lab.className = 'ctl-label';
-  lab.textContent = c.label; lab.htmlFor = inp.id = `ctl-${c.id}`; out.htmlFor = inp.id;
-  Object.assign(inp, { type: 'range', min: c.min, max: c.max, step: c.step });
-  inp.value = String(c.value); out.textContent = c.fmt(c.value);
-  head.append(lab, out);
-  if (c.act) {
-    const b = document.createElement('button');
-    b.className = 'ctl-act'; b.textContent = c.act.label;
-    b.addEventListener('click', () => { c.act.fire(); sendParams(); caption(true); });
-    head.append(b);
-    if (c.id === 'erupt') els.eruptBtn = b;
-  }
-  inp.addEventListener('input', () => { out.textContent = c.fmt(+inp.value); c.apply(+inp.value); if (!c.act) sendParams(); caption(true); });
-  row.append(head, inp);
-  els.controls.append(row);
-  c.apply(c.value);
+function showPeopleParts() {
+  const on = !!people.worker;
+  for (const b of els.views) if (b.dataset.group === 'people') b.hidden = !on;
+  els.peopleTab.hidden = !on;
+  els.followBtn.hidden = !on;
 }
-/** The controls' parameters, as the engine's thread holds them. */
-function params() {
-  return { CLIMATE: { S: CLIMATE.S }, CARBON: { FIXED: CARBON.FIXED, OUTGAS: CARBON.OUTGAS }, PARAMS: { K_SLAB: PARAMS.K_SLAB, K_RIDGE: PARAMS.K_RIDGE, V_MAX: PARAMS.V_MAX },
-    ERUPT: erupt.id > 0 ? { M: erupt.M, id: erupt.id } : null, PULSE: pulse.id > 0 ? { PgC: pulse.PgC, id: pulse.id } : null };
-}
-function sendParams() { if (engineStarted) engine.postMessage({ type: 'params', params: params() }); }
+function setFollow(on) { if (GROUP[view] === 'weather') return; follow.on = on; follow.v = null; syncControls(); caption(true); }
+els.followBtn.addEventListener('click', () => setFollow(!follow.on));
 
 // ── The people (the People scenario) ──
 // Their thread, its last report (the clock, what's owed, the record's last row, the ending), the
@@ -716,11 +679,16 @@ function startPeople() {
   people.grid = PEOPLE_LEVEL === LEVEL ? grid : buildGrid(PEOPLE_LEVEL);
   w.onmessage = e => {
     const m = e.data;
-    if (m.type === 'people') { people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true; }
+    if (m.type === 'people') {
+      // The first hominins: the People view opens, unless the reader has picked one in the dry run.
+      if (!people.msg && !viewChosen && GROUP[view] !== 'weather') setView('people');
+      people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true;
+    }
     else if (m.type === 'figure') { people.fig = m.fig; figuresDirty = true; }
     else if (m.type === 'drawn') { people.drawn = m.d; if (globe) globe.setPeople(m.d, people.grid); drawDirty = true; }
   };
   w.onerror = e => console.warn('[isochron] people:', e.message);
+  showPeopleParts();
 }
 /** Years the people are owed: their last report's, and what was sent since. */
 const peopleOwed = () => (people.msg ? people.msg.owed + people.sent : 0);
@@ -747,7 +715,6 @@ function dateOf(tau) {
   const d = Math.floor(day - (m ? ends[m - 1] : 0)) + 1, h = Math.floor((day % 1) * 24);
   return `${d} ${MONTHS[m]}, ${String(h).padStart(2, '0')}:00`;
 }
-const signed = (v, unit) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} ${unit}`;
 function zoneShares() {
   const share = new Float64Array(NZ);
   let la = 0;
@@ -763,58 +730,15 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  const name = view === 'climate' ? (clMode === 'air' ? 'Air' : 'Climate zones') : view === 'weather' ? `Weather, ${wxMode}` : view === 'tides' ? 'Tides' : view === 'people' ? 'People' : 'Relief';
-  // Until the planet's first surface arrives (its spin-up, ~1.7 s) there is nothing to read out.
-  if (!shown) { setCaption(name, true); return; }
-  const parts = [name, formatTime(P.years)];
+  // The year (the planet's, or with people their own, from the first hominins), the date where the
+  // globe shows the season, and with people how many and the largest city. The view names itself;
+  // the margin's figures carry the rest.
+  if (!shown) { setCaption('', true); return; }
+  const m = people.msg, h = m && m.last, parts = [h ? `year ${Math.floor(m.t).toLocaleString('en')}` : formatTime(P.years)];
   if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
-  if (view === 'weather') {
-    const spun = wx && wx.started ? Math.min(1, wx.t / SPINUP) : 0;
-    if (spun < 1 && wx && wx.started) parts.push('spinning up');
-    else if (wxLive > 0.5 && chart) {
-      const nf = chart.fronts.length, nd = chart.dry.length;
-      parts.push(`${chart.lows.length} lows`, `${chart.highs.length} highs`, `${nf} ${nf === 1 ? 'front' : 'fronts'}`, `${nd} dry ${nd === 1 ? 'line' : 'lines'}`, `wind to ${Math.round(chart.maxWind || 0)} m/s`);
-    } else parts.push('the climate’s mean pressure and rain');
-    setCaption(parts.join(' · '), true);
-    return;
-  }
-  if (view === 'tides') {
-    const YR = 3.15576e7, day = 2 * Math.PI / (moon.Omega - 2 * Math.PI / YR) / 3600;
-    if (tide) parts.push(`range to ${(2 * tide.maxA * lunarTide(moon.a)).toFixed(1)} m`, `${(moon.P / 1e12).toFixed(1)} TW`);
-    else parts.push('solving the tide');
-    parts.push(`day ${day.toFixed(2)} h`, `Moon ${Math.round(moon.a / 1000).toLocaleString('en')} km`);
-    setCaption(parts.join(' · '), true);
-    return;
-  }
-  if (view === 'people') { setCaption(peopleCaption(name), true); return; }
-  const cs = climate.stats;
-  // A pressed eruption's own cooling (its tagged response: the model is linear) while the year
-  // shows it, and a released pulse's share still in the air (against a twin of the sea without it).
-  const g = year.tag, K = v => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(2)} K`;
-  if (erupt.id > 0 && g && year.live > 0.5 && P.years - g.t < 20) parts.push(`eruption ${pinatubos(g.M)} Pinatubos, ${K(g.now)}, peak ${K(g.peak)}`);
-  const pg = carbon.pulse;
-  if (pulse.id > 0 && pg && pg.t < 3e5) parts.push(`pulse ${pgc(pg.PgC)} Pg C, ${(100 * pg.share).toFixed(pg.share < 0.1 ? 1 : 0)}% in the air`);
-  if (airShown()) {
-    // The winds' fastest, the dust lifted and carried (its optical depth), and the veil's.
-    const D = climate.dust;
-    if (air.cur) parts.push(`wind to ${air.maxWind.toFixed(0)} m/s`);
-    if (D) parts.push(`dust ${Math.round(D.emission).toLocaleString('en')} Tg/yr, τ ${D.tau.toFixed(3)}`);
-    if (year.live > 0) parts.push(`veil τ ${year.aod.toFixed(3)}`);
-  } else if (view === 'climate') {
-    const sh = zoneShares();
-    const g = [[0, 4], [4, 6], [6, 9], [9, 12], [12, 14]].map(([a, b]) => { let v = 0; for (let k = a; k < b; k++) v += sh[k]; return Math.round(100 * v); });
-    parts.push(`mean ${cs.meanT.toFixed(1)} °C`);
-    if (runaway && runaway.boiled > 1e-4) parts.push(`steam ${runaway.steam.toPrecision(2)} bar`);
-    parts.push(`CO₂ ${Math.round(carbon.pco2)} ppm`);
-    parts.push(`rain ${Math.round(cs.meanP || 0)} mm/yr`);
-    parts.push(`ice line ${Math.round(cs.iceLat)}°`);
-    parts.push(`A ${g[0]}% · B ${g[1]}% · C ${g[2]}% · D ${g[3]}% · E ${g[4]}% of land`);
-  } else {
-    const s = tec.stats();
-    parts.push(`${s.plates} plates`, `land ${Math.round(100 * s.land)}%`, `sea level ${signed(Math.round((s.seaLevel - P.seaLevel0) * 1000), 'm')}`);
-    if (runaway && runaway.boiled > 1e-4) parts.push(`${Math.round(100 * runaway.boiled)}% of the sea in the air`);
-    parts.push(`ice ${Math.round(ice.stats.seaLevel)} m`);
-    parts.push(`fastest ${s.fastest.toFixed(1)} cm/yr`, `seafloor ${Math.round(s.meanOceanAge)} Myr`, polarity.at(tec.t) > 0 ? 'field normal' : 'field reversed');
+  if (h) {
+    parts.push(h.space >= 1e3 ? `${headcount(h.earth)} people, ${headcount(h.space)} off-world` : `${headcount(h.earth)} people`);
+    if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
   }
   setCaption(parts.join(' · '), true);
 }
@@ -831,31 +755,7 @@ function span(y) {
   if (a * 365.25 >= 1) return `${p2(a * 365.25)} days`;
   return `${p2(a * 8766)} h`;
 }
-/** The People view's caption: the people's own year (from the first hominins), how many, where they are in the arc, and the doubling the dial follows. */
-function peopleCaption(name) {
-  const m = people.msg, parts = [name];
-  if (!m || !m.last) return [...parts, formatTime(P.years), 'waiting for the climate'].join(' · ');
-  const h = m.last, F = m.flags;
-  parts[0] = `${name}, ${m.era}`;
-  parts.push(`year ${Math.floor(m.t).toLocaleString('en')}`);
-  if (rate() < 300) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
-  parts.push(`${headcount(h.earth)} people`);
-  if (h.space >= 1e3) parts.push(`${headcount(h.space)} off-world`);
-  if (!F.industry) parts.push(`${m.lineages} ${m.lineages === 1 ? 'lineage' : 'lineages'}`);
-  const farmed = people.link ? people.link.farmed : 0;
-  if (m.packages > 0) parts.push(`farms ${(100 * farmed).toFixed(farmed < 0.1 ? 1 : 0)}% of land`);
-  const solar = people.link ? people.link.solar || 0 : 0;
-  if (solar >= 0.005) parts.push(`solar ${(100 * solar).toFixed(solar < 0.1 ? 1 : 0)}%`);
-  if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
-  if (h.energy > 1e10) parts.push(watts(h.energy), `CO₂ ${Math.round(carbon.pco2)} ppm`);
-  if (F.present) parts.push(`AI ${Math.round(100 * m.sA)}% of the work`);
-  if (m.ending) parts.push(`${m.ending.aligned ? 'aligned' : 'misaligned'}, Earth ${m.ending.preserve ? 'kept' : 'spent'}`);
-  if (runaway && runaway.boiled > 0.001) parts.push(`oceans ${Math.round(100 * runaway.boiled)}% boiled`);
-  if (m.pace > 0) parts.push(`doubling ${span(Math.LN2 / m.pace)}`);
-  return parts.join(' · ');
-}
-
-// ── Fig. 7: the model, with its live fluxes (a layer that isn't stepping has no value, and is left out) ──
+// ── Fig. 2: the model, with its live fluxes (a layer that isn't stepping has no value, and is left out) ──
 function modelSnapshot() {
   const cs = climate.stats, z = climate.zonal, cf = carbon.flux, st = tec.stats();
   const { snow, iceArea, run, la, hiLand, sstLo, sstHi, bShare, rain = 0, ground = { wet: 0, beta: 0, live: 0 }, lakes = { n: 0, area: 0, inflow: 0 } } = P.agg || { snow: 0, iceArea: 0, run: 0, la: 0, hiLand: 0, sstLo: 0, sstHi: 0, bShare: 0 };
@@ -974,8 +874,7 @@ function modelSnapshot() {
   };
 }
 
-// ── Fig. 7 with people: their economy (src/render/economy.js), the planet's side from the mirrors ──
-// While the Carbon budget's people are held, the planet's carbon is the story again.
+// ── Fig. 2 with people: their economy (src/render/economy.js), the planet's side from the mirrors ──
 const peopleModel = () => !!(people.msg && people.msg.last);
 function economyInputs() {
   const { rain = 0, la = 1 } = P.agg || {};
@@ -1114,10 +1013,11 @@ window.addEventListener('DOMContentLoaded', () => {
     { key: '.', group: 'Simulation', label: 'Step 0.5 Myr', action: () => stepOnce() },
     { key: ']', group: 'Simulation', label: 'Faster', action: () => nudgeDial(0.25) },
     { key: '[', group: 'Simulation', label: 'Slower', action: () => nudgeDial(-0.25) },
-    { key: '1', group: 'View', label: 'Relief', action: () => setGroup('relief') },
-    { key: '2', group: 'View', label: 'Weather', action: () => setGroup('weather') },
-    { key: '3', group: 'View', label: 'People', action: () => setGroup('people') },
-    { key: 'm', group: 'View', label: 'Next map', action: () => nextMap() },
+    { key: '1', group: 'View', label: 'Relief', action: () => { viewChosen = true; setGroup('relief'); } },
+    { key: '2', group: 'View', label: 'Weather', action: () => { viewChosen = true; setGroup('weather'); } },
+    { key: '3', group: 'View', label: 'People', action: () => { viewChosen = true; setGroup('people'); } },
+    { key: 'm', group: 'View', label: 'Next map', action: () => { viewChosen = true; nextMap(); } },
+    { key: 'f', group: 'Simulation', label: 'Follow the people', action: () => { if (people.worker) setFollow(!follow.on); } },
     { key: 'k', group: 'View', label: 'Key', action: () => setKey(els.key.hidden) },
     { key: '=', group: 'View', label: 'Zoom in', action: () => { camera.zoomBy(1.2); drawDirty = true; } },
     { key: '-', group: 'View', label: 'Zoom out', action: () => { camera.zoomBy(1 / 1.2); drawDirty = true; } },
@@ -1138,7 +1038,8 @@ window.addEventListener('DOMContentLoaded', () => {
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
         { label: 'Rate', value: 'The dial, or [ and ]' },
         { label: 'View', value: 'Relief, Weather, or People in its scenario; or 1 to 3, and M for the next map' },
-        { label: 'Scenario', value: 'World or People, and the controls, in the margin' },
+        { label: 'Scenario', value: 'World or People, beside the caption' },
+        { label: 'Follow', value: 'With people, the dial follows them until it is taken; Follow or F again' },
       ],
       shortcuts,
       repo: 'https://github.com/a9lim/a9lim.github.io',
@@ -1176,7 +1077,7 @@ function tick(now) {
         setDial(follow.v);
       }
     }
-    lockControls();
+    syncControls();
     // Plate steps: a tenth of a second's worth of the dial, between 50 kyr and 0.5 Myr, and
     // no shorter than the engine can keep up with; the clock waits while it is two steps behind,
     // or while the people are owed more than a quarter second's worth.
@@ -1259,7 +1160,10 @@ engine.onmessage = e => {
     // The ticks sent before the engine was ready still reach it, after its opening: the clock is the opening plus them.
     P.seaLevel0 = m.seaLevel0; P.years += m.years; carbon.pco2 = m.pco2;
   } else if (m.type === 'surface') onSurface(m);
-  else if (m.type === 'climate') { climate.update(m); climateDirty = true; figuresDirty = true; caption(false); }
+  else if (m.type === 'climate') {
+    climate.update(m); climateDirty = true; figuresDirty = true; caption(false);
+    if (peopleOn() && !people.worker && climate.stats.settled > 0) startPeople();   // the dry run over
+  }
   else if (m.type === 'fast') onFast(m);
   else if (m.type === 'tides') onTides(m);
   else if (m.type === 'year') onYear(m);
@@ -1268,12 +1172,11 @@ engine.onmessage = e => {
 };
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
-if (peopleOn()) setDial(5);
 syncDial();
-lockControls();
-engine.postMessage({ type: 'init', seed, level: LEVEL, params: params() });
+showPeopleParts();
+syncControls();
+engine.postMessage({ type: 'init', seed, level: LEVEL });
 engineStarted = true;
-if (peopleOn()) { startPeople(); setView('people'); }
 engine.postMessage({ type: 'play', playing });
 
 gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {

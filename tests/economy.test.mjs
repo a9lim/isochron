@@ -1,4 +1,4 @@
-// Fig. 7's economy (src/render/economy.js): every arrow joins two of its nodes, every weight is a
+// Fig. 2's economy (src/render/economy.js): every arrow joins two of its nodes, every weight is a
 // number, and each part comes with its era.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

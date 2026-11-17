@@ -324,7 +324,7 @@ export function drawOrbit(canvas, orbit, nowKyr, pal) {
   }
 }
 
-// ── Fig. 7: the model ──
+// ── Fig. 2: the model ──
 // Every live layer a node with its value; every coupling the code has an arrow, as heavy as its
 // flux against a typical size. A layer that isn't stepping (the weather outside its view, the
 // year and its volcanoes outrun) has no value, and it and its arrows are left out. The mantle's
@@ -418,7 +418,7 @@ export function drawModel(canvas, s, pal) {
   }
 }
 
-// ── Fig. 8: the people on the hyperbola's clock (the People experiment) ──
+// ── Fig. 8: the people on the hyperbola's clock (the People scenario) ──
 const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
 const pow10 = n => `10${String(n).split('').map(c => SUP[c]).join('')}`;
 const EVENT_NAMES = { origin: 'hominins', tip: 'tip', farming: 'farming', industry: 'industry', present: 'takeoff', dial: 'dial' };

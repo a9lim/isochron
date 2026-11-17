@@ -164,7 +164,7 @@ export class Life {
 
   /** The sea's inputs from the climate, the gyres, the seafloor and the rivers. */
   seaInputs() {
-    // A sea boiling away (the People experiment's runaway, src/engine/peoplelink.js) keeps the inputs
+    // A sea boiling away (the People scenario's runaway, src/engine/peoplelink.js) keeps the inputs
     // it had: the boxes are the sea as it was (measured off its remnant, they fail the implicit step).
     if (this.tec.boiled > 0 && this.seaIn) return;
     const c = this.climate, g = this.grid, n = g.n, tec = this.tec, o = this.ocean;

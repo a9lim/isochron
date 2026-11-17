@@ -1,4 +1,4 @@
-// Fig. 7 with people: their economy (src/engine/people.js), the planet's layers they touch at its
+// Fig. 2 with people: their economy (src/engine/people.js), the planet's layers they touch at its
 // edge, drawn by figures.js's drawModel. Each part comes with the era that brings it, so the figure
 // grows as the history does; an arrow is a coupling the people's code has, as heavy as what flows.
 //
@@ -110,7 +110,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   };
 }
 
-/** Fig. 7's caption with people: the share invested, the power and its sources; before industry, the minds and culture. */
+/** Fig. 2's caption with people: the share invested, the power and its sources; before industry, the minds and culture. */
 export function economyCaption(m) {
   const h = m.last, E = m.econ, Y = h.Y || 0;
   if (!(m.flags.industry && E && Y > 0)) return `The people · ${count(h.minds)} minds · culture z ${h.zmax.toFixed(2)}`;
