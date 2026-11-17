@@ -509,10 +509,15 @@ fn hair(d: f32, w: f32) -> f32 {
     land = mix(land, u.inkG.rgb, 0.07 * frozen);
     land = mix(land, u.inkG.rgb, 0.7 * frozen * hatch(T, vec2f(1.0, 0.0), 4.2 * u.mode.z, 0.8 * u.mode.z));
   }
-  // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The
-  // depth is smoothed and signed (dry land below zero), so the shore is a curve.
-  let lk = clamp(0.5 + lake / flake, 0.0, 1.0) * (1.0 - ice);   // a lake under snow is frozen over
-  land = mix(land, mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * lakeQ), lk);
+  // Lakes, in the sea's tint by depth, with a hard shore and its hairline. The field is smoothed
+  // and signed (dry land below zero), so the shore is a curve. Frozen, a lake is ice on water, as
+  // the sea's is: the sea ice's ink and its edge's hairline, where the land's snow field passes ½,
+  // read on the lake at its surface's height (src/engine/climate.js, geography). The model
+  // freezes a lake's share by ramp(−Ts, 0, 4.5), a quarter degree colder than the snow's; through the year
+  // the two disagree on under 3% of lake vertices.
+  let lk = clamp(0.5 + lake / flake, 0.0, 1.0);
+  let lakeInk = mix(mix(mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * lakeQ), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
+  land = mix(land, lakeInk, lk);
   land = mix(land, u.text.rgb, 0.55 * hair(abs(lake), flake));
 
   // The Climate view: the zones' mosaic on land.
@@ -529,7 +534,8 @@ fn hair(d: f32, w: f32) -> f32 {
     acc += probs[k] / max(tot, 1e-6);
     if (h < acc) { cls = k; break; }
   }
-  let zone = mix(zoneColor(cls, T), mix(u.canvas.rgb, u.ocean.rgb, 0.16), lk);
+  // A lake in the Zones map is the sea's wash, frozen as the sea is there.
+  let zone = mix(zoneColor(cls, T), mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.16), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge), lk);
   land = select(land, zone, climate);
   let shade = select(relief, mix(1.0, relief, 0.55), climate);
   let seaShade = select(relief, 1.0, climate);
@@ -661,16 +667,21 @@ fn hair(d: f32, w: f32) -> f32 {
       pland = mix(pland, u.inkE.rgb, 0.12 + 0.6 * furrows);
     }
   }
-  // Nothing stands on open water: the lakes over the uses, as the Relief view draws them where people
-  // have reached (Settlement) and in the chart's water everywhere (Density), with their shore.
-  let pwet = lk * select(explored, 1.0, folkD);
-  pland = mix(pland, select(mix(u.canvas.rgb, u.ocean.rgb, u.frame2.y + u.frame2.z * lakeQ), mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkD), pwet);
-  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkD) * hair(abs(lake), flake) * (1.0 - ice) * select(explored, 1.0, folkD));
+  // Nothing stands on a lake, open or frozen: the lakes over the uses, as the Relief view draws them
+  // where people have reached (Settlement) and in the chart's water everywhere (Density), with their
+  // shore; and under the ice sheets, as in the Relief view (the base holds the sheets already, so the
+  // lakes give way to them here).
+  let pwet = lk * select(explored, 1.0, folkD) * (1.0 - sheet);
+  pland = mix(pland, select(lakeInk, mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkD), pwet);
+  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkD) * hair(abs(lake), flake) * (1.0 - sheet) * select(explored, 1.0, folkD));
   land = select(land, pland, folkV);
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkD);
   let chart = weather || tides || air || folkD;
 
-  var c = select(land * select(shade, 1.0, chart), sea * select(seaShade, 1.0, chart), cst < 0.0);
+  // A lake's surface, open or frozen, takes the sea's hillshade, its bed's relief at a third (the
+  // normals are the land's, at full exaggeration, so a third of their shading).
+  let lakeFlat = lk * (1.0 - sheet) * select(1.0, explored, folkV);
+  var c = select(land * select(mix(shade, 1.0 + (shade - 1.0) / 3.0, lakeFlat), 1.0, chart), sea * select(seaShade, 1.0, chart), cst < 0.0);
 
   // The coastline.
   c = mix(c, u.text.rgb, 0.7 * hair(abs(cst), fcst));
