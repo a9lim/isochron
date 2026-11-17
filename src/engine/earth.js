@@ -71,24 +71,38 @@ function ageOfDrop(drop, cap) {
 
 /**
  * The data on grid g (its level or a coarser one: area-weighted restriction, the age weighted by the
- * oceanic share; plates sampled at the nested cells), in the sim's units: bed (km), ice (m), the oceanic
- * share and its age (Myr), each cell's plate.
+ * oceanic share; plates sampled at the nested cells; the lowest land by its lowest nested cell), in the
+ * sim's units: bed (km), ice (m), the oceanic share and its age (Myr), each cell's plate, its lowest land
+ * (km; Infinity where none stands above sea level).
  */
 function fieldsOn(d, g) {
   if (g.level > d.level) throw new Error(`earth: the data is level ${d.level}; the grid is ${g.level}`);
-  const nf = d.n, bed = new Float64Array(nf), ice = new Float64Array(nf), oc = new Float64Array(nf), oa = new Float64Array(nf);
+  const nf = d.n, bed = new Float64Array(nf), ice = new Float64Array(nf), oc = new Float64Array(nf), oa = new Float64Array(nf), low = new Float64Array(nf);
   for (let i = 0; i < nf; i++) {
     bed[i] = d.bed[i] / 1000; ice[i] = d.ice[i]; oc[i] = d.ocean[i] / 255; oa[i] = oc[i] * d.age[i] / 100;
+    low[i] = d.low && d.low[i] !== 32767 ? d.low[i] / 1000 : Infinity;
   }
-  const n = g.n, out = { bed, ice, ocean: oc, age: new Float64Array(nf), plate: d.plate.slice(0, n) };
+  const n = g.n, out = { bed, ice, ocean: oc, age: new Float64Array(nf), plate: d.plate.slice(0, n), low };
   if (g.level < d.level) {
     const T = makeTransfer(buildGrid(d.level), g), r = a => restrict(T, a, new Float64Array(n));
-    out.bed = r(bed); out.ice = r(ice); out.ocean = r(oc);
+    out.bed = r(bed); out.ice = r(ice); out.ocean = r(oc); out.low = lowest(T, low);
     const ra = r(oa);
     out.age = new Float64Array(n);
     for (let i = 0; i < n; i++) out.age[i] = out.ocean[i] > 1e-6 ? ra[i] / out.ocean[i] : 0;
   } else for (let i = 0; i < n; i++) out.age[i] = oc[i] > 1e-6 ? oa[i] / oc[i] : 0;
   return out;
+}
+
+/** The lowest of each coarse cell's nested fine cells (its own and the midpoints about it): the lowest land restricted. */
+function lowest(T, f) {
+  if (T.chain) return lowest(T.chain[1], lowest(T.chain[0], f));
+  const { nc, par, fine } = T, c = f.slice(0, nc);
+  for (let i = nc; i < fine.n; i++) {
+    const a = par[2 * (i - nc)], b = par[2 * (i - nc) + 1];
+    if (f[i] < c[a]) c[a] = f[i];
+    if (f[i] < c[b]) c[b] = f[i];
+  }
+  return c;
 }
 
 /** Each cell's target elevation on the sim's datum (km): ETOPO's bed, with the sea at `datum`. */
@@ -181,6 +195,13 @@ export function earthGenesis(tec, seed, d) {
     h[i] = thickness(target[i], phi[i], -tf[i]);
   }
   framesFromWorld(tec);
+  // Each cell's channel: its lowest land below its mean surface (src/engine/plates.js's `channel`), so
+  // a gorge narrower than a cell drains the basin above it (the Congo's through the Crystal Mountains,
+  // the Yangtze's below Sichuan, the Danube's at the Iron Gates) instead of closing it.
+  for (let i = 0; i < n; i++) {
+    const top = f.bed[i] + f.ice[i] / 1000, cut = top - f.low[i];
+    if (cut > 0 && top > 0) tec.plates[tec.owner[i]].gz[tec.ref[i]] = cut;
+  }
   // Earth's slabs mostly reach the transition zone (~660 km, from memory), so they hang at SLAB_MAX, where the pull saturates.
   hangSlabs(tec, PARAMS.SLAB_MAX);
   tec.seaLevel = s0;

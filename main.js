@@ -29,7 +29,8 @@ import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
 import { drawOverlay, placeLine, capOf, capFaces, matchLines, link, lakeAlong } from './src/render/overlay.js';
-import { makeStars, ecliptic } from './src/render/sky.js';
+import { makeStars, ecliptic, moonFace } from './src/render/sky.js';
+import { stream } from './src/rng.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
@@ -107,6 +108,9 @@ let tide = null;
 // planet's clock; the tide's phases follow from them (its bulge sits under the Moon).
 const skyClock = { years: null, theta: 0, lamM: 0, thetaShown: 0 };
 const stars = makeStars(seed);
+// The Moon's face (today's Earth's near side, or basins seeded with the planet) and the Sun's cycle's
+// phase at year 0 (today's Earth's: cycle 25 just past its maximum in 2025, from memory; else seeded).
+const moonFaceOf = moonFace(seed, isEarth(seed)), solarPhase = isEarth(seed) ? 0.5 : stream(seed, 'sun').uniform();
 let lastSky = null;
 let globe = null;
 let drawDirty = true, climateDirty = true, figuresDirty = true;
@@ -385,7 +389,7 @@ function skyFrame() {
   return {
     tides: { m: [Math.cos(m2) + rho * Math.cos(s2), Math.sin(m2) + rho * Math.sin(s2)], hw: [Math.cos(m2), Math.sin(m2)], amp: tide ? amp : 0, now },
     sky: { stars, theta: skyClock.thetaShown, sun, sunAlpha: 1 - smooth(-0.6, -0.2, lr), moon: mo, moonAlpha: 1 - smooth(-1.75, -1.3, lr), moonDist: moon.a,
-      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase() },
+      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase(), years: y, eps, solarPhase, face: moonFaceOf },
   };
 }
 function uploadSurface(m, mode) {

@@ -67,6 +67,7 @@ import { Soil, SOIL, potentialEvaporation } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
 import { Maritime } from './maritime.js';
+import { SeaHeat } from './seaheat.js';
 
 // Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
 // tune.mjs): the constants below marked "Earth" were set by a pattern search over the land's January,
@@ -75,7 +76,7 @@ import { Maritime } from './maritime.js';
 // seeded planets; on Earth's own map it scored 25% of the land's Köppen classes and 56% of its groups
 // right (now 53% and 74%), with land 3.8 K cold in the year and 14 K off in January.
 export const CLIMATE = {
-  A: 205.5, B: 2.09,       // OLR = A + B·T (W/m², T in °C): North's fit to Earth (203.3, from memory); A raised 2.2 W/m² (synthesis) to hold the converged mean near 14 °C under D's transport
+  A: 206, B: 2.09,         // OLR = A + B·T (W/m², T in °C): North's fit to Earth (203.3, from memory); A raised (synthesis) to hold the converged mean under D's transport (Earth: 206, with the sea's heat transport)
   // Heat diffusion, W m⁻² K⁻¹ on the unit sphere (the annual mean), at the equator; it falls toward
   // the poles as 1 + D_LAT sin²φ (each edge's weight carries it). Synthesis: a uniform 0.45 was
   // tuned to the opening's fourth cycle, a transient; converged it left the planet 2–3 K cold, 60°
@@ -84,15 +85,15 @@ export const CLIMATE = {
   // (the polar air's stable layering carries less heat per kelvin of gradient) it gives 70–80°
   // at −9 to −14 °C, 60° near 0 and the sea ice at 8–11%: Earth's ~7% (from memory) with
   // Antarctica's area as sea, as this planet's ocean poles have it. Earth: 0.85 and −0.75 (from 1.0
-  // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold).
-  D: 0.85, D_LAT: -0.75,
+  // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold); 0.91 and −0.85 with the sea's heat transport (src/engine/seaheat.js) beside it.
+  D: 0.91, D_LAT: -0.85,
   // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: with
   // the capacity mixed over each coarse cell, 0.1 left 55–65° continents with summers ~3 K cooler
   // than Earth's (from memory) and D climates at 15% of land, and 0.085 stood in for that mixing;
   // with each cell's own seasons (SUBGRID), 0.085 made 60–70° N land's summers 2–4 K warm, and 0.11
   // holds them near Earth's (~11 °C in June–August, from memory). Earth: 0.29, with maritime air
-  // (src/engine/maritime.js) carrying the sea's seasons onto the land from windward.
-  D_SEASON: 0.29,
+  // (src/engine/maritime.js) carrying the sea's seasons onto the land from windward; 0.49 with the sea's heat transport and the belts at Earth's latitudes (maritime air's K then 2).
+  D_SEASON: 0.49,
   // Continental seasons (`continentalSeasons`): each cell's seasonal harmonics from its own heat
   // capacity, not its coarse cell's mixed one.
   SUBGRID: true,
@@ -103,9 +104,9 @@ export const CLIMATE = {
   // Seattle's against Spokane's; from memory). 0: none below the coarse grid's scale; ∞: the mixed capacity.
   SUB_K: 8,
   C_OCEAN: 7.9,            // W yr m⁻² K⁻¹: a 60 m mixed layer
-  C_LAND: 0.46,            // Earth (from 0.3: the air's column with the ground's seasonal layer)
+  C_LAND: 0.61,            // Earth (from 0.3, then 0.46: the air's column with the ground's seasonal layer)
   C_ICE: 1.2,
-  LAPSE: 5.6,              // K/km. Earth (from 6.5): the surface's, which broad uplands warm (Tibet's air)
+  LAPSE: 5.4,              // K/km. Earth (from 6.5, then 5.6): the surface's, which broad uplands warm (Tibet's air)
   // + ALB_POLAR·sin²φ (sun angle, cloud). ALB_LAND Earth (from 0.27): a diffusive balance imports heat
   // only where land is colder than its neighbours, so land as bright as it is left subtropical land
   // ~10 K cold (the Sahara, India; the descent that heats deserts isn't in the balance).
@@ -121,16 +122,23 @@ export const CLIMATE = {
   ITCZ_PEN: 0.5,           // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6 before)
   ITCZ_MAX: 0.5,           // rad: the ITCZ's reach from the equator (Earth; 0.35 kept India's monsoon trough at 20°)
   ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
-  THERMAL: 0.4,            // hPa per K: the low over land warmer than its latitude, the high over land colder (Earth; 0.75 before)
+  THERMAL: 0.2,            // hPa per K: the low over land warmer than its latitude, the high over land colder (Earth; 0.75, then 0.4)
+  // The Hadley edge, where the subtropical highs stand: Held and Hou's √ΔT/Ω, HADLEY degrees at
+  // an equator-to-60° contrast of HADLEY_DT; the subpolar lows at LOWS of it. Earth: its highs at
+  // ~30–35° and its lows at ~60–65° (the Southern Ocean's trough ~65° S; from memory), so its
+  // westerlies blow strongest at 45–55°. (A 38 K reference put Earth's edge at 26° and its lows at
+  // 54°: the westerlies peaked at 30–40° and blew easterly past 50° N and 55° S, over Europe and
+  // Drake Passage.)
+  HADLEY: 30, HADLEY_DT: 28, LOWS: 2.05,   // Earth
   // The subtropical highs' share that land takes away (smoothed over ~1,500 km): 0 zonal bands, 1
   // oceanic cells (Earth's highs sit over the eastern oceans, and their western flanks carry the sea's
   // air up the continents' east coasts: zonal bands left eastern China and the eastern US as deserts).
-  HIGH_LAND: 0.85,
+  HIGH_LAND: 0.75,         // Earth (0.85 before the sea's heat transport)
   CARRY: 0.4,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes
-  KAPPA_W: 1.45e5,         // km²/day, eddy mixing of moisture (Earth; 7e4 before)
+  KAPPA_W: 1.65e5,         // km²/day, eddy mixing of moisture (Earth; 7e4, then 1.45e5)
   CONV_A: 15.6,            // convective rain = (W_s/60 mm) e^{a (r − r₀)} mm/day at column humidity r
-  CONV_R0: 0.693,          //   (the shape of Bretherton and others' tropical fit, from memory; r₀ Earth, 0.603 before)
-  RAIN_BG: 0.12,           // 1/day where the air isn't sinking (Earth; 0.08 before, ungated)
+  CONV_R0: 0.743,          //   (the shape of Bretherton and others' tropical fit, from memory; r₀ Earth, 0.603, then 0.693)
+  RAIN_BG: 0.14,           // 1/day where the air isn't sinking (Earth; 0.08 ungated, then 0.12)
   // Descent (synthesis on Sverdrup's balance, βv = f ∂w/∂z: Rodwell and Hoskins's subtropical
   // anticyclones): air moving equatorward in the subtropics is sinking aloft, poleward rising. The
   // carrying wind's equatorward speed over SUB_V (tapered within 15° of the equator, where f fails)
@@ -372,6 +380,7 @@ export class Climate {
     this.gpu = null;     // src/gpu/moisture.js, where there's a device (the page's engine)
     this.ebmGpu = null;  // src/gpu/ebm.js, where there's a device: the energy balance's steps
     this.maritime = new Maritime(this);   // the sea's air over the land (src/engine/maritime.js): its winds from each cycle
+    this.seaHeat = new SeaHeat(this);     // the sea's heat transport (src/engine/seaheat.js): the gyres and the overturning, their paths with the geography, their flows from each cycle's winds
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
     this.warm = false;
@@ -452,6 +461,7 @@ export class Climate {
     const f6 = this.scratch.f6;
     for (let i = 0; i < n; i++) f6[i] = this.landMask[i];
     restrict(this.T, f6, this.landFracC);
+    if (this.seaHeat) this.seaHeat.geometry();
     // The land's share smoothed over ~1,500 km (the subtropical highs' footprint: they stand over the sea).
     {
       const cg = this.coarse, w = this.ws.w, c5 = this.scratch.c5, c5b = this.scratch.c5b;
@@ -670,8 +680,13 @@ export class Climate {
     const br = new Float64Array(nc), bi = new Float64Array(nc);
     const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE + C.F_OLR;
     const sv = C.EBM_CG, tol = this.warm ? sv[0] : sv[2], maxIt = this.warm ? sv[1] : sv[3];
-    // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF.
-    for (let I = 0; I < nc; I++) { dr[I] = A[I] * C.B; di[I] = 0; br[I] = A[I] * (this.Fc[0][I] - C.A + forcing); bi[I] = 0; }
+    // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF, with the heat the sea's currents bring (src/engine/seaheat.js:
+    // linearized about the last state, its own cell's share on the diagonal).
+    const sh = this.seaHeat && this.seaHeat.terms(this.Tc[0]) ? this.seaHeat : null;
+    for (let I = 0; I < nc; I++) {
+      dr[I] = A[I] * C.B + (sh ? sh.diag[I] : 0); di[I] = 0;
+      br[I] = A[I] * (this.Fc[0][I] - C.A + forcing) + (sh ? sh.rhs[I] : 0); bi[I] = 0;
+    }
     const zero = this.scratch.c5b.fill(0);
     cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, maxIt, tol);
     yield;
@@ -792,7 +807,11 @@ export class Climate {
     if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
     for (let it = 0; it < maxIt; it++) {
       this.olrCorrection();
-      if (gpu) { gpu.setMaritime(this.maritime && this.maritime.carry(Tc) ? this.maritime : null); yield gpu.step(Tc, this.warm); } else yield* this.ebm();
+      if (gpu) {
+        gpu.setMaritime(this.maritime && this.maritime.carry(Tc) ? this.maritime : null);
+        gpu.setSeaHeat(this.seaHeat && this.seaHeat.terms(Tc[0]) ? this.seaHeat : null);
+        yield gpu.step(Tc, this.warm);
+      } else yield* this.ebm();
       this.olrMeasure();
       for (let k = 0; k < 5; k++) g.set(Tc[k], k * nc);
       // Remember (x, G(x)) as the residual f = G(x) − x and G(x), oldest first.
@@ -853,7 +872,7 @@ export class Climate {
     // Hadley edge: Held and Hou's scaling from the equator-to-pole contrast and the spin.
     const zAt = la => { const x = (la + Math.PI / 2) / Math.PI * 90 - 0.5, b = Math.max(0, Math.min(88, Math.floor(x))), w = Math.min(1, Math.max(0, x - b)); return zm[b] * (1 - w) + zm[b + 1] * w; };
     const dT = Math.max(5, zAt(0) - 0.5 * (zAt(1.05) + zAt(-1.05)));
-    const phiH = Math.max(0.2, Math.min(1.0, (30 * Math.PI / 180) * Math.sqrt(dT / 38) * (7.292e-5 / C.OMEGA)));
+    const phiH = Math.max(0.2, Math.min(1.0, (C.HADLEY * Math.PI / 180) * Math.sqrt(dT / C.HADLEY_DT) * (7.292e-5 / C.OMEGA)));
     this.stats.hadley = phiH * 180 / Math.PI;
     yield;
     // The thermal part of pressure: land warmer or colder than its latitude, smoothed (coarse).
@@ -881,7 +900,7 @@ export class Climate {
     for (let i = 0; i < n; i++) {
       const la = this.lat[i], pi = itcz[this.sector[i]];
       const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
-      const NL = Math.min(1.2, 2.05 * phiH) + 0.3 * pi, SL = -Math.min(1.2, 2.05 * phiH) + 0.3 * pi;
+      const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
       pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * this.landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
         + 8 * polarHi[i] - C.THERMAL * anom[i];
     }
@@ -1199,12 +1218,15 @@ export class Climate {
     this.co2Seen = CLIMATE.CO2;
     this.geography();
     yield;
+    if (this.seaHeat) yield* this.seaHeat.solveSteps();   // the overturning's flows when the sea has moved (src/engine/seaheat.js)
     yield* this.energyBalance();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
     // The year's winds carry the sea's air over the land in the next cycle's energy balance.
     if (this.maritime) this.maritime.setWind();
-    // The gyres after the winds they're driven by (before them, the first cycle's saw none).
+    // The gyres after the winds they're driven by (before them, the first cycle's saw none), and
+    // the sea's heat transport after both (src/engine/seaheat.js).
     if (this.ocean) yield* this.ocean.solve();
+    if (this.seaHeat) yield* this.seaHeat.flowSteps();
     yield* this.finishSteps();
     if (this.dust) { yield* this.dust.solve(); yield; }
     yield* this.groundYear();

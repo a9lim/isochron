@@ -280,13 +280,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
 }`;
 
-// On the energy balance's grid: each system's diagonal and right-hand side (k: A, B, K, ΔF).
+// On the energy balance's grid: each system's diagonal and right-hand side (k: A, B, K, ΔF); the
+// annual mean's with the sea's heat transport's (sea: its diagonal and forcing, src/engine/seaheat.js).
 const SETUP = HEAD + /* wgsl */`
 @group(0) @binding(0) var<uniform> U: Lv;
 @group(0) @binding(1) var<storage, read> geo: array<f32>;
 @group(0) @binding(2) var<storage, read> rf: array<f32>;
 @group(0) @binding(3) var<storage, read_write> dg: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> b: array<vec2f>;
+@group(0) @binding(5) var<storage, read> sea: array<vec2f>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -294,8 +296,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let c = U.off + i;
   let N = U.N;
   let A = geo[8u * c + 6u];
-  dg[c] = vec2f(A * U.k.y, 0.0);
-  b[c] = vec2f(A * (rf[c] - U.k.x + U.k.w), 0.0);
+  let m = sea[i];
+  dg[c] = vec2f(A * U.k.y + m.x, 0.0);
+  b[c] = vec2f(A * (rf[c] - U.k.x + U.k.w) + m.y, 0.0);
   for (var h = 0u; h < 2u; h++) {
     let r = 1u + 4u * h;
     let Z = cdiv(vec2f(1.0, 0.0), vec2f(rf[r * N + c], rf[(r + 1u) * N + c])) - vec2f(U.k.z, 0.0);
@@ -491,9 +494,10 @@ export class GpuEnergyBalance {
     this.Su = [0, 1].map(() => uniform(device, new Float32Array(8)));
     const { topo, X, Y, Bv, Dg, RF, PF } = this, gb = this.geo;
     this.MAR = B(32 * n); this.mar = new Float32Array(8 * n); this.marOn = false;
+    this.SEA = B(8 * cg.n); this.sea = new Float32Array(2 * cg.n); this.seaOn = false;
     const step = [[K.forcing, K.forcing.bind({ U: this.Fu, tf: this.TF, pa: this.PA, pb: this.PB, q: this.Q, fh: this.FH, yv: this.YV, rf: RF, mar: this.MAR }), [wg(n)]]];
     for (let k = top; k > ci; k--) step.push([K.rf, K.rf.bind({ U: Urf[k], topo, geo: gb, f: RF }), [wg(lv[k - 1].n)]]);
-    step.push([K.setup, K.setup.bind({ U: this.Uc, geo: gb, rf: RF, dg: Dg, b: Bv }), [wg(lv[ci].n)]]);
+    step.push([K.setup, K.setup.bind({ U: this.Uc, geo: gb, rf: RF, dg: Dg, b: Bv, sea: this.SEA }), [wg(lv[ci].n)]]);
     for (let k = ci; k >= 1; k--) step.push([K.diag, K.diag.bind({ U: this.Lu[k], topo, dg: Dg }), [wg(lv[k - 1].n), 1, 3]]);
     this.stepList = step;
     const smooths = (k, m) => {
@@ -620,6 +624,15 @@ export class GpuEnergyBalance {
     }
     this.device.queue.writeBuffer(this.MAR, 0, a);
     this.marOn = true;
+  }
+
+  /** The sea's heat transport's terms for the next step (src/engine/seaheat.js: `diag`, `rhs`), or none. */
+  setSeaHeat(m) {
+    const nc = this.nc, a = this.sea;
+    if (!m) { if (this.seaOn) { a.fill(0); this.device.queue.writeBuffer(this.SEA, 0, a); this.seaOn = false; } return; }
+    for (let I = 0; I < nc; I++) { a[2 * I] = m.diag[I]; a[2 * I + 1] = m.rhs[I]; }
+    this.device.queue.writeBuffer(this.SEA, 0, a);
+    this.seaOn = true;
   }
 
   /** One step T ← G(T) (forcing, restriction, the solves, the fine temperature); resolves once G's coarse harmonics are in Tc. */

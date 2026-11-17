@@ -14,6 +14,10 @@ cell) and is weighted by its area (cos latitude). Per cell, little-endian, n cel
   bed    int16   m     the mean bedrock (ETOPO 2022's bed: under the ice sheets, the rock)
   ice    uint16  m     the mean grounded ice (surface less bed where the ice stands above flotation;
                        ice shelves are sea, as the sim has none)
+  low    int16   m     the lowest ground in the cell: the least 2′ block of the bed where the surface
+                       stands above sea level (32767 where none does), where its water runs: a gorge
+                       narrower than a cell (the Congo's, the Yangtze's) stands far below the cell's
+                       mean, and a lake's floor (where ETOPO has its bathymetry) below its surface
   ocean  uint8   /255  the share of the cell with a seafloor age (Seton et al. 2020): its oceanic crust
   age    uint16  /100  Myr, the mean age over that share
   plate  uint8         an index into earth.json's plates (Müller et al. 2019's plates today: the rigid
@@ -66,6 +70,7 @@ def etopo():
     zb, zs = var(fb, 'z'), var(fs, 'z')
     assert zb.shape == (len(lat), len(lon)) and zs.shape == zb.shape, (zb.shape, zs.shape)
     W, B, I, L = (np.zeros(n) for _ in range(4))
+    LOW = np.full(n, np.inf)
     other = 0
     nr = len(lat) - len(lat) % 2
     step = 600
@@ -89,11 +94,14 @@ def etopo():
         w = np.cos(np.radians(LA)).ravel()
         W += np.bincount(idx, w, n); B += np.bincount(idx, w * bb.ravel(), n)
         I += np.bincount(idx, w * ii.ravel(), n); L += np.bincount(idx, w * ll.ravel(), n)
+        ss, bl = blk(s).ravel(), bb.ravel()
+        land = ss > 0
+        np.minimum.at(LOW, idx[land], bl[land])
         print(f'  etopo rows {r0}–{r1} of {nr} ({time.time() - t0:.0f} s)', end='\r', flush=True)
     print()
     if other:
         print(f'  note: {other} pixels equatorward of 59° where the surface stands above the bed (not ice sheets)')
-    return B / W, I / W, L / W, W
+    return B / W, I / W, L / W, W, LOW
 
 
 # ── Seton et al. 2020: the seafloor's age, 6′, gridline-registered. What it leaves blank is
@@ -220,7 +228,7 @@ def hotspots():
 
 
 print('ETOPO 2022…')
-bed, ice, landShare, _ = etopo()
+bed, ice, landShare, _, low = etopo()
 print('Seafloor ages…')
 ocean, age = ages()
 print('Plates…')
@@ -230,6 +238,8 @@ hot = hotspots()
 area = 4 * np.pi * 6371.0 ** 2 / n
 print(f'land (bed above sea level): {landShare.mean():.1%} of the sphere by area-share; cells with mean bed > 0: {(bed > 0).mean():.1%}')
 print(f'grounded ice: {(ice * area * 1e-3).sum() / 1e6:.1f} M km³ over {(ice > 0).sum()} cells')
+inc = np.where(np.isfinite(low) & (bed + ice > 0), bed + ice - low, 0)
+print(f'lowest land: {np.isfinite(low).sum()} cells; the mean surface above it, where above sea level: median {np.median(inc[inc > 0]):.0f} m, 90th percentile {np.percentile(inc[inc > 0], 90):.0f} m')
 print(f'oceanic crust: {ocean.mean():.1%} of cells by share; mean age where dated {np.average(age, weights=ocean):.1f} Myr')
 for k, p in enumerate(plist):
     cnt = int((plate == k).sum())
@@ -240,6 +250,7 @@ OUT.mkdir(exist_ok=True)
 fields = [
     ('bed', '<i2', np.clip(np.round(bed), -32768, 32767)),
     ('ice', '<u2', np.clip(np.round(ice), 0, 65535)),
+    ('low', '<i2', np.where(np.isfinite(low), np.clip(np.round(low), -32768, 32766), 32767)),
     ('ocean', 'u1', np.clip(np.round(ocean * 255), 0, 255)),
     ('age', '<u2', np.clip(np.round(age * 100), 0, 65535)),
     ('plate', 'u1', plate),

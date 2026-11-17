@@ -25,9 +25,10 @@
 // the plate around it (resolveFragments).
 //
 // Other layers keep state of their own with the crust, in the same frames
-// (FRAME_EXTRA): the regolith (src/engine/regolith.js) and the flexure's
+// (FRAME_EXTRA): the regolith (src/engine/regolith.js), the flexure's
 // correction to the elevation and the column's mass it last saw
-// (src/engine/crustflex.js). They travel as the crust does: copied where crust
+// (src/engine/crustflex.js), and the cell's lowest land below its mean, where
+// its water runs (today's Earth's, src/engine/earth.js: `channel`). They travel as the crust does: copied where crust
 // moves between frames (relaxation, merges, rifts, initiation), set to their
 // defaults where crust is new.
 import { nearest, gradient } from '../grid/icosphere.js';
@@ -74,7 +75,7 @@ export const PARAMS = {
 };
 
 /** Per frame cell, with the crust: name and the value new crust starts with (−1: not yet seen). */
-export const FRAME_EXTRA = { reg: 0, cf: 0, mq: -1 };
+export const FRAME_EXTRA = { reg: 0, cf: 0, mq: -1, gz: 0 };
 const EXTRA = Object.entries(FRAME_EXTRA);
 
 /** Crust and its extras from frame cell jf of plate P to jt of Q (which then holds it). */
@@ -84,6 +85,20 @@ export function copyCell(P, jf, Q, jt) {
 }
 /** A frame cell's extras as new crust has them. */
 export function freshExtras(P, j) { for (const [k, v] of EXTRA) P[k][j] = v; }
+
+/**
+ * Each world cell's channel (km): where its water runs, its mean elevation less the depth of its
+ * lowest land below the mean (`gz`, km: a gorge narrower than a cell; today's Earth's, else 0), never
+ * below sea level unless the cell's mean is. The landscape and the lakes route on it.
+ */
+export function channel(tec, out) {
+  const n = tec.grid.n, s = tec.seaLevel;
+  for (let i = 0; i < n; i++) {
+    const e = tec.elev[i], g = tec.plates[tec.owner[i]].gz[tec.ref[i]];
+    out[i] = g > 0 ? Math.max(e - g, Math.min(e, s)) : e;
+  }
+  return out;
+}
 
 const scratch = new WeakMap();   // per grid: the fragments' labels and work arrays (resolveFragments)
 

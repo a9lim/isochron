@@ -8,7 +8,7 @@
 //   env: FIXED=1 the zones' fixed widths, NOLAKES=1 no lakes, NOREG=1 no regolith, NOVEG=1 no cover,
 //        NOOCEAN=1 no gyres, LEVEL=n the grid (6), MAX=n cycles at most (40), TRACE=1 each cycle's means
 import { buildGrid } from '../src/grid/icosphere.js';
-import { Tectonics } from '../src/engine/plates.js';
+import { Tectonics, channel } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
 import { genesis } from '../src/engine/genesis.js';
 import { isEarth, loadEarth, earthGenesis, earthIce } from '../src/engine/earth.js';
@@ -34,7 +34,7 @@ if (!process.env.NOOCEAN) clim.ocean = new Ocean(clim, clim.coarse);
 if (!process.env.FIXED) clim.year = new Year(clim);
 // The lakes at their balance after each cycle, as at a fast dial (NOLAKES=1: none).
 const lakes = process.env.NOLAKES ? null : new Lakes(g);
-if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.sea); }
+if (lakes) { clim.lakes = lakes; lakes.reroute(tec.elev, tec.sea, null, null, channel(tec, new Float64Array(g.n))); }
 // The regolith sets the soil's capacity (NOREG=1: the fixed capacity, as before phase 7); its
 // opening layer sits at its balance with the climate until the climate has settled.
 const reg = process.env.NOREG ? null : new Regolith(tec, land, clim);

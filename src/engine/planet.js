@@ -27,7 +27,7 @@
 // (src/engine/plates.js, solveSea: a basin it leaves comes with its water). The
 // lakes carry their water over, and what they hold is off the sea's.
 import { buildGrid } from '../grid/icosphere.js';
-import { Tectonics } from './plates.js';
+import { Tectonics, channel } from './plates.js';
 import { Landscape } from './landscape.js';
 import { Climate, CLIMATE } from './climate.js';
 import { Runaway } from './runaway.js';
@@ -246,7 +246,7 @@ export class Planet {
       for (let i = 0; i < n; i++) if (cut[i] > 0) { extra[i] = cut[i] * this.grid.area[i] * R2; cut[i] = 0; }
       tec.cutHeld = 0;
     }
-    this.lakes.reroute(tec.elev, tec.sea, this.ice.H, extra);
+    this.lakes.reroute(tec.elev, tec.sea, this.ice.H, extra, channel(tec, this.chanR || (this.chanR = new Float64Array(n))));
     this.syncLakes();
     this.lakesBasins = tec.basins;
     this.lakesSteps = this.land.steps; this.lakesIce = this.tec.iceWater; this.lakesBuiltYears = this.years;

@@ -18,7 +18,9 @@
 //                first filled cell it meets, and so into that cell's leaf.
 //   hypsometry   (synthesis) a cell's ground spans [z, z + ramp] below the
 //                grid's scale: z, the routed height, is its lowest point,
-//                where water runs. A cell's wet share then rises linearly with
+//                where water runs (its mean, or its channel where the data has
+//                one: a gorge's floor, the span then at least twice its depth
+//                below the mean). A cell's wet share then rises linearly with
 //                the level, so a lake's area is continuous in its volume, and a
 //                fully wet cell's mean depth is level − z − ramp/2. The ramp is
 //                the cell's relief, its mean height difference to its
@@ -78,6 +80,7 @@ import { LAND, route } from './landscape.js';
 export const LAKES = {
   RAMP: 2 * LAND.ROUGH,   // km: a cell's ground below the grid's scale, at most (the roughness's full range)
   RAMP_MIN: 0.005,        // km: at least (a floodplain's relief across a cell)
+  RAMP_CUT: 2,            // km: at most, where a cell's channel lies below its mean (a gorge: its ground spans twice the depth)
   TOL: 1e-5,              // km: filled by more than this is in a depression
   SALT_TAU: 3000,         // yr: a dry bed's memory of its water
   WET: 0.5,               // the closure's spread of inflow from year to year (salt flats at fast dials)
@@ -105,6 +108,7 @@ export class Lakes {
     this.regOf = new Int32Array(n).fill(-1);
     this.z = new Float64Array(n);
     this.ramp = new Float64Array(n).fill(LAKES.RAMP);   // km: each cell's ground below the grid's scale (hypsometry)
+    this.cut = new Float64Array(n);                      // km: each cell's channel below its mean (`reroute`'s chan)
     this.wts = new Float64Array(n);       // km³/yr: A (R − (P − E)), what wetting the cell costs its lake
     this.nb = 0;
     this.nr = 0;
@@ -140,7 +144,7 @@ export class Lakes {
       if (!(zf[i] - z[i] > TOL)) continue;
       let d = 0;
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) d += Math.abs(z[nbr[t]] - z[i]);
-      this.ramp[i] = Math.min(LAKES.RAMP, Math.max(LAKES.RAMP_MIN, d / (nbrOff[i + 1] - nbrOff[i])));
+      this.ramp[i] = Math.max(Math.min(LAKES.RAMP, Math.max(LAKES.RAMP_MIN, d / (nbrOff[i + 1] - nbrOff[i]))), Math.min(LAKES.RAMP_CUT, 2 * this.cut[i]));
     }
     this.depth.fill(0); this.wet.fill(0); this.under.fill(0); this.salt.fill(0); this.lakeId.fill(-1);
     // Regions: connected filled cells.
@@ -286,14 +290,17 @@ export class Lakes {
    * Route the smooth surface and rebuild: the ground (km, `elev`) plus its ice (m, `iceH`),
    * so ice dams lakes but holds none (it's dry); the ocean (`sea`, the plates' mask) is the
    * outlet. Not the landscape's rough routing, whose roughness makes one-cell ponds. `extra`
-   * (km³ per cell) is water to lay down with the lakes' own: a basin the sea has left.
-   * Returns rebuild's.
+   * (km³ per cell) is water to lay down with the lakes' own: a basin the sea has left. `chan`
+   * (km), where it's given, is each cell's channel (src/engine/plates.js's `channel`): the
+   * ground's lowest land, routed on where no ice fills it, its ground then spanning at least
+   * twice its depth below the mean. Returns rebuild's.
    */
-  reroute(elev, sea, iceH = null, extra = null) {
+  reroute(elev, sea, iceH = null, extra = null, chan = null) {
     const n = this.n, z = this.zr || (this.zr = new Float64Array(n)), base = this.baseR || (this.baseR = new Uint8Array(n)), dry = this.dryR || (this.dryR = new Uint8Array(n));
+    const cut = this.cut;
     for (let i = 0; i < n; i++) {
-      const h = iceH ? iceH[i] : 0;
-      z[i] = elev[i] + h / 1000; base[i] = sea[i] ? 1 : 0; dry[i] = h > 1 ? 1 : 0;
+      const h = iceH ? iceH[i] : 0, c = chan && !(h > 1) ? Math.min(elev[i], chan[i]) : elev[i];
+      z[i] = c + h / 1000; cut[i] = elev[i] - c; base[i] = sea[i] ? 1 : 0; dry[i] = h > 1 ? 1 : 0;
     }
     this.routeR = route(this.grid, z, base, this.routeR);
     return this.rebuild(this.routeR, z, dry, extra);

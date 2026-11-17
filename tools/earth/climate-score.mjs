@@ -4,11 +4,11 @@
 // year's temperature, the year's rain, the Köppen groups), the sea's surface and its ice by latitude,
 // and the Köppen classes (the observations classified with the sim's own thresholds, hard, as the
 // sim's months are).
-// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: MAR and VEGO (overrides-json for MARITIME and VEG), LEVEL (6), MAX (40), QUIET=1 (summary only)
+// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: MAR, VEGO and SEAO (overrides-json for MARITIME, VEG and SEAHEAT), LEVEL (6), MAX (40), QUIET=1 (summary only)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildGrid } from '../../src/grid/icosphere.js';
-import { Tectonics } from '../../src/engine/plates.js';
+import { Tectonics, channel } from '../../src/engine/plates.js';
 import { Landscape } from '../../src/engine/landscape.js';
 import { Climate, CLIMATE } from '../../src/engine/climate.js';
 import { Year } from '../../src/engine/year.js';
@@ -20,10 +20,12 @@ import { Ocean } from '../../src/engine/ocean.js';
 import { Ice } from '../../src/engine/ice.js';
 import { loadEarth, earthGenesis, earthIce } from '../../src/engine/earth.js';
 import { MARITIME } from '../../src/engine/maritime.js';
+import { SEAHEAT } from '../../src/engine/seaheat.js';
 
 Object.assign(CLIMATE, JSON.parse(process.argv[2] || '{}'));
 Object.assign(MARITIME, JSON.parse(process.env.MAR || '{}'));
 Object.assign(VEG, JSON.parse(process.env.VEGO || '{}'));
+Object.assign(SEAHEAT, JSON.parse(process.env.SEAO || '{}'));
 const LEVEL = +(process.env.LEVEL || 6), QUIET = !!process.env.QUIET;
 const cache = fileURLToPath(new URL('./.cache/', import.meta.url));
 const meta = JSON.parse(readFileSync(`${cache}obs-${LEVEL}.json`, 'utf8'));
@@ -39,7 +41,7 @@ const clim = new Climate(tec, land);
 clim.ice = new Ice(tec, clim); earthIce({ tec, ice: clim.ice, grid: g }, earth); land.reroute();
 clim.ocean = new Ocean(clim, clim.coarse);
 clim.year = new Year(clim);
-const lakes = new Lakes(g); clim.lakes = lakes; lakes.reroute(tec.elev, tec.sea);
+const lakes = new Lakes(g); clim.lakes = lakes; lakes.reroute(tec.elev, tec.sea, null, null, channel(tec, new Float64Array(g.n)));
 const reg = new Regolith(tec, land, clim); land.preview(); reg.init();
 const veg = new Vegetation(g.n, g.area);
 const t0 = performance.now();
@@ -70,6 +72,12 @@ function koppen(tm, pm, north) {
 }
 
 // ── Per cell: the sim's months and the observations' ──
+// Seas (lat0, lat1, lon0, lon1; a range across 180° wraps): the year's surface and its ice.
+const SEAS = [
+  ['N Atlantic 40-55', 40, 55, -70, -10], ['Labrador 52-66', 52, 66, -65, -45], ['Nordic 60-76', 60, 76, -30, 20], ['Barents 68-80', 68, 80, 20, 60],
+  ['N Pacific 40-55', 40, 55, 145, -125], ['Bering/Okhotsk 52-66', 52, 66, 140, -160], ['S Ocean 50-65', -65, -50, -180, 180], ['S Atlantic 20-40', -40, -20, -50, 10],
+];
+const SR = SEAS.map(() => ({ a: 0, t: 0, o: 0, i: 0, io: 0 }));
 const REGIONS = [
   ['W Europe', 40, 60, -10, 30], ['E Europe', 45, 60, 30, 60], ['Siberia', 55, 70, 60, 140], ['C Asia', 35, 50, 50, 80],
   ['Mid East', 25, 40, 35, 60], ['Tibet', 28, 38, 80, 100], ['India', 8, 28, 68, 90], ['E China', 22, 40, 100, 122],
@@ -108,6 +116,7 @@ for (let i = 0; i < n; i++) {
       iceO += (O.icec[12 * i + m] > 0.15 ? 1 : 0) / 12;
     }
     ice = clim.snowAnn[i];
+    SEAS.forEach(([, l0, l1, o0, o1], k) => { const L = lat(i), Lo = lon(i); if (L >= l0 && L < l1 && (o0 <= o1 ? Lo >= o0 && Lo < o1 : Lo >= o0 || Lo < o1)) { const q = SR[k]; q.a += a; q.t += a * Math.max(-1.8, ty); q.o += a * yo; q.i += a * ice; q.io += a * iceO; } });
     zband[b].sa += a; zband[b].st += a * Math.max(-1.8, ty); zband[b].so += a * yo;
     zband[b].ia += a; zband[b].is += a * ice; zband[b].io += a * iceO;
   }
@@ -123,6 +132,7 @@ for (let i = 0; i < n; i++) {
     settled: s.settled, meanT: s.meanT, meanP: s.meanP, landP: s.landP,
     rmsY: Math.sqrt(e2y / la), rmsJ: Math.sqrt(e2j / la), rmsL: Math.sqrt(e2l / la), bias: bias / la, rain: Math.sqrt(lp2 / la),
     sea: Math.sqrt(se / sw), ice: Math.sqrt(ie / iw), koppen: agree / la, group: agreeG / la,
+    seas: Math.sqrt(SR.reduce((s, q) => s + (q.a ? (q.t / q.a - q.o / q.a) ** 2 : 0), 0) / SR.filter(q => q.a).length),
     groups: [...'ABCDE'].map((c, k) => [ALL.gs[k] / ALL.a, ALL.go[k] / ALL.a]),
     regions: Object.fromEntries(REGIONS.map(([name], k) => { const r = R[k]; return r.a ? [name, { jan: (r.tj[0] - r.tj[1]) / r.a, jul: (r.tl[0] - r.tl[1]) / r.a, year: (r.ty[0] - r.ty[1]) / r.a, rain: r.py[0] / Math.max(1, r.py[1]) }] : [name, null]; })),
   };
@@ -132,6 +142,8 @@ const f1 = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 const groups = r => [...'ABCDE'].map((c, k) => `${c}${Math.round(100 * r.gs[k] / r.a)}/${Math.round(100 * r.go[k] / r.a)}`).join(' ');
 const sum = `land T rms: year ${f1(Math.sqrt(e2y / la))} K (bias ${f1(bias / la)}), Jan ${f1(Math.sqrt(e2j / la))}, Jul ${f1(Math.sqrt(e2l / la))} · rain log-ratio rms ${f1(Math.sqrt(lp2 / la), 2)} · Köppen class ${f1(100 * agree / la, 0)}%, group ${f1(100 * agreeG / la, 0)}%`;
 console.log(`settled ${s.settled || 'not'} (${((performance.now() - t0) / 1000).toFixed(0)} s) · mean ${f1(s.meanT)} °C · rain ${f1(s.meanP, 0)} mm/yr (land ${f1(s.landP, 0)}) · lakes ${f1(lakes.stats ? lakes.stats.area / 1e6 : NaN, 2)} M km²`);
+{ const o = clim.seaHeat, L = [-50, -30, 0, 26, 45, 60, 70], h = o.transport(L);
+  console.log(`sea: overturning ${f1(o.stats.sv)} Sv (channels' Ekman S ${f1(o.ek.S)} N ${f1(o.ek.N)}; sinking ${f1(o.deep)} °C), gyres ${f1(o.stats.gyre)} Sv at most, ${o.stats.sweeps} sweeps · its heat north, PW: ${L.map((la, k) => `${la}° ${h[k].toFixed(2)}`).join(', ')}`); }
 console.log(sum);
 console.log(`groups (sim/obs % of land): ${groups(ALL)}`);
 if (!QUIET) {
@@ -146,6 +158,10 @@ if (!QUIET) {
     const l = -90 + 10 * b;
     console.log(`${String(l).padStart(4)}..${String(l + 10).padStart(3)}      ${z.la ? `${f1(z.lt / z.la).padStart(6)} ${f1(z.lo / z.la).padStart(6)}` : '     —      —'}       ${z.sa ? `${f1(z.st / z.sa).padStart(6)} ${f1(z.so / z.sa).padStart(6)}` : '     —      —'}        ${z.ia ? `${f1(100 * z.is / z.ia, 0).padStart(4)} ${f1(100 * z.io / z.ia, 0).padStart(4)}` : ''}`);
   });
-  console.log('Köppen groups, observed (rows) as simulated (columns), % of the row:');
+  if (!QUIET) {
+  console.log('sea               surface sim/obs   ice share sim/obs');
+  SEAS.forEach(([name], k) => { const q = SR[k]; if (q.a) console.log(`${name.padEnd(20)} ${f1(q.t / q.a).padStart(6)} ${f1(q.o / q.a).padStart(6)}   ${f1(100 * q.i / q.a, 0).padStart(4)} ${f1(100 * q.io / q.a, 0).padStart(4)}`); });
+}
+console.log('Köppen groups, observed (rows) as simulated (columns), % of the row:');
   conf.forEach((row, k) => { const t = row.reduce((x, y) => x + y, 0); if (t) console.log(`  ${"ABCDE"[k]}  ` + Array.from(row, v => f1(100 * v / t, 0).padStart(4)).join("")); });
 }

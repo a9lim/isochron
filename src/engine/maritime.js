@@ -18,7 +18,7 @@ import { restrict, prolong } from '../grid/transfer.js';
 
 /** Tunable; tools and tests may change them. */
 export const MARITIME = {
-  K: 10,                 // W m⁻² K⁻¹: the exchange between a land cell and the sea's air over it (0: none)
+  K: 2,                  // W m⁻² K⁻¹: the exchange between a land cell and the sea's air over it (0: none). Earth: 10 at first, 2 with the seasons' diffusion at 0.49 and the sea's heat transport beside it
   L: 2000,               // km: how far the sea's air carries inland at U before it takes the land's temperature
   U: 5,                  // m/s: the reference speed for L
   KAPPA: 1e6,            // m²/s: eddy mixing of the air (the storms that carry it off the mean wind)

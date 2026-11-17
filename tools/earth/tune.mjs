@@ -3,7 +3,7 @@
 // processes), takes the best, then tries every improving move together; with none, the steps halve.
 // usage: node tools/earth/tune.mjs spec.json [rounds] [objective]
 //   spec.json: { "params": [{ "key": "CLIMATE.A", "lo": 200, "hi": 210, "x": 205.5, "step": 1 }, …],
-//                "fixed": { "CLIMATE": {…}, "MARITIME": {…}, "VEG": {…} } }
+//                "fixed": { "CLIMATE": {…}, "MARITIME": {…}, "VEG": {…}, "SEAHEAT": {…} } }
 //   objective: temp (default: land temperature, the sea's surface and ice, the Köppen groups) or all (with rain)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -16,20 +16,20 @@ const P = spec.params, ROUNDS = +roundsArg, JOBS = Math.max(1, Math.min(16, cpus
 const score = fileURLToPath(new URL('./climate-score.mjs', import.meta.url));
 
 const OBJ = {
-  temp: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 20 * j.ice + 10 * (1 - j.group),
-  all: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 20 * j.ice + 10 * (1 - j.group) + 6 * j.rain + 10 * (1 - j.koppen),
+  temp: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 0.5 * j.seas + 20 * j.ice + 10 * (1 - j.group),
+  all: j => j.rmsY + 0.5 * (j.rmsJ + j.rmsL) + j.sea + 0.5 * j.seas + 20 * j.ice + 10 * (1 - j.group) + 6 * j.rain + 10 * (1 - j.koppen),
 };
 const objective = OBJ[objName];
 
 function overrides(x) {
-  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, MARITIME: { ...(spec.fixed?.MARITIME || {}) }, VEG: { ...(spec.fixed?.VEG || {}) } };
+  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, MARITIME: { ...(spec.fixed?.MARITIME || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) } };
   P.forEach((p, k) => { const [ns, key] = p.key.split('.'); o[ns][key] = x[k]; });
   return o;
 }
 function run(x) {
   const o = overrides(x);
   return new Promise(resolve => {
-    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', MAR: JSON.stringify(o.MARITIME), VEGO: JSON.stringify(o.VEG) } });
+    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', MAR: JSON.stringify(o.MARITIME), VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT) } });
     let out = '';
     ch.stdout.on('data', d => { out += d; });
     ch.on('close', () => {
@@ -45,7 +45,7 @@ async function pool(xs) {
   return out;
 }
 const clamp = (v, p) => Math.min(p.hi, Math.max(p.lo, v));
-const show = r => `f ${r.f.toFixed(3)} · T rms ${r.j.rmsY.toFixed(2)}/${r.j.rmsJ.toFixed(2)}/${r.j.rmsL.toFixed(2)} bias ${r.j.bias.toFixed(2)} · sea ${r.j.sea.toFixed(2)} · ice ${r.j.ice.toFixed(3)} · rain ${r.j.rain.toFixed(2)} · Köppen ${(100 * r.j.koppen).toFixed(0)}/${(100 * r.j.group).toFixed(0)}% · ${r.j.meanT.toFixed(1)} °C`;
+const show = r => `f ${r.f.toFixed(3)} · T rms ${r.j.rmsY.toFixed(2)}/${r.j.rmsJ.toFixed(2)}/${r.j.rmsL.toFixed(2)} bias ${r.j.bias.toFixed(2)} · sea ${r.j.sea.toFixed(2)} (seas ${r.j.seas.toFixed(2)}) · ice ${r.j.ice.toFixed(3)} · rain ${r.j.rain.toFixed(2)} · Köppen ${(100 * r.j.koppen).toFixed(0)}/${(100 * r.j.group).toFixed(0)}% · ${r.j.meanT.toFixed(1)} °C`;
 const fmt = x => P.map((p, k) => `${p.key.split('.')[1]} ${+x[k].toPrecision(4)}`).join(', ');
 
 let best = (await pool([P.map(p => p.x)]))[0];

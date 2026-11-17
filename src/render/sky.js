@@ -5,11 +5,20 @@
 // the camera, which turns with the planet, sees the sky wheel about the pole.
 //   stars   seeded positions and brightnesses; the pole is the spin axis
 //   Sun     on the ecliptic at its longitude for the date, tilted by the
-//           obliquity: its path through the year is the ecliptic
+//           obliquity: its path through the year is the ecliptic; darker
+//           toward its limb (limb darkening), with its spots (`spots`): groups
+//           born at a rate that follows an 11-year cycle on the planet's clock,
+//           at latitudes that fall from ~30° to ~8° through each cycle (Spörer's
+//           law: the butterfly diagram), carried across the disc by the Sun's
+//           differential rotation (~25 days at its equator, ~29 at 40°: standard,
+//           from memory) about the ecliptic's pole, living days to weeks
 //   Moon    on the ecliptic at its longitude (advancing at its mean motion,
 //           which its distance sets), lit on the side facing the Sun; drawn
 //           at its true size against the Sun's (×5 both, to be read), so a nearer Moon
-//           looks larger
+//           looks larger; its face turned to the planet with its maria
+//           (`moonFace`): today's Earth's Moon's near side (selenographic
+//           positions and sizes, from memory), else flooded basins seeded with
+//           the planet, gathered on the near side as the Moon's are
 //   swarm   the people's collectors round the Sun (the People scenario's
 //           industry off-world): graphite points on seeded orbits, as many as
 //           the share of the Sun's output they take (to a tenth), the disc
@@ -63,11 +72,82 @@ const BASE = (() => {
   return use;
 })();
 
+/**
+ * The Moon's face, north up and east to the right as the planet sees it (unit disc): maria
+ * [x, y, rx, ry, turn] (orthographic, so a basin toward the limb is foreshortened) and bright
+ * craters [x, y, r, rays]. Earth's Moon's near side, or basins seeded for another planet's.
+ */
+export function moonFace(seed, earth) {
+  const at = (lat, lon) => [Math.cos(lat * Math.PI / 180) * Math.sin(lon * Math.PI / 180), Math.sin(lat * Math.PI / 180), Math.cos(lat * Math.PI / 180) * Math.cos(lon * Math.PI / 180)];
+  // A basin of diameter d km at (lat, lon): its projected ellipse, foreshortened along its radius from the centre.
+  const basin = (lat, lon, d, sx = 1) => {
+    const [x, y, z] = at(lat, lon), r = d / 2 / 1737.4, rho = Math.hypot(x, y);
+    return [x, y, r * (rho > 1e-6 ? Math.max(0.25, z) : 1) * sx, r, rho > 1e-6 ? Math.atan2(y, x) : 0];
+  };
+  if (earth) return {
+    maria: [
+      basin(33, -16, 1150), basin(28, 17.5, 700), basin(8.5, 31.4, 870), basin(17, 59, 560), basin(-7.8, 51.3, 840, 0.8),
+      basin(-15.2, 35.5, 340), basin(-21.3, -16.6, 715), basin(-24.4, -38.6, 390), basin(13, 15.6, 240), basin(-11, -5, 300),
+      // Oceanus Procellarum and Mare Frigoris, long, in pieces.
+      basin(20, -57, 1100), basin(0, -50, 900), basin(35, -50, 800), basin(-8, -38, 600), basin(56, -15, 500, 2.6), basin(57, 18, 420, 2.2),
+      basin(7, -31, 500),
+    ],
+    craters: [[...at(-43.3, -11.2).slice(0, 2), 0.045, 1], [...at(9.6, -20.1).slice(0, 2), 0.04, 1], [...at(23.7, -47.4).slice(0, 2), 0.035, 0], [...at(8.1, -38).slice(0, 2), 0.03, 0]],
+  };
+  const r = stream(seed, 'moon-face'), maria = [], craters = [];
+  // Basins flooded on the near side (thin crust there), a few large and more small.
+  const cLat = 20 * (r.uniform() - 0.5), cLon = 30 * (r.uniform() - 0.5), m = 6 + Math.floor(6 * r.uniform());
+  for (let k = 0; k < m; k++) {
+    const lat = cLat + 55 * r.normal() * 0.6, lon = cLon + 60 * r.normal() * 0.6, d = 250 + 900 * r.uniform() ** 2;
+    if (Math.abs(lat) < 80 && Math.abs(lon) < 85) maria.push(basin(lat, lon, d, 0.8 + 0.5 * r.uniform()));
+  }
+  for (let k = 0; k < 3; k++) { const lat = 70 * (r.uniform() - 0.5), lon = 140 * (r.uniform() - 0.5); craters.push([...at(lat, lon).slice(0, 2), 0.03 + 0.02 * r.uniform(), k === 0 ? 1 : 0]); }
+  return { maria, craters };
+}
+
+/** The Sun's activity in [0, 1] at `years` and the latitude (degrees) its new spots form at (Spörer's law). */
+function solarCycle(years, phase0) {
+  const P = 11, c = (years + phase0 * P) / P, k = Math.floor(c), u = c - k;
+  const a = stream('sun', `cycle-${k}`).uniform();
+  // Rising over ~4 years, falling over ~7; each cycle its own strength (0.5–1.3).
+  const v = u < 0.36 ? 0.5 * u / 0.36 : 0.5 + 0.5 * (u - 0.36) / 0.64;
+  return { act: Math.sin(Math.PI * v) ** 2 * (0.5 + 0.8 * a), lat: 30 - 22 * u };
+}
+
+/**
+ * The spot groups on the Sun's near side at `years`: [x, y, r] in the disc (x toward its west limb,
+ * y its north, r its radius's share), from the groups born each day of the last 40 at the cycle's
+ * rate, each living 4–20 days, growing and fading.
+ */
+export function spots(years, phase0 = 0) {
+  const day = years * 365.25, D = Math.floor(day), out = [];
+  for (let d = D - 40; d <= D; d++) {
+    const r = stream('sun', `day-${d}`), { act, lat } = solarCycle(d / 365.25, phase0);
+    let g = 0;
+    for (let lam = 2.4 * act, x = r.uniform(); x < 1 - Math.exp(-lam) && g < 6; x = r.uniform()) g++;   // a few a day at the cycle's height
+    for (let k = 0; k < g; k++) {
+      const life = 4 + 16 * r.uniform() ** 2, age = day - d - r.uniform();
+      const la = (r.uniform() < 0.5 ? -1 : 1) * Math.max(3, lat + 6 * r.normal() * 0.5), lon0 = 360 * r.uniform(), n = 1 + Math.floor(3.5 * r.uniform()), size = 0.03 + 0.05 * r.uniform() ** 2;
+      if (!(age >= 0 && age < life)) continue;
+      const s = Math.sin(Math.PI * age / life) ** 0.6, sl = Math.sin(la * Math.PI / 180) ** 2;
+      const lon = lon0 + (13.45 - 2.4 * sl - 1.8 * sl * sl) * age;   // synodic degrees a day (differential rotation)
+      for (let j = 0; j < n; j++) {
+        const L = (lon + (j - (n - 1) / 2) * 3) * Math.PI / 180, B = la * Math.PI / 180, z = Math.cos(B) * Math.cos(L);
+        if (z <= 0.05) continue;
+        out.push([Math.cos(B) * Math.sin(L), Math.sin(B), size * s * (j === 0 ? 1 : 0.6) * Math.sqrt(z)]);
+      }
+    }
+  }
+  return out;
+}
+
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
 
 /**
  * Draw the sky outside the globe's disc. `sky`: { stars, theta (rad), sun: dir | null,
- * sunAlpha, moon: dir | null, moonAlpha, moonDist (m) }; directions equatorial.
+ * sunAlpha, moon: dir | null, moonAlpha, moonDist (m), years (the planet's clock: the Sun's
+ * spots), eps (the obliquity), solarPhase (the cycle's phase at year 0), face (`moonFace`) };
+ * directions equatorial.
  * r0 is the globe's radius at the camera's least zoom: the sky's scale, which zoom
  * doesn't change (the stars are at infinity).
  */
@@ -96,8 +176,20 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
     if (p) {
       const R = Math.max(4, BIG * f * SUN_R / AU), sw = Math.min(0.1, sky.swarm || 0);
       ctx.globalAlpha = sky.sunAlpha * (1 - sw);
-      ctx.fillStyle = pal.inks.ochre;
+      const lg = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], R);   // limb darkening
+      lg.addColorStop(0, pal.inks.ochre); lg.addColorStop(0.7, rgba(pal.inks.ochre, 0.92)); lg.addColorStop(1, rgba(pal.inks.ochre, 0.62));
+      ctx.fillStyle = lg;
       ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.fill();
+      // Its spots, about the ecliptic's pole (the Sun's axis is within 7° of it).
+      if (sky.years !== undefined) {
+        const e = sky.eps || 0, pole = [0, -Math.sin(e), Math.cos(e)], sn = sky.sun;
+        const up = project(sn[0] + 0.02 * pole[0], sn[1] + 0.02 * pole[1], sn[2] + 0.02 * pole[2]);
+        const ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2, ny = [Math.cos(ua), Math.sin(ua)], nx = [-ny[1], ny[0]];
+        ctx.fillStyle = pal.dark ? pal.canvas : rgba(ink, 0.8);
+        for (const [x, y, rr] of spots(sky.years, sky.solarPhase || 0)) {
+          ctx.beginPath(); ctx.arc(p[0] + R * (x * nx[0] + y * ny[0]), p[1] + R * (x * nx[1] + y * ny[1]), Math.max(0.55, rr * R), 0, 2 * Math.PI); ctx.fill();
+        }
+      }
       const nSw = sw > 1e-9 ? Math.round(900 * Math.sqrt(sw / 0.1)) : 0;
       if (nSw) {
         ctx.globalAlpha = sky.sunAlpha;
@@ -132,6 +224,28 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       else ctx.ellipse(0, 0, -R * cosA, R, 0, Math.PI / 2, -Math.PI / 2, true);
       ctx.fill();
       ctx.restore();
+      // Its face: maria darker than the highlands, lit or in earthshine, and the bright young craters
+      // (Tycho's rays), turned with its north along the planet's pole on screen.
+      const up = project(m[0], m[1], m[2] + 0.02), ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2;
+      const ny = [Math.cos(ua), Math.sin(ua)], nx = [-ny[1], ny[0]];
+      const face = sky.face;
+      if (face) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(p[0], p[1], R - 0.3, 0, 2 * Math.PI); ctx.clip();
+        const toS = (x, y) => [p[0] + R * (x * nx[0] + y * ny[0]), p[1] + R * (x * nx[1] + y * ny[1])], rot = Math.atan2(nx[1], nx[0]);
+        ctx.fillStyle = pal.dark ? rgba(pal.canvas, 0.3) : rgba(ink, 0.075);
+        for (const [x, y, rx, ry, t] of face.maria) for (const k of [1, 0.7]) {   // soft-edged: two nested fills
+          const [sx, sy] = toS(x, y);
+          ctx.beginPath(); ctx.ellipse(sx, sy, Math.max(0.4, k * rx * R), Math.max(0.4, k * ry * R), rot - t, 0, 2 * Math.PI); ctx.fill();
+        }
+        ctx.fillStyle = pal.dark ? rgba(ink, 0.95) : pal.canvas; ctx.strokeStyle = pal.dark ? rgba(ink, 0.35) : rgba(pal.canvas, 0.7); ctx.lineWidth = 0.5;
+        for (const [x, y, cr, rays] of face.craters) {
+          const [sx, sy] = toS(x, y);
+          if (rays) { ctx.beginPath(); for (let k = 0; k < 9; k++) { const a = 2 * Math.PI * k / 9 + 0.3; ctx.moveTo(sx, sy); ctx.lineTo(sx + 0.55 * R * Math.cos(a), sy + 0.55 * R * Math.sin(a)); } ctx.stroke(); }
+          ctx.beginPath(); ctx.arc(sx, sy, Math.max(0.6, cr * R), 0, 2 * Math.PI); ctx.fill();
+        }
+        ctx.restore();
+      }
       ctx.strokeStyle = rgba(ink, 0.55); ctx.lineWidth = 0.8;
       ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.stroke();
       // The city: each use the union of discs about its sites, as many as its own quantity has grown
@@ -139,8 +253,6 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       // (residences and datacenters as blocks, factories as a heavy hatch); clipped to the disc.
       const base = sky.moonbase || [0, 0, 0];
       if (base.some(v => v > 0)) {
-        const up = project(m[0], m[1], m[2] + 0.02), ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2;
-        const ny = [Math.cos(ua), Math.sin(ua)], nx = [-ny[1], ny[0]];   // screen directions of the Moon's north and east
         const inks = [pal.accent, pal.inks.verdigris, pal.inks.sienna], step = Math.max(1.3, 0.07 * R);
         for (let u = 0; u < 3; u++) {
           const nB = Math.round(BASE[u].length * Math.min(1, Math.max(0, base[u])) ** 1.3);

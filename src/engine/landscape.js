@@ -28,6 +28,7 @@
 //
 // Lengths in km, time in years, areas in km².
 import { RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL } from './crust.js';
+import { channel } from './plates.js';
 
 export const LAND = {
   K: 1.2e-7,         // 1/yr: erodibility for Q in km² of drainage at reference runoff (m = ½)
@@ -209,18 +210,19 @@ export class Landscape {
 
   /**
    * Re-route on the current crust (no change to it): rivers and lakes for drawing.
-   * Water routes over the surface plus a little roughness fixed to the crust:
+   * Water routes over each cell's channel (its lowest land: src/engine/plates.js's
+   * `channel`) plus a little roughness fixed to the crust:
    * on flat ground steepest descent on a hexagonal grid otherwise runs in
    * straight parallel lines, and the roughness branches them as real drainage
    * does. Steep ground is unaffected.
    */
   reroute() {
     const tec = this.tec, n = this.grid.n, R = LAND.ROUGH;
-    const zr = this.zr || (this.zr = new Float64Array(n));
+    const zr = this.zr || (this.zr = new Float64Array(n)), ch = channel(tec, this.zc || (this.zc = new Float64Array(n)));
     for (let i = 0; i < n; i++) {
       this.z[i] = tec.elev[i];
       this.base[i] = tec.sea[i];              // the ocean (src/engine/plates.js, solveSea): a basin below sea level it doesn't reach is a depression
-      zr[i] = tec.elev[i] + (this.base[i] ? 0 : R * rough(tec.owner[i], tec.ref[i]));
+      zr[i] = this.base[i] ? tec.elev[i] : ch[i] + R * rough(tec.owner[i], tec.ref[i]);   // on its channel (src/engine/plates.js): a gorge drains its basin
     }
     this.r = route(this.grid, zr, this.base, this.r);
     const r0 = LAND.RUNOFF0;

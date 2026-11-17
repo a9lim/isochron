@@ -180,10 +180,16 @@ export const PEOPLE = {
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
   // AI (speculation): capability from effective compute, labour from compute, bodies from robots
   Z_AI: 10.35, B_MAX: 1, SIGMA: 0.5,                // culture where AI's efficiencies are referenced (early takeoff lands near it, at Earth's ~20–25 sy a person); the automatable share's most; the tasks' elasticity
-  X20: 8.7, THETA_C: 40, FLOP_GAP: 4,               // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr
+  X20: 8.08, THETA_C: 40, FLOP_GAP: 4,              // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr. (8.7 with S_IT at 5%: lowered by S_IT's log ratio, so the timeline holds.)
   GAP_P: 1.5, PHI: 0.5, SIGMA_G: 0.5,               // physical tasks need GAP_P orders more (Moravec, speculation); their share of production's tasks (~half, from memory); cognitive against physical, elasticity
-  S_IT: 0.05,                                       // ordinary computing's share of investment past energy (compute exists before AI pays)
-  X_AI: 1e-3, THETA_AI: 40, X_MAX: 1e4, W_C: 12,  // labour-equivalents per sy of compute at Z_AI, ×e per 1/θ_AI (the same algorithms and hardware: inference's cost at a fixed capability falls ~10×/yr or faster, from memory), at most; its power (W/sy)
+  // Ordinary computing's share of investment past energy (compute exists before AI pays): Earth's
+  // datacenters take ~1% of its investment (~$300 B of ~$27 T a year) and draw ~50 GW (~415 TWh in
+  // 2024; from memory). At 5% the stock at early takeoff was ~$8 T of hardware drawing 170 GW, all
+  // of Earth's ICT with its networks and devices; at 1.2%, 50 GW, its research's share (the labs'
+  // training) ~15 GW. X20, X_AI and X_MAX are scaled with it, so AI's capability and labour per
+  // unit of investment, and the timeline, hold.
+  S_IT: 0.012,
+  X_AI: 4.17e-3, THETA_AI: 40, X_MAX: 4.17e4, W_C: 12,  // labour-equivalents per sy of compute at Z_AI, ×e per 1/θ_AI (the same algorithms and hardware: inference's cost at a fixed capability falls ~10×/yr or faster, from memory), at most; its power (W/sy: ~20 W per $1,000 of hardware at ~$600 a sy, an H100's ~1 kW with its overhead per ~$30 k)
   S_RD: 0.03, Q_R: 0.4,                             // research's share of output (Earth's R&D ~2.5% of GDP, from memory), spent on compute as far as AI can do research (β_c); and research's share of AI's compute (training and research against deployment, speculation)
   C_R0: 50, Z_RC: 2, DELTA_R: 0.1, W_R: 400,        // a robot's body: sy at Z_AI (a humanoid's ~$25k, from memory), cheaper e-fold per Z_RC; wear /yr; its power (W)
   T_ROB: 1.44, B_SEED: 1e6,                         // the working fleet grows at most e-fold per T_ROB years (doubling a year: factories building the robots that build factories; synthesis on the industrial explosion's robot doubling times, ~a year at first, from memory), from B_SEED bodies (industrial robots now ~4 M, humanoids a few thousand)
@@ -1284,12 +1290,17 @@ export class People {
       this.rewild = end && end.preserve ? sA * syn : 0;
       // Aligned: people move between Earth and space as it opens, by choice either way, and leave
       // as Earth fails them; back only as far as it's livable. Two states exchanging at rates a
-      // (out) and b (back), stepped exactly: off-world relaxes to a/(a + b) of everyone.
+      // (out) and b (back), stepped exactly: off-world relaxes to a/(a + b) of everyone. Out only
+      // as far as off-world power keeps them (W_HAB a person of space's own: habitats are built
+      // where the off-world economy is), so space fills as its solar does, not on culture alone
+      // (with culture's tail alone, a few hundred thousand had left before AI's labour passed a
+      // million workers).
       if (end && end.aligned && people > 0) {
         const open = sig((z - P.Z_SPACE) / P.W_SPACE), a = open * (P.R_VOL + P.R_MIG * (1 - this.hE)), b = open * P.R_RET * this.hE;
         if (a + b > 0) {
           const all = people + this.space, Sinf = all * a / (a + b);
-          const moved = Sinf + (this.space - Sinf) * Math.exp(-(a + b) * dt) - this.space;   // net out (back if negative)
+          const room = Math.max(0, (E.Es || 0) / P.W_HAB - this.space);
+          const moved = Math.min(room, Sinf + (this.space - Sinf) * Math.exp(-(a + b) * dt) - this.space);   // net out (back if negative)
           const g = Math.max(0, 1 - moved / people);
           for (const L of live) for (let c = 0; c < nL; c++) if (L.N[c] > 0) L.N[c] *= g;
           this.space += people * (1 - g); people *= g;
