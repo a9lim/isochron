@@ -10,6 +10,8 @@
 import { writeFileSync } from 'node:fs';
 import { planetFields } from './people/planet.mjs';
 import { People } from '../src/engine/people.js';
+import { solarSystem } from '../src/engine/solar.js';
+import { isEarth } from '../src/engine/earth.js';
 import { fitHyperbola, followDial, fmtYears } from './people/fit.mjs';
 
 const [seed = 'earthlike', tMaxArg = '5e6', ov = '{}'] = process.argv.slice(2);
@@ -25,7 +27,7 @@ if (LIVE) {
   console.log(`live planet built and settled in ${((performance.now() - t0) / 1e3).toFixed(1)} s (CO₂ ${Pl.carbon.pco2.toFixed(0)} ppm, the sea's carbon ${Pl.carbon.settled ? 'settled' : 'NOT settled: the air is held'})`);
 }
 const t0 = performance.now();
-const pp = new People(planet, JSON.parse(ov));
+const pp = new People(planet, JSON.parse(ov), solarSystem(seed, isEarth(seed)));
 console.log(`land cells ${pp.nL} · sea crossings ${pp.hopEdges} · cell spacing ${pp.dx.toFixed(0)} km · coal ${(pp.P.FOSSIL * pp.P.COAL_SHARE).toFixed(0)} Pg C over ${[...pp.coal].filter(x => x > 0.01).length} cells · σ ${pp.P.SIGMA}, β at most ${pp.P.B_MAX}`);
 pp.onEvent = (t, kind, text) => console.log(`${fmtYears(t).padStart(12)}  ${kind.padEnd(10)} ${text}`);
 pp.seed();

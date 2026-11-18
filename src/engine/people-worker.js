@@ -15,11 +15,12 @@
 // and, behind, say so, so the page holds its clock.
 import { buildGrid } from '../grid/icosphere.js';
 import { People } from './people.js';
+import { solarSystem } from './solar.js';
 import { figureOf } from './peoplefit.js';
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
-let grid = null, people = null, port = null, params = {}, owed = 0, lastStep = 0, timer = 0;
+let grid = null, people = null, port = null, params = {}, system = undefined, owed = 0, lastStep = 0, timer = 0;
 let lastPost = 0, lastDrawn = 0, lastBack = 0, lastFig = 0, eventsSent = 0, msPerStep = 5, dtLast = 1, trail = 0;
 // The planet's side: its CO₂, how much of the sea has boiled (src/engine/runaway.js), and its warming since the people began.
 const env = { live: true, pco2: 280, bank: 0, boiled: 0, years: 0, meanT: null, T0: null, get dT() { return this.meanT === null ? 0 : this.meanT - this.T0; },
@@ -29,6 +30,7 @@ self.onmessage = e => {
   const m = e.data;
   if (m.type === 'init') {
     grid = buildGrid(m.level); params = m.params || {};
+    system = solarSystem(m.seed, m.earth);
     port = m.port; port.onmessage = onEngine;
   } else if (m.type === 'tick') { if (people) { owed += m.adv; schedule(owed >= dtLast ? 0 : waitLeft()); } }
   else if (m.type === 'params') {
@@ -45,7 +47,7 @@ function onEngine(e) {
     env.pco2 = f.co2;
     if (f.meanT !== undefined) { env.meanT = f.meanT; if (env.T0 === null) env.T0 = f.meanT; }
     if (!people) {
-      people = new People(f, params);
+      people = new People(f, params, system);
       people.env = env;
       people.seed();
       lastStep = performance.now();

@@ -119,6 +119,7 @@ import { NZ } from './climate.js';
 import { miami, VEG } from './vegetation.js';
 import { regolithStep } from './regolith.js';
 import { WORLDS } from './worlds.js';
+import { OUR_SYSTEM, quarryName } from './solar.js';
 export { WORLDS };
 import { stream } from '../rng.js';
 
@@ -238,11 +239,12 @@ export const PEOPLE = {
   Z_SPACE: 12, W_SPACE: 0.5, R_ES0: 1000, L_SUN: 3.83e26, E_SPACE: 100,   // industry off-world: where it matures (launch is no bind: robots go where they're wanted); W a sy of space solar; the Sun's output (W, standard); materials' energy from asteroids (W per unit a year)
   // The swarm is as large as its material (a9: "let the material set it"): collectors at 1 AU of
   // SIGMA_SW kg/m² with their radiators (thin film ~10× lighter than today's panels; speculation),
-  // S_AU W/m² there (standard), so the whole Sun takes ~2.8e23 kg. The minable mass: Mercury, taken
-  // apart for the swarm (a9: "Mercury should go to the Dyson swarm first and foremost": a Kardashev-2
-  // civilization is short of energy before it's short of room; after Armstrong and Sandberg 2013,
-  // from memory), and the main belt, for habitats (both masses from memory). The Moon (the tides),
-  // the settled worlds and Venus (its well and its air) are kept.
+  // S_AU W/m² there (standard), so the whole Sun takes ~2.8e23 kg. The minable mass: the inner planet
+  // (Mercury), taken apart for the swarm (a9: "Mercury should go to the Dyson swarm first and foremost":
+  // a Kardashev-2 civilization is short of energy before it's short of room; after Armstrong and
+  // Sandberg 2013, from memory), and the belt, for habitats (both masses from memory; these are
+  // today's, and the People's constructor takes the planet's own system's: src/engine/solar.js). The
+  // Moon (the tides), the settled worlds and Venus (its well and its air) are kept.
   SIGMA_SW: 1, S_AU: 1361, M_BELT: 2.4e21, M_MERC: 3.3e23,
   // People off-world (aligned; speculation): a habitat's mass a person (the 1975 Stanford torus
   // study's ~10 Mt for 10,000, mostly shielding, from memory); people a km² on other worlds'
@@ -706,8 +708,11 @@ class CachedEnv {
 }
 
 export class People {
-  constructor(planet, params = {}) {
-    this.P = { ...PEOPLE, ...params };
+  /** On a planet's fields (people-worker.js), with PEOPLE overrides and its solar system (src/engine/solar.js: the worlds to settle, the swarm's quarry and the belt). */
+  constructor(planet, params = {}, system = OUR_SYSTEM) {
+    this.sys = system;
+    this.worlds = system.worlds;
+    this.P = { ...PEOPLE, M_MERC: system.quarry.mass, M_BELT: system.belt.mass, ...params };
     this.planet = planet;
     this.rng = stream(planet.seed, 'people'); this.seaRng = stream(planet.seed, 'people:sea');
     this.t = 0; this.events = []; this.history = []; this.lineages = []; this.nextId = 0;
@@ -1651,7 +1656,7 @@ export class People {
    */
   worldRooms(ApS = this.offBots) {
     const P = this.P, lg = Math.log10(Math.max(ApS, 1)), at = o => sig((lg - o) / P.Z_SETTLE);
-    const rooms = WORLDS.map(w => (w.room ?? w.area * P.D_SURF) * at(w.opens));
+    const rooms = this.worlds.map(w => (w.room ?? w.area * P.D_SURF) * at(w.opens));
     return { rooms, surf: rooms.reduce((a, b) => a + b, 0), hab: at(P.HAB_OPENS) };
   }
 
@@ -1698,13 +1703,13 @@ export class People {
     const was = this.mined;
     this.mined = this.mMerc + this.mBelt;
     this.flow = dt > 0 ? (this.mined - was) / dt : 0;
-    if (this.flow > 0) this.src = this.mMerc - m0 >= this.mBelt - b0 ? 'Mercury' : 'asteroids';
+    if (this.flow > 0) this.src = this.mMerc - m0 >= this.mBelt - b0 ? quarryName(this.sys) : 'asteroids';
   }
 
   /** Mined shares: the belt's and Mercury's. */
   minedShares() {
     const P = this.P;
-    return { belt: this.mBelt / P.M_BELT, merc: this.mMerc / P.M_MERC };
+    return { belt: P.M_BELT > 0 ? this.mBelt / P.M_BELT : 0, merc: P.M_MERC > 0 ? this.mMerc / P.M_MERC : 0 };
   }
 
   /**
@@ -1713,7 +1718,7 @@ export class People {
    */
   offworld() {
     const { rooms, surf } = this.worldRooms(), S = this.space, Ss = softMin(S, surf, 4), out = { habitats: S - Ss };
-    WORLDS.forEach((w, k) => { out[w.k] = surf > 0 ? Ss * rooms[k] / surf : 0; });
+    this.worlds.forEach((w, k) => { out[w.k] = surf > 0 ? Ss * rooms[k] / surf : 0; });
     return out;
   }
 
@@ -2113,8 +2118,9 @@ export class People {
       // The swarm's material, and the probes it sends.
       const ms = this.minedShares(), share = (E.Es || 0) / P.L_SUN;
       once('belt', ms.belt > 0.9, () => `the belt is nine-tenths mined (the swarm ${(100 * share).toPrecision(2)}% of the Sun)`);
-      once('mercury', ms.merc > 0.01, () => `Mercury is taken apart for the swarm (${(100 * share).toPrecision(2)}% of the Sun)`);
-      once('mercuryGone', ms.merc > 0.99, () => `Mercury is gone (the swarm ${(100 * share).toPrecision(2)}% of the Sun, ${this.space > 0 ? `${(this.space / 1e9).toPrecision(3)} billion people off-planet` : 'no people off-planet'})`);
+      const quarry = quarryName(this.sys);
+      once('mercury', ms.merc > 0.01, () => `${quarry} is taken apart for the swarm (${(100 * share).toPrecision(2)}% of the Sun)`);
+      once('mercuryGone', ms.merc > 0.99, () => `${quarry} is gone (the swarm ${(100 * share).toPrecision(2)}% of the Sun, ${this.space > 0 ? `${(this.space / 1e9).toPrecision(3)} billion people off-planet` : 'no people off-planet'})`);
       if (this.probeT === null && share >= P.F_PROBE) { this.probeT = this.t; this.event('stars', `probes leave for the stars at ${P.V_PROBE}c (the swarm ${(100 * share).toPrecision(2)}% of the Sun)`); }
       once('disempowered', this.dis > 0.5, () => `people hold less than half the control (${(earth / 1e9).toFixed(2)} billion people)`);
       once('fossil', E.S <= 1e-6, () => `the fossil carbon is spent (${this.emitted.toFixed(0)} Pg C)`);

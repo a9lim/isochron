@@ -936,7 +936,7 @@ export class GpuPlates {
     q.submit([enc0.finish()]);
     q.writeBuffer(b.wh, 0, tec.h); q.writeBuffer(b.wphi, 0, tec.phi); q.writeBuffer(b.wtf, 0, tec.tf);
     const ls = new Float32Array(2 * n);
-    for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (tec.flexc ? tec.flexc[i] : 0) + tec.trench[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
+    for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (tec.flexc ? tec.flexc[i] : 0) + tec.trench[i] + tec.dyn[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
     q.writeBuffer(b.ls, 0, ls);
     q.writeBuffer(b.cnt, 0, new Uint32Array(NCNT));
     this.uniforms(0, tec.t, false);
@@ -960,8 +960,8 @@ export class GpuPlates {
     // The ice's load, the flexure's correction (src/engine/crustflex.js) and the trenches (Tectonics.trenches), at
     // the step's start: the CPU swaps in the moved crust's after (Tectonics.stepAsync); and the swells.
     {
-      const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n)), fc = tec.flexc, tr = tec.trench;
-      for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (fc ? fc[i] : 0) + tr[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
+      const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n)), fc = tec.flexc, tr = tec.trench, dy = tec.dyn;
+      for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (fc ? fc[i] : 0) + tr[i] + dy[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
       q.writeBuffer(b.ls, 0, ls);
     }
     q.writeBuffer(b.cnt, 0, this.zeros || (this.zeros = new Uint32Array(NCNT)));

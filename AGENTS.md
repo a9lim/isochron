@@ -43,7 +43,7 @@ Other headless tools in `tools/`: `hypsometry` (each height's share of the spher
 ## Layout
 
 ```
-earth/            today's Earth on the level-7 grid (earth.json, earth-7.bin), fetched only for its seed
+earth/            today's Earth on the level-7 grid (earth.json, earth-7.bin) and its mantle's slabs (slabs.json, slabs-4.bin), fetched only for its seed
 index.html        colophon, the globe's canvases, the view groups, the figure bar, the scenarios, the margin's tabs
 main.js           the page: clock and dial, the engine's snapshots, line morphs, views, seed, scenarios, captions, figures, input, the loop
 colors.js         ink roles (ocean prussian, land umber); styles.css
@@ -52,7 +52,7 @@ src/grid/         icosphere.js (the geodesic grid, gradients, Laplacian), transf
 src/engine/       the model, no DOM: one file per layer (plates, crust, genesis, earth, plumes, polarity, gpts, landscape,
                   regolith, crustflex, flexure, ice, climate, clouds, airheat, seaheat, ocean, orbit, year, volcanoes, soil,
                   ground, lakes, carbon, oceancarbon, vegetation, life, dust, aeolian, pulse, tides, runaway, people,
-                  peoplelink, peoplefit, worlds), planet.js (every layer stepped together), record.js, refine.js, mirror.js, and the
+                  peoplelink, peoplefit, worlds, solar, mantle), planet.js (every layer stepped together), record.js, refine.js, mirror.js, and the
                   threads (worker.js, people-worker.js)
 src/gpu/          device.js, hierarchy.js (nested grids for multigrid), and each layer's GPU path (ebm, moisture, dust,
                   ice, flexure, tides, soil, plates, surface, weather, season, refine)

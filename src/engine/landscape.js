@@ -50,6 +50,7 @@ function rough(plate, j) {
 }
 
 const R_KM = 6371;
+const SEAWARD = 24;   // cells of the sea a coast's sediment may search for room in (seaward)
 const CONTINENTAL = 0.5;
 
 /** A binary min-heap on typed arrays (key Float64, value Int32). */
@@ -366,29 +367,30 @@ export class Landscape {
   }
 
   /**
-   * V km³ of sediment entering the sea at its cell c0, laid into dh (km of thickness): a shelf to
-   * SHELF below sea level, then onward to the deepest neighbouring sea, at most ten cells out.
+   * V km³ of sediment entering the sea at its cell c0, laid into dh (km of thickness): a shelf to SHELF
+   * below sea level, then onward into the sea, always into the lowest cell the sediment can reach next (a
+   * best-first search through the sea's cells, so it backs out of a shallow pocket rather than piling on a
+   * bank), each filled to the shelf, at most SEAWARD cells; what's left lies in the lowest cell reached.
    */
   seaward(c0, V, dh) {
     const g = this.grid, nbrOff = g.nbrOff, nbr = g.nbr, elev = this.tec.elev, f = this.f, A = this.areaKm, base = this.base;
-    const shelf = this.tec.seaLevel - LAND.SHELF;
-    let c = c0;
-    for (let hop = 0; hop < 10 && V > 0; hop++) {
-      const top = elev[c] + f[c] * dh[c];
-      const cap = Math.max(0, shelf - top) * A[c] / f[c];
-      const d = hop === 9 ? V : Math.min(V, cap);
+    const shelf = this.tec.seaLevel - LAND.SHELF, top = c => elev[c] + f[c] * dh[c];
+    const front = [c0], seen = this.seenSea || (this.seenSea = new Set());
+    seen.clear(); seen.add(c0);
+    let low = c0;
+    for (let k = 0; k < SEAWARD && front.length && V > 0; k++) {
+      // The lowest cell on the front (a few dozen at most: a scan).
+      let b = 0;
+      for (let q = 1; q < front.length; q++) if (top(front[q]) < top(front[b])) b = q;
+      const c = front[b];
+      front[b] = front[front.length - 1]; front.pop();
+      if (top(c) < top(low)) low = c;
+      const d = Math.min(V, Math.max(0, shelf - top(c)) * A[c] / f[c]);
       dh[c] += d / A[c];
       V -= d;
-      let next = -1, deep = Infinity;
-      for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) {
-        const j = nbr[t];
-        if (!base[j]) continue;
-        const zj = elev[j] + f[j] * dh[j];
-        if (zj < deep) { deep = zj; next = j; }
-      }
-      if (next < 0) { dh[c] += V / A[c]; break; }
-      c = next;
+      for (let t = nbrOff[c], e = nbrOff[c + 1]; t < e; t++) { const j = nbr[t]; if (base[j] && !seen.has(j)) { seen.add(j); front.push(j); } }
     }
+    if (V > 0) dh[low] += V / A[low];
   }
 
   /**

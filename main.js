@@ -37,6 +37,7 @@ import { succeedRivers } from './src/render/rivers.js';
 import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
 import { ECONOMY, economyOf, economyCaption, count } from './src/render/economy.js';
 import { systemOf, systemCaption, drawSystem } from './src/render/system.js';
+import { solarSystem } from './src/engine/solar.js';
 import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
@@ -110,6 +111,7 @@ let tide = null;
 // planet's clock; the tide's phases follow from them (its bulge sits under the Moon).
 const skyClock = { years: null, theta: 0, lamM: 0, thetaShown: 0 };
 const stars = makeStars(seed), starDist = starDistances(seed, stars);
+const solar = solarSystem(seed, isEarth(seed));   // the planet's solar system: today's on `earth`, else seeded (Fig. 9, the people off-world)
 // The Moon's face (today's Earth's near side, or basins seeded with the planet) and the Sun's cycle's
 // phase at year 0 (today's Earth's: cycle 25 just past its maximum in 2025, from memory; else seeded).
 const moonFaceOf = moonFace(seed, isEarth(seed)), solarPhase = isEarth(seed) ? 0.5 : stream(seed, 'sun').uniform();
@@ -721,7 +723,7 @@ function startPeople() {
   const w = people.worker = new Worker(new URL('./src/engine/people-worker.js', import.meta.url), { type: 'module' });
   const ch = new MessageChannel();
   const params = query.get('ending') ? { ENDING: query.get('ending') } : {};   // &ending=1a (1b, 2a, 2b) forces the ending
-  w.postMessage({ type: 'init', level: PEOPLE_LEVEL, port: ch.port2, params }, [ch.port2]);
+  w.postMessage({ type: 'init', level: PEOPLE_LEVEL, port: ch.port2, params, seed, earth: isEarth(seed) }, [ch.port2]);
   engine.postMessage({ type: 'people', port: ch.port1 }, [ch.port1]);
   people.grid = PEOPLE_LEVEL === LEVEL ? grid : buildGrid(PEOPLE_LEVEL);
   w.onmessage = e => {
@@ -989,8 +991,8 @@ function figures(force) {
   const sys = peopleModel() ? systemOf(people.msg) : null;
   if (els.figSystemWrap.hidden !== !sys) els.figSystemWrap.hidden = !sys;
   if (sys && visible(els.figSystem)) {
-    drawSystem(els.figSystem, sys, pal);
-    els.capSystem.textContent = systemCaption(sys);
+    drawSystem(els.figSystem, sys, pal, solar);
+    els.capSystem.textContent = systemCaption(sys, solar);
   }
   if (visible(els.figPol)) {
     drawPolarity(els.figPol, polarity, tec.t, pal);

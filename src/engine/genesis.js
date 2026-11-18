@@ -10,10 +10,11 @@ import { stream } from '../rng.js';
 import { makeNoise } from '../noise.js';
 import { H_OCEANIC, RHO_OCEANIC, RHO_CONTINENTAL, RHO_MANTLE, FREEBOARD, elevation, subsidence, oceanVolume } from './crust.js';
 import { CONTINENTAL, PARAMS, EARTH_RADIUS_KM, contSlabAge } from './plates.js';
+import { Mantle } from './mantle.js';
 
 /**
- * Today's Earth's continental crust as the sim stands it (its fit to ETOPO's bed, the ice's load off:
- * src/engine/earth.js), by distance from the ocean: each band's lower edge and mean distance (km, `B`,
+ * Today's Earth's continental crust as the sim stands it (its fit to ETOPO's bed, with the trenches and the
+ * mantle's dynamic topography, the ice's load off: src/engine/earth.js), by distance from the ocean: each band's lower edge and mean distance (km, `B`,
  * `D`), the crust's distance at each twentieth of its area (km, `Q`), and each band's quantiles (`U`)
  * of the crust's elevation above a new ridge (km, `E`; the sea stands FREEBOARD above it). Written by
  * tools/earth/crust-table.mjs (level 6). A seeded planet's continents are built to these statistics.
@@ -29,7 +30,7 @@ export const EARTH_CRUST = {
     [-0.07, 0.94, 1.61, 2.03, 2.34, 2.47, 2.55, 2.65, 2.8, 2.96, 3.25, 3.65, 4.03, 5.26, 6.68, 7.12],
     [0.48, 1.86, 2.2, 2.4, 2.49, 2.59, 2.69, 2.79, 2.91, 3.06, 3.3, 3.66, 3.92, 4.28, 5.56, 6.78],
     [0.36, 2.21, 2.42, 2.49, 2.6, 2.68, 2.77, 2.85, 2.97, 3.14, 3.45, 3.78, 4.26, 6.19, 7.46, 7.71],
-    [1.88, 2.49, 2.55, 2.58, 2.64, 2.7, 2.81, 2.91, 3.05, 3.36, 3.72, 4.34, 5.54, 7.09, 7.61, 7.93],
+    [1.88, 2.49, 2.55, 2.58, 2.64, 2.7, 2.81, 2.91, 3.05, 3.35, 3.72, 4.34, 5.54, 7.09, 7.61, 7.93],
   ],
 };
 
@@ -175,6 +176,8 @@ export function genesis(tec, seed, opts = {}) {
   hangSlabs(tec);
 
   tec.trenches();
+  // The mantle: seeded piles, and the graveyard as the opening's trenches would keep it.
+  new Mantle(tec, seed).steady();
   tec.updateElevation();
   tec.water = oceanVolume(g, tec.elev, elevation(H_OCEANIC, 0, 0) + freeboard);
   tec.updateElevation();
@@ -297,7 +300,9 @@ export function continentalCrust(tec, noise, after = false) {
     for (const i of band) { u[i] = (a + 0.5 * area[i]) / A; a += area[i]; }
   }
   for (const i of cells) {
-    h[i] = Math.max(H_OCEANIC, Math.min(PARAMS.H_PLATEAU, standing(earthCrustAt(de[i], u[i]), phi[i], tec.t - tf[i])));
+    // The crust takes up the trench and the mantle's dynamic topography beneath it (as Earth's fit does), so the
+    // surface stands at Earth's quantile wherever the continent sits on its mantle.
+    h[i] = Math.max(H_OCEANIC, Math.min(PARAMS.H_PLATEAU, standing(earthCrustAt(de[i], u[i]) - tec.trench[i] - tec.dyn[i], phi[i], tec.t - tf[i])));
     if (after) tec.plates[tec.owner[i]].h[tec.ref[i]] = h[i];
   }
   // World cells sharing a frame cell (nearest-cell rounding) all read what it now holds.

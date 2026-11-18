@@ -81,6 +81,8 @@ test('the balance\'s sums on the GPU: the CPU\'s, on one state', { skip }, async
   // The GPU's level fills every basin below it (the CPU then solves the ocean's: plates.js, solveSea).
   const all = solveSeaLevel(grid6, tec.elev, tec.seaWater(), tec.seaLevel);
   assert.ok(Math.abs(r.sea - all) < 5e-5, `sea level ${(1e6 * (r.sea - all)).toFixed(0)} mm off`);
+  // The mantle's traction is the CPU's on either path (Tectonics.traction): added to the GPU's sums here as stepAsync does.
+  tec.traction(r.T);
   for (const p of tec.plates) {
     if (!p.alive) continue;
     const k = p.index, T = [0, 1, 2].map(c => r.T[3 * k + c] + p.torqueExt[c] - cap.T[3 * k + c]);

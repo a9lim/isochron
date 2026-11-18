@@ -241,6 +241,10 @@ export class Tectonics {
     this.flexc = null;                       // km: the flexure's correction to the elevation, the frames' cf sampled (src/engine/crustflex.js)
     this.swell = null;                       // km: hotspot swells (src/engine/plumes.js)
     this.trench = new Float32Array(n);       // km: the sinking plate bent down into its trench and up over the outer rise (trenches)
+    this.trenchFlux = new Float32Array(n);   // sr a Myr: the plate sinking at each trench cell (closing × boundary length), the mantle's graveyard's feed
+    this.dyn = new Float32Array(n);          // km: dynamic topography, the mantle's flow bending the surface (src/engine/mantle.js)
+    this.mantleU = null;                     // rad/Myr per cell (3-vectors): the mantle's flow beneath the plates (src/engine/mantle.js), their drag against it
+    this.mantle = null;
     this.iceWater = 0;                       // water held as ice (km·sr)
     // The ocean (crust.js, seaMask): the cells below sea level the open ocean reaches. A basin
     // below sea level it doesn't reach is land, dry or holding a lake (solveSea).
@@ -504,6 +508,7 @@ export class Tectonics {
     this.kinematics(dt);
     this.t = t1;
     this.trenches();
+    if (this.mantle) this.mantle.step(dt);
     this.updateElevation();
     this.exchangeWater(dt);
     this.balance(dt);
@@ -546,8 +551,9 @@ export class Tectonics {
     const cell = 4 * Math.PI / this.grid.n;
     c.opened += r.open * dt / cell; c.closed += r.close * dt / cell;
     this.t = t1;
-    // The trenches where the plates now close (the GPU's step stood the crust on the last step's).
+    // The trenches where the plates now close (the GPU's step stood the crust on the last step's), and the mantle they feed.
     this.trenches(true);
+    if (this.mantle) this.mantle.step(dt, true);
     // The GPU's level fills every basin below it; the ocean's is the CPU's (solveSea).
     if (this.water > 0) this.solveSea();
     this.exchangeWater(dt);
@@ -557,6 +563,7 @@ export class Tectonics {
       p.area = r.area[a]; p.land = r.plateLand[a];
       T[3 * a] += p.torqueExt[0]; T[3 * a + 1] += p.torqueExt[1]; T[3 * a + 2] += p.torqueExt[2];
     }
+    this.traction(T);
     this.solveBalance(r.M, T, dt);
     // The rare events, on the CPU and in the CPU's order: the memories come down first for those
     // that rewrite them (a merge relocates slabs and fronts; an initiation hangs a slab).
@@ -683,7 +690,7 @@ export class Tectonics {
       if (patch) {
         const f = this.phi[i], sa = f < 1 ? subsidence(t - this.tf[i]) : 0, rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f;
         this.subs[i] = f < CONTINENTAL ? sa : 0;
-        elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0) + this.trench[i];
+        elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0) + this.trench[i] + this.dyn[i];
       }
     }
     return changed;
@@ -778,12 +785,12 @@ export class Tectonics {
   }
 
   updateElevation() {
-    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc, trench = this.trench, t = this.t, tf = this.tf, phi = this.phi, h = this.h, subs = this.subs, elev = this.elev;
+    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc, trench = this.trench, dyn = this.dyn, t = this.t, tf = this.tf, phi = this.phi, h = this.h, subs = this.subs, elev = this.elev;
     for (let i = 0; i < n; i++) {
       // elevation() (crust.js), the age's subsidence once.
       const f = phi[i], sa = f < 1 ? subsidence(t - tf[i]) : 0, rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f;
       subs[i] = f < CONTINENTAL ? sa : 0;
-      elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0) + trench[i];
+      elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0) + trench[i] + dyn[i];
     }
     if (this.water > 0) this.solveSea();
   }
@@ -804,8 +811,8 @@ export class Tectonics {
   trenches(patch = false) {
     const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, plates = this.plates, R = EARTH_RADIUS_KM;
     const s = this.trenchScratch && this.trenchScratch.n === n ? this.trenchScratch : (this.trenchScratch = { n, x: new Float64Array(n), w0: new Float64Array(n), a: new Float64Array(n), heap: [] });
-    const x = s.x, w0 = s.w0, al = s.a, tr = this.trench, [v0, v1] = PARAMS.TRENCH_V;
-    x.fill(Infinity);
+    const x = s.x, w0 = s.w0, al = s.a, tr = this.trench, [v0, v1] = PARAMS.TRENCH_V, flux = this.trenchFlux;
+    x.fill(Infinity); flux.fill(0);
     const heap = new TrenchHeap();
     for (let i = 0; i < n; i++) {
       if (this.phi[i] >= CONTINENTAL) continue;
@@ -819,12 +826,12 @@ export class Tectonics {
         let first = true;
         for (let t = nbrOff[i]; t < t0; t++) if (owner[nbr[t]] === b) first = false;
         if (!first) continue;
-        let nx = 0, ny = 0, nz = 0, top = -Infinity, dsum = 0, m = 0;
+        let nx = 0, ny = 0, nz = 0, top = -Infinity, dsum = 0, m = 0, len = 0;
         for (let t = t0; t < e; t++) {
           const j = nbr[t];
           if (owner[j] !== b) continue;
           nx += g.tan[3 * t]; ny += g.tan[3 * t + 1]; nz += g.tan[3 * t + 2];
-          top = Math.max(top, this.buoyancyAt(j)); dsum += g.dist[t]; m++;
+          top = Math.max(top, this.buoyancyAt(j)); dsum += g.dist[t]; m++; len += g.ell[t];
         }
         if (!(top > bi)) continue;   // this cell sinks only under the more buoyant side
         const rn = Math.hypot(nx, ny, nz);
@@ -833,6 +840,7 @@ export class Tectonics {
         const vx = dy * zi - dz * yi, vy = dz * xi - dx * zi, vz = dx * yi - dy * xi;
         const r = Math.hypot(vx, vy, vz), close = -(vx * nx + vy * ny + vz * nz) / rn;
         if (!(close > PARAMS.SLAB_CLOSING * r)) continue;
+        flux[i] = Math.max(flux[i], close * len);
         const u = Math.min(1, Math.max(0, (close * CM_PER_YR - v0) / (v1 - v0)));
         const c = u * u * (3 - 2 * u);
         if (c > best) { best = c; half = 0.5 * dsum / m * R; }
@@ -1125,7 +1133,24 @@ export class Tectonics {
       T[3 * a] += tx; T[3 * a + 1] += ty; T[3 * a + 2] += tz;
       T[3 * b] -= tx; T[3 * b + 1] -= ty; T[3 * b + 2] -= tz;
     }
+    this.traction(T);
     return { M, T };
+  }
+
+  /**
+   * The mantle's flow beneath the plates (src/engine/mantle.js): basal drag is against the mantle's
+   * motion, −c (v − u), not against a mantle at rest, so to the drag's matrix (M, the −c v part) each
+   * cell adds the torque c (r × u), c its drag (its area, continents' keels KEEL more). Added into T.
+   */
+  traction(T) {
+    const U = this.mantleU;
+    if (!U) return;
+    const g = this.grid, n = g.n, pos = g.pos, area = g.area, owner = this.owner, phi = this.phi;
+    for (let i = 0; i < n; i++) {
+      const c = area[i] * (1 + PARAMS.KEEL * phi[i]), k = owner[i];
+      const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2], ux = U[3 * i], uy = U[3 * i + 1], uz = U[3 * i + 2];
+      T[3 * k] += c * (y * uz - z * uy); T[3 * k + 1] += c * (z * ux - x * uz); T[3 * k + 2] += c * (x * uy - y * ux);
+    }
   }
 
   /**

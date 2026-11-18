@@ -88,6 +88,7 @@ export function refineTectonics(c, fine) {
   }
   f.prevOwner.set(f.owner); f.prevRef.set(f.ref);
   f.trenches();
+  if (c.mantle) { c.mantle.attach(f); f.mantle.solve(); }   // the mantle's coarse state carries over whole
   f.updateElevation();
   f.balance(1e-6);
   return f;

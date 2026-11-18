@@ -1,5 +1,5 @@
-// Today's Earth's continental crust as the sim stands it (src/engine/earth.js's fit, the ice's load
-// off), by distance from the ocean: each distance band's lower edge and mean distance (km), the crust's distance at each twentieth of its area (km), and each band's quantiles of the crust's elevation above a
+// Today's Earth's continental crust as the sim stands it (src/engine/earth.js's fit, with the trenches and
+// the mantle's dynamic topography, the ice's load off), by distance from the ocean: each distance band's lower edge and mean distance (km), the crust's distance at each twentieth of its area (km), and each band's quantiles of the crust's elevation above a
 // new ridge (km). Prints `EARTH_CRUST` for src/engine/genesis.js, which builds a seeded planet's
 // continents to the same statistics.
 // usage: node tools/earth/crust-table.mjs [level]
@@ -20,7 +20,7 @@ for (let b = 0; b + 1 < EDGES.length; b++) {
   let A = 0, Ad = 0;
   for (let i = 0; i < n; i++) {
     if (!cont[i] || d[i] < EDGES[b] || d[i] >= EDGES[b + 1]) continue;
-    rows.push([elevation(tec.h[i], tec.phi[i], tec.t - tec.tf[i]) - ridge, g.area[i]]);
+    rows.push([elevation(tec.h[i], tec.phi[i], tec.t - tec.tf[i]) + tec.trench[i] + tec.dyn[i] - ridge, g.area[i]]);   // as measured: with the trenches and the mantle's topography
     A += g.area[i]; Ad += g.area[i] * d[i];
   }
   rows.sort((p, q) => p[0] - q[0]);

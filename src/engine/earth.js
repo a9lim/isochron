@@ -21,6 +21,7 @@ import { makeTransfer, restrict } from '../grid/transfer.js';
 import { H_OCEANIC, RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL, FREEBOARD, elevation, subsidence, seaMask, SEA } from './crust.js';
 import { PARAMS, seaChannel } from './plates.js';
 import { framesFromWorld, hangSlabs } from './genesis.js';
+import { earthMantle } from './mantle.js';
 
 export const EARTH_SEED = 'earth';
 export const isEarth = seed => seed === EARTH_SEED;
@@ -52,16 +53,26 @@ export function parseEarth(meta, buf) {
 
 /** Fetch (in a page or worker) or read (in node) the baked data. */
 export async function loadEarth() {
-  const json = new URL('../../earth/earth.json', import.meta.url);
+  const json = new URL('../../earth/earth.json', import.meta.url), sj = new URL('../../earth/slabs.json', import.meta.url);
+  let d, sm, sb;
   if (json.protocol === 'file:') {
     const { readFileSync } = await import('node:fs');
     const meta = JSON.parse(readFileSync(json, 'utf8'));
     const b = readFileSync(new URL(`../../earth/earth-${meta.level}.bin`, import.meta.url));
-    return parseEarth(meta, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+    d = parseEarth(meta, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+    sm = JSON.parse(readFileSync(sj, 'utf8'));
+    const s = readFileSync(new URL(`../../earth/${sm.file}`, import.meta.url));
+    sb = s.buffer.slice(s.byteOffset, s.byteOffset + s.byteLength);
+  } else {
+    const [meta, buf, s] = await Promise.all([fetch(json).then(r => r.json()), fetch(new URL('../../earth/earth-7.bin', import.meta.url)).then(r => r.arrayBuffer()), fetch(sj).then(r => r.json())]);
+    if (meta.level !== 7) throw new Error(`earth: the data is level ${meta.level}`);
+    d = parseEarth(meta, buf);
+    sm = s;
+    sb = await (await fetch(new URL(`../../earth/${sm.file}`, import.meta.url))).arrayBuffer();
   }
-  const meta = await (await fetch(json)).json();
-  const buf = await (await fetch(new URL(`../../earth/earth-${meta.level}.bin`, import.meta.url))).arrayBuffer();
-  return parseEarth(meta, buf);
+  // The slabs Müller et al. 2019's trenches sent down over the last 200 Myr (tools/earth/slabs.py): the mantle's graveyard.
+  d.slabs = { bins: sm.bins, bin: sm.bin, level: sm.level, area: new Float32Array(sb) };
+  return d;
 }
 
 /** The inverse of crust.js's subsidence (Myr at `drop` km below the ridge), held to [0, cap]. */
@@ -237,9 +248,11 @@ export function earthGenesis(tec, seed, d) {
     tf[i] = phi[i] >= 0.5 ? -(900 + 600 * (1 + noise.fbm(x, y, z, 2, 3))) : -age;
     target[i] = s0 + f.bed[i];
   }
-  // The trenches where Müller's motions close (plates.js, trenches): the crust stands the rest of the measured bed.
+  // The trenches where Müller's motions close (plates.js, trenches), and the mantle's dynamic topography (its
+  // graveyard from Müller's own past trenches: src/engine/mantle.js): the crust stands the rest of the measured bed.
   tec.trenches();
-  for (let i = 0; i < n; i++) h[i] = thickness(target[i], phi[i], -tf[i], tec.trench[i]);
+  if (d.slabs) earthMantle(tec, d.slabs).solve();
+  for (let i = 0; i < n; i++) h[i] = thickness(target[i], phi[i], -tf[i], tec.trench[i] + tec.dyn[i]);
   framesFromWorld(tec);
   // Each cell's channel: its lowest land below its mean surface (src/engine/plates.js's `channel`), so
   // a gorge narrower than a cell drains the basin above it (the Congo's through the Crystal Mountains,

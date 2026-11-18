@@ -13,17 +13,19 @@
 // slab and ridge columns are the balance with only that force (the balance is linear in its torques).
 //
 // usage: node tools/earth/plates-score.mjs [level 6] [Myr 20] [overrides-json] [seed earth]
-//   overrides: { "PARAMS": {...plates}, "EARTH": {...earth.js} }, or a bare PARAMS object
+//   overrides: { "PARAMS": {...plates}, "EARTH": {...earth.js}, "MANTLE": {...mantle.js} }, or a bare PARAMS object
 //   QUIET=1 prints only the summary lines; JSON=1 adds them as JSON; PATCH=module.mjs edits the data first.
 
 import { openPlanet } from '../../src/engine/planet.js';
 import { loadEarth, EARTH } from '../../src/engine/earth.js';
 import { PARAMS, CM_PER_YR, CONTINENTAL } from '../../src/engine/plates.js';
+import { MANTLE } from '../../src/engine/mantle.js';
 
 const level = +(process.argv[2] || 6);
 const myr = +(process.argv[3] ?? 20);
 const over = JSON.parse(process.argv[4] || '{}');
-const isNested = over.PARAMS || over.EARTH;
+const isNested = over.PARAMS || over.EARTH || over.MANTLE;
+Object.assign(MANTLE, over.MANTLE || {});
 Object.assign(PARAMS, isNested ? over.PARAMS || {} : over);
 Object.assign(EARTH, over.EARTH || {});
 const QUIET = !!process.env.QUIET;

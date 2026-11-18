@@ -9,6 +9,7 @@
 //             across within a million years, a pulse of CO₂, and, under a
 //             continent, the rift that splits it. Its tail stays as a hotspot.
 // Arrivals are a seeded Poisson process. Times in Myr.
+import { MANTLE } from './mantle.js';
 import { stream } from '../rng.js';
 import { nearest } from '../grid/icosphere.js';
 
@@ -32,13 +33,15 @@ export class Plumes {
     this.rng = stream(seed, 'plumes');
     this.hot = [];        // { p: [x,y,z], born }
     this.lips = [];       // { p, t0, cell, released }
+    // Seeded hotspots rise where plume heads do, on the mantle's piles' edges (src/engine/mantle.js).
     for (let k = 0; k < PLUMES.HOTSPOTS; k++) {
-      let p = this.rng.unitVector();
+      let p = tec.mantle && !at ? tec.mantle.plumeSite(this.rng) : this.rng.unitVector();
       if (at && at[k]) { const la = at[k].lat * Math.PI / 180, lo = at[k].lon * Math.PI / 180; p = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)]; }
       this.hot.push({ p, born: tec.t - this.rng.range(0, 150) });
     }
     this.nextLip = tec.t + this.rng.exponential(PLUMES.LIP_EVERY);
     this.swell = new Float32Array(tec.grid.n);
+    this.drifted = 0;     // rad the hotspots have drifted since the swell was last laid
     this.updateSwell();
     this.co2Rate = 0;     // Pg C per Myr from active provinces
     this.events = [];     // recent arrivals, for the caption and the record
@@ -70,6 +73,20 @@ export class Plumes {
 
   step(dt) {
     const tec = this.tec, g = tec.grid, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr;
+    // Hotspots drift in the mantle's flow (MANTLE.DRIFT of it: the conduit leans in the mantle wind), the
+    // swell laid again once they've moved a fifth of its radius.
+    if (tec.mantle) {
+      let most = 0;
+      for (const h of this.hot) {
+        const u = tec.mantle.flowAt(h.p), p = h.p;
+        let x = p[0] + MANTLE.DRIFT * u[0] * dt, y = p[1] + MANTLE.DRIFT * u[1] * dt, z = p[2] + MANTLE.DRIFT * u[2] * dt;
+        const r = Math.hypot(x, y, z);
+        h.p = [x / r, y / r, z / r];
+        most = Math.max(most, MANTLE.DRIFT * Math.hypot(u[0], u[1], u[2]) * dt);
+      }
+      this.drifted += most;
+      if (this.drifted > 0.2 * PLUMES.SWELL_R) { this.drifted = 0; this.updateSwell(); }
+    }
     // Hotspots build their chains.
     for (const h of this.hot) {
       const i = nearest(g, h.p[0], h.p[1], h.p[2], h.cell ?? -1);
@@ -79,7 +96,7 @@ export class Plumes {
     }
     // Plume heads.
     while (tec.t >= this.nextLip) {
-      this.arrive(this.rng.unitVector(), this.nextLip);
+      this.arrive(tec.mantle ? tec.mantle.plumeSite(this.rng) : this.rng.unitVector(), this.nextLip);
       this.nextLip += this.rng.exponential(PLUMES.LIP_EVERY);
     }
     // Floods in progress: basalt and CO₂ through their first LIP_TIME.

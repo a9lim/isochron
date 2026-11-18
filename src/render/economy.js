@@ -10,7 +10,7 @@
 // maps), and the sunlight surface solar is capped by. Every energy source is plant built from
 // output (output → energy, the share invested); the land gives fossil carbon's and solar's power,
 // space its sunlight's, and fusion needs nothing but the plant. Space also gives materials: the
-// asteroids' share of what building takes, and the mass the swarm (Mercury's) and the habitats (the
+// asteroids' share of what building takes, and the mass the swarm (the inner planet's: Mercury on Earth) and the habitats (the
 // belt's) are built of. Fixed capital is output kept, a
 // loop on output (the share reinvested). Burning sends carbon (net of what capture takes back) and
 // coal's sulfate into the air; waste heat (fossil carbon's and fusion's) goes straight to the climate.
@@ -50,7 +50,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   // Off-world: the swarm's share of the Sun, the mass mined a year and from where, the asteroids'
   // share of building's materials, and Earth's robots against all of them.
   const off = m.off || {}, sunShare = m.sun ? (m.Es || h.Es || 0) / m.sun : 0, flow = off.flow || 0, aA = E ? E.aA || 0 : 0;
-  const mined = flow >= 1e9 || aA >= 0.01, fromMerc = off.src === 'Mercury';
+  const mined = flow >= 1e9 || aA >= 0.01;
   const ApE = E && E.ApE != null ? E.ApE : h.Ap;
   return {
     values: {
@@ -92,7 +92,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'land', to: 'output', w: (0.2 + 0.6 * (1 - (E ? E.grade : 1))) * (1 - aA), label: `ores ${E ? E.grade.toFixed(2) : ''}`, bend: -0.12, on: ind && aA < 0.99 },
       // Space's materials: the mass mined for the swarm and the habitats (by log, a megatonne to
       // 10¹⁸ t a year), or while that's little, the asteroids' share of building's.
-      { from: 'space', to: 'output', w: Math.max(0.8 * aA, flow > 0 ? Math.min(1, Math.max(0, Math.log10(flow / 1e9) / 12)) : 0), label: flow >= 1e9 ? `${fromMerc ? 'Mercury' : 'asteroids'} ${tonnes(flow)}` : `asteroids ${pc(aA)}`, bend: 0.15, on: ind && mined },
+      { from: 'space', to: 'output', w: Math.max(0.8 * aA, flow > 0 ? Math.min(1, Math.max(0, Math.log10(flow / 1e9) / 12)) : 0), label: flow >= 1e9 ? `${off.src || 'asteroids'} ${tonnes(flow)}` : `asteroids ${pc(aA)}`, bend: 0.15, on: ind && mined },
       { from: 'output', to: 'people', w: 0.3, label: 'goods', bend: 0.1 },
       { from: 'output', to: 'energy', w: inv('e') / 0.08, label: pc(inv('e')), bend: 0.12, on: inv('e') >= 5e-4 },
       { from: 'output', to: 'compute', w: (inv('c') + inv('q')) / 0.08, label: pc(inv('c') + inv('q')), bend: 0.12, on: inv('c') + inv('q') >= 5e-4 },
