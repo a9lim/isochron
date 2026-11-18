@@ -784,7 +784,8 @@ function caption(force) {
   const m = people.msg, h = m && m.last, parts = [h ? `year ${Math.floor(m.t).toLocaleString('en')}` : formatTime(P.years)];
   if (seasonShown() >= 0.5) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
   if (h) {
-    parts.push(h.space >= 1e3 ? `${headcount(h.earth)} people, ${headcount(h.space)} off-world` : `${headcount(h.earth)} people`);
+    const st = m.off && m.off.stars;
+    parts.push(`${headcount(h.earth)} people` + (h.space >= 1e3 ? `, ${headcount(h.space)} off-planet` : '') + (st && st.people >= 1e3 ? `, ${headcount(st.people)} at other stars` : ''));
     if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
   }
   setCaption(parts.join(' · '), true);

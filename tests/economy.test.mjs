@@ -71,14 +71,14 @@ test('watts names its unit without exponents below an exawatt', () => {
 test('space gives materials: the asteroids\' share, then the mass mined; the swarm reads as its share of the Sun; Earth keeps its robots', () => {
   const late = (off, o = {}) => report(row({ Y: 1e20, Kf: 1e20, Er: 0, Eu: 5e13, Es: 3e25, AI: 1e25, Ap: 1e18, earth: 1e10, space: 1e15, ...o }), { packages: 2, sA: 1, flags: { industry: true, present: true },
     econ: econ({ bodies: 1e18, Ar: 1e20, aA: 1, ApE: 1.4e9 }), ending: { aligned: true, preserve: true }, sun: 3.83e26, Es: 3e25, off });
-  let fig = economyOf({ m: late({ flow: 4e12, belt: 0.3, merc: 0 }), ...planet });
+  let fig = economyOf({ m: late({ flow: 4e12, belt: 0.3, merc: 0, src: 'asteroids' }), ...planet });
   check(fig);
   const arrow = f => f.edges.find(e => e.from === 'space' && e.to === 'output' && e.on !== false);
   assert.equal(arrow(fig).label, 'asteroids 4.0 Gt/yr');
   assert.ok(!fig.edges.some(e => e.from === 'land' && e.to === 'output' && e.on !== false), 'the crust\'s ores give way to them');
   assert.equal(fig.values.space, '7.8% of the Sun');
   assert.equal(fig.values.robots, '1.0 × 10¹⁸, 1.40 billion on Earth');
-  fig = economyOf({ m: late({ flow: 3e21, belt: 1, merc: 0.4 }), ...planet });
+  fig = economyOf({ m: late({ flow: 3e21, belt: 0.1, merc: 0.4, src: 'Mercury' }), ...planet });
   assert.equal(arrow(fig).label, 'Mercury 3.0 × 10¹⁸ t/yr');
   assert.ok(arrow(fig).w > 0.9, 'heavy at Mercury\'s rate');
   assert.equal(tonnes(4e10), '40 Mt/yr');

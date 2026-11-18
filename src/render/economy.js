@@ -10,8 +10,8 @@
 // maps), and the sunlight surface solar is capped by. Every energy source is plant built from
 // output (output → energy, the share invested); the land gives fossil carbon's and solar's power,
 // space its sunlight's, and fusion needs nothing but the plant. Space also gives materials: the
-// asteroids' share of what building takes, and the mass the swarm and the habitats are built of
-// (the belt's, then Mercury's). Fixed capital is output kept, a
+// asteroids' share of what building takes, and the mass the swarm (Mercury's) and the habitats (the
+// belt's) are built of. Fixed capital is output kept, a
 // loop on output (the share reinvested). Burning sends carbon (net of what capture takes back) and
 // coal's sulfate into the air; waste heat (fossil carbon's and fusion's) goes straight to the climate.
 
@@ -50,7 +50,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   // Off-world: the swarm's share of the Sun, the mass mined a year and from where, the asteroids'
   // share of building's materials, and Earth's robots against all of them.
   const off = m.off || {}, sunShare = m.sun ? (m.Es || h.Es || 0) / m.sun : 0, flow = off.flow || 0, aA = E ? E.aA || 0 : 0;
-  const mined = flow >= 1e9 || aA >= 0.01, fromMerc = (off.merc || 0) > 0.005 && (off.belt || 0) > 0.9;
+  const mined = flow >= 1e9 || aA >= 0.01, fromMerc = off.src === 'Mercury';
   const ApE = E && E.ApE != null ? E.ApE : h.Ap;
   return {
     values: {

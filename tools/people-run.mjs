@@ -58,8 +58,8 @@ pp.run({
     // The ending plays out over AFTER years past the dial (the model finds the dial, People.record).
     if (p.flags.dial && p.t - p.dialAt > AFTER) {
       const b = h[n - 1], e = p.ending || { code: '-' };
-      p.event('end', `${AFTER} years past the dial (ending ${e.code}): ${g3(b.earth / 1e9)} billion people on Earth, ${g3(b.space / 1e9)} off-world; minds ${g3(b.minds)}; energy ${g3(b.energy / 1e12)} TW (off-world ${g3(b.Es / 1e12)}); Earth's heat ${b.heat.toFixed(2)} W/m², forcing ${b.Ft.toFixed(1)} W/m², CO₂ ${b.co2.toFixed(0)} ppm, habitability ${b.hE.toFixed(2)}, the oceans ${(100 * b.boiled).toFixed(0)}% boiled; humans' control ${(100 * (1 - b.dis)).toFixed(0)}%; ` +
-        (() => { const m = p.minedShares(), s = p.stars(); return `the swarm ${(100 * b.Es / p.P.L_SUN).toPrecision(2)}% of the Sun, the belt ${(100 * m.belt).toFixed(0)}% and Mercury ${(100 * m.merc).toFixed(0)}% mined, growth off-world ${(100 * b.fert).toFixed(2)}%/yr past replacement, ${s ? `${g3(s.n)} stars reached` : 'no probes'}`; })());
+      p.event('end', `${AFTER} years past the dial (ending ${e.code}): ${g3(b.earth / 1e9)} billion people on Earth, ${g3(b.space / 1e9)} off-planet; minds ${g3(b.minds)}; energy ${g3(b.energy / 1e12)} TW (off-world ${g3(b.Es / 1e12)}); Earth's heat ${b.heat.toFixed(2)} W/m², forcing ${b.Ft.toFixed(1)} W/m², CO₂ ${b.co2.toFixed(0)} ppm, habitability ${b.hE.toFixed(2)}, the oceans ${(100 * b.boiled).toFixed(0)}% boiled; humans' control ${(100 * (1 - b.dis)).toFixed(0)}%; ` +
+        (() => { const m = p.minedShares(), s = p.stars(); return `the swarm ${(100 * b.Es / p.P.L_SUN).toPrecision(2)}% of the Sun, the belt ${(100 * m.belt).toFixed(0)}% and Mercury ${(100 * m.merc).toFixed(0)}% mined, growth off-world ${(100 * b.fert).toFixed(2)}%/yr past replacement, ${s ? `${g3(s.n)} stars reached${s.people > 0 ? `, ${g3(s.people)} people at them` : ''}` : 'no probes'}`; })());
       return true;
     }
     const tInd = (p.events.find(e => e.kind === 'industry') || {}).t;

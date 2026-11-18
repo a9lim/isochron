@@ -340,26 +340,62 @@ test('Earth\'s robots: all of them before space opens; past it, the work its own
   assert.ok(Math.abs(sac / 1e12 - 1) < 1e-3, `a sacrificed Earth's industry its share of the energy (${sac.toExponential(3)})`);
 });
 
-test('the swarm is as large as its material, and the mined mass goes the belt first, then Mercury', () => {
+test('Mercury is the swarm\'s and the belt the habitats\'; what\'s mined is what has stood', () => {
   const P = PEOPLE, mu = P.SIGMA_SW / P.S_AU;
   assert.ok(Math.abs(mu * P.L_SUN / 2.8e23 - 1) < 0.02, `the whole Sun takes ~2.8e23 kg (${(mu * P.L_SUN).toExponential(2)})`);
-  assert.ok(Math.abs(P.M_BELT / mu / P.L_SUN - 0.0085) < 0.001, 'the belt alone, under 1% of the Sun');
+  assert.ok(P.M_MERC > mu * P.L_SUN && P.M_BELT < 0.01 * mu * P.L_SUN, 'Mercury builds the whole Sun\'s worth; the belt under 1%');
   const p = new People(uniformPlanet(3), quiet), E = p.econ;
   const cap = p.swarmRoom();
-  assert.ok(cap < P.L_SUN && cap > 0.85 * P.L_SUN, `with Mercury, most of the Sun (${(cap / P.L_SUN).toFixed(3)})`);
-  // Mass standing: the collectors and the habitats; mined is the most that has ever stood.
-  p.offBots = 1e20; p.space = 1e16; E.cs = 1e24; E.ApS = 1e20;
+  assert.ok(cap < P.L_SUN && cap > 0.85 * P.L_SUN, `most of the Sun (${(cap / P.L_SUN).toFixed(3)})`);
+  // Habitats from the belt: their room is the belt's mass over a person's habitat and its collector.
+  p.offBots = 1e20; E.cs = 1e24; E.ApS = 1e20; E.Es = 1e24;
+  const surf = p.worldRooms().surf, room = p.offRoom(E);
+  assert.ok(Math.abs(room / softMin(1e24 / P.W_HAB, surf + P.M_BELT / (P.M_HAB + mu * P.W_HAB), 4) - 1) < 1e-12, 'the belt, not Mercury, houses people');
+  p.space = 1e15;
   p.massBooks(E, 1);
-  const surf = p.worldRooms().surf, hab = p.space - softMin(p.space, surf, 4);
-  assert.ok(Math.abs(p.mined / (mu * 1e24 + (P.M_HAB + mu * P.W_HAB) * hab) - 1) < 1e-12, 'collectors and habitats');
-  const m1 = p.minedShares();
-  assert.ok(m1.belt > 0.99 && m1.merc > 0 && m1.merc < 0.05, `the belt first (${m1.belt.toFixed(3)}, Mercury ${m1.merc.toFixed(4)})`);
+  const hab = p.space - softMin(p.space, surf, 4), m1 = p.minedShares();
+  assert.ok(Math.abs(m1.merc - mu * 1e24 / P.M_MERC) < 1e-12 && Math.abs(m1.belt - (P.M_HAB + mu * P.W_HAB) * hab / P.M_BELT) < 1e-12, `${JSON.stringify(m1)}`);
+  assert.ok(p.src === 'asteroids', 'the habitats\' belt the larger draw here');
+  assert.ok(p.swarmRoom() < cap, 'the habitats\' belt is the swarm\'s no longer');
   E.cs = 1e23; p.massBooks(E, 1);
   assert.ok(p.flow === 0 && p.minedShares().merc === m1.merc, 'a collector taken down is reused, not returned');
-  // Where off-world people live sums to them; the probes' light comes back at d/v + d/c.
+  // Where off-world people live sums to them.
   const off = p.offworld(), sum = Object.values(off).reduce((a, b) => a + b, 0);
   assert.ok(Math.abs(sum / p.space - 1) < 1e-12 && off.habitats > 0 && WORLDS.every(w => off[w.k] > 0), 'every world and the habitats');
+});
+
+test('the probes: their reach, what\'s seen of it, and (aligned) the people at other stars', () => {
+  const P = PEOPLE, p = new People(uniformPlanet(3), quiet);
   p.probeT = p.t - 900;
-  const st = p.stars();
-  assert.ok(Math.abs(st.reach - 450) < 1e-9 && Math.abs(st.seen - 300) < 1e-9 && Math.abs(st.n / (P.N_STAR * 4 / 3 * Math.PI * 450 ** 3) - 1) < 1e-12, `${JSON.stringify(st)}`);
+  let st = p.stars();
+  assert.ok(Math.abs(st.reach - 450) < 1e-9 && Math.abs(st.seen - 300) < 1e-9 && Math.abs(st.n / (P.N_STAR * 4 / 3 * Math.PI * 450 ** 3) - 1) < 1e-12 && st.people === 0, `misaligned: no people (${JSON.stringify(st)})`);
+  p.ending = { aligned: true, preserve: true }; p.room = 1e17; p.roomE = 0;
+  // Young settlements are still their founders: ∫ n 4πd² N₀ e^{r(t − d/v)} dd, small r t.
+  p.probeT = p.t - 2;
+  st = p.stars();
+  const v = P.V_PROBE, r = P.R_FRONT, t = 2, R = v * t, n0 = P.FOUNDERS_STAR;
+  // ∫₀^R 4π d² e^{r(t − d/v)} dd, by parts
+  const a = r / v, I = 4 * Math.PI * Math.exp(r * t) * (2 / a ** 3 - Math.exp(-a * R) * (R * R / a + 2 * R / a ** 2 + 2 / a ** 3));
+  assert.ok(Math.abs(st.people / (P.N_STAR * n0 * I) - 1) < 1e-3, `${st.people.toExponential(4)} against ${(P.N_STAR * n0 * I).toExponential(4)}`);
+});
+
+test('lineages part: the divergence is from when the later of them left their last common ancestor', () => {
+  const p = new People(uniformPlanet(3), quiet);
+  const A = p.newLineage(null, 0, 1); p.t = 100e3;
+  const B = p.newLineage(A, 100e3, 1); p.t = 300e3;
+  const C = p.newLineage(A, 300e3, 1); p.t = 500e3;
+  const D = p.newLineage(B, 450e3, 1);
+  assert.equal(p.divergence(A, B), 400e3);
+  assert.equal(p.divergence(B, A), 400e3);
+  assert.equal(p.divergence(B, C), 400e3, 'siblings: from the earlier split');
+  assert.equal(p.divergence(B, D), 50e3);
+  assert.equal(p.divergence(C, D), 400e3);
+});
+
+test('Earth\'s room, aligned and past scarcity: an ecumenopolis on its living land', () => {
+  const P = PEOPLE, p = new People(uniformPlanet(3), quiet);
+  let A = 0;
+  for (let c = 0; c < p.nL; c++) if (p.H.alive[c]) A += p.H.area[c];
+  p.hE = 0.5;
+  assert.ok(Math.abs(p.earthRoom(1) / (0.5 * P.D_ECU * A) - 1) < 1e-12 && p.earthRoom(0) === 0);
 });

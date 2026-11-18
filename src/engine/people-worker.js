@@ -127,9 +127,10 @@ function post(force) {
       // compute's and the working robots' power.
       econ: E.on && E.flows ? { flows: { ...E.flows }, Lh: E.Lh, bodies: E.bodies, grade: E.grade, food: E.EfoodGot || 0, cdr: E.EcdrGot || 0,
         Ar: E.AIr, Wc: people.P.W_C * (E.Kc + E.Kq), Wr: people.P.W_R * E.Ap, cdrPg: (E.EcdrGot || 0) * 3.15576e7 / people.P.J_CDR, aA: E.aA || 0, ApE: E.ApE ?? E.Ap } : null,
-      // Off-world (Fig. 9, the sky): where its people live, the mass mined (the belt's and Mercury's
-      // shares, kg a year), the room, the growth past replacement, and the probes.
-      off: { worlds: people.offworld(), ...people.minedShares(), flow: people.flow, mined: people.mined, room: people.room, fert: people.fert, stars: people.stars() },
+      // Off-world (Fig. 9, the sky): where its people live, the mass mined (Mercury's and the belt's
+      // shares, kg a year and the source drawn on most), the rooms off Earth and on it, the growth
+      // past replacement, and the probes (with the people at other stars).
+      off: { worlds: people.offworld(), ...people.minedShares(), flow: people.flow, src: people.src, mined: people.mined, room: people.room, roomE: people.roomE || 0, fert: people.fert, stars: people.stars() },
     });
   }
   // Fig. 8 (the hyperbola and the lineages), once a second: ~5 ms of fitting on a thinned record.

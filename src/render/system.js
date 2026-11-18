@@ -8,7 +8,7 @@
 //   people      on Earth and each world they've settled (WORLDS), a patch of the residences' accent
 //               blocks as wide as log₁₀ of their number; in habitats about the Sun, accent points
 //               scattered about Earth's orbit, as many as log₁₀ of theirs
-// Named, with their numbers, where people live. The probes' stars are the caption's.
+// Named, with their numbers, where people live. The probes' stars, and the people at them, are the caption's.
 import { WORLDS } from '../engine/worlds.js';
 import { count } from './economy.js';
 
@@ -48,11 +48,11 @@ export function systemOf(m) {
 export function systemCaption(s) {
   if (!s) return 'The system';
   const pc = v => `${v < 0.095 ? (100 * v).toFixed(1) : Math.round(100 * v)}%`, parts = ['The system'];
-  if (s.space >= 1e3) parts.push(`${count(s.space)} off-world`);
+  if (s.space >= 1e3) parts.push(`${count(s.space)} off-planet`);
   if (s.share >= 1e-4) parts.push(`the swarm ${pc(s.share)} of the Sun`);
   if (s.merc > 0.005) parts.push(s.merc > 0.995 ? 'Mercury gone' : `Mercury ${pc(s.merc)} taken`);
   else if (s.belt > 0.005) parts.push(`the belt ${pc(s.belt)} mined`);
-  if (s.stars && s.stars.n >= 1) parts.push(`${count(s.stars.n)} ${s.stars.n < 1.5 ? 'star' : 'stars'} reached`);
+  if (s.stars && s.stars.n >= 1) parts.push(`${count(s.stars.n)} ${s.stars.n < 1.5 ? 'star' : 'stars'} reached` + (s.stars.people >= 1e3 ? `, ${count(s.stars.people)} people there` : ''));
   return parts.join(' · ');
 }
 
