@@ -17,6 +17,9 @@
 //                    (it pulls its plate) and builds an arc on the top plate;
 //                    continent against continent thickens the crust, marks a
 //                    suture, and, along a long enough front, merges the plates.
+// Then the crust deforms past the rigid plates (deform): rifted margins stretch
+// into the gaps beside them, an orogen's wedge spreads behind its front, and a
+// plateau past H_PLATEAU widens instead of rising.
 // Then ω comes from a torque balance on each plate: slab pull and ridge push
 // against basal drag, continents dragging harder (their keels), and each slab's
 // own resistance to sinking, so a plate its slabs drive moves at about their
@@ -41,13 +44,17 @@ export const CM_PER_YR = EARTH_RADIUS_KM * 1e5 / 1e6;   // per rad/Myr
 
 const MAX_PLATES = 32;
 const CONTINENTAL = 0.5;          // felsic fraction above which crust is continental
-const H_MAX = 72;                 // km, crust thicker than this spreads (orogenic collapse)
 /** Tunable constants; tools and tests may change them. */
 export const PARAMS = {
   ARC_DH: 0.35,  // km of arc crust per cell of ocean consumed (at level 6; × the cell's size elsewhere)
   ARC_DPHI: 0.03,
   CLOSING: 0.3,  // share of the relative motion that must close for an overlap to consume
-  COLLIDE_FRAC: 0.6,  // share of a consumed continent's crust that stacks
+  COLLIDE_FRAC: 0.85,  // share of a consumed continent's crust that stacks (the rest sinks: Earth's collisions recycle a small part of the ~3 km³/yr its continents lose, from memory; with rifts' stretching it holds the continents near Earth's 40% of the sphere)
+  H_STACK: 150,  // km: the most a cell's crust stacks to in one step (a bound: the orogen spreads it, `orogeny`)
+  H_PLATEAU: 60,  // km: crust thicker than this spreads into its plate (an orogenic plateau's: Tibet's in the sim's isostasy, earth.js)
+  STRETCH: 0.3,  // share of a rifted margin's crust that stretches into the new cell beside it (deform)
+  H_BREAK: 10,  // km: crust thinner than this breaks: what opens beside it is ocean (Earth's ~15 km of real crust; the sim's isostasy stands crust thinner, earth.js)
+  TAPER: 0.12,  // km of crust per km inland: the steepest an active orogen's thickening stands behind its front (its wedge's taper, ~1.6 km of relief per 100 km)
   ARC_TAU: 5,  // Myr, arc volcanism after subduction stops
   SLAB_TAU: 15,  // Myr, a slab's memory: how long its upper-mantle part takes to sink away once subduction stops (or the trench moves on)
   SLAB_MAX: 0.11,  // rad, ~700 km of slab: the pull saturates
@@ -425,7 +432,7 @@ export class Tectonics {
           Q.mask[j] = 0;
           if (Q.phi[j] >= CONTINENTAL && topContinental) {
             // Collision: the crust stacks; the front is a suture.
-            P.h[jt] = Math.min(H_MAX, P.h[jt] + PARAMS.COLLIDE_FRAC * Q.h[j]);
+            P.h[jt] = Math.min(PARAMS.H_STACK, P.h[jt] + PARAMS.COLLIDE_FRAC * Q.h[j]);
             P.sut[jt] = t1;
             // The front resists: a force on the incoming plate against its approach.
             if (r > 0) {
@@ -456,7 +463,7 @@ export class Tectonics {
               this.slabDir[3 * i] = nx / rn; this.slabDir[3 * i + 1] = ny / rn; this.slabDir[3 * i + 2] = nz / rn;
             }
             // The arc on the plate above.
-            P.h[jt] = Math.min(H_MAX, P.h[jt] + PARAMS.ARC_DH * this.res);
+            P.h[jt] = Math.min(PARAMS.H_STACK, P.h[jt] + PARAMS.ARC_DH * this.res);
             P.phi[jt] = Math.min(1, P.phi[jt] + PARAMS.ARC_DPHI * this.res);
             this.arc[i] += 1;
             this.counters.consumed++;
@@ -475,6 +482,7 @@ export class Tectonics {
       const p = plates[this.owner[i]], j = this.ref[i];
       this.h[i] = p.h[j]; this.phi[i] = p.phi[j]; this.tf[i] = p.tf[j]; this.sut[i] = p.sut[j];
     }
+    this.deform(t1, dt);
     if (this.flexc) this.sampleFlex();
 
     const ka = Math.exp(-dt / PARAMS.ARC_TAU), ks = Math.exp(-dt / PARAMS.SLAB_TAU), kc = Math.exp(-dt / PARAMS.COLLIDE_TAU);
@@ -513,6 +521,7 @@ export class Tectonics {
     this.rotate(dt);
     const r = await this.gpu.step(dt, t1);
     if (this.flexc) this.sampleFlex(true);
+    this.deform(t1, dt, true);
     const c = this.counters, k = r.counts, np = this.plates.length;
     c.made += k.made; c.consumed += k.consumed; c.collided += k.collided;
     c.relaxed = (c.relaxed || 0) + k.relaxed; c.foundered = (c.foundered || 0) + k.foundered;
@@ -542,6 +551,148 @@ export class Tectonics {
     const site = this.initiationSite();
     if (site) { if (!merge) await this.gpu.pullMemory(); this.initiate(site); }
     this.resolveFragments();
+  }
+
+  /**
+   * The crust's deformation past the step's rigid plates (synthesis), in rules that move crust and
+   * make none (felsic share mixing by volume):
+   *   rifted margins  where a gap opens beside its plate's continental crust thicker than H_BREAK,
+   *                   STRETCH of that crust stretches into it instead of new ocean: the margin thins
+   *                   and widens, and its shelf and slope stand between continent and ocean
+   *                   (continents gain area as they rift, as stacking takes it from them)
+   *   the wedge       from each cell stacked this step (its suture time the step's), crust thicker
+   *                   than its plate's neighbour by more than TAPER a km of the distance between them
+   *                   passes to it until the step stands at TAPER, and on from each cell that took
+   *                   some: the upper plate thickens behind the front (Tibet's shortening reached
+   *                   ~1,000 km inland; from memory), so the orogen widens as it grows rather than
+   *                   standing as a wall a cell wide between two drowned margins
+   *   the plateau     crust thicker than H_PLATEAU passes its excess to its plate's neighbours by
+   *                   their room below it, sweep by sweep (or, with none, evenly, for them to pass
+   *                   on): the plateau widens instead of rising (Tibet's crust ~70 km; from memory)
+   * A cell with no cell of its plate beside it keeps its excess. With `patch`, the changed cells'
+   * elevation is restood (the GPU's step drew it before). Returns the cells changed.
+   */
+  deform(t1, dt, patch = false) {
+    const g = this.grid, n = g.n, area = g.area, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, ref = this.ref, plates = this.plates, h = this.h, H = PARAMS.H_PLATEAU;
+    // The frame cells changed, for the GPU's mirror (its step syncs the top cells at the next step's start; this keeps it exact between).
+    const mark = this.gpu ? (k, j) => this.dirty.cells.add(k * n + j) : () => {};
+    let touched = false;
+    // Rifted margins: this step's new crust (its formation time the step's; f32 on the GPU's path).
+    const tol = 1e-6 * Math.max(1, Math.abs(t1)) + 1e-9;
+    for (let i = 0; i < n; i++) {
+      if (!(this.tf[i] >= t1 - dt - tol) || this.phi[i] >= CONTINENTAL) continue;
+      const k = owner[i], j = ref[i], p = plates[k];
+      if (p.phi[j] >= CONTINENTAL) continue;
+      let jd = -1;
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+        const q = nbr[t], jq = ref[q];
+        if (owner[q] === k && jq !== j && p.phi[jq] >= CONTINENTAL && p.h[jq] > PARAMS.H_BREAK && (jd < 0 || p.h[jq] > p.h[jd])) jd = jq;
+      }
+      if (jd < 0 || !this.opening(i, k)) continue;
+      const v = PARAMS.STRETCH * p.h[jd] * area[jd];
+      p.h[jd] -= v / area[jd];
+      p.h[j] = v / area[j]; p.phi[j] = p.phi[jd];
+      mark(k, j); mark(k, jd);
+      touched = true;
+    }
+    // The wedge: a queue from this step's fronts (sut is f32 on the GPU's path, so within its rounding).
+    const S = PARAMS.TAPER * EARTH_RADIUS_KM, queue = [];
+    for (let i = 0; i < n; i++) if (this.sut[i] >= t1 - tol) queue.push(i);
+    for (let qi = 0; qi < queue.length && qi < 8 * n; qi++) {
+      const i = queue[qi], k = owner[i], j = ref[i], p = plates[k];
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+        const q = nbr[t], jq = ref[q];
+        if (owner[q] !== k || jq === j) continue;
+        const over = p.h[j] - p.h[jq] - S * g.dist[t];
+        if (!(over > 1e-3)) continue;
+        const v = over * area[j] * area[jq] / (area[j] + area[jq]);
+        const hv = p.h[jq] * area[jq];
+        p.phi[jq] = Math.min(1, (p.phi[jq] * hv + p.phi[j] * v) / (hv + v));
+        p.h[j] -= v / area[j]; p.h[jq] += v / area[jq];
+        mark(k, j); mark(k, jq);
+        touched = true;
+        queue.push(q);
+      }
+    }
+    // The plateau.
+    let list = [];
+    for (let i = 0; i < n; i++) if (plates[owner[i]].h[ref[i]] > H) list.push(i);
+    const dv = new Map(), dm = new Map(), rec = [];
+    for (let sweep = 0; sweep < 48 && list.length; sweep++) {
+      dv.clear(); dm.clear();
+      const src = new Set();
+      for (const i of list) {
+        const k = owner[i], j = ref[i], p = plates[k], key = k * n + j;
+        if (src.has(key) || !(p.h[j] > H)) continue;
+        src.add(key);
+        rec.length = 0;
+        let room = 0, ar = 0;
+        for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+          const q = nbr[t], jq = ref[q];
+          if (owner[q] !== k || jq === j || rec.includes(q)) continue;
+          rec.push(q); room += Math.max(0, H - p.h[jq]) * area[jq]; ar += area[jq];
+        }
+        if (!rec.length) continue;
+        const ex = (p.h[j] - H) * area[j], fill = Math.min(1, ex / Math.max(room, 1e-30)), over = Math.max(0, ex - room) / ar;
+        dv.set(key, (dv.get(key) || 0) - ex);
+        for (const q of rec) {
+          const jq = ref[q], kq = k * n + jq, v = fill * Math.max(0, H - p.h[jq]) * area[jq] + over * area[jq];
+          dv.set(kq, (dv.get(kq) || 0) + v);
+          dm.set(kq, (dm.get(kq) || 0) + v * p.phi[j]);
+        }
+      }
+      if (!dv.size) break;
+      touched = true;
+      const next = [];
+      for (const [key, v] of dv) {
+        const k = Math.floor(key / n), j = key - k * n, p = plates[k];
+        if (v > 0) { const hv = p.h[j] * area[j]; p.phi[j] = Math.min(1, (p.phi[j] * hv + dm.get(key)) / (hv + v)); }
+        p.h[j] += v / area[j];
+        mark(k, j);
+      }
+      // The world cells over the plateau now (the receivers that filled), by their frame cells' state.
+      for (const i of list) for (let t = nbrOff[i] - 1, e = nbrOff[i + 1]; t < e; t++) {
+        const q = t < nbrOff[i] ? i : nbr[t];
+        if (plates[owner[q]].h[ref[q]] > H) next.push(q);
+      }
+      list = [...new Set(next)];
+    }
+    if (!touched) return 0;
+    // Every world cell reads its frame cell back (world cells sharing one all see it).
+    const elev = this.elev, load = this.load, swell = this.swell, fc = this.flexc, t = this.t;
+    let changed = 0;
+    for (let i = 0; i < n; i++) {
+      const p = plates[owner[i]], j = ref[i];
+      if (p.h[j] === h[i] && p.phi[j] === this.phi[i]) continue;
+      h[i] = p.h[j]; this.phi[i] = p.phi[j]; changed++;
+      if (patch) {
+        const f = this.phi[i], sa = f < 1 ? subsidence(t - this.tf[i]) : 0, rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f;
+        this.subs[i] = f < CONTINENTAL ? sa : 0;
+        elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Whether the plates part across world cell i (held by plate k) from its neighbours of other plates:
+   * their relative motion opens along the boundary's normal by more than CLOSING of its speed (the
+   * consumption's test turned round), so a gap the grid's rounding leaves along a transform isn't a rift.
+   */
+  opening(i, k) {
+    const g = this.grid, pos = g.pos, x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2], w = this.plates[k].w;
+    let nx = 0, ny = 0, nz = 0, b = -1;
+    for (let t = g.nbrOff[i], e = g.nbrOff[i + 1]; t < e; t++) {
+      const o = this.owner[g.nbr[t]];
+      if (o === k) continue;
+      if (b < 0) b = o;
+      if (o === b) { nx += g.tan[3 * t]; ny += g.tan[3 * t + 1]; nz += g.tan[3 * t + 2]; }
+    }
+    if (b < 0) return false;
+    const wb = this.plates[b].w, dx = wb[0] - w[0], dy = wb[1] - w[1], dz = wb[2] - w[2];
+    let vx = dy * z - dz * y, vy = dz * x - dx * z, vz = dx * y - dy * x;
+    const r = Math.hypot(vx, vy, vz), rn = Math.hypot(nx, ny, nz);
+    return rn > 0 && vx * nx + vy * ny + vz * nz > PARAMS.CLOSING * r * rn;
   }
 
   decayPairs(dt) {

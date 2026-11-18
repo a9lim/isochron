@@ -39,5 +39,16 @@ export function makeNoise(seed) {
     return s / norm * 1.6;
   }
 
-  return { noise3, fbm };
+  /** Ridged fractal sum in [0, 1]: (1 − |noise|)² by octave, sharp crests along the noise's zero sets (lines on the sphere). */
+  function ridged(x, y, z, freq = 1, octaves = 4, gain = 0.5) {
+    let s = 0, a = 1, norm = 0;
+    for (let o = 0; o < octaves; o++) {
+      const r = 1 - Math.abs(noise3(x * freq - 11.3 * o, y * freq + 23.9 * o, z * freq - 7.7 * o));
+      s += a * r * r;
+      norm += a; a *= gain; freq *= 2;
+    }
+    return s / norm;
+  }
+
+  return { noise3, fbm, ridged };
 }

@@ -9,7 +9,7 @@ export const RHO_MANTLE = 3.30;            // g/cm³
 export const RHO_OCEANIC = 2.95;
 export const RHO_CONTINENTAL = 2.85;
 export const H_OCEANIC = 7;                // km, new crust at a ridge
-export const H_CONTINENTAL = 35;           // km, typical continental crust
+export const FREEBOARD = 2.5;              // km: how far today's sea stands over a new ridge (GDH1's ridge ~2.6 km deep, from memory): seeded planets' water, Earth's datum
 
 /**
  * Subsidence of oceanic crust below its ridge (km) at an age (Myr): √age
@@ -123,13 +123,4 @@ export function seaMask(grid, elev, s, sea, strait, scratch = null, felsic = nul
     if (sea[i]) ocean += area[i];
   }
   return ocean;
-}
-
-/** The water volume that leaves `landFraction` of the surface dry. */
-export function waterForLand(grid, elev, landFraction) {
-  const idx = Array.from({ length: grid.n }, (_, i) => i).sort((a, b) => elev[a] - elev[b]);
-  const target = (1 - landFraction) * 4 * Math.PI;
-  let acc = 0, s = elev[idx[idx.length - 1]];
-  for (const i of idx) { acc += grid.area[i]; if (acc >= target) { s = elev[i]; break; } }
-  return oceanVolume(grid, elev, s);
 }

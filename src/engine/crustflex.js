@@ -5,8 +5,11 @@
 // The columns crust.js builds are compensated as they were made (Airy, on the
 // crust's thickness and density), and flexing them whole moves the opening's
 // margins by kilometres (tests/flexure.test.mjs). What bends the plate is a
-// column's change of load since: erosion and deposition, stacked and arc crust,
-// basalt from the plumes, the ice's till. So the flexure is an incremental
+// column's change of load since: stacked and arc crust, the crust's deformation
+// (plates.js, deform), basalt from the plumes, the ice's till. The rivers' cut and
+// fill and the surface's diffusion stand on local isostasy, as the landscape's
+// solve assumes: it moves `mq` with them (landscape.js, deposit and diffuse). So
+// the flexure is an incremental
 // correction to the Airy elevation (synthesis), kept in each plate's frame as
 // the crust is (FRAME_EXTRA's `cf`, m, up), with the column's mass it last saw
 // (`mq`, ρh in g/cm³·km):

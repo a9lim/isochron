@@ -65,9 +65,12 @@ test("a retrace: an unchanged river stays whole, a moved one crossfades only whe
   // One river's lower half moved by half a cell across: that half crossfades, the upper half stays.
   const k = rivers.reduce((b, r, i) => r.W.length > rivers[b].W.length ? i : b, 0), m = rivers[k].W.length;
   const cur2 = rivers.map(copy), Pm = cur2[k].P;
+  const P0 = Float32Array.from(Pm);
   for (let q = Math.floor(m / 2); q < m; q++) {
-    // Off the course: toward the pole the river isn't heading for, by half a cell.
-    const x = Pm[3 * q], y = Pm[3 * q + 1], z = Pm[3 * q + 2], ax = -y, ay = x, az = 0, a = Math.hypot(ax, ay, az) || 1, d = 0.5 * spacing;
+    // Off the course: across it (the course's local direction crossed with the point), by half a cell.
+    const x = P0[3 * q], y = P0[3 * q + 1], z = P0[3 * q + 2], a1 = Math.max(0, q - 1), b1 = Math.min(m - 1, q + 1);
+    const tx = P0[3 * b1] - P0[3 * a1], ty = P0[3 * b1 + 1] - P0[3 * a1 + 1], tz = P0[3 * b1 + 2] - P0[3 * a1 + 2];
+    const ax = ty * z - tz * y, ay = tz * x - tx * z, az = tx * y - ty * x, a = Math.hypot(ax, ay, az) || 1, d = 0.5 * spacing;
     const X = x + d * ax / a, Y = y + d * ay / a, Z = z + d * az / a, rr = Math.hypot(X, Y, Z);
     Pm[3 * q] = X / rr; Pm[3 * q + 1] = Y / rr; Pm[3 * q + 2] = Z / rr;
   }
@@ -76,8 +79,17 @@ test("a retrace: an unchanged river stays whole, a moved one crossfades only whe
   assert.ok(cur2.every((c, i) => i === k || c.fa0 === null), 'the others stay');
   assert.equal(gone.length, 1, 'only its old course fades out');
   assert.ok(gone[0].fa0[0] === 0 && gone[0].fa0[m - 1] === 1 && gone[0].fa1.every(v => v === 0), 'and only where it moved');
-  // A retrace mid-fade, back to the old course (fading out, at 0.5): it carries on from there.
+  // A retrace mid-fade, back to the old course (fading out, at 0.5): it carries on from there, read
+  // where the moved half runs farthest from every other river (a river may end at a node others leave,
+  // or pass near another).
+  const P1 = rivers[k].P;
+  let qc = -1, far = -1;
+  for (let q = Math.floor(5 * m / 8); q < Math.floor(7 * m / 8); q++) {   // clear of the bend where it leaves the course, and of its mouth
+    let near = Infinity;
+    rivers.forEach((o, i) => { if (i !== k) for (let e = 0; e < o.P.length; e += 3) near = Math.min(near, Math.hypot(o.P[e] - P1[3 * q], o.P[e + 1] - P1[3 * q + 1], o.P[e + 2] - P1[3 * q + 2])); });
+    if (near > far) { far = near; qc = q; }
+  }
   const cur3 = rivers.map(copy);
   succeedRivers(cur2.concat(gone), cur3, 0.5, spacing);
-  assert.ok(Math.abs(cur3[k].fa0[m - 1] - 0.5) < 1e-6, `back on its old course, it carries on from 0.5 (${cur3[k].fa0[m - 1]})`);
+  assert.ok(Math.abs(cur3[k].fa0[qc] - 0.5) < 1e-6, `back on its old course, it carries on from 0.5 (${cur3[k].fa0[qc]})`);
 });

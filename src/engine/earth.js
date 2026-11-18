@@ -17,7 +17,7 @@ import { stream } from '../rng.js';
 import { makeNoise } from '../noise.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, restrict } from '../grid/transfer.js';
-import { H_OCEANIC, RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL, elevation, subsidence, seaMask, SEA } from './crust.js';
+import { H_OCEANIC, RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL, FREEBOARD, elevation, subsidence, seaMask, SEA } from './crust.js';
 import { PARAMS, seaChannel } from './plates.js';
 import { framesFromWorld, hangSlabs } from './genesis.js';
 
@@ -26,7 +26,7 @@ export const isEarth = seed => seed === EARTH_SEED;
 
 /** Tunable; tools and tests may change them. */
 export const EARTH = {
-  RIDGE: 2.5,          // km below sea level a new ridge stands: the datum (GDH1's ridge is ~2.6 km, from memory)
+  RIDGE: FREEBOARD,    // km below sea level a new ridge stands: the datum (crust.js)
   DEEP0: 2.5,          // km: floor the age grid doesn't date is oceanic from here down (continental crust
   DEEP1: 3.0,          //   would be thinner than H_MIN by 3 km: forearcs, the Canada Basin, the eastern
                        //   Mediterranean, the Japan Sea), its age by its depth

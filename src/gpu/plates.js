@@ -12,7 +12,9 @@
 // (crust: h, φ, formation and suture time per frame cell; mask: one bit per
 // plate per frame cell) and the world's memories (slab, arc, collision front).
 //   up, each step      the top cells' h and φ as the CPU's frames hold them (so
-//                      the landscape's and the plumes' writes reach the GPU),
+//                      the landscape's and the plumes' writes reach the GPU;
+//                      the crust's deformation, Tectonics.deform, marks the
+//                      frame cells it changes, so they go up at once),
 //                      rotations, ice load and swells, the constants
 //   down, each step    owner and ref, the crust on top (h, φ, tf, suture time),
 //                      elevation, the sea level and land, the kinematics' sums,
@@ -59,7 +61,7 @@ struct Uni {
   kc: f32, kRidge: f32, kSlab: f32, keel: f32,
   kCollide: f32, founderAge: f32, volume: f32, guess: f32,
   segLen: u32, tb: u32, nseg: u32, npatch: u32,
-  kTrench: f32, slabClosing: f32, pad0: f32, pad1: f32,
+  kTrench: f32, slabClosing: f32, hStack: f32, pad1: f32,
   plates: array<Plate, ${MAXP}>,
 };
 `;
@@ -328,7 +330,7 @@ fn taken(f: u32, i: u32) -> bool {
     }
     if (win) {
       var c = crust[f];
-      c.x = min(72.0, c.x + dh + f32(na) * U.arcDh);
+      c.x = min(U.hStack, c.x + dh + f32(na) * U.arcDh);
       c.y = min(1.0, c.y + f32(na) * U.arcDphi);
       if (sut) { c.w = U.t1; }
       crust[f] = c;
@@ -906,7 +908,7 @@ export class GpuPlates {
       ex(Pm.COLLIDE_TAU), fs.kRidge, fs.kSlab, Pm.KEEL,
       Pm.K_COLLIDE, Pm.FOUNDER_AGE, tec.seaWater(), tec.seaLevel], 4);
     u[24] = SEG; u[26] = this.S;
-    f[28] = fs.kTrench; f[29] = Pm.SLAB_CLOSING;
+    f[28] = fs.kTrench; f[29] = Pm.SLAB_CLOSING; f[30] = Pm.H_STACK;
     for (let k = 0; k < MAXP; k++) {
       const o = 32 + 16 * k, p = plates[k];
       if (!p) { f.fill(0, o, o + 16); continue; }

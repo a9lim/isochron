@@ -2,7 +2,7 @@
 name: Isochron
 title: Isochron — Planet Simulator
 description: Run an Earth-like planet from plate tectonics to weather on one globe: seafloor that spreads and sinks, rivers that wear down mountains, ice ages paced by the orbit, a carbon thermostat, ocean gyres, tides that slow its spin, and weather fronts. Or set people on it, from the first hominins through farming and industry to the machines that outgrow them.
-updated: 2026-11-17
+updated: 2026-11-18
 ---
 
 # Isochron
@@ -12,6 +12,8 @@ Isochron is an Earth-like planet on one globe. Plate tectonics shapes it, rivers
 ## Plates and the seafloor
 
 The surface is divided into rigid plates, each turning about its own Euler pole. Where plates part, new oceanic crust forms at the ridge; where they close, the denser crust sinks, ocean under continent and old ocean under young; where two continents meet, the crust thickens and the plates eventually weld. Plates are driven by the pull of their sinking slabs and the push of their cooling seafloor, against drag on their bases, which continents make stronger. Old seafloor at a margin begins to sink there, and large plates split along old sutures.
+
+The plates are rigid, but their crust isn't quite. Where a continent rifts, its edge stretches into the opening gap before the ocean breaks through, so the margin thins into a slope between shelf and deep sea. Where continents collide, the crust thickens behind the front as a thrust wedge does, no steeper than a few degrees, so a mountain belt widens as it grows; past the thickness of Tibet's crust it spreads into a plateau instead of rising. Rifting gives continents area as collisions take it, so they hold about two fifths of the surface, as Earth's do.
 
 New crust records the planet's magnetic field as it cools, and the field reverses at random intervals, so the seafloor carries symmetric stripes either side of each ridge, as wide as the spreading rate times each interval. Seafloor deepens as it ages and cools, with the square root of its age at first, then levelling off.
 
@@ -61,7 +63,7 @@ The ocean carries heat. Its water keeps its own temperature as the currents carr
 
 Slowed to days a second, the weather runs live: two layers of air turning with the planet, whose difference is the temperature contrast between the equator and the poles. The contrast breaks into cyclones and anticyclones that carry heat poleward and stretch the surface temperature into fronts. Warm sea air rains out as it rises; where dry air from a high desert meets moist air from a warm sea, a dry line forms. Faster than the weather can run, the chart blurs into the climate's mean pressure and rain, which is what weather averages to.
 
-The planet runs on cells about 55 km across (twice that on phones and tablets, refined for drawing). The weather runs on the graphics card, a step every 200 seconds, finding the air's flow from its spin by multigrid; much of the planet runs there too (the plates, the ice, the energy balance, the moisture, the tide, the ground and the dust), and the rest on a separate thread, so the globe stays smooth. Before the opening, the planet runs 80 million years from rest, so its plates have settled into their own pace.
+The planet runs on cells about 55 km across (twice that on phones and tablets, refined for drawing). The weather runs on the graphics card, a step every 200 seconds, finding the air's flow from its spin by multigrid; much of the planet runs there too (the plates, the ice, the energy balance, the moisture, the tide, the ground and the dust), and the rest on a separate thread, so the globe stays smooth. Before the opening, the planet runs 80 million years from rest, so its plates have settled into their own pace. Its continents then stand as today's Earth's do, in the order that run left them: at each distance from the coast, the same shares of shelf, lowland, upland and mountain as Earth's. The sea is filled to stand as far above the ridges as Earth's does, so its oceans are as deep and its land covers about as much as Earth's.
 
 ## Tides and the Moon
 

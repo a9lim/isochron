@@ -1,13 +1,37 @@
 // A planet's first shapes from its seed: plates as a warped, weighted Voronoi
-// partition; continents as thresholded fractal noise covering ~38% of the
-// sphere; seafloor aged by distance from the ridges its initial motions
-// imply; slabs hung on the trenches those motions close. From here the
-// torque balance takes over and the initial motions are forgotten within a
-// few tens of Myr.
+// partition; continents as thresholded fractal noise covering ~40% of the
+// sphere, their crust standing as today's Earth's does (EARTH_CRUST); seafloor
+// aged by distance from the ridges its initial motions imply; slabs hung on the
+// trenches those motions close. From here the torque balance takes over and the
+// initial motions are forgotten within a few tens of Myr; after the spin-up the
+// continents stand as Earth's again, in the order the spin-up left them, and
+// the sea stands at Earth's freeboard over the ridges.
 import { stream } from '../rng.js';
 import { makeNoise } from '../noise.js';
-import { H_OCEANIC, H_CONTINENTAL, waterForLand } from './crust.js';
-import { CONTINENTAL, PARAMS } from './plates.js';
+import { H_OCEANIC, RHO_OCEANIC, RHO_CONTINENTAL, RHO_MANTLE, FREEBOARD, elevation, subsidence, oceanVolume } from './crust.js';
+import { CONTINENTAL, PARAMS, EARTH_RADIUS_KM } from './plates.js';
+
+/**
+ * Today's Earth's continental crust as the sim stands it (its fit to ETOPO's bed, the ice's load off:
+ * src/engine/earth.js), by distance from the ocean: each band's lower edge and mean distance (km, `B`,
+ * `D`), the crust's distance at each twentieth of its area (km, `Q`), and each band's quantiles (`U`)
+ * of the crust's elevation above a new ridge (km, `E`; the sea stands FREEBOARD above it). Written by
+ * tools/earth/crust-table.mjs (level 6). A seeded planet's continents are built to these statistics.
+ */
+export const EARTH_CRUST = {
+  B: [0, 100, 200, 400, 800, 1600],
+  D: [59, 177, 320, 585, 1150, 2171],
+  Q: [55, 56, 63, 167, 188, 278, 315, 400, 496, 563, 642, 738, 842, 956, 1080, 1217, 1384, 1572, 1811, 2260, 3607],
+  U: [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.995, 1],
+  E: [
+    [-0.45, -0.16, -0.08, 0.07, 0.33, 0.59, 0.9, 1.23, 1.56, 1.87, 2.17, 2.45, 2.58, 2.91, 3.58, 4.52],
+    [-0.2, 0.44, 0.76, 1.17, 1.78, 2.1, 2.32, 2.45, 2.53, 2.66, 2.83, 3.14, 3.54, 3.98, 5.53, 6.68],
+    [-0.07, 0.94, 1.61, 2.03, 2.34, 2.47, 2.55, 2.65, 2.8, 2.96, 3.25, 3.65, 4.03, 5.26, 6.68, 7.12],
+    [0.48, 1.86, 2.2, 2.4, 2.49, 2.59, 2.69, 2.79, 2.91, 3.06, 3.3, 3.66, 3.92, 4.28, 5.56, 6.78],
+    [0.36, 2.21, 2.42, 2.49, 2.6, 2.68, 2.77, 2.85, 2.97, 3.14, 3.45, 3.78, 4.26, 6.19, 7.46, 7.71],
+    [1.88, 2.49, 2.55, 2.58, 2.64, 2.7, 2.81, 2.91, 3.05, 3.36, 3.72, 4.34, 5.54, 7.09, 7.61, 7.93],
+  ],
+};
 
 export function genesis(tec, seed, opts = {}) {
   const g = tec.grid, n = g.n, pos = g.pos;
@@ -16,8 +40,8 @@ export function genesis(tec, seed, opts = {}) {
   tec.rng = stream(seed, 'tectonics');
   tec.noise = noise;
   const NP = opts.plates ?? 12;
-  const continentalArea = opts.continentalArea ?? 0.38;
-  const landFraction = opts.landFraction ?? 0.29;
+  const continentalArea = opts.continentalArea ?? 0.40;   // Earth's continental crust: 40% of the sphere (EARTH_CRUST's)
+  const freeboard = opts.freeboard ?? FREEBOARD;
 
   // ── Continents ──
   const v = new Float64Array(n);
@@ -29,11 +53,11 @@ export function genesis(tec, seed, opts = {}) {
   const thr = sorted[Math.floor((1 - continentalArea) * n)];
   const phi = tec.phi, h = tec.h, tf = tec.tf;
   for (let i = 0; i < n; i++) {
-    const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
     const s = Math.min(1, Math.max(0, (v[i] - thr) / 0.06 + 0.5));
     phi[i] = s * s * (3 - 2 * s);
-    h[i] = H_OCEANIC + (H_CONTINENTAL - H_OCEANIC) * phi[i] + phi[i] * 8 * noise.fbm(x, y, z, 2.2, 5);
   }
+  continentalCrust(tec, noise);
+  for (let i = 0; i < n; i++) if (phi[i] < CONTINENTAL) h[i] = H_OCEANIC + (MARGIN_H - H_OCEANIC) * phi[i] / CONTINENTAL;
 
   // ── Plate seeds: one at the heart of each large continent, the rest spread
   // over the ocean by best-candidate sampling. Plates then grow from their
@@ -142,7 +166,7 @@ export function genesis(tec, seed, opts = {}) {
   }
   for (let i = 0; i < n; i++) {
     const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
-    if (phi[i] >= 0.5) { tf[i] = -(900 + 600 * (1 + noise.fbm(x, y, z, 2, 3))); continue; }
+    if (phi[i] >= 0.5) continue;   // continents' formation time is continentalCrust's
     let age = isFinite(dist[i]) ? dist[i] / Math.max(rate[i], 0.002) : 90 + 50 * noise.fbm(x - 4, y, z, 1.5, 3);
     tf[i] = -Math.min(180, Math.max(0, age));
   }
@@ -151,12 +175,13 @@ export function genesis(tec, seed, opts = {}) {
   hangSlabs(tec);
 
   tec.updateElevation();
-  tec.water = waterForLand(g, tec.elev, landFraction);
+  tec.water = oceanVolume(g, tec.elev, elevation(H_OCEANIC, 0, 0) + freeboard);
   tec.updateElevation();
   tec.balance(1e-6);   // area and land per plate; ω stays (the relaxation is negligible)
-  // Spin up so the opening is a planet already in motion, then set the water
-  // for the land fraction asked: the seafloor's age (and so sea level) has
-  // settled toward what the plates' own speeds keep it at.
+  // Spin up so the opening is a planet already in motion; then the continents stand as Earth's again,
+  // ranked as the spin-up left them (its orogens, rifted margins and basins), and the sea is filled
+  // to Earth's freeboard over the ridges: the seafloor's age has settled toward what the plates' own
+  // speeds keep it at, and the land fraction is what the continents then show above it (~28%).
   const spin = opts.spinup ?? 0;
   let m0 = 0, c0 = 0, tm = 0;
   for (let t = 0; t < spin; t += 1) {
@@ -167,12 +192,115 @@ export function genesis(tec, seed, opts = {}) {
   // The plates' activity at the end of the spin-up (crust opened and closed per Myr, by their motion): the carbon cycle's reference.
   if (spin > 0) tec.spinRate = { made: (tec.counters.opened - m0) / (tec.t - tm), consumed: (tec.counters.closed - c0) / (tec.t - tm) };
   if (spin > 0) {
-    tec.water = waterForLand(g, tec.elev, landFraction);
+    tec.updateElevation();
+    continentalCrust(tec, noise, true);
+    tec.updateElevation();
+    tec.water = oceanVolume(g, tec.elev, elevation(H_OCEANIC, 0, 0) + freeboard);
     tec.updateElevation();
   }
-  tec.landTarget = landFraction;
+  tec.landTarget = 1 - tec.oceanArea / (4 * Math.PI);
   tec.t0 = tec.t;
   return tec;
+}
+
+/**
+ * Each cell's distance (km) from the nearest cell that isn't continental (`cont` 0), along the grid's
+ * edges; a continental cell beside the ocean is half an edge from it.
+ */
+export function coastDistance(g, cont) {
+  const n = g.n, d = new Float64Array(n).fill(Infinity), heap = new MinHeap(), R = EARTH_RADIUS_KM;
+  for (let i = 0; i < n; i++) {
+    if (cont[i]) continue;
+    d[i] = 0;
+    for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+      const j = g.nbr[t], dj = 0.5 * g.dist[t] * R;
+      if (cont[j] && dj < d[j]) { d[j] = dj; heap.push(dj, j); }
+    }
+  }
+  while (heap.size) {
+    const [k, i] = heap.pop();
+    if (k > d[i]) continue;
+    for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+      const j = g.nbr[t], dj = k + g.dist[t] * R;
+      if (dj < d[j]) { d[j] = dj; heap.push(dj, j); }
+    }
+  }
+  return d;
+}
+
+/** Earth's crust's elevation above a new ridge (km) at distance d (km) from the ocean and quantile u (EARTH_CRUST). */
+export function earthCrustAt(d, u) {
+  const { D, U, E } = EARTH_CRUST;
+  const row = r => {
+    let k = 0; while (k + 2 < U.length && u > U[k + 1]) k++;
+    const w = Math.min(1, Math.max(0, (u - U[k]) / (U[k + 1] - U[k])));
+    return E[r][k] + w * (E[r][k + 1] - E[r][k]);
+  };
+  if (d <= D[0]) return row(0);
+  if (d >= D[D.length - 1]) return row(D.length - 1);
+  let b = 0; while (d > D[b + 1]) b++;
+  const w = (d - D[b]) / (D[b + 1] - D[b]);
+  return row(b) + w * (row(b + 1) - row(b));
+}
+
+/** The thickness (km) the sim's isostasy stands at E km above a new ridge, with felsic share f at age (Myr) (crust.js, elevation, inverted). */
+function standing(E, f, age) {
+  return (E + elevation(H_OCEANIC, 0, 0) + (1 - f) * subsidence(age)) / (1 - (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f) / RHO_MANTLE);
+}
+/** The margin's crust where φ reaches ½: Earth's tenth-percentile margin (km thick). */
+const MARGIN_H = standing(EARTH_CRUST.E[0][3], CONTINENTAL, 1e3);
+
+/**
+ * The continents' crust (synthesis): it stands as today's Earth's does (EARTH_CRUST), so a seeded
+ * planet has Earth's margins, platforms and share of mountains, and its sea Earth's depth over the
+ * ridges. Each continental cell's distance from the ocean is mapped onto Earth's by area (the cell a
+ * fifth of the way in by area stands as Earth's a fifth of the way in does), and within each of Earth's
+ * bands of distance the cells take Earth's quantiles of elevation in the order of a score: at genesis
+ * the seed's noise (broad swells and basins, fbm, and for the highest ridged belts, so old mountains lie
+ * in lines; continents' formation time is set here too, 0.9–2.1 Gyr old); `after` the spin-up the
+ * relief the spin-up left (its orogens, rifted margins, basins), written through to the plates' frames.
+ * Each cell's thickness is the one the sim's isostasy stands there. Sets h on the continents.
+ */
+export function continentalCrust(tec, noise, after = false) {
+  const g = tec.grid, n = g.n, pos = g.pos, area = g.area, phi = tec.phi, h = tec.h, tf = tec.tf;
+  const cont = Uint8Array.from(phi, f => f >= CONTINENTAL), d = coastDistance(g, cont);
+  // Earth's distance for each continental cell, by its rank in this planet's continents' area.
+  const cells = [];
+  let total = 0;
+  for (let i = 0; i < n; i++) if (cont[i]) { cells.push(i); total += area[i]; }
+  cells.sort((a, b) => d[a] - d[b] || a - b);
+  const Q = EARTH_CRUST.Q, de = new Float64Array(n);
+  let acc = 0;
+  for (const i of cells) {
+    const u = 20 * (acc + 0.5 * area[i]) / total, k = Math.min(19, Math.floor(u));
+    de[i] = Q[k] + (u - k) * (Q[k + 1] - Q[k]);
+    acc += area[i];
+  }
+  // The score: the order within each band.
+  const z = new Float64Array(n);
+  for (const i of cells) {
+    const x = pos[3 * i], y = pos[3 * i + 1], w = pos[3 * i + 2];
+    if (after) z[i] = tec.elev[i] + 1e-3 * noise.fbm(x - 2.1, y + 4.4, w + 1.3, 1.6, 4);
+    else {
+      z[i] = noise.fbm(x - 2.1, y + 4.4, w + 1.3, 1.6, 4) + 1.4 * noise.ridged(x + 6.2, y - 3.5, w + 9.1, 2.2, 4);
+      tf[i] = -(900 + 600 * (1 + noise.fbm(x, y, w, 2, 3)));
+    }
+  }
+  const u = new Float64Array(n), edges = [...EARTH_CRUST.B, Infinity];
+  for (let b = 0; b + 1 < edges.length; b++) {
+    const band = cells.filter(i => de[i] >= edges[b] && de[i] < edges[b + 1]);
+    let A = 0;
+    for (const i of band) A += area[i];
+    band.sort((p, q) => z[p] - z[q] || p - q);
+    let a = 0;
+    for (const i of band) { u[i] = (a + 0.5 * area[i]) / A; a += area[i]; }
+  }
+  for (const i of cells) {
+    h[i] = Math.max(H_OCEANIC, Math.min(PARAMS.H_PLATEAU, standing(earthCrustAt(de[i], u[i]), phi[i], tec.t - tf[i])));
+    if (after) tec.plates[tec.owner[i]].h[tec.ref[i]] = h[i];
+  }
+  // World cells sharing a frame cell (nearest-cell rounding) all read what it now holds.
+  if (after) for (const i of cells) h[i] = tec.plates[tec.owner[i]].h[tec.ref[i]];
 }
 
 /** Plate frames are the world frame at t = 0: each plate's crust where its world cells are. */

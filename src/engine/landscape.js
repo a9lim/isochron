@@ -178,6 +178,9 @@ export function streamPower(r, z, Q, f, K, m, dt, zb) {
   }
 }
 
+/** A column's mass, ρh (g/cm³·km), as the crust's flexure counts it (src/engine/crustflex.js). */
+const massOf = (h, phi) => (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * phi) * h;
+
 function factor(phi) {
   const rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * phi;
   return 1 - rho / RHO_MANTLE;
@@ -388,15 +391,20 @@ export class Landscape {
     }
   }
 
-  /** Sediment (dh, km of thickness per world cell) written into the plates' crust, mixing in felsic sediment. */
+  /**
+   * Sediment (dh, km of thickness per world cell) written into the plates' crust, mixing in felsic
+   * sediment. The column's mass the crust's flexure last saw (`mq`) moves with it: the rivers' cut and
+   * fill stand on local isostasy, as their solve assumed (src/engine/crustflex.js).
+   */
   deposit(dh) {
     const tec = this.tec, n = this.grid.n, plates = tec.plates, owner = tec.owner, ref = tec.ref, sedPhi = LAND.SED_FELSIC;
     for (let i = 0; i < n; i++) {
       const d = dh[i];
       if (d === 0) continue;
-      const p = plates[owner[i]], j = ref[i];
+      const p = plates[owner[i]], j = ref[i], m0 = massOf(p.h[j], p.phi[j]);
       if (d > 0) p.phi[j] = (p.phi[j] * p.h[j] + sedPhi * d) / (p.h[j] + d);
       p.h[j] = Math.max(0.5, p.h[j] + d);
+      if (p.mq[j] >= 0) p.mq[j] = Math.fround(p.mq[j] + massOf(p.h[j], p.phi[j]) - m0);
       tec.h[i] = p.h[j]; tec.phi[i] = p.phi[j];
     }
   }
@@ -480,12 +488,15 @@ export class Landscape {
       const i = C[c], d = hc[c] - h[i], t = dT[c];
       if (d === 0) continue;
       const p = plates[owner[i]], j = ref[i], surf = d - t;
+      let kept = surf;
       if (base[i] && surf > 0) {
         if (!seaward) { sed.fill(0); seaward = true; for (let k = 0; k < n; k++) this.f[k] = factor(tec.phi[k]); }
         p.h[j] += t;
+        kept = 0;
         this.seaward(i, surf * A[i], sed);
       } else p.h[j] += d;
-      if (t !== 0 && p.mq[j] >= 0) p.mq[j] = Math.fround(p.mq[j] + rm * t);
+      // The root's flow is buoyancy the flexure sees; the surface's flow stands on local isostasy (deposit).
+      if (p.mq[j] >= 0) p.mq[j] = Math.fround(p.mq[j] + rm * t + (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j]) * kept);
     }
     for (let c = 0; c < nc; c++) { const i = C[c]; h[i] = plates[owner[i]].h[ref[i]]; }
     if (seaward) this.deposit(sed);

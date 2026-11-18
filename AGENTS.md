@@ -36,7 +36,7 @@ node tools/people-run.mjs earthlike 5e6 '{}'   # the people headless (LIVE=1: be
 node tools/engine-cost.mjs 7 20 0.5 earthlike gpu   # the plate step's cost by part
 ```
 
-Other headless tools in `tools/`: `ice-check`, `iceage-survey`, `regolith-survey`, `plates-survey`, `eruption-run`, `pulse-run`, `dust-check`, `anomaly-fit` (each documents its arguments in its header); `tools/people/` holds the people's cached openings and couplers.
+Other headless tools in `tools/`: `hypsometry` (each height's share of the sphere against ETOPO's), `ice-check`, `iceage-survey`, `regolith-survey`, `plates-survey`, `eruption-run`, `pulse-run`, `dust-check`, `anomaly-fit` (each documents its arguments in its header); `tools/people/` holds the people's cached openings and couplers.
 
 `window.__isochron` exposes the page's mirrors (`P`, `tec`, `land`, `climate`, `ice`, `carbon`, `plumes`, `year`), the `engine` worker, `wx`, `globe`, `chart`, `camera`, `scheduler`, `setPlaying`, `setView`, `setMap` (by name: `relief`, `zones`, `air`, `pressure`, `temperature`, `humidity`, `tides`, `settlement`, `density`), `setDial` (log₁₀ yr/s), `tick(now)` (one frame, for driving a hidden tab), `prof` and `engineProf` (the page's and the worker's time by section), `lakes`, `air`, `lines`, `rivers`, `people` and `follow`. `P.years` is the planet's clock.
 

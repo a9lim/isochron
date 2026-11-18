@@ -138,7 +138,7 @@ test('genesis gives a sane planet that runs', () => {
   genesis(tec, 'earthlike', {});
   const s0 = tec.stats();
   assert.equal(s0.plates, 12);
-  assert.ok(Math.abs(s0.land - 0.29) < 0.02, `land ${s0.land}`);
+  assert.ok(Math.abs(s0.land - 0.28) < 0.02, `land ${s0.land}`);   // the sea at Earth's freeboard over Earth's continents (~27.5%)
   const t0 = performance.now();
   for (let s = 0; s < 60; s++) tec.step(0.5);
   const ms = (performance.now() - t0) / 60;

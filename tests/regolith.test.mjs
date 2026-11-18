@@ -108,8 +108,15 @@ test('rock, regolith and sediment kept through glacial erosion, till and outwash
       }
       return v;
     };
+    // Banked on land whose way down to the sea runs through frame cells no other world cell shows: a
+    // deposit in a shared one (nearest-cell rounding) stands in both world cells, and the diffusion then
+    // spreads it from each, which the twins' difference would count as the outwash not kept.
     let banked = 0;
-    for (let i = 0, k = 0; i < n && k < 40; i++) if (A1.tec.elev[i] > A1.tec.seaLevel + 0.3) { A1.land.sedIn[i] = 50; banked += 50e9; k++; }
+    const shown = new Map(), fr = i => A1.tec.owner[i] * n + A1.tec.ref[i];
+    for (let i = 0; i < n; i++) shown.set(fr(i), (shown.get(fr(i)) || 0) + 1);
+    A1.land.reroute();
+    const clear = i => { for (let c = i, k = 0; c >= 0 && k < n; c = A1.land.r.rcv[c], k++) if (shown.get(fr(c)) !== 1) return false; return true; };
+    for (let i = 0, k = 0; i < n && k < 40; i++) if (A1.tec.elev[i] > A1.tec.seaLevel + 0.3 && clear(i)) { A1.land.sedIn[i] = 50; banked += 50e9; k++; }
     const va = vol(A1), vb = vol(B1);
     A1.land.step(1000); B1.land.step(1000);
     const routed = (vol(A1) - va) - (vol(B1) - vb);
