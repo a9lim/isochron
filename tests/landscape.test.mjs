@@ -10,6 +10,7 @@ import { route, accumulate, accumulatePass, streamPower, Landscape, LAND } from 
 import { Tectonics } from '../src/engine/plates.js';
 import { genesis } from '../src/engine/genesis.js';
 import { drainage } from '../src/render/rivers.js';
+import { RHO_OCEANIC, RHO_CONTINENTAL } from '../src/engine/crust.js';
 
 const R = 6371;
 
@@ -134,7 +135,7 @@ test('the packed diffusion moves the frames’ crust as the edge-by-edge one doe
   assert.ok(worst <= 2 ** -22, `frames apart by ${worst.toExponential(2)} (relative)`);
 });
 
-test('the diffusion\'s gain at sea goes seaward, and the thick crust\'s flow is buoyancy to the flexure', () => {
+test('the diffusion\'s gain at sea goes seaward, and the thick crust\'s flow stands on local isostasy', () => {
   const tec = ridged(5), land = new Landscape(tec), g = tec.grid, n = g.n;
   land.reroute();
   // Shelf cells of continental crust at sea, shallower than the shelf the sediment builds, beside
@@ -149,13 +150,13 @@ test('the diffusion\'s gain at sea goes seaward, and the thick crust\'s flow is 
   try { land.diffuse(5e5); } finally { LAND.KAPPA_THICK = K; }
   for (const i of shelf) assert.ok(tec.h[i] <= h0[i] + 1e-6, `a shelf cell filled: ${h0[i]} → ${tec.h[i]}`);
   assert.ok(Math.abs(land.volume() - v0) / v0 < 1e-7, 'crust kept');
-  // The thick crust's flow alone: the column's mass the flexure saw moves by ρ_mantle a km of it.
+  // The thick crust's flow alone: the column's mass the flexure saw moves with it, ρ a km (no load).
   const t2 = ridged(5, 'landscape-thick'), l2 = new Landscape(t2), frames = t2.plates.map(p => p.h.slice());
   for (const p of t2.plates) for (let j = 0; j < p.h.length; j++) p.mq[j] = 100;
   const K0 = LAND.KAPPA;
   LAND.KAPPA = 0;
   try { l2.diffuse(5e5); } finally { LAND.KAPPA = K0; }
   let moved = 0;
-  t2.plates.forEach((p, k) => { for (let j = 0; j < p.h.length; j++) { const d = p.h[j] - frames[k][j]; if (d !== 0) { moved++; assert.ok(Math.abs(p.mq[j] - 100 - 3.3 * d) < 1e-3 * Math.max(1, Math.abs(d)), `mq ${p.mq[j] - 100} vs ${3.3 * d}`); } } });
+  t2.plates.forEach((p, k) => { for (let j = 0; j < p.h.length; j++) { const d = p.h[j] - frames[k][j]; if (d !== 0) { moved++; const want = (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j]) * d; assert.ok(Math.abs(p.mq[j] - 100 - want) < 1e-3 * Math.max(1, Math.abs(d)), `mq ${p.mq[j] - 100} vs ${want}`); } } });
   assert.ok(moved > 100, `${moved} frame cells moved`);
 });

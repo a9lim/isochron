@@ -1,8 +1,9 @@
 // Phase 7's flexure of the crust (src/engine/crustflex.js): an incremental correction to
 // the Airy elevation, kept in the plates' frames. It reduces to Airy at Tₑ → 0 and at
 // τ → 0; under a narrow change of load on a stiff plate the column moves less than Airy's
-// and its surroundings move with it, the correction's integral nothing; and it rides the
-// frames with the crust.
+// and its surroundings move with it, the correction's integral nothing; it rides the
+// frames with the crust; and on a running planet it holds few columns below their
+// neighbours (a collision's stacking and the crust's flows stand on local isostasy).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -94,4 +95,22 @@ test('the crust\'s flexure rides the frames: plate steps carry c with the crust'
   }
   say(`after 2 Myr of steps: ${ok} cells carried their crust's mark, ${fresh} new crust at none, ${bad} otherwise`);
   assert.equal(bad, 0);
+});
+
+test('on a running planet the flexure holds few columns below their neighbours: no speckle of one-cell lakes', async () => {
+  const { openPlanet } = await import('../src/engine/planet.js');
+  const P = await openPlanet('earthlike', { level: 6 }), tec = P.tec, g = tec.grid, n = g.n;
+  for (let k = 0; k < 40; k++) P.plateStep(2.5e5);   // 10 Myr of plates, landscape and the flexure
+  let land = 0, below = 0, above = 0;
+  for (let i = 0; i < n; i++) {
+    if (tec.sea[i]) continue;
+    land++;
+    let s = 0, c = 0;
+    for (let e = g.nbrOff[i]; e < g.nbrOff[i + 1]; e++) { s += tec.flexc[g.nbr[e]]; c++; }
+    const d = tec.flexc[i] - s / c;
+    if (d < -0.3) below++; else if (d > 0.3) above++;
+  }
+  say(`after 10 Myr, of ${land} land cells the flexure holds ${below} more than 300 m below their neighbours, ${above} above (volcanoes, their moats)`);
+  // With the stacking, the wedge's moves and the thick crust's flow as loads, ~3% stood below: a lake in each.
+  assert.ok(below < 0.015 * land, `${below} of ${land}`);
 });

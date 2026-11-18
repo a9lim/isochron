@@ -175,6 +175,8 @@ test('the frames\' extras on the GPU path (the regolith, the flexure\'s correcti
   const a = planet().t, b = planet().t;
   await gpu(b);
   const t0 = a.t, n = grid6.n;
+  // The deformation edits the flexure's memory where it moves crust (tests/deform.test.mjs): off here, so a carried value is recognizable.
+  for (const tec of [a, b]) tec.deform = () => 0;
   // Mark each frame cell's extras by its crust's age, so a carried value is recognizable.
   for (const tec of [a, b]) for (const p of tec.plates) for (let j = 0; j < n; j++) { const v = p.mask[j] ? t0 - p.tf[j] : 0; p.reg[j] = v; p.cf[j] = 2 * v; p.mq[j] = 3 * v; }
   for (let k = 0; k < 6; k++) { a.step(0.5); await b.stepAsync(0.5); }

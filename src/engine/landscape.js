@@ -436,14 +436,16 @@ export class Landscape {
   /**
    * Thickness spreads between continental cells, faster under thick crust. Explicit and
    * conservative, edge by edge. Two kinds of flow (synthesis): KAPPA's is the surface's
-   * (hillslopes and small rivers below the grid's scale), a load the crust's flexure sees, and
-   * what of it reaches a cell of the sea goes on as the rivers' sediment does (`seaward`: the
-   * sea's currents carry it off, so a strait isn't filled from its shores); KAPPA_THICK's is the
-   * thick crust's flow at depth, which adds buoyant root, not weight: the column's mass the
-   * flexure last saw (`mq`) moves by ρ_mantle a km of it, so the flexure sees its buoyancy,
-   * −(ρ_mantle − ρ) a km. (On the GPU, as a gather per cell, it cost 1.8 ms against 5.4 here
-   * at level 7, but in the engine's worker its readback queued behind the ice's steps and the
-   * step cost the same.)
+   * (hillslopes and small rivers below the grid's scale), and what of it reaches a cell of the
+   * sea goes on as the rivers' sediment does (`seaward`: the sea's currents carry it off, so a
+   * strait isn't filled from its shores); KAPPA_THICK's is the thick crust's flow at depth, which
+   * stays where it goes. Both stand on local isostasy: the column's mass the crust's flexure last
+   * saw (`mq`) moves with them, as with the rivers' cut and fill (`deposit`). (The root's flow
+   * seen as a buoyant load ran in cell-to-cell pairs across an orogen's taper, which the plate
+   * held as single cells km off their neighbours; an orogen thick enough to flow is weak and
+   * stands near Airy.) (On the GPU, as a gather per cell, it cost 1.8 ms against 5.4 here at
+   * level 7, but in the engine's worker its readback queued behind the ice's steps and the step
+   * cost the same.)
    */
   diffuse(dt) {
     const tec = this.tec, g = this.grid, n = g.n, h = tec.h, A = this.areaKm;
@@ -483,7 +485,7 @@ export class Landscape {
     }
     // The change into the plates' crust: the surface's gain at sea goes on seaward; then every
     // world cell reads its frame cell back, so world cells that share one all see its sum.
-    const plates = tec.plates, owner = tec.owner, ref = tec.ref, base = this.base, rm = RHO_MANTLE;
+    const plates = tec.plates, owner = tec.owner, ref = tec.ref, base = this.base;
     const sed = this.dhSea || (this.dhSea = new Float64Array(n));
     let seaward = false;
     for (let c = 0; c < nc; c++) {
@@ -497,8 +499,8 @@ export class Landscape {
         kept = 0;
         this.seaward(i, surf * A[i], sed);
       } else p.h[j] += d;
-      // The root's flow is buoyancy the flexure sees; the surface's flow stands on local isostasy (deposit).
-      if (p.mq[j] >= 0) p.mq[j] = Math.fround(p.mq[j] + rm * t + (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j]) * kept);
+      // Both flows stand on local isostasy (what goes seaward, as deposit has it).
+      if (p.mq[j] >= 0) p.mq[j] = Math.fround(p.mq[j] + (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j]) * (t + kept));
     }
     for (let c = 0; c < nc; c++) { const i = C[c]; h[i] = plates[owner[i]].h[ref[i]]; }
     if (seaward) this.deposit(sed);

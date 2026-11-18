@@ -1,13 +1,14 @@
 // The crust's deformation past the rigid plates (src/engine/plates.js, deform): rifted margins
 // stretch into the gap where plates part and nowhere else, an orogen's wedge stands at TAPER behind
-// its front, a plateau spreads past H_PLATEAU, and none of it makes or destroys crust. And a seeded
+// its front, a plateau spreads past H_PLATEAU, none of it makes or destroys crust, and none of it
+// (nor the stacking it spreads) is a load to the crust's flexure. And a seeded
 // planet's continents (src/engine/genesis.js) stand as today's Earth's do, its sea at Earth's freeboard.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { Tectonics, PARAMS, EARTH_RADIUS_KM } from '../src/engine/plates.js';
 import { genesis, EARTH_CRUST, earthCrustAt } from '../src/engine/genesis.js';
-import { elevation, FREEBOARD, H_OCEANIC } from '../src/engine/crust.js';
+import { elevation, FREEBOARD, H_OCEANIC, RHO_OCEANIC, RHO_CONTINENTAL } from '../src/engine/crust.js';
 
 const grid = buildGrid(5), n = grid.n;
 
@@ -129,6 +130,30 @@ test('the plateau: no crust stands past H_PLATEAU after the deformation, the vol
   for (let i = 0; i < n; i++) top = Math.max(top, tec.h[i]);
   assert.ok(top <= PARAMS.H_PLATEAU + 1e-9, `the thickest crust ${top.toFixed(2)} km`);
   assert.ok(Math.abs(volume(tec) - v0) < 1e-6 * v0, 'crust moved, none made');
+});
+
+test('no load to the crust\'s flexure: a front\'s stacking is seen as it stands, and moved crust takes its mass with it', () => {
+  const dt = 0.5, t1 = 10.5, massOf = (h, phi) => (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * phi) * h;
+  // Plates parting about z where y < 0 (rifted margins), a front stacked this step on A away from them, and a plateau.
+  const tec = twoPlates(25, [0, 0, 0.004], [0, 0, -0.004]);
+  const fresh = newOcean(tec, t1, dt), A = tec.plates[0];
+  let f = -1, c = -1;
+  for (let i = 0; i < n; i++) {
+    const x = grid.pos[3 * i], y = grid.pos[3 * i + 1], z = grid.pos[3 * i + 2];
+    if (f < 0 && tec.owner[i] === 0 && x > 0.1 && x < 0.3 && y > 0.5 && Math.abs(z) < 0.3) f = i;
+    if (c < 0 && tec.owner[i] === 0 && x > 0.9) c = i;
+  }
+  A.h[c] = 200;
+  // The flexure has seen every column as it stands, but the new ocean (new to it) and the front's stacking.
+  for (const p of tec.plates) for (let j = 0; j < n; j++) p.mq[j] = massOf(p.h[j], p.phi[j]);
+  for (const i of fresh) A.mq[i] = -1;
+  A.h[f] += 30; A.sut[f] = t1;
+  sample(tec);
+  tec.deform(t1, dt);
+  assert.ok(fresh.some(i => tec.phi[i] === 1) && A.h[f] < 55 && A.h[c] <= PARAMS.H_PLATEAU + 1e-9, 'a margin stretched, the front spread, the plateau spread');
+  let worst = 0;
+  for (const p of tec.plates) for (let j = 0; j < n; j++) if (p.mask[j] && p.mq[j] >= 0) worst = Math.max(worst, Math.abs(massOf(p.h[j], p.phi[j]) - p.mq[j]));
+  assert.ok(worst < 1e-3, `a column's mass off what the flexure saw by ${worst.toExponential(2)} (ρh, g/cm³·km)`);
 });
 
 /** Today's Earth's continental crust's elevation above a new ridge at the area quantile u (EARTH_CRUST's bands, weighted as Earth's). */

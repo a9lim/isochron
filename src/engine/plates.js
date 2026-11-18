@@ -103,6 +103,17 @@ export function copyCell(P, jf, Q, jt) {
 export function freshExtras(P, j) { for (const [k, v] of EXTRA) P[k][j] = v; }
 
 /**
+ * The crust's deformation stands on local isostasy (src/engine/crustflex.js): crust of volume v (km·sr)
+ * passing from frame cell a of plate p to b (−1: into crust new to the flexure) takes its mass with it in
+ * the column's mass the flexure last saw (`mq`), so the move is no load. Before h moves.
+ */
+function carryMemory(p, a, b, v, area) {
+  const m = (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[a]) * v;
+  if (p.mq[a] >= 0) p.mq[a] -= m / area[a];
+  if (b >= 0 && p.mq[b] >= 0) p.mq[b] += m / area[b];
+}
+
+/**
  * Each world cell's channel (km): where its water runs, its mean elevation less the depth of its
  * lowest land below the mean (`gz`, km: a gorge narrower than a cell; today's Earth's, else 0), never
  * below sea level unless the cell's mean is. The landscape and the lakes route on it.
@@ -591,8 +602,11 @@ export class Tectonics {
    *   the plateau     crust thicker than H_PLATEAU passes its excess to its plate's neighbours by
    *                   their room below it, sweep by sweep (or, with none, evenly, for them to pass
    *                   on): the plateau widens instead of rising (Tibet's crust ~70 km; from memory)
-   * A cell with no cell of its plate beside it keeps its excess. With `patch`, the changed cells'
-   * elevation is restood (the GPU's step drew it before). Returns the cells changed.
+   * A cell with no cell of its plate beside it keeps its excess. A collision's stacking and the
+   * deformation stand on local isostasy (src/engine/crustflex.js): each cell stacked this step has its
+   * column taken as the flexure's seen (`mq`), and moved crust takes its mass with it (`carryMemory`).
+   * With `patch`, the changed cells' elevation is restood (the GPU's step drew it before). Returns the
+   * cells changed.
    */
   deform(t1, dt, patch = false) {
     const g = this.grid, n = g.n, area = g.area, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, ref = this.ref, plates = this.plates, h = this.h, H = PARAMS.H_PLATEAU;
@@ -612,14 +626,22 @@ export class Tectonics {
       }
       if (jd < 0 || !this.opening(i, k)) continue;
       const v = PARAMS.STRETCH * p.h[jd] * area[jd];
+      carryMemory(p, jd, -1, v, area);
       p.h[jd] -= v / area[jd];
       p.h[j] = v / area[j]; p.phi[j] = p.phi[jd];
       mark(k, j); mark(k, jd);
       touched = true;
     }
-    // The wedge: a queue from this step's fronts (sut is f32 on the GPU's path, so within its rounding).
+    // The wedge: a queue from this step's fronts (sut is f32 on the GPU's path, so within its rounding),
+    // their stacking seen by the flexure as it stands (the grid stacks a column on one cell a step, where an
+    // orogen thickens across its belt; held up by the plate, single cells stood km off their neighbours).
     const S = PARAMS.TAPER * EARTH_RADIUS_KM, queue = [];
-    for (let i = 0; i < n; i++) if (this.sut[i] >= t1 - tol) queue.push(i);
+    for (let i = 0; i < n; i++) {
+      if (!(this.sut[i] >= t1 - tol)) continue;
+      queue.push(i);
+      const p = plates[owner[i]], j = ref[i];
+      if (p.mq[j] >= 0) p.mq[j] = (RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j]) * p.h[j];
+    }
     for (let qi = 0; qi < queue.length && qi < 8 * n; qi++) {
       const i = queue[qi], k = owner[i], j = ref[i], p = plates[k];
       for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
@@ -629,6 +651,7 @@ export class Tectonics {
         if (!(over > 1e-3)) continue;
         const v = over * area[j] * area[jq] / (area[j] + area[jq]);
         const hv = p.h[jq] * area[jq];
+        carryMemory(p, j, jq, v, area);
         p.phi[jq] = Math.min(1, (p.phi[jq] * hv + p.phi[j] * v) / (hv + v));
         p.h[j] -= v / area[j]; p.h[jq] += v / area[jq];
         mark(k, j); mark(k, jq);
@@ -639,9 +662,9 @@ export class Tectonics {
     // The plateau.
     let list = [];
     for (let i = 0; i < n; i++) if (plates[owner[i]].h[ref[i]] > H) list.push(i);
-    const dv = new Map(), dm = new Map(), rec = [];
+    const dv = new Map(), dm = new Map(), dq = new Map(), rec = [];   // volume, its felsic volume, its flexure memory (carryMemory)
     for (let sweep = 0; sweep < 48 && list.length; sweep++) {
-      dv.clear(); dm.clear();
+      dv.clear(); dm.clear(); dq.clear();
       const src = new Set();
       for (const i of list) {
         const k = owner[i], j = ref[i], p = plates[k], key = k * n + j;
@@ -656,11 +679,14 @@ export class Tectonics {
         }
         if (!rec.length) continue;
         const ex = (p.h[j] - H) * area[j], fill = Math.min(1, ex / Math.max(room, 1e-30)), over = Math.max(0, ex - room) / ar;
+        const mk = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j];   // the memory a unit of the excess takes (carryMemory)
         dv.set(key, (dv.get(key) || 0) - ex);
+        dq.set(key, (dq.get(key) || 0) - mk * ex);
         for (const q of rec) {
           const jq = ref[q], kq = k * n + jq, v = fill * Math.max(0, H - p.h[jq]) * area[jq] + over * area[jq];
           dv.set(kq, (dv.get(kq) || 0) + v);
           dm.set(kq, (dm.get(kq) || 0) + v * p.phi[j]);
+          dq.set(kq, (dq.get(kq) || 0) + mk * v);
         }
       }
       if (!dv.size) break;
@@ -670,6 +696,7 @@ export class Tectonics {
         const k = Math.floor(key / n), j = key - k * n, p = plates[k];
         if (v > 0) { const hv = p.h[j] * area[j]; p.phi[j] = Math.min(1, (p.phi[j] * hv + dm.get(key)) / (hv + v)); }
         p.h[j] += v / area[j];
+        if (p.mq[j] >= 0) p.mq[j] += dq.get(key) / area[j];
         mark(k, j);
       }
       // The world cells over the plateau now (the receivers that filled), by their frame cells' state.
@@ -805,8 +832,8 @@ export class Tectonics {
    * width α = TRENCH_ALPHA (age/100)^{3/8}, carried into the sinking plate from its boundary cells
    * (Dijkstra; each cell takes its nearest trench's, to 2π α). From the plates' motion, not the slab
    * memory, so the GPU's path (which keeps that memory) needs nothing more. Writes `trench` (km); with
-   * `patch`, the elevation moves by the change. A collision bends no trench: its foreland is the crust's
-   * flexure's.
+   * `patch`, the elevation moves by the change. A collision bends no trench (nor, its stacking standing
+   * on local isostasy, a foreland basin: docs/roadmap.md).
    */
   trenches(patch = false) {
     const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, plates = this.plates, R = EARTH_RADIUS_KM;

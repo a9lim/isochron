@@ -5,11 +5,17 @@
 // The columns crust.js builds are compensated as they were made (Airy, on the
 // crust's thickness and density), and flexing them whole moves the opening's
 // margins by kilometres (tests/flexure.test.mjs). What bends the plate is a
-// column's change of load since: stacked and arc crust, the crust's deformation
-// (plates.js, deform), basalt from the plumes, the ice's till. The rivers' cut and
-// fill and the surface's diffusion stand on local isostasy, as the landscape's
-// solve assumes: it moves `mq` with them (landscape.js, deposit and diffuse). So
-// the flexure is an incremental
+// column's change of load since: arc crust, basalt from the plumes, the ice's
+// till. A collision's stacking and the crust's deformation (plates.js, deform)
+// stand on local isostasy, as do the rivers' cut and fill and the diffusion's
+// flows (landscape.js, deposit and diffuse): each moves `mq` with the mass it
+// moves, and a column stacked in a step is seen as it stands. The grid stacks a
+// collision onto one cell a step and spreads it by rules a cell at a time, where
+// an orogen thickens across its belt, and a plate holding those loads cell by cell
+// stood single cells km above and below their neighbours (a lake in every low
+// one); an orogen is weak, its plateau near Airy (Tibet's; from memory), and its
+// foreland basin is the downgoing plate's, which the grid consumes (docs/
+// roadmap.md). So the flexure is an incremental
 // correction to the Airy elevation (synthesis), kept in each plate's frame as
 // the crust is (FRAME_EXTRA's `cf`, m, up), with the column's mass it last saw
 // (`mq`, ρh in g/cm³·km):
@@ -21,8 +27,8 @@
 //   c ← c e^{−dt/τ} + (Δq/(ρ_m g) − w(Δq, Tₑ)) (τ/dt)(1 − e^{−dt/τ})
 //                               the Airy deflection less the plate's: under a
 //                               narrow load the plate holds it up, beside it the
-//                               plate bends down (foreland basins, moats round
-//                               volcanic islands), and beyond that up (bulges);
+//                               plate bends down (moats round volcanic islands,
+//                               basins beside arcs), and beyond that up (bulges);
 //                               the step's own change relaxes as a load laid
 //                               down evenly through the step would
 //   elevation += c              (plates.js, updateElevation and the GPU's step)
@@ -32,9 +38,9 @@
 // age and thickness, broken at plate boundaries), refreshed every TE_EVERY
 // Myr. Oceanic loads stay elastic (τ = ∞, standard: no relaxation is seen
 // under seamounts); continental ones relax toward Airy over TAU_CONT
-// (speculation: a viscoelastic lithosphere, tens of Myr). A trench's outer rise
-// needs the slab's bending moment, which no load here carries, so it isn't
-// made. The ice's own load bends the bed by ELRA in ice.js.
+// (speculation: a viscoelastic lithosphere, tens of Myr). A trench and its outer
+// rise need the slab's bending moment, which no load here carries: they are
+// plates.js's (`trenches`). The ice's own load bends the bed by ELRA in ice.js.
 //
 // Solved every EVERY Myr of plate steps (Planet.flexDue; the loads since the last solve are one
 // load, laid down through the interval, so a lag under 1 Myr is under 2% of TAU_CONT): on the
@@ -46,9 +52,7 @@
 // The plate's strength (synthesis): where the correction would hold a column
 // more than C_MAX off Airy's, the plate has failed there and the rest is
 // compensated locally. Isostatic anomalies on Earth rarely pass ~±200 mGal, ~2
-// km of rock (from memory); and the grid gathers a collision's stacking into
-// one cell (55–110 km) where an orogen spreads it over its thrust belt, which
-// an elastic plate alone would hold up as a needle 15–20 km high.
+// km of rock (from memory).
 import { sharedElasticThickness } from './flexure.js';
 import { RHO_OCEANIC, RHO_CONTINENTAL, RHO_MANTLE } from './crust.js';
 
