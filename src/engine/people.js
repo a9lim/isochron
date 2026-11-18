@@ -18,11 +18,15 @@
 //             has a low fixed point (a saddle-node's: A M₀ θ e > λ is where it vanishes, synthesis),
 //             so a branch "tips" when the minds within its reach pass ~λ/(Aθe), about a million.
 //   minds     M: people pass ideas over a contact length ℓ, which the trait and culture lengthen
-//             (ℓ = L_C0 e^{(g + z)/Z_L}), within the connected body they live in (inhabited land,
-//             and with boats narrow seas): M = N_C (1 − e^{−πℓ²ρ/N_C}), the local minds' density ρ
-//             over a disc of radius ℓ, saturating at the body's total N_C (synthesis). Minds are
-//             people × research intensity (rising with income) and the other lineages' at η; AI's
-//             research minds join them through the task CES below.
+//             (ℓ = L_C0 e^{(g + z)/Z_L}), within the connected body they live in (land peopled at
+//             MIND_REL of the inhabited world's mean density, and with boats narrow seas): M = N_C
+//             (1 − e^{−πℓ²ρ/N_C}), the local minds' density ρ over a disc of radius ℓ, saturating at
+//             the body's total N_C (synthesis). The threshold rises with the world: a forager world is
+//             one body, a farming world's sparse margins (the Arctic, the deserts) part it, so the
+//             Americas and Australia keep Kremer's lag. Minds are people × research intensity (rising
+//             with income) and the other lineages' at η; AI's research minds join them through the
+//             task CES below. Culture is also copied from neighbours who know more, of any lineage, as
+//             often as people meet (each side's density against RHO_COPY).
 //   people    a density per lineage. Births and deaths (`demography`): deaths by food per person
 //             (hunger below subsistence, disease at density), cut by medicine as industrial income
 //             rises; births fall with industrial income only; so mortality falls before fertility
@@ -37,12 +41,18 @@
 //             (rafts from the start, boats with culture; `voyages`), the flux only between coasts
 //             both settled; every crossing to 6 sea cells, past that each group of landmasses its
 //             nearest other's (`graph`).
-//   food      K = area × cold limit(z) × [(1 − f) b P_F(z) e^{K_G g} + f a s P_A(z) Y_soil CO₂]:
+//   food      K = area × cold limit(z) × [(1 − f) b P_F(z) e^{K_G g} + Y(f) s P_A(z) CO₂ / sick]:
 //             foraging's base density b from the accessible NPP, water and the coast, its
-//             productivity P_F capped at CAP_F (the wild food, a flow); farming's a from the crops'
-//             Miami NPP and the arable share, its P_A capped by the organic economy (Wrigley, from
-//             memory) until industry's energy lifts it; f the farmed share, s the package's
-//             suitability, Y_soil = 1 − e^{−h/H_YIELD} the soil's yield, CO₂'s fertilization.
+//             productivity P_F capped at CAP_F (the wild food, a flow); farming's fields Y(f) take a
+//             river's floodplain first (watered, renewed by its floods, cropped as often as the
+//             growing season's degree-days allow) and then the uplands (rain-fed, cropped only as
+//             far as the rain hasn't leached the soil: the rest lies fallow, until industry's
+//             fertilizer; and as deep as the regolith, `soilYield`); P_A capped by the organic
+//             economy (Wrigley, from memory) until industry's energy lifts it; f the farmed share,
+//             at most the arable land (a growing period long enough, flat enough, unfrozen; the cold
+//             grasslands' sod turned only by industry's ploughs); s the package's suitability, bred
+//             toward the place; the warm, wet tropics' diseases among farmers until medicine; CO₂'s
+//             fertilization (`rates`, `capAt`).
 //   soil      a renewable stock: the regolith h, made by Heimsath's production and stripped by the
 //             rivers and by tillage; within a cell the land is ranked (deep, flat bottoms first),
 //             so the fields hold h̄ (1 − ln f) less a deficit of their own, and their tillage is
@@ -56,11 +66,13 @@
 //             seed kept for the next sowing (1/R of the harvest, R rising with culture).
 //   farming   an origin hazard where people are settled near foraging's ceiling, know enough
 //             (z ≥ Z_FARM) and have domesticates (the zones' seasonally dry climates: after Blumler
-//             via Diamond, from memory); packages spread by contact, slowed by the climate's
-//             distance from where they began.
+//             via Diamond, from memory), as far as no crops at hand suit the place; packages (each
+//             its origin's climate) spread by contact and are taken up where they suit better,
+//             farmers breeding them toward each place over T_ADAPT (`suit`, `suitHere`).
 //   industry  starts where z passes Z_IND near coal and ore (the fossil map seeded on the opening's
 //             lowland basins and shelves, a9, 2026-11-15; the ore map on its arcs, old crust and
-//             cut relief, `oreMap`), then spreads by contact. One world economy
+//             cut relief, `oreMap`), then spreads by contact at up to IND_PACE times its own pace
+//             (two centuries to reach the world). One world economy
 //             (`industrialStep`): Y = A(z) K^α L^{1−α} (standard forms; α ⅓, saving ¼), held to the
 //             energy it gets (a CES of low elasticity against the capital–labour bundle, the
 //             intensity falling with z); fixed capital (δ 5%/yr), energy capital for fossil carbon
@@ -115,7 +127,18 @@ export const PEOPLE = {
   COAST: 0.5, P_DRY: 250, Q_RIVER: 200, ICE_MAX: 10,   // the coast's bonus; rain (mm) below which water limits; a river (m³/s); ice (m)
   T_COLD0: 2, K_COLD: 12, W_COLD: 3, // coldest month (°C) a culture of z holds: T_COLD0 − K_COLD z, over W_COLD (−10 °C at the tip, −22 °C at z 2: the Upper Palaeolithic on the mammoth steppe and in Beringia before farming, from memory)
   CAP_F: 8,                        // foraging's ceiling on the base density
-  F0: 2.5, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
+  F0: 1, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
+  // Crops' land (synthesis): a river's floodplain is watered and renewed by its floods (the Nile's,
+  // the Ganges'), the uplands rain-fed on soils the rain leaches and fresh rock renews.
+  W_FP: 0.3, FP_MAX: 0.6, P_IRR: 1500,          // the floodplain's width, km per √(m³/s) of discharge (hydraulic geometry's width ∝ √Q, standard; the belt's multiple of the channel from memory: the Nile's ~15 km, the Yangtze's ~50), and its most of a cell; the water (mm a year) a floodplain's fields get, for their crops' climate
+  L_FERT: 0.6, T_LEACH: 15, E_FERT: 0.05, FP_RENEW: 0.5,   // the uplands' fertility 1/(1 + leaching/(L_FERT (1 + erosion/E_FERT))): leaching is the drainage (m/yr) × e^{(T − 15)/T_LEACH} (weathering's Arrhenius, ~doubling per 10 K), renewal fresh rock's (mm/yr of erosion); old leached tropical soils lose their nutrients, young temperate and eroding ones keep them (Walker and Syers; Porder and Vitousek; from memory). Where it is low the land lies fallow most years (swidden: the cropped share is the fertility), until industry's fertilizer makes it up. The floods make up FP_RENEW of what the uplands lack (the Nile's silt; the Amazon's and the Congo's floodplains, where rivers drain old shields, less)
+  PATH: 2, T_PATH: 20, W_PATH: 2.5, P_PATH: 1200,   // the warm, wet tropics' diseases (malaria, sleeping sickness: the pathogens' latitudinal gradient, standard; their weight synthesis): capacity ÷ (1 + PATH × warmth × wetness × what medicine leaves), warmth a logistic in the annual mean, wetness the rain over P_PATH
+  LGP_DRY: 1.5, LGP_WET: 4, LGP_SOIL: 100, PET_K: 55 / 12,   // rain-fed fields none with a growing period of LGP_DRY months or less, all from LGP_WET (a rain-fed grain needs ~90–120 days, FAO's zones from memory); the soil water (mm) a month carries on; the ground's PET_K (T + 4) mm a month
+  S_ARABLE: 0.0075, ARABLE_MAX: 0.85,   // the gradient between cells whose e-folding share is too steep to plough (~15% hillslopes at ~20× it; synthesis), and the most of a cell under fields (villages, woods, pasture, wetland)
+  GDD0: 800, GDD_E: 1200, GDD_CROP: 2500, CROPS_MAX: 3,          // crops' warmth: 1 − e^{−(GDD − GDD0)/GDD_E} of Miami's 3,000 g m⁻² yr⁻¹, a crop's (none in a boreal summer's ~800, two thirds at the prairies' ~2,000, all of it in the tropics); watered fields crop GDD/GDD_CROP times a year, at most CROPS_MAX
+  CLIM_S: [7, 10, 0.9, 0.6],       // a crop's climate (its package's origin) against a cell's, Gaussian in the coldest month (K), the warmest (K), log rain and the summer's share of the rain: how far each may differ (a crop's envelope, after BIOCLIM's; synthesis: frost bounds the tropics' crops and the winter's chill the temperate ones', while sowing dates take up the season's rain)
+  S_HALF: 0.05, T_ADAPT: 2000, A_ADAPT: 0.3, MIGR_F: 0.5, MIGR_S: 0.5, CLEAR_PACE: 5,
+  SOD: 0.8,                        // the share of a cold grassland's arable land its sod keeps from the hoe and the wooden plough (by the cover's grass and the winter's cold: sod × logistic in −T_coldest/5 K)                    // a package suited s takes s/(s + S_HALF) × (1 + S_HALF) of the arable land (farmers grow a poor crop on the best land only)
   R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of culture
   LIFT_MAX: 4,                     // industry's farming at most this many times the organic ceiling
   E_AG: 200,                       // W of industrial energy a person fed past the organic ceiling takes (fertilizer, machines, transport; rough, from memory)
@@ -126,25 +149,30 @@ export const PEOPLE = {
   Z_TRADE: 7, W_TRADE: 1, L_CORR: 1500,   // food traded comes with industry; the weather's correlation length (km), so trade pools ~(ℓ/L_CORR)² harvests
   SIG_REF: 0.15,                   // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory)
   // Soil (a renewable stock)
-  H_YIELD: 0.3,                    // m: the yield's e-folding in soil depth (topsoil)
+  H_YIELD: 0.3, Y_STONY: 0.3,      // m: the yield's e-folding in soil depth (topsoil); what fields on thin and stony ground still bear (terraced and manured hillsides: the Mediterranean's, farmed since the Neolithic; synthesis)
   E_TILL: 1, S_REF: 0.005, Z_CONS: 2,   // mm/yr of tillage's erosion at slope S_REF, falling e-fold per Z_CONS of culture past Z_FARM
+  SDR: 0.3,                        // the share of it that leaves the cell (the rest settles downslope and on its floodplains: sediment delivery ratios of ~0.1–0.3 at this scale, from memory); the fields lose it all
   T_REFILL: 2000,                  // yr: the soil's production refilling the fields' deficit (~0.1 mm/yr near the surface, Heimsath's, from memory)
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.00975, Y_B: 15, K_B: 4,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B); the floor is replacement, the long-run deaths M_MIN·D_LO + AGE, so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
+  B_PRE: 0.035, B_MIN: 0.00975, Y_B: 6, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the long-run deaths M_MIN·D_LO + AGE, so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2,           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   AGE: 0.006, Y_AGE: 30,           // aging: crude deaths + AGE (1 − e^{−y_g/Y_AGE}) (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
+  D_IND: 1e4,                      // … and industry's (railways and steamships, a logistic about Z_IND: the American and Siberian frontiers moved ~30–50 km a year in the nineteenth century, from memory), on top, past D_MAX
   // Ideas
   THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
   BETA_R: 0.25,                    // ideas get harder to find past industry's culture: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
   L_C0: 50, Z_L: 1.5, L_CMAX: 2e4,  // contact length (km) at g + z = 0, ×e per Z_L, at most
+  MIND_REL: 0.3,                   // the density (against the inhabited world's mean) a body's people keep up across
   V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of culture
-  COPY: 2e-3, ACC: 2e-3,           // copying better neighbours, and other lineages in the cell (/yr at z = 0)
+  COPY: 2e-3, ACC: 2e-3, RHO_COPY: 0.02,   // copying better neighbours, and other lineages in the cell (/yr at z = 0); the density (per km²) at which half the contacts are made
   RHO_R: 0.5, S_R_MAX: 1,          // research intensity ∝ y^ρ, capped at a subsistence-year's: a rich people's larger research share is offset by research's falling yield (BETA_R), so Kremer's A holds at Earth's 1960 (~1.8%/yr of productivity at 3 B; 3 at 3× gave the industrial era ~5–9%/yr at takeoff, and 90–220 Pg C burned by then)
-  Z_BOAT: 0, L_SEA0: 40, L_SEA: 400, HOPS: 6, LONG_HOPS: 40, K_LONG: 4,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA z (km: rafts' first, then boats'); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its K_LONG nearest others, to LONG_HOPS, then rounds until all are joined)
+  Z_BOAT: 0, L_SEA0: 40, L_SEA: 600, Z_SEA: 1.5, HOPS: 6, LONG_HOPS: 40, K_LONG: 4,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA (1 − e^{−z/Z_SEA}) (km: rafts', then boats' along coasts and between islands, a few hundred km by the Upper Palaeolithic: Sahul and Bering crossed); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its K_LONG nearest others, to LONG_HOPS, then rounds until all are joined)
+  L_OCEAN: 4000, Z_OCEAN: 6.2, W_OCEAN: 0.2,   // … and the open ocean's, a logistic in culture (deep-sea navigation: the Polynesians', then Europe's ~1500; synthesis): coastal craft reach a few hundred km for tens of kyr, then ships cross oceans within centuries
+  OCEAN_HOPS: 80, M_ROUTE: 6, D_ROUTE: 1500,   // ocean routes: each landmass to every other within OCEAN_HOPS cells of sea, at up to M_ROUTE landings at least D_ROUTE km apart (the Atlantic beside Bering: a crossing between landmasses that the short ones already join, but by the long way round)
   S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of culture, × e^{−km/reach}; the founders (synthesis)
   // The trait (speculation: social reach as a clock)
   V_G: 2e-3, T_GEN: 25, S_BG: 0.04, NE_SHARE: 0.1, G_MAX: 9,   // the trait lengthens contact, up to G_MAX (ℓ at L_CMAX)
@@ -154,10 +182,12 @@ export const PEOPLE = {
   R_ORIGIN: 1000,                  // km: the first hominins at the heart of the broadest tree–grass mosaic, summed this far (speculation)
   MERGE: 0.1, T_MERGE: 50e3,       // lineages in contact (sharing this much of the smaller's numbers) for T_MERGE become one: kinds of hominin interbreeding where they meet (soft species; with half shared, lineages on two continents met only at their coasts and never merged: 3–6 at takeoff)
   // Farming
-  Z_FARM: 3, W_FARM: 0.25, H_FARM: 2e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, W_PKG: 2,
-  BREED: 0.5,                      // industry's breeding: the suitability's exponent × (1 − BREED × industry's share)
+  Z_FARM: 3, W_FARM: 0.15, H_FARM: 6e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, C_PKG: 0.05,
+  BREED: 1,                        // industry's breeding: a crop's climate envelope × (1 + BREED × industry's share)
   DOMESTIC: { Af: 0.1, Am: 0.2, Aw: 0.5, As: 0.5, BS: 0.5, Cf: 0.3, Cs: 1, Cw: 0.7, Df: 0.1, Ds: 0.2, Dw: 0.2 },
   // Industry: where it starts and how it spreads
+  IND_PACE: 60,                    // industry's spread by contact keeps culture's pace only to this many times its own (the works, capital and skills a place builds: industrialization reached the world's regions over two centuries, not one; from memory)
+  RHO_IND: 10,                     // people per km² past which a farming people has the labour and the markets for industry
   Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
@@ -216,7 +246,7 @@ export const PEOPLE = {
   T_WILD: 30,                      // years abandoned fields take to go back to the wild (old fields reforest in decades, from memory)
   T_MACH: 30, MACH_FLOOR: 1e-3,    // years industry's footprint takes to follow its workers; the footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
   // Stepping
-  DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4,
+  DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4, NSUB_IND: 48,   // the spread's most substeps a step, before industry and after (its mobility needs them in the economy's 10-year steps)
   DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
   T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
   DT_ECON: 10,                     // the step's most from early takeoff on (past the fine stretch, 500-year steps set the economy oscillating: energy collapsing and recovering a step apart, the people to trillions)
@@ -605,7 +635,7 @@ export class People {
     this.soil = new Float64Array(nL); this.dField = new Float64Array(nL);   // the regolith's mean (m); the fields' deficit past it (m)
     for (let c = 0; c < nL; c++) this.soil[c] = planet.reg ? planet.reg[this.cells[c]] : 1;
     this.Ef = new Float64Array(nL);
-    this.f = new Float32Array(nL); this.pkg = new Int16Array(nL).fill(-1); this.packages = [];
+    this.f = new Float32Array(nL); this.pkg = new Int16Array(nL).fill(-1); this.packages = []; this.pkgT = new Float64Array(nL);   // the farmed share, its package, and when it was taken up
     this.ind = new Float32Array(nL);
     this.Ntot = new Float64Array(nL); this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
@@ -646,6 +676,7 @@ export class People {
       elev: new Float64Array(nL), zv: new Float32Array(14 * nL), deg: new Uint8Array(nL), mosaic: new Float64Array(nL),
       alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
       hot: new Float64Array(nL), sun: new Float64Array(nL), arable: new Float64Array(nL),
+      sfp: new Float64Array(nL), phi: new Float64Array(nL), sod: new Float64Array(nL), phiFP: new Float64Array(nL), path: new Float64Array(nL), afp: new Float64Array(nL), aup: new Float64Array(nL), clim: new Float32Array(4 * nL),
     };
     this.sol = new Float64Array(nL);   // the share of each cell under solar farms (People.placeSolar)
     this.X = { cells: new Int32Array(0), area: new Float64Array(0), sun: new Float64Array(0), sol: new Float64Array(0), mach: new Float64Array(0) };
@@ -683,10 +714,49 @@ export class People {
       const uh = Math.min(1, Math.max(0, (Ta - VEG.T_HOT[0]) / (VEG.T_HOT[1] - VEG.T_HOT[0])));
       H.hot[c] = uh * uh * (3 - 2 * uh);
       H.b[c] = H.alive[c] ? P.B0 * acc / P.NPP_REF * water * (1 + P.COAST * coast) * (1 - H.hot[c]) : 0;
-      const nppPot = 0.45e-3 * miami(Ta, Pa);
-      const arable = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3) * (river ? 1 : Math.min(1, Pa / 400));
-      H.a[c] = H.alive[c] ? P.F0 * nppPot / P.NPP_REF * arable * (1 - H.hot[c]) : 0;
+      // Crops (synthesis): on a river's floodplain watered (the climate's warmth alone limits them)
+      // and renewed by its floods; on the uplands rain-fed, on soil the rain leaches.
+      const sfp = Math.min(P.FP_MAX, P.W_FP * Math.sqrt(Math.max(0, f.discharge[i])) / Math.sqrt(H.area[c]));
+      const leach = (f.runoff ? Math.max(0, f.runoff[i]) : 0.3) * Math.exp((Ta - 15) / P.T_LEACH), ero = f.ero ? Math.max(0, f.ero[i]) : 0;
+      const phi = 1 / (1 + leach / (P.L_FERT * (1 + ero / P.E_FERT)));
+      // The uplands a plough can work: not frozen, wet enough, not too steep (hillslopes steeper than
+      // a plough's, their slopes spread exponentially about ~20× the cell's gradient between cells).
+      // Wet enough is a growing season long enough (FAO's length of growing period, standard: months
+      // warmer than 5 °C whose rain meets half the ground's potential evaporation, a month's soil
+      // water carried into the next), ramping from LGP_DRY months to LGP_WET: a monsoon's few wet
+      // months grow a crop that the year's mean aridity would deny.
+      let lgp = 0, carry = 0;
+      for (let k = 0; k < 24; k++) {
+        const m = k % 12, T = f.T12[12 * i + m], pm = f.P12[12 * i + m], pe = P.PET_K * Math.max(0, T + 4);
+        const ok = T > 5 && pm + carry >= 0.5 * pe;
+        carry = Math.min(P.LGP_SOIL, Math.max(0, carry + pm - pe));
+        if (k >= 12 && ok) lgp++;
+      }
+      const wet = Math.min(1, Math.max(0, (lgp - P.LGP_DRY) / (P.LGP_WET - P.LGP_DRY)));
+      const cold = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3), up = P.ARABLE_MAX * cold * wet * (1 - Math.exp(-P.S_ARABLE / Math.max(slope, 1e-6)));
+      const ok = H.alive[c] ? 1 - H.hot[c] : 0;
+      H.sfp[c] = sfp * cold; H.phi[c] = phi;
+      H.phiFP[c] = 1 - (1 - phi) * (1 - P.FP_RENEW);
+      H.path[c] = sig((Ta - P.T_PATH) / P.W_PATH) * Math.min(1, Pa / P.P_PATH);
+      H.sod[c] = fg * sig(-Tc / 5);   // the cold grasslands' sod (the steppe's, the prairies', the pampas')
+      // The crops' warmth by the growing season's degree-days over 5 °C (a grain crop needs ~1,000
+      // to ripen, standard; the saturating form and its scale synthesis), their water by Miami's rain.
+      let gdd = 0; for (let m = 0; m < 12; m++) gdd += 30.4 * Math.max(0, f.T12[12 * i + m] - 5);
+      const warm = 3000 * (1 - Math.exp(-Math.max(0, gdd - P.GDD0) / P.GDD_E)), rain = 3000 * (1 - Math.exp(-0.000664 * Pa));
+      // Watered fields crop as often as the season allows: one crop a GDD_CROP (wet rice's two and
+      // three a year in the warm deltas, standard; synthesis as a count).
+      const crops = Math.max(1, Math.min(P.CROPS_MAX, gdd / P.GDD_CROP));
+      H.afp[c] = ok * P.F0 * 0.45e-3 * warm * crops / P.NPP_REF;            // per km² of field
+      H.aup[c] = ok * P.F0 * 0.45e-3 * Math.min(warm, rain) / P.NPP_REF;    // per km² of field cropped
+      const arable = Math.min(1, H.sfp[c] + (1 - H.sfp[c]) * up);
       H.arable[c] = H.alive[c] ? arable : 0;   // the most of a cell fields can take (none on permafrost: a9)
+      H.a[c] = H.sfp[c] * H.afp[c] * H.phiFP[c] + Math.max(0, arable - H.sfp[c]) * phi * H.aup[c];   // the cell's crops, fully farmed (a summary)
+      // A crop's climate here: the coldest month, the warmest, log water (the rain, and the river's
+      // where it waters the floodplain: the Nile's crops knew no rain), the summer half's share of the rain.
+      let Tw = -99; for (let m = 0; m < 12; m++) Tw = Math.max(Tw, f.T12[12 * i + m]);
+      const ord = Array.from({ length: 12 }, (_, m) => m).sort((x, y) => f.T12[12 * i + y] - f.T12[12 * i + x]);
+      let Ps = 0; for (let k = 0; k < 6; k++) Ps += f.P12[12 * i + ord[k]];
+      H.clim[4 * c] = Tc; H.clim[4 * c + 1] = Tw; H.clim[4 * c + 2] = Math.log(Math.max(Pa + H.sfp[c] * P.P_IRR, 10)); H.clim[4 * c + 3] = Pa > 1 ? Ps / Pa : 0.5;
       H.Tc[c] = Tc; H.coast[c] = coast; H.elev[c] = f.elev[i]; H.slope[c] = slope; H.river[c] = river ? 1 : 0;
       H.arid[c] = f.zones[NZ * i + 4] + f.zones[NZ * i + 5];   // BW and BS: where solar farms go first
       H.sun[c] = sunAt(H.lat[c], H.arid[c]);
@@ -842,6 +912,60 @@ export class People {
       }
       if (!joined) break;
     }
+    // Ocean routes (synthesis): each landmass (by land alone) to every other its sea reaches within
+    // OCEAN_HOPS cells, past HOPS, at up to M_ROUTE landings each at least D_ROUTE km from the others
+    // and from the crossings already made. The short crossings join Earth's Americas to Asia at
+    // Bering, so without these the Atlantic was never crossed: no crop, people or industry reached
+    // the Americas but by way of Siberia.
+    {
+      const lp = Int32Array.from({ length: nL }, (_, k) => k);
+      const lr = k => { while (lp[k] !== k) k = lp[k] = lp[lp[k]]; return k; };
+      for (let c = 0; c < nL; c++) for (const [d, , , , hops] of lists[c]) if (!hops) { const a = lr(c), b = lr(d); if (a !== b) lp[a] = b; }
+      const xyz = c => { const i = cells[c]; return [g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2]]; };
+      const cosSep = Math.cos(P.D_ROUTE / R);
+      // The landings made so far, by landmass pair.
+      const landed = new Map();
+      const note = (a, d) => { const k = `${lr(a)}:${lr(d)}`; if (!landed.has(k)) landed.set(k, []); landed.get(k).push(xyz(d)); };
+      for (let c = 0; c < nL; c++) for (const [d, , , , hops] of lists[c]) if (hops) note(c, d);
+      const comps = new Map();
+      for (let c = 0; c < nL; c++) if (this.H.coast[c]) { const k = lr(c); if (!comps.has(k)) comps.set(k, []); comps.get(k).push(c); }
+      const mark = new Int32Array(g.n).fill(-1), from = new Int32Array(g.n), dk = new Float64Array(g.n);
+      let tag = 0;
+      for (const [k, cs] of comps) {
+        tag++;
+        let front = [];
+        for (const c of cs) { const i = cells[c]; mark[i] = tag; from[i] = c; dk[i] = 0; front.push(i); }
+        const cand = new Map();   // landmass → [[from, to, km, hops]]
+        for (let h = 1; h <= P.OCEAN_HOPS + 1 && front.length; h++) {
+          const next = [];
+          for (const u of front) for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) {
+            const v = g.nbr[o];
+            if (mark[v] === tag) continue;
+            if (pl.elev[v] > 0) {
+              const d = loc[v];
+              if (h > P.HOPS + 1 && d >= 0 && lr(d) !== k) { mark[v] = tag; const kd = lr(d); if (!cand.has(kd)) cand.set(kd, []); cand.get(kd).push([from[u], d, dk[u] + g.dist[o] * R, h - 1]); }
+              continue;
+            }
+            if (h > P.OCEAN_HOPS) continue;
+            mark[v] = tag; from[v] = from[u]; dk[v] = dk[u] + g.dist[o] * R; next.push(v);
+          }
+          front = next;
+        }
+        for (const [kd, list] of cand) {
+          if (kd < k && comps.has(kd)) continue;   // each pair once (from the lower id; both ways when one has no coast here)
+          list.sort((a, b) => a[2] - b[2]);
+          const have = (landed.get(`${k}:${kd}`) || []).concat(landed.get(`${kd}:${k}`) || []);
+          let n = 0;
+          for (const [c, d, L, hops] of list) {
+            if (n >= P.M_ROUTE) break;
+            const p = xyz(d);
+            if (have.some(q => p[0] * q[0] + p[1] * q[1] + p[2] * q[2] > cosSep)) continue;
+            have.push(p); n++;
+            lists[c].push([d, 1, 1, L, hops]); lists[d].push([c, 1, 1, L, hops]); hopEdges += 2;
+          }
+        }
+      }
+    }
     const off = new Int32Array(nL + 1);
     for (let c = 0; c < nL; c++) off[c + 1] = off[c] + lists[c].length;
     const m = off[nL], E = { off, nb: new Int32Array(m), cond: new Float64Array(m), slope: new Float64Array(m), km: new Float64Array(m), hop: new Uint8Array(m) };
@@ -861,8 +985,10 @@ export class People {
     this.dx /= k;
   }
 
-  // The seeded fossil carbon (a9, 2026-11-15): coal in wet, forested lowlands, oil on the shelves,
-  // each cell's share lognormal about its setting's weight (synthesis). Coal within reach of a land
+  // The seeded fossil carbon (a9, 2026-11-15): coal in the lowland basins (low and flat), oil on the
+  // shelves, each cell's share lognormal about its setting's weight (synthesis). Not by today's
+  // forests: coal is the peat of swamps long gone (Earth's richest the Carboniferous's, under
+  // today's temperate north), so today's rainforests had held the most of it. Coal within reach of a land
   // cell is the resolvent of the coal over the land at τ 0.85 (a few cells). The economy draws on
   // the whole (one world market once industry spreads); the map says where industry can start.
   fossilMap() {
@@ -871,7 +997,7 @@ export class People {
     let cs = 0;
     for (let c = 0; c < nL; c++) {
       const i = cells[c], e = pl.elev[i];
-      if (e < 0.6) coal[c] = pl.ft[i] * pl.npp[i] * (0.6 - e) * Math.exp(1.2 * r.normal());
+      if (e < 0.6) coal[c] = (0.6 - e) * Math.exp(-this.H.slope[c] / 0.005) * Math.exp(1.2 * r.normal());
       cs += coal[c];
     }
     for (let c = 0; c < nL; c++) coal[c] *= P.FOSSIL * P.COAL_SHARE / cs;
@@ -979,7 +1105,7 @@ export class People {
    * then h̄ (1 − ln f), less what tillage has taken from the fields beyond the cell's mean (`dField`).
    */
   fieldSoil(c) { return Math.max(0, this.soil[c] * (1 - Math.log(Math.max(this.f[c], 0.02))) - this.dField[c]); }
-  soilYield(c) { return 1 - Math.exp(-this.fieldSoil(c) / this.P.H_YIELD); }
+  soilYield(c) { const P = this.P; return P.Y_STONY + (1 - P.Y_STONY) * (1 - Math.exp(-this.fieldSoil(c) / P.H_YIELD)); }
   capacity(L) {
     const P = this.P, H = this.H, nL = this.nL, f = this.f, ind = this.ind, eg = Math.exp(P.K_G * L.g);
     // K at each cell's own culture, and K2 at the lineage's best (what its migrants could make of a
@@ -993,37 +1119,75 @@ export class People {
     const P = this.P, H = this.H, nL = this.nL, f = this.f, ind = this.ind;
     // Industry lifts farming past the organic ceiling as far as farming's own energy is met (E_AG a person fed).
     const fert = Math.max(0.5, 1 + P.CO2_FERT * Math.log(this.co2 / P.CO2_0)), lift = this.econ.on ? softMin((this.econ.sup || 0) / Math.max(1, P.E_AG * this.people), 1, 4) : 0;
+    this.lift = lift;
     for (let c = 0; c < nL; c++) {
       if (!H.alive[c]) { K[c] = 0; continue; }
       const z = Zs ? Zs[c] : zConst, ez = ex(P.THETA * z);
       const PF = ez / (1 + (ez - 1) / P.CAP_F);
       let farm = 0;
-      if (f[c] > 0) {
+      // Migrants who farm (their best culture past farming's) see unfarmed land as the fields
+      // they'd make of it: MIGR_F of its arable land, with crops suited MIGR_S (the spread's
+      // weights only: a farming people's spread is demic, Ammerman and Cavalli-Sforza's wave of
+      // advance, from memory; with the cell's own fields alone, a continent of foragers had looked
+      // full to them, and farmers never came).
+      const fc = !Zs && f[c] <= 0 && zConst >= P.Z_FARM ? P.MIGR_F * H.arable[c] : f[c];
+      if (fc > 0) {
         // The organic ceiling, and industry's above it (fertilizer, machines, breeding: a few times
         // the organic yields, modern grain's against pre-industrial, from memory), each approached softly.
         const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A), capI = softMin(x, P.CAP_A * P.LIFT_MAX, 1);
         const PA = cap + ind[c] * lift * Math.max(0, capI - cap);
         // Less the seed kept for the next sowing (working capital's first claim).
         const seed = 1 / (P.R_SEED0 * Math.exp(Math.min(Math.max(0, z - P.Z_FARM) / P.Z_R, 50)));
-        farm = f[c] * H.a[c] * this.suit(this.pkg[c], c) * PA * this.soilYield(c) * fert * (1 - seed);
+        farm = fc === f[c] ? this.fieldYield(c) * this.suitHere(c) * PA * fert * (1 - seed) : this.fieldYield(c, fc) * P.MIGR_S * PA * fert * (1 - seed);
       }
       // The land's, as habitable as Earth still is; and what energy buys indoors, until the oceans boil.
-      K[c] = this.hE * H.area[c] * this.coldOK(c, z) * ((1 - f[c]) * H.b[c] * PF * eg + farm) + this.Ksyn[c] * (1 - this.boiled);
+      // The tropics' diseases among settled farmers (malaria spread with clearing and standing water;
+      // Livingstone 1958 on West Africa's yams, from memory), as far as medicine hasn't put them down.
+      const yg = this.Ntot[c] > 0 ? this.goods[c] / this.Ntot[c] : 0, sick = 1 + P.PATH * H.path[c] * Math.exp(-Math.max(0, yg) / P.Y_D);
+      K[c] = this.hE * H.area[c] * this.coldOK(c, z) * ((1 - fc) * H.b[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
     }
   }
+  /**
+   * The fields' yield per km² of the cell at NPP_REF's crops (synthesis): the fields take the
+   * floodplain first (watered and renewed: cropped every year), then the uplands, where the leached
+   * soil lies fallow but for its fertility's share, industry's fertilizer making up the rest.
+   */
+  fertility(c, p = this.H.phi[c]) { const x = this.ind ? this.ind[c] * (this.lift || 0) : 0; return p + (1 - p) * x; }
+  fieldYield(c, f = this.f[c]) {
+    const H = this.H, s = H.sfp[c];
+    // The floodplain's soil is its alluvium; the uplands' the regolith (soilYield).
+    return Math.min(f, s) * H.afp[c] * this.fertility(c, H.phiFP[c]) + Math.max(0, f - s) * H.aup[c] * this.fertility(c) * this.soilYield(c);
+  }
+  /** The share of the cell under crops this year (the rest of the farmed share fallow). */
+  cropped(c) { const f = this.f[c], s = this.H.sfp[c]; return Math.min(f, s) * this.fertility(c, this.H.phiFP[c]) + Math.max(0, f - s) * this.fertility(c); }
+  /**
+   * A package's suitability here: its crops' climate (its origin's) against the cell's, a Gaussian
+   * in the coldest month, the warmest, log rain and the summer's share of rain (CLIM_S), the
+   * envelope widened by industry's breeding and inputs (maize's and wheat's ranges now, from memory).
+   */
   suit(q, c) {
     if (q < 0) return 0;
-    const o = this.packages[q].zv, zv = this.H.zv; let s = 0;
-    for (let k = 0; k < 14; k++) s += o[k] * zv[14 * c + k];
-    // Industry's breeding and inputs carry crops into climates their ancestors didn't know (maize's
-    // and wheat's ranges now, from memory): the climate's distance counts less where industry is.
-    const ind = this.ind ? this.ind[c] : 0;
-    return Math.pow(Math.max(0, s), this.P.W_PKG * (1 - this.P.BREED * ind));
+    const o = this.packages[q].clim, x = this.H.clim, S = this.P.CLIM_S, w = 1 + this.P.BREED * (this.ind ? this.ind[c] : 0);
+    let d2 = 0;
+    for (let k = 0; k < 4; k++) { const d = (x[4 * c + k] - o[k]) / S[k]; d2 += d * d; }
+    return Math.exp(-0.5 * d2 / (w * w));
+  }
+  /**
+   * The suitability of the crops farmed here, as farmers have bred them to the place since they took
+   * them up: s^{a}, a falling e-fold per T_ADAPT to at least A_ADAPT (wheat and barley bred to the
+   * north's summers within a few thousand years, maize to the eastern woodlands' in a few more;
+   * frost still bounds a tropical crop: from memory, synthesis as a form).
+   */
+  suitHere(c) {
+    const q = this.pkg[c];
+    if (q < 0) return 0;
+    const s = this.suit(q, c), P = this.P;
+    return s > 0 ? Math.pow(s, Math.max(P.A_ADAPT, Math.exp(-Math.max(0, this.t - this.pkgT[c]) / P.T_ADAPT))) : 0;
   }
   reachL(gz) { const P = this.P; return softMin(P.L_C0 * Math.exp(Math.min(Math.max(0, gz) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
-  Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4); }
-  seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * Math.max(0, z) : 0; }
+  Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
+  seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * sig((z - P.Z_OCEAN) / P.W_OCEAN) : 0; }
 
   step(dtWanted) {
     const P = this.P, nL = this.nL, live = this.lineages.filter(L => L.died === null);
@@ -1124,7 +1288,7 @@ export class People {
     for (let c = 0; c < nL; c++) worst = Math.max(worst, 2 * Dm * row[c] / H.area[c]);
     // At most NSUB_MAX substeps: past that, migration is held to what the step can carry stably
     // (people then track capacity faster than they could walk, which is the case it matters).
-    const need = dt * worst / 0.4, nsub = Math.max(1, Math.min(this.P.NSUB_MAX, Math.ceil(need))), h = dt / nsub;
+    const need = dt * worst / 0.4, nsub = Math.max(1, Math.min(this.econ.on ? this.P.NSUB_IND : this.P.NSUB_MAX, Math.ceil(need))), h = dt / nsub;
     const kScale = need > nsub ? nsub / need : 1;
     const dN = this.dN || (this.dN = new Float64Array(nL)), dZ = this.dZ || (this.dZ = new Float64Array(nL));
     // People spread down the gradient of crowding u = N/K, not of density (toward the ideal free
@@ -1389,9 +1553,18 @@ export class People {
     // Minds within reach: the body's total, or a disc of radius ℓ of the local density; AI's
     // research minds (one network, by then) join through the tasks they can do.
     const reach = this.seaReach(zmax), ell = this.reachL(L.g + zmax);
+    // The body is the land its people keep in touch across: a share MIND_REL of the inhabited
+    // world's mean density (synthesis): the sparse margins that carried the foragers' ideas (a
+    // world of them before the tip) don't carry a farming world's, so the Arctic's foragers didn't
+    // make the Americas one body with Eurasia, nor the Sahara Africa south of it.
+    if (this.rhoStep !== this.t) {
+      let n = 0, a = 0;
+      for (let c = 0; c < nL; c++) if (Ntot[c] >= P.N_MIN * H.area[c]) { n += Ntot[c]; a += H.area[c]; }
+      this.rhoStep = this.t; this.rhoMind = Math.max(P.N_MIN, P.MIND_REL * (a > 0 ? n / a : 0));
+    }
     const key = reach.toPrecision(2);
     let comp = this.compCache.get(key);
-    if (!comp) this.compCache.set(key, comp = this.components(c => Ntot[c] >= P.N_MIN * H.area[c], reach));
+    if (!comp) this.compCache.set(key, comp = this.components(c => Ntot[c] >= this.rhoMind * H.area[c], reach));
     const tot = new Float64Array(comp.count);
     for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) tot[comp.id[c]] += m[c];
     const disc = Math.PI * ell * ell, ai = this.econ.on ? this.econ.AIr : 0, beta = this.econ.on ? this.econ.beta : 0;
@@ -1408,18 +1581,26 @@ export class People {
     // Culture: ideas in, losses out, exact over the step; copying better neighbours and others.
     const lam = P.LAMBDA, eL = Math.exp(-lam * dt), fL = lam * dt > 1e-9 ? (1 - eL) / lam : dt, gain = P.A_INV;
     let rate = 0;
-    const others = live.filter(o => o !== L);
+    const others = live.filter(o => o !== L), zc = this.zc;
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) continue;
       const z0 = Z[c];
+      // Copying the neighbours who know more, whoever they are (the best culture held there: ideas
+      // cross between peoples where they meet; copying one's own kind alone kept a lineage that had
+      // held East Asia since before the tip a thousand years behind into the farming era), as often
+      // as people meet: each side's density against RHO_COPY (synthesis; the Arctic's foragers had
+      // carried a farming Eurasia's ideas to the Americas as fast as a farming plain does).
+      const dens = d => { const r = Ntot[d] / H.area[d]; return r / (r + P.RHO_COPY); };
       let wsum = 0, up = 0;
       for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (!(N[d] > 0) || Z[d] <= z0) { if (N[d] > 0) wsum += E.hop[o] ? 0 : E.slope[o]; continue; }
+        if (!(Ntot[d] > 0)) continue;
+        const zd = zc[d];
+        if (zd <= z0) { wsum += E.hop[o] ? 0 : E.slope[o]; continue; }
         const e = E.hop[o] ? (reach > 0 ? Math.exp(-E.km[o] / reach) : 0) : E.slope[o];
-        up += e * (Z[d] - z0); wsum += e;
+        up += e * dens(d) * (zd - z0); wsum += e;
       }
-      const copy = P.COPY * this.speed(z0) / P.V0;
+      const copy = P.COPY * this.speed(z0) / P.V0 * dens(c);
       let accGap = 0;
       for (const o of others) if (o.N[c] > 0 && o.Z[c] > z0) accGap += (o.Z[c] - z0) * o.N[c] / Ntot[c];
       let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL;
@@ -1481,47 +1662,77 @@ export class People {
   farming(live, dt) {
     const P = this.P, H = this.H, E = this.E, nL = this.nL, f = this.f, pkg = this.pkg, Ntot = this.Ntot;
     const zc = this.zcell();
-    // Origins: settled near foraging's ceiling, knowing enough, with domesticates.
+    // The best-suited package farmed here or next door.
+    const bestNear = c => {
+      let s = pkg[c] >= 0 ? this.suitHere(c) : 0;
+      for (let o = E.off[c]; o < E.off[c + 1]; o++) { const d = E.nb[o]; if (pkg[d] >= 0 && f[d] > 0 && pkg[d] !== pkg[c]) s = Math.max(s, this.suit(pkg[d], c)); }
+      return s;
+    };
+    // Origins: settled near foraging's ceiling, knowing enough, with domesticates (the seasonally dry
+    // climates' annuals: after Blumler via Diamond, from memory), and no crops at hand that suit the
+    // place: a package farmed here or next door suited s leaves 1 − s of the hazard (synthesis; the
+    // crops of one climate didn't pre-empt another's own: rice and millet beside wheat).
     for (let c = 0; c < nL; c++) {
-      if (f[c] > 0 || !(Ntot[c] > 0) || H.D[c] <= 0 || !H.alive[c]) continue;
+      if (!(Ntot[c] > 0) || H.D[c] <= 0 || !H.alive[c]) continue;
       const Kf = H.area[c] * this.coldOK(c, zc[c]) * H.b[c] * P.CAP_F;
-      const haz = P.H_FARM * H.D[c] * sig((zc[c] - P.Z_FARM) / P.W_FARM) * sig((Ntot[c] / Math.max(Kf, 1e-9) - P.SED) / 0.1) * Math.exp(-H.sigY[c] / P.SIG_REF);
+      let haz = P.H_FARM * H.D[c] * sig((zc[c] - P.Z_FARM) / P.W_FARM) * sig((Ntot[c] / Math.max(Kf, 1e-9) - P.SED) / 0.1) * Math.exp(-H.sigY[c] / P.SIG_REF);
+      if (!(haz * dt > 1e-9)) continue;
+      haz *= (1 - bestNear(c)) ** 2;
       if (haz <= 0 || this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
-      let near = false;
-      for (let o = E.off[c]; o < E.off[c + 1]; o++) if (f[E.nb[o]] > 0) near = true;
-      if (near) continue;
-      const q = this.packages.length, zv = Float32Array.from(H.zv.subarray(14 * c, 14 * c + 14));
-      this.packages.push({ c, t: this.t, lat: H.lat[c], lon: H.lon[c], zv, zone: ZN[zv.indexOf(Math.max(...zv))] });
-      pkg[c] = q; f[c] = 0.01 * this.suit(q, c) + 1e-4;
+      const q = this.packages.length, clim = Float32Array.from(H.clim.subarray(4 * c, 4 * c + 4));
+      let zk = 0; for (let k = 1; k < 14; k++) if (H.zv[14 * c + k] > H.zv[14 * c + zk]) zk = k;
+      this.packages.push({ c, t: this.t, lat: H.lat[c], lon: H.lon[c], clim, zone: ZN[zk] });
+      pkg[c] = q; this.pkgT[c] = this.t; f[c] = Math.max(f[c], 0.01 * H.arable[c] + 1e-4);
       this.event('farming', `farming begins (package ${q}) at ${deg(H.lat[c]).toFixed(0)}°, ${deg(H.lon[c]).toFixed(0)}° in ${this.packages[q].zone} (z ${zc[c].toFixed(2)})`);
     }
     // Spread and growth within cells. Fields no one works go back to the wild over T_WILD (they
     // had stood as they were: the fields outlasted the sea after Earth emptied).
     const f0 = Float32Array.from(f), p0 = Int16Array.from(pkg), wild = Math.exp(-dt / P.T_WILD);
+    const take = s => Math.min(1, s * (1 + P.S_HALF) / (s + P.S_HALF));
     for (let c = 0; c < nL; c++) {
-      if (!(Ntot[c] > 0)) { if (f[c] > 0) f[c] *= wild; continue; }
-      if (p0[c] >= 0) {
-        // Logistic toward the package's suitability here, exactly (the live planet's climate moves
-        // the suitability, so the share can sit above it and fall back), none past the heat limit,
-        // none under the solar farms, and no more than the cell's arable share: no fields on
-        // permafrost, however far breeding has carried the crops (a9: farms had stood on frozen
-        // ground whose yield was nil, since the share followed the package's climate alone).
-        const s = Math.min(this.suit(p0[c], c) * (1 - this.rewild) * (1 - H.hot[c]), 1 - this.sol[c], H.arable[c]), e = Math.exp(Math.min(50, P.R_ADOPT * dt));
-        f[c] = s > 1e-9 ? s * f0[c] * e / (s + f0[c] * (e - 1)) : f0[c] / e;
+      // Farmers clear land next to their own, an empty cell's too (the Nile's valley had no foragers to
+      // take crops up); fields no one works and no one next door brings go back to the wild.
+      let zk = zc[c];
+      if (!(Ntot[c] > 0)) {
+        zk = 0;
+        for (let o = E.off[c]; o < E.off[c + 1]; o++) { const d = E.nb[o]; if (!E.hop[o] && f0[d] > 0 && Ntot[d] > 0) zk = Math.max(zk, zc[d]); }
+        if (!(zk > 0)) { if (f[c] > 0) f[c] *= wild; continue; }
       }
-      const know = sig((zc[c] - (P.Z_FARM - 0.5)) / 0.25);
-      if (know < 1e-3) continue;
-      let bestQ = -1, bestIn = 0;
-      for (let o = E.off[c]; o < E.off[c + 1]; o++) {
+      const know = sig((zk - (P.Z_FARM - 0.5)) / 0.25);
+      // A better-suited crop farmed next door is taken up (the cell keeps its fields), at a rate by
+      // the contact, the neighbour's fields and the gain (C_PKG).
+      let s0 = p0[c] >= 0 ? this.suitHere(c) : 0, bestQ = -1, bestIn = 0, rate = 0;
+      if (know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (p0[d] < 0 || f0[d] <= f0[c]) continue;
-        const v = (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * (f0[d] - f0[c]) * this.suit(p0[d], c);
-        if (v > bestIn) { bestIn = v; bestQ = p0[d]; }
+        if (p0[d] < 0 || !(f0[d] > 0) || p0[d] === p0[c]) continue;
+        const s = this.suit(p0[d], c);
+        if (!(s > s0)) continue;
+        const w = (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * f0[d] * (s - s0);
+        rate += w; if (w > bestIn) { bestIn = w; bestQ = p0[d]; }
       }
-      if (bestQ >= 0) {
-        if (p0[c] < 0 || this.suit(bestQ, c) > this.suit(p0[c], c)) pkg[c] = bestQ;
-        f[c] = Math.max(f[c], Math.min(this.suit(pkg[c], c) * (1 - H.hot[c]), 1 - this.sol[c], H.arable[c], f[c] + P.C_FARM * know * bestIn * dt));
+      // Past industry, crops travel with its pace (the colonists' wheat and cattle reached the
+      // pampas and the prairies within decades; synthesis): the uptake and the clearing × `pace`.
+      const pace = 1 + (softMin(this.speed(zk) / P.V0, P.IND_PACE, 4) - 1) * sig((zk - P.Z_IND) / 0.5);
+      if (bestQ >= 0 && this.rng.uniform() < 1 - Math.exp(-P.C_PKG * know * rate * pace * dt)) { pkg[c] = bestQ; this.pkgT[c] = this.t; s0 = this.suit(bestQ, c); }
+      if (pkg[c] < 0) continue;
+      // Logistic toward the arable land the crop is worth farming on, exactly (the live planet's
+      // climate moves it, so the share can sit above it and fall back), none past the heat limit,
+      // none under the solar farms, and no more than the cell's arable share: no fields on
+      // permafrost, however far breeding has carried the crops (a9).
+      // The cold grasslands' sod turned only under industry's steel ploughs (the prairies, the
+      // pampas and the steppe were grazed, not farmed, until the nineteenth century; from memory).
+      const sod = 1 - P.SOD * H.sod[c] * (1 - this.ind[c] * (this.lift || 0));
+      const tgt = Math.min(H.arable[c] * sod * take(s0) * (1 - this.rewild) * (1 - H.hot[c]), 1 - this.sol[c]);
+      // New fields: from the farmers here, and as their neighbours' crops are carried in.
+      let seedIn = 0;
+      if (f0[c] < tgt && know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
+        const d = E.nb[o];
+        if (pkg[d] !== pkg[c] || !(f0[d] > f0[c])) continue;
+        seedIn += (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * (f0[d] - f0[c]);
       }
+      const fs = Math.max(f0[c], Math.min(tgt, f0[c] + P.C_FARM * know * s0 * seedIn * pace * dt));
+      const e = Math.exp(Math.min(50, P.R_ADOPT * Math.min(pace, P.CLEAR_PACE) * dt));
+      f[c] = tgt > 1e-9 ? (fs > 0 ? tgt * fs * e / (tgt + fs * (e - 1)) : 0) : fs / e;
     }
   }
 
@@ -1539,22 +1750,26 @@ export class People {
       const f = this.f[c];
       if (!(f > 0)) { Ef[c] = 0; dF[c] *= eR; fP[c] = 0; continue; }
       const g = f < 1 ? (1 - f) * Math.log(1 - f) + f : 1;
-      Ef[c] = P.E_TILL * H.slope[c] * g / P.S_REF * Math.exp(-Math.max(0, zc[c] - P.Z_FARM) / P.Z_CONS);
+      Ef[c] = P.E_TILL * H.slope[c] * g / P.S_REF * Math.exp(-Math.max(0, zc[c] - P.Z_FARM) / P.Z_CONS) * this.cropped(c) / f;   // fallow isn't tilled
       if (f > fP[c] && fP[c] > 0) dF[c] *= fP[c] / f;
       const q = 1e-3 * Ef[c] / f * (1 - f);
       dF[c] = dF[c] * eR + q * P.T_REFILL * (1 - eR);
       fP[c] = f;
     }
-    this.env.soil(dt, Ef);
+    const Eo = this.Eout || (this.Eout = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) Eo[c] = P.SDR * Ef[c];
+    this.env.soil(dt, Eo);
   }
 
   industry(live, dt) {
     const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zc;
     if (!this.flags.industry) {
-      // A hazard where culture, farming and coal all suffice (each a logistic, not a gate).
+      // A hazard where culture, a dense farming people (its labour and markets: RHO_IND a km²) and
+      // coal and ore all suffice (each a logistic, not a gate; by the farmed share alone, it had
+      // begun on the Arctic's thin fields).
       for (let c = 0; c < nL; c++) {
         if (!(this.Ntot[c] > 0) || zc[c] < P.Z_IND - 1) continue;
-        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig((this.f[c] - 0.2) / 0.05) * sig(this.coalReach[c] - P.COAL_MIN) * sig((this.oreReach[c] - P.ORE_MIN) / 0.15);
+        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig(this.f[c] > 0 ? (this.Ntot[c] / this.H.area[c] - P.RHO_IND) / (0.3 * P.RHO_IND) : -50) * sig(this.coalReach[c] - P.COAL_MIN) * sig((this.oreReach[c] - P.ORE_MIN) / 0.15);
         if (this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
         ind[c] = 0.01; this.flags.industry = true;
         // The first works: fixed capital at its Solow balance for the cell's workers, and the
@@ -1576,7 +1791,7 @@ export class People {
       const know = sig((zc[c] - (P.Z_IND - 1)) / 0.25);
       if (know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * this.speed(zc[c]) / P.V0;
+        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * softMin(this.speed(zc[c]) / P.V0, P.IND_PACE, 4);
       }
       ind[c] = Math.min(1, i0[c] + v * dt);
     }
@@ -1734,7 +1949,7 @@ export class People {
     out.f.fill(0); out.Ef.fill(0); out.s.fill(0); out.x.fill(0);
     let any = false;
     for (let c = 0; c < this.nL; c++) {
-      const i = this.cells[c]; out.f[i] = this.f[c]; out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c];
+      const i = this.cells[c]; out.f[i] = this.cropped(c); out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c];
       // Where coal's sulfate is lifted, per unit area: industry's workers (src/engine/peoplelink.js carries it).
       const w = this.Ntot[c] * this.ind[c];
       if (w > 0) { out.x[i] = w / area[i]; any = true; }
@@ -1909,7 +2124,7 @@ export class People {
       const pf = Wf * (m[c] + fl * floor) / (1 + fl) / Am, pd = sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am : 0;
       const [fac, dc] = pack(pf, pd, room);
       room = Math.max(0, room - fac - dc);
-      const farm = take(this.f[c]);
+      const farm = take(this.cropped(c));
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
       out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
       out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been

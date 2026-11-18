@@ -21,7 +21,7 @@ Climate (`tools/earth/climate-score.mjs`, level 6, settled; against UDel, OISST,
 - The sea: the overturning 11.3 Sv (`EKMAN` and `LAMBDA` at Earth's measured scale), 1.2 PW north across 26° N; 60–70° N's sea ~2 °C (4.4 observed), the Nordic Seas ~2 against 6.3 °C, the Barents frozen (its water doesn't reach it).
 - Doubled CO₂ warms it 2.8 K with the ice sheets held.
 - Lakes: routed on each cell's lowest land, ~2.5 M km² at level 7 (the Black Sea to its spill, the Great Lakes, Baikal, Chad, Eyre); the Caspian too full (the Aral spills into it); Lake Victoria missing (no bathymetry under it). Their algae: the Caspian ~100 g C m⁻² yr⁻¹ (observed 50–110), the Great Lakes ~100 (50–250), Baikal ~70 (75–120).
-- Tides on the page ~4.8 TW (Earth's ~3.7). People: the first hominins at the Sahel's wooded edge (~10° N, 28° E: the broadest tree–grass mosaic; East Africa itself is too wet and closed forest here).
+- Tides on the page ~4.8 TW (Earth's ~3.7). People: the first hominins at the Sahel's wooded edge (~10° N, 28° E: the broadest tree–grass mosaic; East Africa itself is too wet and closed forest here). At early takeoff they score ~1.1 against where people live now (`tools/people/earth-score.mjs`, `people.md` "On Earth"): ~9–9.5 billion; Asia ~28% (58% now), its India and China ~3% and ~7%, under the climate's dry India and weak monsoon; Africa, the Americas and Australia too many, under the too-wet Sahel, East Africa and Australia.
 
 ## Known errors
 

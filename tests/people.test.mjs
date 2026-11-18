@@ -179,8 +179,8 @@ test('births and deaths: zero growth at the food capacity before industry, the f
   assert.ok(g(2e6, 1e6, 0) < -0.05, `famine past the food capacity (${g(2e6, 1e6, 0)})`);
   // With industry's income: deaths fall first (growth rises), then births (growth falls).
   const rate = yg => { const r = demography(5e5, 1e6, yg, 1e-3, P); return { b: r.b, d: r.d, g: r.b - r.d }; };
-  const e = rate(0), m = rate(6), l = rate(30);
-  assert.ok(m.d < 0.6 * e.d && m.b > 0.9 * e.b, `at y_g 6 mortality has fallen (d ${m.d.toFixed(4)} against ${e.d.toFixed(4)}) and fertility not yet (b ${m.b.toFixed(4)})`);
+  const e = rate(0), m = rate(3), l = rate(30);
+  assert.ok(m.d < 0.6 * e.d && m.b > 0.9 * e.b, `at y_g 3 mortality has fallen (d ${m.d.toFixed(4)} against ${e.d.toFixed(4)}) and fertility not yet (b ${m.b.toFixed(4)})`);
   assert.ok(m.g > e.g + 0.005 && l.g < m.g - 0.01, `growth rises then falls: ${e.g.toFixed(4)}, ${m.g.toFixed(4)}, ${l.g.toFixed(4)}`);
   // Rich, in the long run: replacement (neither growing nor dying out).
   const rich = g(1, 1e9, 1e6);
@@ -264,4 +264,43 @@ test('the cities keep the people: the drawn people sum to the model\'s', () => {
   assert.ok(Math.abs(drawn / model - 1) < 1e-9, `drawn ${drawn.toExponential(4)} against ${model.toExponential(4)}`);
   assert.ok(urban > 0.2 * model && urban < 0.8 * model, `urban share ${(urban / model).toFixed(2)}`);
   void g;
+});
+
+test('ocean routes cross a wide ocean beside a strait, landing apart from it and from each other', () => {
+  // Level 4 (~480 km cells): land poleward of 35°, an ocean ~7,800 km wide between, but for a
+  // land bridge at 90° E cut by a one-cell strait: the short crossing joins the two, and the
+  // routes cross the ocean elsewhere (the Atlantic beside Bering).
+  const f = uniformPlanet(4), g = f.grid, s35 = Math.sin(35 * Math.PI / 180);
+  const lon = i => Math.atan2(g.pos[3 * i + 1], g.pos[3 * i]) * 180 / Math.PI;
+  for (let i = 0; i < f.n; i++) if (Math.abs(g.pos[3 * i + 2]) < s35 && !(Math.abs(lon(i) - 90) < 6 && Math.abs(g.pos[3 * i + 2]) > 0.08)) f.elev[i] = -3;
+  const p = new People(f, { ...quiet, Z_BOAT: 0 });
+  const north = c => g.pos[3 * p.cells[c] + 2] > 0, xyz = c => [0, 1, 2].map(k => g.pos[3 * p.cells[c] + k]);
+  const far = [];
+  for (let e = 0; e < p.F.m; e++) if (p.F.hop[e] > p.P.HOPS && north(p.F.a[e]) !== north(p.F.b[e])) far.push(e);
+  assert.ok(far.length >= 2, `${far.length} routes across the ocean`);
+  // Each route's landing in the south is at least D_ROUTE from the others' (each pair's routes).
+  const land = far.map(e => xyz(north(p.F.a[e]) ? p.F.b[e] : p.F.a[e]));
+  for (let a = 0; a < land.length; a++) for (let b = a + 1; b < land.length; b++) {
+    const km = R * Math.acos(Math.min(1, land[a].reduce((s, v, k) => s + v * land[b][k], 0)));
+    assert.ok(km >= p.P.D_ROUTE * 0.99, `landings ${km.toFixed(0)} km apart`);
+  }
+});
+
+test('crops: leached soil lies fallow, the floodplain is cropped every year', () => {
+  // Two halves alike but for the rain's drainage: the wet half's soil is leached (fertility
+  // 1/(1 + leach/L_FERT)), so its farmed share is cropped only in part; a river's floodplain is
+  // cropped whole and renewed by its floods.
+  const f = uniformPlanet(4), g = f.grid;
+  for (let i = 0; i < f.n; i++) if (g.pos[3 * i] > 0) f.runoff[i] = 2;
+  const p = new People(f, { ...quiet });
+  const P = p.P, H = p.H, leach = r => r * Math.exp((22 - 15) / P.T_LEACH);
+  const wet = p.cells.findIndex(i => g.pos[3 * i] > 0.5), dry = p.cells.findIndex(i => g.pos[3 * i] < -0.5);
+  assert.ok(Math.abs(H.phi[wet] - 1 / (1 + leach(2) / P.L_FERT)) < 1e-6 && Math.abs(H.phi[dry] - 1 / (1 + leach(0.3) / P.L_FERT)) < 1e-6, `fertility ${H.phi[wet].toFixed(3)}, ${H.phi[dry].toFixed(3)}`);
+  p.f[wet] = 0.5; p.f[dry] = 0.5;
+  assert.ok(Math.abs(p.cropped(wet) - 0.5 * H.phi[wet]) < 1e-9 && p.cropped(dry) > p.cropped(wet), `cropped ${p.cropped(wet).toFixed(3)} of 0.5 where leached`);
+  // A river through the wet cell: its floodplain belt W_FP √Q km wide is cropped every year.
+  f.discharge[p.cells[wet]] = 2e4; p.rates(f);
+  const s = H.sfp[wet];
+  assert.ok(Math.abs(s - Math.min(P.FP_MAX, P.W_FP * Math.sqrt(2e4) / Math.sqrt(H.area[wet]))) < 1e-9 && s > 0.1, `floodplain ${s.toFixed(3)}`);
+  assert.ok(Math.abs(p.cropped(wet) - (s * H.phiFP[wet] + (0.5 - s) * H.phi[wet])) < 1e-9, 'the floodplain first, then the uplands');
 });
