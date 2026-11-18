@@ -118,6 +118,8 @@
 import { NZ } from './climate.js';
 import { miami, VEG } from './vegetation.js';
 import { regolithStep } from './regolith.js';
+import { WORLDS } from './worlds.js';
+export { WORLDS };
 import { stream } from '../rng.js';
 
 export const PEOPLE = {
@@ -225,7 +227,26 @@ export const PEOPLE = {
   T_ROB: 1.44, B_SEED: 1e6,                         // the working fleet grows at most e-fold per T_ROB years (doubling a year: factories building the robots that build factories; synthesis on the industrial explosion's robot doubling times, ~a year at first, from memory), from B_SEED bodies (industrial robots now ~4 M, humanoids a few thousand)
   // Food bought with energy, space, and the endings (speculation)
   W_FOOD: 3000, Z_SYN: 10.35, W_SYN: 0.25, H_NEED: 1, H_FOOD: 19, F_ROOM: 0.01,   // W a person fed and housed indoors (synthetic or controlled-environment food, ~1 kW electrochemical-microbial to ~20 kW under LEDs, and shelter); where it matures (z) and the logistic's width; bought for the unfed, × (1 + H_NEED), whatever it costs; and room to (1 + H_FOOD) × the people (crowding's deaths negligible at replacement births) as far as it costs under F_ROOM of their income at energy's price at the margin
-  Z_SPACE: 12, W_SPACE: 0.5, R_ES0: 1000, F_DYSON: 0.1, L_SUN: 3.83e26, E_SPACE: 100,   // industry off-world: where it matures; W a sy of space solar; the share of the Sun's output it may take (harmonic); the Sun's output (W, standard); materials' energy from asteroids (W per unit a year)
+  Z_SPACE: 12, W_SPACE: 0.5, R_ES0: 1000, L_SUN: 3.83e26, E_SPACE: 100,   // industry off-world: where it matures (launch is no bind: robots go where they're wanted); W a sy of space solar; the Sun's output (W, standard); materials' energy from asteroids (W per unit a year)
+  // The swarm is as large as its material (a9: "let the material set it"): collectors at 1 AU of
+  // SIGMA_SW kg/m² with their radiators (thin film ~10× lighter than today's panels; speculation),
+  // S_AU W/m² there (standard), so the whole Sun takes ~2.8e23 kg. The minable mass: the main belt,
+  // mined first, then Mercury taken apart (both from memory; after Armstrong and Sandberg 2013, from
+  // memory). The Moon (the tides), the settled worlds and Venus (its well and its air) are kept.
+  SIGMA_SW: 1, S_AU: 1361, M_BELT: 2.4e21, M_MERC: 3.3e23,
+  // People off-world (aligned; speculation): a habitat's mass a person (the 1975 Stanford torus
+  // study's ~10 Mt for 10,000, mostly shielding, from memory); people a km² on other worlds'
+  // surfaces (under domes and underground, at a city's density). Heritable fertility (a9): where
+  // room is slack the mean growth rate rises at the additive variance in it (Fisher's fundamental
+  // theorem, standard; its size from fertility's heritability ~0.2–0.3 and its spread between
+  // families, from memory) toward a frontier's (R_FRONT: Malthus's colonies doubling in 25 years,
+  // standard).
+  M_HAB: 1e6, D_SURF: 4000, V_FERT: 1.7e-4, R_FRONT: 0.028, Z_SETTLE: 0.4,   // …, and the spread (decades of log₁₀ robots off-world) over which each world opens
+  // Probes to the stars (speculation): sent once the swarm takes F_PROBE of the Sun, at V_PROBE of
+  // light's speed (after Armstrong and Sandberg's 50–99%, from memory); stars a cubic light-year
+  // near the Sun (~0.14 a cubic parsec, from memory).
+  F_PROBE: 0.01, V_PROBE: 0.5, N_STAR: 0.004, HAB_OPENS: 7,   // …; and where habitats about the Sun open (as WORLDS' `opens`)
+  S_ABS: 238,                                       // the sunlight Earth absorbs (W/m²: (1 − 0.3) × 1361/4, standard), which a sacrificing swarm shades by its share
   P_ALIGN: 0.5, P_PRESERVE: 0.5, ENDING: null,      // the endings' odds on two axes (a9: "up to chance"), drawn at early takeoff from the seed: aligned or not, Earth preserved or not ('1a' misaligned and Earth sacrificed, '1b' misaligned and preserved, '2a' aligned and sacrificed, '2b' aligned and preserved); ENDING forces one
   T_SA: 2, T_DIS: 30,                               // AI's share of the work it could do (sA) is handed to it over T_SA years; misaligned: humans' control falls toward AI's share of the work over T_DIS years (gradual disempowerment, Kulveit and others 2025, from memory), and their births with it (no floor)
   HEAT_SAC: 1000, HEAT_PRES: 0.1,                   // Earth's heat budget (W/m²) as AI comes to run things: sacrificed (Earth a radiator at ~385 K: the oceans boil) or preserved (heavy industry off-world)
@@ -252,6 +273,7 @@ export const PEOPLE = {
   DT_ECON: 10,                     // the step's most from early takeoff on (past the fine stretch, 500-year steps set the economy oscillating: energy collapsing and recovering a step apart, the people to trillions)
   Z_SAT: 30,                       // culture past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
 };
+
 const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
 const R = 6371, YEAR_S = 3.156e7, AREA_M2 = 4 * Math.PI * (R * 1e3) ** 2;
 const sig = x => 1 / (1 + Math.exp(-x));
@@ -414,6 +436,40 @@ export function paceOf(h, present) {
   return g;
 }
 
+/**
+ * The robots at work on Earth (worker-equivalents; synthesis): the physical work its own economy
+ * needs, the jobs its workers' physical tasks filled (Φ Lh), or its share sE of the energy where that
+ * is more (a sacrificed Earth's industry), together as a soft maximum and at most all of them; the
+ * rest go off-world as it opens (aS). (By the energy's share alone, a preserved Earth on 51 TW of
+ * fusion beside a swarm's 10²⁵ W kept a million robots.) Where they're counted and drawn only.
+ */
+export function earthBots(Ap, Lh, sE, aS, P) {
+  if (!(Ap > 0)) return 0;
+  const need = Math.pow(Math.pow(P.PHI * Lh / Ap, 4) + Math.pow(sE, 4), 0.25);
+  return Ap * (1 - aS * Math.max(0, 1 - need));
+}
+
+/**
+ * Heritable fertility (speculation on Fisher's fundamental theorem, standard): the mean growth rate
+ * past replacement rises at the additive variance in it, V_FERT, where room is slack (s, 0–1), and
+ * the variance erodes as it nears a frontier's R_FRONT: dr/dt = V s (1 − r/R), stepped exactly.
+ */
+export function fertility(r, s, dt, P) {
+  return P.R_FRONT - (P.R_FRONT - r) * Math.exp(-P.V_FERT * s * dt / P.R_FRONT);
+}
+
+/**
+ * People moving between Earth (N) and off-world (S) over dt (aligned): out at a = open (R_VOL +
+ * R_MIG (1 − hE)) a person a year as far as there's room off-world, back at b = open R_RET hE as far
+ * as Earth has room (RE). Returns the net moved off-world (back if negative).
+ */
+export function migration(N, S, room, RE, open, hE, dt, P) {
+  const a = open * (P.R_VOL + P.R_MIG * (1 - hE)), b = open * P.R_RET * hE;
+  const out = Math.min(N * (1 - Math.exp(-a * dt)), Math.max(0, room - S));
+  const back = N > 0 ? Math.min(S * (1 - Math.exp(-b * dt)), Math.max(0, RE - (N - out))) : 0;
+  return out - back;
+}
+
 /** A fresh industrial economy (before industry: off). */
 export function newEconomy(P) {
   return { on: false, Kf: 0, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0, 0], S: P.FOSSIL, sA: 0, Es: 0, EfoodGot: 0, EcdrGot: 0, capU: P.HEAT_MAX * AREA_M2, X: 0, I: 0, Y: 0, Ypot: 0, avail: 1, A: 0, chi: 0, beta: 0, betaP: 0, AAI: 0, AIr: 0, Ap: 0, bodies: 0,
@@ -426,7 +482,7 @@ export function newEconomy(P) {
  * then between fixed capital and compute by their marginal products, capital worn and built exactly
  * for a steady inflow, fossil carbon burned, materials drawn.
  */
-export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null }, dt, P) {
+export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null, capS: capS0 = null }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
   const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND));
@@ -439,9 +495,12 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   const XC = P.X_CRUST * (E.oreRich ?? 1);   // this planet's rich ores (the ore map's richness)
   const grade = 1 - (1 - P.G_B) * Math.log10(1 + softMin(E.X, XC, 4) / P.X_SCALE) / Math.log10(1 + XC / P.X_SCALE);
   let em = P.E_M0 / grade * (1 + (P.SKINNER - 1) * sig((E.X - XC) / (0.25 * XC)));
-  // Off-world industry: space solar (no heat on Earth), and materials from asteroids.
+  // Off-world industry: space solar (no heat on Earth), and materials from asteroids where they
+  // cost less than the crust's ores (their share aA, a smooth switch; the crust draws down only by
+  // the rest).
   const aS = sig((z - P.Z_SPACE) / P.W_SPACE), rs = P.R_ES0 * aS;
-  em = em * (1 - aS) + Math.min(em, P.E_SPACE) * aS;
+  const aA = aS * sig(Math.log(em / P.E_SPACE) / P.W_INV);
+  em = em * (1 - aA) + P.E_SPACE * aA;
   const Ecomp = P.W_C * (E.Kc + E.Kq) + P.W_R * T0.Ap;   // compute's power, and the working robots', at full running
   // Capacities: surface renewables and space solar approach their ceilings as the best sites fill
   // (harmonic); fossil carbon and fusion share Earth's heat budget (sharp: a choice). The budget is
@@ -451,10 +510,12 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   const heatB = ending ? P.HEAT_MAX * (1 - sA) + (ending.preserve ? P.HEAT_PRES : P.HEAT_SAC) * sA : P.HEAT_MAX;
   const keepF = ending && ending.preserve ? 1 - sA : 1;
   // Surface solar's ceiling is the land it may stand on (People.solarRoom: D_SOL W/m² where the
-  // sun is best, less as it weakens; by default all Earth's land, 1.49e14 m², standard).
-  const capR = capR0 ?? P.D_SOL * P.SOL_ROOM * 1.49e14, capU = heatB * AREA_M2, capS = P.F_DYSON * P.L_SUN;
+  // sun is best, less as it weakens; by default all Earth's land, 1.49e14 m², standard); space
+  // solar's what its material builds (People.swarmRoom; by default the whole Sun).
+  const capR = capR0 ?? P.D_SOL * P.SOL_ROOM * 1.49e14, capU = heatB * AREA_M2, capS = capS0 ?? P.L_SUN;
   E.capR = capR;
   const cr = softMin(E.Ke[1] * rr, capR, P.P_SITES), cs = softMin(E.Ke[3] * rs, capS, P.P_SITES);
+  E.cs = cs;
   const h0 = E.Ke[0] * rf * keepF + E.Ke[2] * ru, hk = h0 > 0 ? softMin(h0, capU, P.P_HEAT) / h0 : 1;
   const cf = E.Ke[0] * rf * keepF * hk, cu = E.Ke[2] * ru * hk;
   const Kf3 = A * Math.pow(Math.max(E.Kf, 0), P.ALPHA), Yfull = Kf3 * Math.pow(T0.L, 1 - P.ALPHA);
@@ -511,6 +572,10 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
       if (better(opt, best)) { ur = 0.5 * (a + b); best = opt; }
     }
     const { T, Ypot, Eo, Y } = best, run = { c: uc, r: ur, q: uq };
+    // Where the robots work: on Earth those its own economy needs (earthBots), the rest off-world
+    // as it opens (where they're counted and drawn; launch is no bind, so space solar's building
+    // draws on the whole fleet, as Earth's power does).
+    const ApE = earthBots(T.Ap, Lh, sup0 > 0 ? (Er + Eu + Ef) / sup0 : 1, aS, P), ApS = T.Ap - ApE;
     // What the capital–labour bundle earns of output (its share in the KLE CES, falling to nothing
     // where energy binds), and energy's worth at the margin (sy/yr of output a W); capital's
     // materials carry their energy, so a unit of capital costs 1 + em M_K λ_E.
@@ -581,7 +646,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     const Ir = (RU === Infinity ? 1 : sig(Math.log(Math.max(RU, 1e-300)) / P.W_INV)) * (Isave - Irob);
     const gK = Isave > 0 ? (Ir + Irob) / Isave : 0;
     const Iall = Ie + Iq + Ir + Irob;
-    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Ies, Iq, Ir, Irob, wf, wc, Iall };
+    return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Ies, Iq, Ir, Irob, wf, wc, Iall, ApE, ApS };
   };
   let st = plan(E.sInv ?? P.SAVE);
   if (Math.abs(st.sReal - st.s) > 1e-5) {
@@ -589,7 +654,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     for (let k = 0; k < 24; k++) { const m = 0.5 * (a + b), x = plan(m); if (x.sReal > m) a = m; else b = m; }
     st = plan(0.5 * (a + b));
   }
-  const { Y, Ypot, Eo, T, run, Er, Es, Eu, Ef, sup, need, Ie, Ies, Iq, Ir, Irob, wf, wc } = st, avail = Ypot > 0 ? Y / Ypot : 1;
+  const { Y, Ypot, Eo, T, run, Er, Es, Eu, Ef, sup, need, Ie, Ies, Iq, Ir, Irob, wf, wc, ApE, ApS } = st, avail = Ypot > 0 ? Y / Ypot : 1;
   const Ica = (1 - P.S_IT) * Ir * wc, Ic = P.S_IT * Ir + Ica, Ir_ = Irob, If = (1 - P.S_IT) * Ir * wf;
   // Labs keep research's share of AI's compute: for each unit deployed, Q_R/(1 − Q_R) for training and research.
   const Iq2 = Math.min(If, P.Q_R / (1 - P.Q_R) * Ica), IfNet = If - Iq2;
@@ -600,9 +665,9 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   E.Ke = E.Ke.map((K, s) => grow(K, Ies[s], P.DELTA_E));
   const burned = Math.min(E.S, Ef * YEAR_S * dt / P.J_PGC);
   const Iall = st.Iall, Emat = em * P.M_K * Iall;
-  E.S -= burned; E.X += P.M_K * Iall * dt; E.I = Iall; E.sInv = st.s;
+  E.S -= burned; E.X += P.M_K * Iall * (1 - aA) * dt; E.I = Iall; E.sInv = st.s;
   E.sup = sup;
-  Object.assign(E, { Y, Ypot, avail, A, run, Es, EfoodGot: st.sF, EcdrGot: st.sC, capU, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, eY, em, wc, wr: Ir + Irob > 0 ? Irob / (Ir + Irob) : 0,
+  Object.assign(E, { Y, Ypot, avail, A, run, Es, EfoodGot: st.sF, EcdrGot: st.sC, capU, capS, aA, ApE, ApS, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, eY, em, wc, wr: Ir + Irob > 0 ? Irob / (Ir + Irob) : 0,
     sKL: st.sKL, lamE: st.lamE, gK: st.gK, gE: st.gE, grade, sReal: st.sReal, A0: T0.A });
   E.heat = (Ef + Eu) / AREA_M2;
   E.aer = dt > 0 ? -P.AER * (burned / dt) * Math.exp(-Math.max(0, z - P.Z_IND) / P.Z_SCRUB) : 0;
@@ -643,10 +708,16 @@ export class People {
     this.econ.oreRich = this.oreRich;
     this.env = new CachedEnv(this);
     this.flags = {}; this.co2 = this.P.CO2_0; this.O = 0; this.people = 0; this.lastRate = 0; this.emitted = 0;
-    this.forcing = { heat: 0, aer: 0, geo: 0 };
+    this.forcing = { heat: 0, aer: 0, geo: 0, shade: 0 };
     // The ending (drawn at early takeoff), food bought with energy, Earth's habitability, the oceans, people off-world.
     this.endRng = stream(planet.seed, 'people:ending'); this.ending = null;
     this.Ksyn = new Float64Array(nL); this.dis = 0; this.hE = 1; this.boiled = 0; this.space = 0; this.removed = 0; this.rewild = 0;
+    // Off-world: the heritable growth rate past replacement, Earth's people when the ending is drawn
+    // (a whole Earth's room), the room off-world, the mass mined (kg: the belt's, then Mercury's) and
+    // its yearly flow, the habitats' people, and when the probes left.
+    this.fert = 0; this.Nend = 0; this.room = 0; this.mined = 0; this.flow = 0; this.hab = 0; this.probeT = null;
+    this.offBots = 0;   // the most robots ever at work off-world: a world once opened stays open
+    this.swPeak = 0;    // the swarm's largest yet (W): its mass is kept for it, so its swings don't take homes back
   }
 
   /** The ending, by chance on two axes (a9): aligned or not, Earth preserved or sacrificed. */
@@ -657,6 +728,7 @@ export class People {
     else { aligned = this.endRng.uniform() < P.P_ALIGN; preserve = this.endRng.uniform() < P.P_PRESERVE; }
     const code = (aligned ? '2' : '1') + (preserve ? 'b' : 'a');
     this.ending = { aligned, preserve, code };
+    this.Nend = this.people;
     const text = { '1a': 'misaligned, and Earth sacrificed: its heat budget is the machines\' (the oceans boil)', '1b': 'misaligned, and Earth preserved: industry off-world, CO₂ drawn down and sulfate sprayed, but people disempowered, their births falling with it',
       '2a': 'aligned, and Earth sacrificed to reach the stars: people leave as it fails', '2b': 'aligned, and Earth preserved for real: industry off-world, CO₂ drawn down, sulfate meanwhile, farms returned' }[code];
     this.event('ending', `the ending is drawn${P.ENDING ? ' (forced)' : ''}: ${code}, ${text}`);
@@ -1479,8 +1551,9 @@ export class People {
       const Efood = P.W_FOOD * want + P.W_HAB * this.space;
       // Preserved: CO₂ drawn back toward CO2_0 as AI comes to run things.
       const cdr = end && end.preserve ? sA * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR : 0, Ecdr = cdr * P.J_CDR / YEAR_S;
-      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA, capR: this.solarRoom() }, dt, P);
+      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA, capR: this.solarRoom(), capS: this.swarmRoom() }, dt, P);
       this.placeSolar(E.Er);
+      this.offBots = Math.max(this.offBots, E.ApS || 0); this.swPeak = Math.max(this.swPeak, E.cs || 0);
       const gF = Efood > 0 ? E.EfoodGot / Efood : 1;
       for (let c = 0; c < nL; c++) Ks[c] = gF * wantC[c];
       this.space *= gF + (1 - gF) * Math.exp(-dt);   // off-world, short of power, fewer live
@@ -1494,33 +1567,42 @@ export class People {
       const sT = E.A0 > 0 ? E.A0 / (E.A0 + Lh) : 0;
       E.sA += (sT - E.sA) * (1 - Math.exp(-dt / P.T_SA));
       if (end && !end.aligned) this.dis += (E.sA - this.dis) * (1 - Math.exp(-dt / P.T_DIS));
-      // Forcing: waste heat and coal's sulfate; preserved, sulfate sprayed to hold it at none.
+      // Forcing: waste heat and coal's sulfate; preserved, sulfate sprayed to hold it at none, and
+      // the swarm kept out of Earth's light; sacrificed, the swarm shades Earth by its share of the
+      // Sun (a swarm inside Earth's orbit intercepts that share of every line from the Sun; speculation).
       const Fc = 5.35 * Math.log(Math.max(this.co2, 1) / P.CO2_0);
+      const shade = end && !end.preserve ? -P.S_ABS * Math.min(1, (E.Es || 0) / P.L_SUN) : 0;
       const geo = end && end.preserve ? -sA * Math.max(0, Fc + E.heat + E.aer) : 0;
-      this.forcing.heat = E.heat; this.forcing.aer = E.aer + geo; this.forcing.geo = geo;
+      this.forcing.heat = E.heat; this.forcing.aer = E.aer + geo; this.forcing.geo = geo; this.forcing.shade = shade;
       this.rewild = end && end.preserve ? sA * syn : 0;
-      // Aligned: people move between Earth and space as it opens, by choice either way, and leave
-      // as Earth fails them; back only as far as it's livable. Two states exchanging at rates a
-      // (out) and b (back), stepped exactly: off-world relaxes to a/(a + b) of everyone. Out only
-      // as far as off-world power keeps them (W_HAB a person of space's own: habitats are built
-      // where the off-world economy is), so space fills as its solar does, not on culture alone
-      // (with culture's tail alone, a few hundred thousand had left before AI's labour passed a
-      // million workers).
-      if (end && end.aligned && people > 0) {
-        const open = sig((z - P.Z_SPACE) / P.W_SPACE), a = open * (P.R_VOL + P.R_MIG * (1 - this.hE)), b = open * P.R_RET * this.hE;
-        if (a + b > 0) {
-          const all = people + this.space, Sinf = all * a / (a + b);
-          const room = Math.max(0, (E.Es || 0) / P.W_HAB - this.space);
-          const moved = Math.min(room, Sinf + (this.space - Sinf) * Math.exp(-(a + b) * dt) - this.space);   // net out (back if negative)
+      // Aligned: people off-world. Their room (`offRoom`) is what off-world power keeps and the worlds
+      // and habitats opened so far. Where it is slack, heritable fertility raises their growth past
+      // replacement (Fisher: dr̄/dt = V_A, eroding toward a frontier's R_FRONT), r̄ = R − (R − r̄)
+      // e^{−V s dt/R} with s the slack, and they fill it as a logistic, stepped exactly. They move
+      // between Earth and space as it opens, by choice either way, and leave as Earth fails them:
+      // out at a a person a year, as far as there's room off-world; back at b, as far as Earth has
+      // room (the people it had when the ending was drawn, × its habitability), so a whole Earth
+      // keeps its numbers and the frontier is off-world. (Two states relaxing to a/(a + b) of
+      // everyone sent half of a trillion off-world people back to Earth.)
+      if (end && end.aligned) {
+        const open = sig((z - P.Z_SPACE) / P.W_SPACE), room = this.offRoom(E, open);
+        this.fert = fertility(this.fert, room > 0 ? open * Math.max(0, 1 - this.space / room) : 0, dt, P);
+        if (this.space > 0 && room > 0 && this.fert > 0) {
+          const e = Math.exp(Math.min(50, this.fert * dt));
+          this.space = room * this.space * e / (room + this.space * (e - 1));
+        }
+        const moved = migration(people, this.space, room, this.Nend * this.hE, open, this.hE, dt, P);
+        if (people > 0 && moved !== 0) {
           const g = Math.max(0, 1 - moved / people);
           for (const L of live) for (let c = 0; c < nL; c++) if (L.N[c] > 0) L.N[c] *= g;
           this.space += people * (1 - g); people *= g;
         }
       }
+      this.massBooks(E, dt);
     }
     // The runaway greenhouse and the oceans; Earth's habitability (on the cached planet its climate's
     // warming, F/B; live, the planet's own warming since the people began).
-    const Fc = 5.35 * Math.log(Math.max(this.co2, 1) / P.CO2_0), Fh = this.forcing.heat + this.forcing.aer, Ft = Fc + Fh;
+    const Fc = 5.35 * Math.log(Math.max(this.co2, 1) / P.CO2_0), Fh = this.forcing.heat + this.forcing.aer + this.forcing.shade, Ft = Fc + Fh;
     this.Ft = Ft;
     // Live, the sea's boiled share and the warming are the planet's (src/engine/runaway.js); on the cached planet, the people's own count.
     if (this.env.live) this.boiled = this.env.boiled || 0;
@@ -1528,6 +1610,80 @@ export class People {
     const dT = this.env.live ? Math.max(0, this.env.dT || 0) : Math.max(0, Ft) / P.B_EBM;
     this.hE = (1 - this.boiled) / (1 + Math.pow(dT / P.T_HAB, 4));
     this.O = food + (E.on ? E.Y : 0); this.food = food; this.people = people;
+  }
+
+  /**
+   * The worlds' room for people (WORLDS): each world's surface at D_SURF (or its built room) as it
+   * opens, a logistic in log₁₀ of the most robots yet at work off-world (`opens`, over Z_SETTLE;
+   * a world settled stays open while the fleet swings), and the habitats about the Sun's (`hab`) by
+   * the same, from HAB_OPENS.
+   */
+  worldRooms(ApS = this.offBots) {
+    const P = this.P, lg = Math.log10(Math.max(ApS, 1)), at = o => sig((lg - o) / P.Z_SETTLE);
+    const rooms = WORLDS.map(w => (w.room ?? w.area * P.D_SURF) * at(w.opens));
+    return { rooms, surf: rooms.reduce((a, b) => a + b, 0), hab: at(P.HAB_OPENS) };
+  }
+
+  /**
+   * The room off-world (people): what off-world power keeps (W_HAB a person), softly against the
+   * worlds' surfaces opened and the habitats built from the minable mass the swarm leaves (each with
+   * the collector its power needs, μ W_HAB). The swarm comes first: it is built in decades, and
+   * people grow into what's left over centuries; the mass of its largest yet stays its, so its
+   * swings don't take homes back. (With people first, an aligned ending's habitats took all of
+   * Mercury back from the swarm, and AI's minds fell 10⁴-fold; with the swarm's mass as it stood,
+   * its investment cycles of ±5% of the Sun killed a tenth of the people off-world each time.)
+   */
+  offRoom(E, open = 1) {
+    const P = this.P, mu = P.SIGMA_SW / P.S_AU, w = this.worldRooms();
+    const hab = w.hab * Math.max(0, P.M_BELT + P.M_MERC - mu * Math.max(this.swPeak, E.cs || 0)) / (P.M_HAB + mu * P.W_HAB);
+    return (this.room = open * softMin((E.Es || 0) / P.W_HAB, w.surf + hab, 4));
+  }
+
+  /** Space solar's ceiling (W): the Sun's output, softly against what the minable mass builds (the belt's ~1%, Mercury's ~120% of it). */
+  swarmRoom() {
+    const P = this.P;
+    return softMin(P.L_SUN, (P.M_BELT + P.M_MERC) * P.S_AU / P.SIGMA_SW, 4);
+  }
+
+  /**
+   * The mass off-world (kg): the swarm's collectors and the habitats' shells (with their power's
+   * collectors). What's mined is the
+   * most that has ever stood (a collector taken down for a habitat is reused), the belt first, then
+   * Mercury (a soft order); its flow is Fig. 2's arrow from space.
+   */
+  massBooks(E, dt) {
+    const P = this.P, mu = P.SIGMA_SW / P.S_AU, S = this.space;
+    this.hab = S > 0 ? S - softMin(S, this.worldRooms().surf, 4) : 0;
+    const stand = mu * (E.cs || 0) + (P.M_HAB + mu * P.W_HAB) * this.hab, was = this.mined;
+    if (stand > was) this.mined = stand;
+    this.flow = dt > 0 ? (this.mined - was) / dt : 0;
+  }
+
+  /** Mined shares: the belt's and Mercury's. */
+  minedShares() {
+    const P = this.P, b = softMin(this.mined, P.M_BELT, 4);
+    return { belt: b / P.M_BELT, merc: Math.min(1, Math.max(0, this.mined - b) / P.M_MERC) };
+  }
+
+  /**
+   * People off-world by where they live (drawn only): the surfaces' share of them (soft-capped at
+   * the worlds' room opened) split by each world's room, the rest in habitats about the Sun.
+   */
+  offworld() {
+    const { rooms, surf } = this.worldRooms(), S = this.space, Ss = softMin(S, surf, 4), out = { habitats: S - Ss };
+    WORLDS.forEach((w, k) => { out[w.k] = surf > 0 ? Ss * rooms[k] / surf : 0; });
+    return out;
+  }
+
+  /**
+   * The probes (speculation): sent at V_PROBE of light's speed once the swarm takes F_PROBE of the
+   * Sun. `reach` (ly) is how far they've gone; `seen` how far a settled star could be for its light
+   * to be back here, d/v + d/c = t (light-years and years, c = 1); `n` the stars within reach.
+   */
+  stars() {
+    if (this.probeT === null) return null;
+    const P = this.P, t = Math.max(0, this.t - this.probeT), reach = P.V_PROBE * t;
+    return { reach, seen: t / (1 / P.V_PROBE + 1), n: P.N_STAR * 4 / 3 * Math.PI * reach ** 3 };
   }
 
   /** The culture each cell's people hold (the highest lineage's). */
@@ -1900,6 +2056,12 @@ export class People {
       once('sun', E.capR > 0 && E.Er >= 0.5 * E.capR, () => `solar farms on half the land they may cover (${(E.Er / 1e12).toFixed(0)} TW, ${(100 * this.solarShare()).toFixed(0)}% of the land)`);
       once('cap', E.Eu + E.Ef >= 0.9 * E.capU, () => `fossil carbon and fusion near Earth's heat budget (${(E.capU / AREA_M2).toFixed(1)} W/m², ${(E.capU / AREA_M2 / P.B_EBM).toFixed(1)} K before feedbacks)`);
       once('space', E.Es > E.Ef + E.Er + E.Eu && E.Es > 1e11, () => `off-world energy passes Earth's (${(E.Es / 1e12).toFixed(0)} TW)`);
+      // The swarm's material, and the probes it sends.
+      const ms = this.minedShares(), share = (E.Es || 0) / P.L_SUN;
+      once('belt', ms.belt > 0.9, () => `the belt is nine-tenths mined (the swarm ${(100 * share).toPrecision(2)}% of the Sun)`);
+      once('mercury', ms.merc > 0.01, () => `Mercury is taken apart for the swarm (${(100 * share).toPrecision(2)}% of the Sun)`);
+      once('mercuryGone', ms.merc > 0.99, () => `Mercury is gone (the swarm ${(100 * share).toPrecision(2)}% of the Sun, ${this.space > 0 ? `${(this.space / 1e9).toPrecision(3)} billion people off-world` : 'no people off-world'})`);
+      if (this.probeT === null && share >= P.F_PROBE) { this.probeT = this.t; this.event('stars', `probes leave for the stars at ${P.V_PROBE}c (the swarm ${(100 * share).toPrecision(2)}% of the Sun)`); }
       once('disempowered', this.dis > 0.5, () => `people hold less than half the control (${(earth / 1e9).toFixed(2)} billion people)`);
       once('fossil', E.S <= 1e-6, () => `the fossil carbon is spent (${this.emitted.toFixed(0)} Pg C)`);
       F.peakCO2 = Math.max(F.peakCO2 || 0, this.co2);
@@ -1908,12 +2070,13 @@ export class People {
     once('runaway', this.env.live ? this.boiled > 0 : this.Ft > P.F_RUN, () => `the runaway greenhouse: forcing ${this.Ft.toFixed(0)} W/m² (the oceans begin to boil away)`);
     once('boiled', this.boiled > 0.99, () => `the oceans are gone`);
     once('exodus', this.space > earth && this.space > 1e6, () => `more people off-world than on Earth (${(this.space / 1e9).toFixed(2)} billion)`);
+    once('trillion', this.space > 1e12, () => `a trillion people off-world (growth ${(100 * this.fert).toFixed(2)}%/yr past replacement)`);
     once('emptied', F.present && earth < 1e4, () => `Earth is empty of people (${(this.space / 1e9).toFixed(2)} billion off-world)`);
     once('extinct', F.present && people < 1e4, () => `the last people die`);
     const h = this.history;
     h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
       Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
-      energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
+      energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, fert: this.fert, room: this.room, hab: this.hab, mined: this.mined, flow: this.flow, ApE: E.ApE || 0, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
       soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0, lineages: live.length });
     // The dial runs out where the minds double in under a day over the last few steps (one step's
     // blip isn't it); for T_FINE years after, a step is at most a year, so the ending resolves.
@@ -1969,8 +2132,9 @@ export class People {
    * law the outcome), and cities follow their catchments over T_CITY, so they persist where they
    * began. A cell's drawn people are its rural ones and its city's. Industry's footprint follows its
    * workers (the drawn people × industry's share) over T_MACH while Earth has people, and holds when
-   * it has none; factories, datacenters and the robots at work are the world's on Earth (its share
-   * of the energy) spread over it: datacenters toward the cities, robots onto the farms too.
+   * it has none; factories and datacenters are the world's on Earth (its share of the energy) spread
+   * over it, datacenters toward the cities; Earth's robots (earthBots) over it too, onto the farms and
+   * into the cities.
    */
   places() {
     const P = this.P, H = this.H, nL = this.nL, E = this.E, g = this.planet.grid;
@@ -2071,21 +2235,21 @@ export class People {
       const earth = E.Ef + E.Er + E.Eu, sE = earth > 0 ? earth / (earth + (E.Es || 0)) : 0, run = E.run || { c: 1, r: 1, q: 1 };
       Wf = Math.max(0, (E.sup || 0) + (E.EfoodGot || 0) + (E.EcdrGot || 0) - (E.Ecomp || 0)) * sE;
       Wd = P.W_C * (E.Kc * run.c + E.Kq * run.q) * sE;
-      Rb = (E.Ap || 0) * sE;   // the robots' physical work in worker-equivalents (the bodies the AI drives: idle bodies past it aren't at work)
+      Rb = E.ApE ?? (E.Ap || 0) * sE;   // Earth's robots at work in worker-equivalents (earthBots: the bodies the AI drives on Earth; idle bodies past it aren't at work)
     }
-    // Weights: the footprint, toward the cities for datacenters and onto the farms for robots, and a
+    // Weights: the footprint, toward the cities for datacenters and onto the farms and into the cities for robots, and a
     // floor on the machines' land: living land people have reached, and land the people's cells don't
     // hold (a9: factories had stood on a continent no one had reached). Solar farms are the model's
     // (People.placeSolar).
     const X = this.X, nX = X.cells.length;
-    let Aal = 0, sd = 0, sr = 0, sf = 0;
-    for (let c = 0; c < nL; c++) if (H.alive[c] && this.reached[c]) { Aal += A[c]; sf += this.f[c] * A[c]; }
+    let Aal = 0, sd = 0, sr = 0, sf = 0, sc = 0;
+    for (let c = 0; c < nL; c++) { if (H.alive[c] && this.reached[c]) { Aal += A[c]; sf += this.f[c] * A[c]; } sc += S[c]; }
     for (let k = 0; k < nX; k++) Aal += X.area[k];
     const wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
       const people = (1 - u[c]) * this.Ntot[c] + S[c];
       wd[c] = m[c] * (1 + 4 * S[c] / Math.max(people, 1)); sd += wd[c];
-      wr[c] = m[c] + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0); sr += wr[c];
+      wr[c] = m[c] + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0) + (sc > 0 ? 0.3 * S[c] / sc : 0); sr += wr[c];
     }
     // The floor: MACH_FLOOR of the machines spread evenly over their land, or as much as they'd need
     // of all of it at their densities (a spent Earth's heat budget, ~500 PW, is more than factories

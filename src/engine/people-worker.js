@@ -20,7 +20,7 @@ import { figureOf } from './peoplefit.js';
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
 let grid = null, people = null, port = null, params = {}, owed = 0, lastStep = 0, timer = 0;
-let lastPost = 0, lastDrawn = 0, lastBack = 0, lastFig = 0, eventsSent = 0, msPerStep = 5, dtLast = 1;
+let lastPost = 0, lastDrawn = 0, lastBack = 0, lastFig = 0, eventsSent = 0, msPerStep = 5, dtLast = 1, trail = 0;
 // The planet's side: its CO₂, how much of the sea has boiled (src/engine/runaway.js), and its warming since the people began.
 const env = { live: true, pco2: 280, bank: 0, boiled: 0, years: 0, meanT: null, T0: null, get dT() { return this.meanT === null ? 0 : this.meanT - this.T0; },
   co2() { return this.pco2; }, emit(PgC) { this.bank += PgC; }, soil() {} };
@@ -97,14 +97,17 @@ function post(force) {
   // To the engine: the write-back.
   if (force || now - lastBack > 100) {
     lastBack = now;
-    // The forcing: waste heat and a preserving AI's sprayed sulfate global (F), coal's sulfate (aerC,
-    // its global mean) carried by the planet's winds from where it's lifted (x).
-    const wb = people.writeBack(), Fo = people.forcing, F = Fo.heat + Fo.geo, aerC = Fo.aer - Fo.geo;
+    // The forcing: waste heat, a preserving AI's sprayed sulfate and a sacrificing swarm's shade
+    // global (F), coal's sulfate (aerC, its global mean) carried by the planet's winds from where it's lifted (x).
+    const wb = people.writeBack(), Fo = people.forcing, F = Fo.heat + Fo.geo + (Fo.shade || 0), aerC = Fo.aer - Fo.geo;
     port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, x: wb.x, carbon: env.bank, F, aerC }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer, wb.x.buffer]);
     env.bank = 0;
   }
-  // To the page: the clock, the record's last row, the events.
-  if (force || now - lastPost > 100) {
+  // To the page: the clock, the record's last row, the events; one skipped is sent once its 100 ms
+  // are up (the page holds its clock while the people are owed years, and sends none meanwhile: a
+  // last step's report skipped had left both waiting for good).
+  if (!force && now - lastPost <= 100) { if (!trail) trail = setTimeout(() => { trail = 0; post(false); }, 101 - (now - lastPost)); }
+  else {
     lastPost = now;
     const h = people.history, last = h.length ? h[h.length - 1] : null, E = people.econ;
     const ev = people.events.slice(eventsSent); eventsSent = people.events.length;
@@ -123,7 +126,10 @@ function post(force) {
       // the power to food and to capture (and the carbon it takes back, Pg C/yr), AI's research minds,
       // compute's and the working robots' power.
       econ: E.on && E.flows ? { flows: { ...E.flows }, Lh: E.Lh, bodies: E.bodies, grade: E.grade, food: E.EfoodGot || 0, cdr: E.EcdrGot || 0,
-        Ar: E.AIr, Wc: people.P.W_C * (E.Kc + E.Kq), Wr: people.P.W_R * E.Ap, cdrPg: (E.EcdrGot || 0) * 3.15576e7 / people.P.J_CDR } : null,
+        Ar: E.AIr, Wc: people.P.W_C * (E.Kc + E.Kq), Wr: people.P.W_R * E.Ap, cdrPg: (E.EcdrGot || 0) * 3.15576e7 / people.P.J_CDR, aA: E.aA || 0, ApE: E.ApE ?? E.Ap } : null,
+      // Off-world (Fig. 9, the sky): where its people live, the mass mined (the belt's and Mercury's
+      // shares, kg a year), the room, the growth past replacement, and the probes.
+      off: { worlds: people.offworld(), ...people.minedShares(), flow: people.flow, mined: people.mined, room: people.room, fert: people.fert, stars: people.stars() },
     });
   }
   // Fig. 8 (the hyperbola and the lineages), once a second: ~5 ms of fitting on a thinned record.

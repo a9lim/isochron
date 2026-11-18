@@ -9,7 +9,9 @@
 // The land holds the economy's endowments: its plants, fossil carbon and ores (the fossil and ore
 // maps), and the sunlight surface solar is capped by. Every energy source is plant built from
 // output (output → energy, the share invested); the land gives fossil carbon's and solar's power,
-// space its sunlight's, and fusion needs nothing but the plant. Fixed capital is output kept, a
+// space its sunlight's, and fusion needs nothing but the plant. Space also gives materials: the
+// asteroids' share of what building takes, and the mass the swarm and the habitats are built of
+// (the belt's, then Mercury's). Fixed capital is output kept, a
 // loop on output (the share reinvested). Burning sends carbon (net of what capture takes back) and
 // coal's sulfate into the air; waste heat (fossil carbon's and fusion's) goes straight to the climate.
 
@@ -25,8 +27,10 @@ const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 export const g2 = v => (v >= 99.5 ? Math.round(v).toLocaleString('en') : v.toPrecision(2));
 export const sci = v => { const k = Math.floor(Math.log10(v)); return `${(v / 10 ** k).toFixed(1)} × 10${String(k).split('').map(c => SUP[c]).join('')}`; };
 export const watts = v => (v >= 1e18 ? `${sci(v)} W` : v >= 1e15 ? `${g2(v / 1e15)} PW` : v >= 1e12 ? `${g2(v / 1e12)} TW` : v >= 1e9 ? `${g2(v / 1e9)} GW` : `${Math.round(v / 1e6)} MW`);
-const count = v => (v >= 1e15 ? sci(v) : v >= 1e12 ? `${g2(v / 1e12)} trillion` : v >= 1e9 ? `${(v / 1e9).toPrecision(3)} billion` : v >= 1e6 ? `${(v / 1e6).toPrecision(3)} million` : Math.round(+v.toPrecision(2)).toLocaleString('en'));
+export const count = v => (v >= 1e15 ? sci(v) : v >= 1e12 ? `${g2(v / 1e12)} trillion` : v >= 1e9 ? `${(v / 1e9).toPrecision(3)} billion` : v >= 1e6 ? `${(v / 1e6).toPrecision(3)} million` : Math.round(+v.toPrecision(2)).toLocaleString('en'));
 const pc = v => `${v < 0.095 ? (100 * v).toFixed(1) : Math.round(100 * v)}%`;
+/** A mass a year from kg: "40 Mt/yr", "3.1 × 10¹⁸ t/yr". */
+export const tonnes = kg => { const t = kg / 1000; return t >= 1e15 ? `${sci(t)} t/yr` : t >= 1e12 ? `${g2(t / 1e12)} Tt/yr` : t >= 1e9 ? `${g2(t / 1e9)} Gt/yr` : `${g2(Math.max(t, 1) / 1e6)} Mt/yr`; };
 const Wm = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(Math.abs(v) < 0.1 ? 2 : 1)} W/m²`;
 
 /**
@@ -43,6 +47,11 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   const co2F = 5.35 * Math.log(pco2 / pco20), airF = co2F + m.forcing.aer, heat = m.forcing.heat || 0;
   const net = h.Ef * 3.15576e7 / 4e19 - (E ? E.cdrPg || 0 : 0), share = v => (allE > 0 ? v / allE : 0), inv = k => (Y > 0 ? (fl[k] || 0) / Y : 0);
   const income = h.O / Math.max(h.earth, 1), ground = h.Ef + h.Er;
+  // Off-world: the swarm's share of the Sun, the mass mined a year and from where, the asteroids'
+  // share of building's materials, and Earth's robots against all of them.
+  const off = m.off || {}, sunShare = m.sun ? (m.Es || h.Es || 0) / m.sun : 0, flow = off.flow || 0, aA = E ? E.aA || 0 : 0;
+  const mined = flow >= 1e9 || aA >= 0.01, fromMerc = (off.merc || 0) > 0.005 && (off.belt || 0) > 0.9;
+  const ApE = E && E.ApE != null ? E.ApE : h.Ap;
   return {
     values: {
       climate: `${meanT.toFixed(1)} °C`, land: `NPP ${Math.round(npp)} Pg/yr`,
@@ -53,9 +62,9 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       air: ind ? `${Math.round(pco2)} ppm` : null,
       output: ind ? (h.earth >= 1e3 ? `income ${income >= 1e6 ? sci(income) : g2(income)}×` : `${sci(Y)} sy/yr`) : null,
       energy: ind ? watts(allE) : null,
-      space: ind && (h.Es >= 1e9 || h.space >= 1e3) ? (h.Es >= 1e9 ? watts(h.Es) : count(h.space)) : null,
+      space: ind && (h.Es >= 1e9 || h.space >= 1e3) ? (sunShare >= 1e-3 ? `${pc(sunShare)} of the Sun` : h.Es >= 1e9 ? watts(h.Es) : count(h.space)) : null,
       compute: ai ? count(h.AI) : null,
-      robots: bots ? (work ? count(h.Ap) : `${count(E.bodies)} idle`) : null,
+      robots: bots ? (work ? (ApE < 0.99 * h.Ap ? `${count(h.Ap)}, ${count(ApE)} on Earth` : count(h.Ap)) : `${count(E.bodies)} idle`) : null,
     },
     // Misaligned, AI's nodes are drawn in the red.
     red: m.ending && !m.ending.aligned ? { compute: true, robots: true } : {},
@@ -80,7 +89,10 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'robots', to: 'output', w: h.Ap / Math.max(1, h.Ap + 0.5 * (E ? E.Lh : 0)), bend: 0.1, on: work },
       { from: 'energy', to: 'output', w: 0.5, bend: 0.12 },
       { from: 'culture', to: 'output', w: 0.3, bend: 0.1 },
-      { from: 'land', to: 'output', w: 0.2 + 0.6 * (1 - (E ? E.grade : 1)), label: `ores ${E ? E.grade.toFixed(2) : ''}`, bend: -0.12, on: ind },
+      { from: 'land', to: 'output', w: (0.2 + 0.6 * (1 - (E ? E.grade : 1))) * (1 - aA), label: `ores ${E ? E.grade.toFixed(2) : ''}`, bend: -0.12, on: ind && aA < 0.99 },
+      // Space's materials: the mass mined for the swarm and the habitats (by log, a megatonne to
+      // 10¹⁸ t a year), or while that's little, the asteroids' share of building's.
+      { from: 'space', to: 'output', w: Math.max(0.8 * aA, flow > 0 ? Math.min(1, Math.max(0, Math.log10(flow / 1e9) / 12)) : 0), label: flow >= 1e9 ? `${fromMerc ? 'Mercury' : 'asteroids'} ${tonnes(flow)}` : `asteroids ${pc(aA)}`, bend: 0.15, on: ind && mined },
       { from: 'output', to: 'people', w: 0.3, label: 'goods', bend: 0.1 },
       { from: 'output', to: 'energy', w: inv('e') / 0.08, label: pc(inv('e')), bend: 0.12, on: inv('e') >= 5e-4 },
       { from: 'output', to: 'compute', w: (inv('c') + inv('q')) / 0.08, label: pc(inv('c') + inv('q')), bend: 0.12, on: inv('c') + inv('q') >= 5e-4 },

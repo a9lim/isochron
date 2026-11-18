@@ -52,12 +52,12 @@ src/grid/         icosphere.js (the geodesic grid, gradients, Laplacian), transf
 src/engine/       the model, no DOM: one file per layer (plates, crust, genesis, earth, plumes, polarity, gpts, landscape,
                   regolith, crustflex, flexure, ice, climate, clouds, airheat, seaheat, ocean, orbit, year, volcanoes, soil,
                   ground, lakes, carbon, oceancarbon, vegetation, life, dust, aeolian, pulse, tides, runaway, people,
-                  peoplelink, peoplefit), planet.js (every layer stepped together), record.js, refine.js, mirror.js, and the
+                  peoplelink, peoplefit, worlds), planet.js (every layer stepped together), record.js, refine.js, mirror.js, and the
                   threads (worker.js, people-worker.js)
 src/gpu/          device.js, hierarchy.js (nested grids for multigrid), and each layer's GPU path (ebm, moisture, dust,
                   ice, flexure, tides, soil, plates, surface, weather, season, refine)
 src/render/       camera, globe (and its shader), surface, lines, along, overlay, rivers, streamlines, chart (+ chart-worker),
-                  figures, economy, key, sky
+                  figures, economy, system (Fig. 9), key, sky
 tests/            node:test files, one per layer or coupling, GPU parity tests on Dawn (webgpu-node.mjs), gpu.html
 tools/            headless runs, surveys and fits; tools/earth/ (Earth's data and scoring), tools/people/
 docs/             the docs above

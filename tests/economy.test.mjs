@@ -2,7 +2,7 @@
 // number, and each part comes with its era.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ECONOMY, economyOf, economyCaption, watts } from '../src/render/economy.js';
+import { ECONOMY, economyOf, economyCaption, watts, tonnes } from '../src/render/economy.js';
 
 const row = o => ({ people: 1e6, minds: 8e5, O: 1e6, food: 1e6, zmax: 0.5, farm: 0, Y: 0, Kf: 0, AI: 0, Ap: 0, Ef: 0, Er: 0, Eu: 0, Es: 0,
   earth: 1e6, space: 0, fossil: 5000, soil: 0, ...o });
@@ -66,4 +66,20 @@ test('watts names its unit without exponents below an exawatt', () => {
   assert.equal(watts(4.7e14), '470 TW');
   assert.equal(watts(5.8e15), '5.8 PW');
   assert.equal(watts(1.5e19), '1.5 × 10¹⁹ W');
+});
+
+test('space gives materials: the asteroids\' share, then the mass mined; the swarm reads as its share of the Sun; Earth keeps its robots', () => {
+  const late = (off, o = {}) => report(row({ Y: 1e20, Kf: 1e20, Er: 0, Eu: 5e13, Es: 3e25, AI: 1e25, Ap: 1e18, earth: 1e10, space: 1e15, ...o }), { packages: 2, sA: 1, flags: { industry: true, present: true },
+    econ: econ({ bodies: 1e18, Ar: 1e20, aA: 1, ApE: 1.4e9 }), ending: { aligned: true, preserve: true }, sun: 3.83e26, Es: 3e25, off });
+  let fig = economyOf({ m: late({ flow: 4e12, belt: 0.3, merc: 0 }), ...planet });
+  check(fig);
+  const arrow = f => f.edges.find(e => e.from === 'space' && e.to === 'output' && e.on !== false);
+  assert.equal(arrow(fig).label, 'asteroids 4.0 Gt/yr');
+  assert.ok(!fig.edges.some(e => e.from === 'land' && e.to === 'output' && e.on !== false), 'the crust\'s ores give way to them');
+  assert.equal(fig.values.space, '7.8% of the Sun');
+  assert.equal(fig.values.robots, '1.0 × 10¹⁸, 1.40 billion on Earth');
+  fig = economyOf({ m: late({ flow: 3e21, belt: 1, merc: 0.4 }), ...planet });
+  assert.equal(arrow(fig).label, 'Mercury 3.0 × 10¹⁸ t/yr');
+  assert.ok(arrow(fig).w > 0.9, 'heavy at Mercury\'s rate');
+  assert.equal(tonnes(4e10), '40 Mt/yr');
 });

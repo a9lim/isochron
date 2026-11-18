@@ -67,7 +67,8 @@
 // grey terra incognita where they haven't, a hairline at the frontier. Density:
 // a chart's base with the ice sheets under people as a tint in the accent by log
 // density (~0.003 to ~4,000 a km², rural and in cities: People.places) and
-// robots at work as a verdigris tint over it. On both, the land's uses on the
+// robots at work as a verdigris tint over it. On both, robots at work as a
+// verdigris stipple, denser where there are more; and the land's uses on the
 // mosaic's tesserae, each tessera one use by its cell's shares (exclusive) at a
 // rank fixed to the globe (landRank, so a use stays put through the zoom), in
 // two patterns of two colours each: blocks for residences (cities in the accent,
@@ -648,7 +649,7 @@ fn hair(d: f32, w: f32) -> f32 {
       // Robots at work (worker-equivalents a km², ~1 to ~3,000 by log): verdigris over the people, so a
       // few million robots near the cities barely show and billions over the land do.
       let rlog = log(max(i.pq.z, 1e-12)) / 2.302585;
-      pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
+      pland = mix(pland, u.inkD.rgb, select(0.3, 0.35, dark) * smoothstep(0.0, 3.5, rlog));
     } else {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
     }
@@ -674,6 +675,11 @@ fn hair(d: f32, w: f32) -> f32 {
     } else if (rank < c5) {
       pland = mix(pland, u.inkE.rgb, 0.12 + 0.6 * furrows);
     }
+    // Robots at work (Earth's: worker-equivalents a km²) as a verdigris stipple over the uses, in
+    // both maps (pattern before hue): 14 px apart at ~1 a km² to 3.6 px at ~3,000, by log.
+    let rbl = log(max(i.pq.z, 1e-12)) / 2.302585;
+    let rDots = stipple(T, mix(14.0, 3.6, smoothstep(0.0, 3.5, rbl)) * u.mode.z, 0.8 * u.mode.z) * smoothstep(-0.5, 0.0, rbl);
+    pland = mix(pland, u.inkD.rgb, 0.85 * rDots);
   }
   // Nothing stands on a lake, open or frozen: the lakes over the uses, as the Relief view draws them
   // where people have reached (Settlement) and in the chart's water everywhere (Density), with their

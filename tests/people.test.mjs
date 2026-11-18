@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES } from '../src/engine/people.js';
+import { People, PEOPLE, WORLDS, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES, earthBots, fertility, migration } from '../src/engine/people.js';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -303,4 +303,63 @@ test('crops: leached soil lies fallow, the floodplain is cropped every year', ()
   const s = H.sfp[wet];
   assert.ok(Math.abs(s - Math.min(P.FP_MAX, P.W_FP * Math.sqrt(2e4) / Math.sqrt(H.area[wet]))) < 1e-9 && s > 0.1, `floodplain ${s.toFixed(3)}`);
   assert.ok(Math.abs(p.cropped(wet) - (s * H.phiFP[wet] + (0.5 - s) * H.phi[wet])) < 1e-9, 'the floodplain first, then the uplands');
+});
+
+test('heritable fertility: growth past replacement rises at V where room is slack, toward the frontier\'s, exactly at any step', () => {
+  const P = PEOPLE, R = P.R_FRONT, V = P.V_FERT;
+  // Fisher's theorem at the start: the rate rises at the additive variance.
+  assert.ok(Math.abs(fertility(0, 1, 1e-3, P) / 1e-3 / V - 1) < 1e-3, 'dr/dt = V at r = 0');
+  // r(t) = R (1 − e^{−V t/R}); one step or a thousand.
+  let r = 0;
+  for (let k = 0; k < 1000; k++) r = fertility(r, 1, 0.3, P);
+  const exact = R * (1 - Math.exp(-V * 300 / R));
+  assert.ok(Math.abs(r / exact - 1) < 1e-9 && Math.abs(fertility(0, 1, 300, P) / exact - 1) < 1e-12, `${r} against ${exact}`);
+  assert.ok(Math.abs(fertility(0.01, 0, 100, P) - 0.01) < 1e-15, 'no slack, no selection');
+});
+
+test('migration: out as far as there is room off-world, back as far as Earth has room', () => {
+  const P = PEOPLE;
+  // A whole Earth with a crowded frontier: Earth refills to its room, and no further.
+  const N = 9e9, S = 1e15, RE = 1e10;
+  const m = migration(N, S, 2e15, RE, 1, 1, 10, P);
+  assert.ok(m < 0 && Math.abs(N - m - RE) < 1, `back to Earth's room (${(N - m).toExponential(4)} against ${RE})`);
+  // No room off-world and none on Earth: no one moves.
+  assert.equal(migration(9e9, 1e12, 1e12, 9e9, 1, 1, 10, P), 0);
+  // A failing Earth empties as fast as R_MIG, with room.
+  const f = migration(1e10, 0, 1e20, 0, 1, 0, 1, P);
+  assert.ok(Math.abs(f / (1e10 * (1 - Math.exp(-(P.R_VOL + P.R_MIG)))) - 1) < 1e-12, 'out at R_VOL + R_MIG when Earth fails');
+});
+
+test('Earth\'s robots: all of them before space opens; past it, the work its own economy needs, or its energy\'s share if more', () => {
+  const P = PEOPLE, Lh = 3e9;
+  assert.equal(earthBots(1e8, Lh, 0.01, 0, P), 1e8, 'nothing off-world before it opens');
+  assert.equal(earthBots(1e8, Lh, 0.01, 1, P), 1e8, 'fewer than Earth\'s physical jobs: all on Earth');
+  const pres = earthBots(1e18, Lh, 1e-12, 1, P);
+  assert.ok(Math.abs(pres / (P.PHI * Lh) - 1) < 1e-6, `a preserved Earth keeps Φ Lh (${pres.toExponential(3)})`);
+  const sac = earthBots(1e18, Lh, 1e-6, 1, P);
+  assert.ok(Math.abs(sac / 1e12 - 1) < 1e-3, `a sacrificed Earth's industry its share of the energy (${sac.toExponential(3)})`);
+});
+
+test('the swarm is as large as its material, and the mined mass goes the belt first, then Mercury', () => {
+  const P = PEOPLE, mu = P.SIGMA_SW / P.S_AU;
+  assert.ok(Math.abs(mu * P.L_SUN / 2.8e23 - 1) < 0.02, `the whole Sun takes ~2.8e23 kg (${(mu * P.L_SUN).toExponential(2)})`);
+  assert.ok(Math.abs(P.M_BELT / mu / P.L_SUN - 0.0085) < 0.001, 'the belt alone, under 1% of the Sun');
+  const p = new People(uniformPlanet(3), quiet), E = p.econ;
+  const cap = p.swarmRoom();
+  assert.ok(cap < P.L_SUN && cap > 0.85 * P.L_SUN, `with Mercury, most of the Sun (${(cap / P.L_SUN).toFixed(3)})`);
+  // Mass standing: the collectors and the habitats; mined is the most that has ever stood.
+  p.offBots = 1e20; p.space = 1e16; E.cs = 1e24; E.ApS = 1e20;
+  p.massBooks(E, 1);
+  const surf = p.worldRooms().surf, hab = p.space - softMin(p.space, surf, 4);
+  assert.ok(Math.abs(p.mined / (mu * 1e24 + (P.M_HAB + mu * P.W_HAB) * hab) - 1) < 1e-12, 'collectors and habitats');
+  const m1 = p.minedShares();
+  assert.ok(m1.belt > 0.99 && m1.merc > 0 && m1.merc < 0.05, `the belt first (${m1.belt.toFixed(3)}, Mercury ${m1.merc.toFixed(4)})`);
+  E.cs = 1e23; p.massBooks(E, 1);
+  assert.ok(p.flow === 0 && p.minedShares().merc === m1.merc, 'a collector taken down is reused, not returned');
+  // Where off-world people live sums to them; the probes' light comes back at d/v + d/c.
+  const off = p.offworld(), sum = Object.values(off).reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(sum / p.space - 1) < 1e-12 && off.habitats > 0 && WORLDS.every(w => off[w.k] > 0), 'every world and the habitats');
+  p.probeT = p.t - 900;
+  const st = p.stars();
+  assert.ok(Math.abs(st.reach - 450) < 1e-9 && Math.abs(st.seen - 300) < 1e-9 && Math.abs(st.n / (P.N_STAR * 4 / 3 * Math.PI * 450 ** 3) - 1) < 1e-12, `${JSON.stringify(st)}`);
 });

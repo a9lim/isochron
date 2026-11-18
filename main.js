@@ -29,13 +29,14 @@ import { Scheduler, formatRate, formatTime } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
 import { drawOverlay, placeLine, capOf, capFaces, matchLines, link, lakeAlong } from './src/render/overlay.js';
-import { makeStars, ecliptic, moonFace } from './src/render/sky.js';
+import { makeStars, starDistances, ecliptic, moonFace } from './src/render/sky.js';
 import { stream } from './src/rng.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
 import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
-import { ECONOMY, economyOf, economyCaption } from './src/render/economy.js';
+import { ECONOMY, economyOf, economyCaption, count } from './src/render/economy.js';
+import { systemOf, systemCaption, drawSystem } from './src/render/system.js';
 import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
@@ -73,6 +74,7 @@ const els = {
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
   figModel: $('fig-model'), capModel: $('cap-model'), figPeople: $('fig-people'), capPeople: $('cap-people'),
+  figSystem: $('fig-system'), capSystem: $('cap-system'), figSystemWrap: $('fig-system-wrap'),
 };
 
 // ── The planet ──
@@ -107,7 +109,7 @@ let tide = null;
 // The sky's clock: the planet's sidereal angle θ and the Moon's longitude, advanced with the
 // planet's clock; the tide's phases follow from them (its bulge sits under the Moon).
 const skyClock = { years: null, theta: 0, lamM: 0, thetaShown: 0 };
-const stars = makeStars(seed);
+const stars = makeStars(seed), starDist = starDistances(seed, stars);
 // The Moon's face (today's Earth's near side, or basins seeded with the planet) and the Sun's cycle's
 // phase at year 0 (today's Earth's: cycle 25 just past its maximum in 2025, from memory; else seeded).
 const moonFaceOf = moonFace(seed, isEarth(seed)), solarPhase = isEarth(seed) ? 0.5 : stream(seed, 'sun').uniform();
@@ -361,13 +363,24 @@ function riverMonth() {
   if (seasonShown() < 0.5) return null;
   return { ...monthAt(((P.years % 1) + 1) % 1), aw: anomalyShown() };
 }
-/** The Moon's city's uses as far as each has grown (0–1, log): residences by the people off-world, datacenters by off-world compute's power, factories by the rest of off-world power. */
+const lg01 = (v, a, b) => Math.max(0, Math.min(1, (Math.log10(Math.max(v, 1)) - a) / (b - a)));
+/** The Moon's city's uses as far as each has grown (0–1, log): residences by the Moon's people (to its surface's ~1.5 × 10¹¹), datacenters by off-world compute's power, factories by the rest of off-world power. */
 function moonbase() {
   const m = people.msg;
   if (!m || !m.last) return [0, 0, 0];
-  const lg = (v, a, b) => Math.max(0, Math.min(1, (Math.log10(Math.max(v, 1)) - a) / (b - a)));
   const allE = m.last.energy || 0, Wc = m.econ ? m.econ.Wc : 0, Es = m.Es || 0, cs = allE > 0 ? Math.min(1, Wc / allE) : 0;
-  return [lg(m.space, 3, 10), lg(Es * cs, 10, 20), lg(Es * (1 - cs), 11, 21)];
+  return [lg01(m.off ? m.off.worlds.moon : m.space, 3, 11), lg01(Es * cs, 10, 20), lg01(Es * (1 - cs), 11, 21)];
+}
+/** The off-world sky: the swarm's shade (sacrificed endings), the L4 and L5 habitats either side of the Moon, the stars whose settlement's light is back. */
+function offSky(lamM, eps) {
+  const m = people.msg, end = m && m.ending;
+  if (!m || !m.off) return {};
+  const st = m.off.stars, sw = m.sun ? (m.Es || 0) / m.sun : 0;
+  return {
+    shade: end && !end.preserve ? sw : 0,
+    l45: { n: lg01(m.off.worlds.l45, 3, 11), dirs: [ecliptic(lamM + Math.PI / 3, eps), ecliptic(lamM - Math.PI / 3, eps)] },
+    lit: st && st.seen > 0 ? { seen: st.seen, aligned: !!(end && end.aligned) } : null,
+  };
 }
 function skyFrame() {
   const y = P.years, YR = 3.15576e7, lr = Math.log10(rate());
@@ -389,7 +402,7 @@ function skyFrame() {
   return {
     tides: { m: [Math.cos(m2) + rho * Math.cos(s2), Math.sin(m2) + rho * Math.sin(s2)], hw: [Math.cos(m2), Math.sin(m2)], amp: tide ? amp : 0, now },
     sky: { stars, theta: skyClock.thetaShown, sun, sunAlpha: 1 - smooth(-0.6, -0.2, lr), moon: mo, moonAlpha: 1 - smooth(-1.75, -1.3, lr), moonDist: moon.a,
-      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase(), years: y, eps, solarPhase, face: moonFaceOf },
+      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase(), years: y, eps, solarPhase, face: moonFaceOf, starDist, ...offSky(skyClock.lamM, eps) },
   };
 }
 function uploadSurface(m, mode) {
@@ -778,7 +791,7 @@ function caption(force) {
 }
 
 /** "3.2 billion", "41 million", "12,000". */
-const headcount = v => (v >= 1e9 ? `${(v / 1e9).toPrecision(3)} billion` : v >= 1e6 ? `${(v / 1e6).toPrecision(3)} million` : Math.round(+v.toPrecision(2)).toLocaleString('en'));
+const headcount = v => (v >= 1e12 ? count(v) : v >= 1e9 ? `${(v / 1e9).toPrecision(3)} billion` : v >= 1e6 ? `${(v / 1e6).toPrecision(3)} million` : Math.round(+v.toPrecision(2)).toLocaleString('en'));
 /** "3.2 Myr", "41 kyr", "530 yr", "6.1 days", "3.0 h". */
 function span(y) {
   const a = Math.abs(y);
@@ -970,6 +983,13 @@ function figures(force) {
     const left = fg ? fg.tStar - fg.now : 0;
     els.capPeople.textContent = !fg ? 'The people' : `The people · t* ${left > 0 ? `in ${span(left)}` : `${span(-left)} ago`}` +
       (fit ? ` · ${fg.which === 'minds' ? "minds'" : "people's"} exponent ${fit.p.toFixed(2)}, R² ${fit.r2.toFixed(2)} (an exponential's ${fit.r2exp.toFixed(2)})` : '') + ` · ${n} ${n === 1 ? 'lineage' : 'lineages'}`;
+  }
+  // Fig. 9 once anything is off-world.
+  const sys = peopleModel() ? systemOf(people.msg) : null;
+  if (els.figSystemWrap.hidden !== !sys) els.figSystemWrap.hidden = !sys;
+  if (sys && visible(els.figSystem)) {
+    drawSystem(els.figSystem, sys, pal);
+    els.capSystem.textContent = systemCaption(sys);
   }
   if (visible(els.figPol)) {
     drawPolarity(els.figPol, polarity, tec.t, pal);

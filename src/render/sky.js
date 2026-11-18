@@ -21,8 +21,15 @@
 //           the planet, gathered on the near side as the Moon's are
 //   swarm   the people's collectors round the Sun (the People scenario's
 //           industry off-world): graphite points on seeded orbits, as many as
-//           the share of the Sun's output they take (to a tenth), the disc
-//           dimmed by it
+//           the share of the Sun's output they take (by its square root, to the
+//           whole Sun), the disc dimmed by it only where Earth is sacrificed (a
+//           preserving swarm keeps out of Earth's light)
+//   L4, L5  the habitats at the Earth–Moon system's Lagrange points, 60° ahead
+//           of the Moon and behind it on its orbit: accent points about each,
+//           as many as their people (10³ to 10¹¹, log)
+//   stars   settled: lit in the accent (in the robots' verdigris where AI is
+//           misaligned) once the light of a settlement there could be back,
+//           each star at a seeded distance (`starDistances`)
 //   base    the people's city on the Moon, spreading from one site on its near
 //           side (north up, by the planet's pole), in the globe's patterns for
 //           its uses, interleaved: residences (the accent's blocks) as far as the
@@ -46,6 +53,16 @@ export function makeStars(seed, count = 800) {
   return out;
 }
 
+/**
+ * The stars' distances (light-years), seeded as a naked-eye sky's are: a few light-years to a couple
+ * of thousand, most of them hundreds (from memory), the brighter nearer.
+ */
+export function starDistances(seed, stars) {
+  const r = stream(seed, 'stars:distance'), n = stars.length / 4, out = new Float32Array(n);
+  for (let k = 0; k < n; k++) out[k] = 4.2 * Math.pow(2500 / 4.2, Math.sqrt(r.uniform()) * (1 - 0.4 * stars[4 * k + 3]));
+  return out;
+}
+
 /** An ecliptic longitude's direction in the equatorial frame, at obliquity ε. */
 export function ecliptic(lam, eps) {
   return [Math.cos(lam), Math.sin(lam) * Math.cos(eps), Math.sin(lam) * Math.sin(eps)];
@@ -55,6 +72,9 @@ const SUN_R = 6.957e8, AU = 1.496e11, MOON_R = 1.7374e6, BIG = 5;
 // The swarm's collectors: seeded orbits about the Sun (radius in the disc's, and phase), the first
 // ones drawn as the share taken grows (by its square root, so the first percent shows).
 const SWARM = (() => { const r = stream('swarm', 'orbits'), a = new Float32Array(3 * 900); for (let k = 0; k < 900; k++) { a[3 * k] = 1.25 + 1.6 * r.uniform() ** 0.7; a[3 * k + 1] = 2 * Math.PI * r.uniform(); a[3 * k + 2] = 0.25 + 0.75 * r.uniform(); } return a; })();
+
+// The L4 and L5 habitats: seeded offsets about each point (in the Moon's disc radii), nearest first.
+const L45 = (() => { const r = stream('moon', 'l45'), a = []; for (let k = 0; k < 120; k++) { const rr = 2.2 * Math.sqrt(r.uniform()), t = 2 * Math.PI * r.uniform(); a.push([rr * Math.cos(t), 0.6 * rr * Math.sin(t), rr]); } return a.sort((x, y) => x[2] - y[2]); })();
 
 // The Moon's city: seeded points about one site on the near side (in the disc's units, north up),
 // nearest first, each given one use (0 residences, 1 datacenters, 2 factories) in turn, so each use
@@ -162,11 +182,17 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
   };
   ctx.save();
   ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.arc(cx, cy, r + 0.5, 0, 2 * Math.PI, true); ctx.clip();
-  const st = sky.stars, ink = pal.text;
+  const st = sky.stars, ink = pal.text, lit = sky.lit, dist = sky.starDist;
+  const litInk = lit ? (lit.aligned ? pal.accent : pal.inks.verdigris) : null;
   for (let k = 0; k < st.length; k += 4) {
     const p = project(st[k], st[k + 1], st[k + 2]);
     if (!p || p[0] < -2 || p[0] > w + 2 || p[1] < -2 || p[1] > h + 2) continue;
     const b = st[k + 3];
+    if (lit && dist && dist[k / 4] <= lit.seen) {   // settled, as far as its light has come back
+      ctx.fillStyle = litInk;
+      ctx.beginPath(); ctx.arc(p[0], p[1], 0.9 + 1.1 * b, 0, 2 * Math.PI); ctx.fill();
+      continue;
+    }
     ctx.fillStyle = rgba(ink, (pal.dark ? 0.25 : 0.18) + (pal.dark ? 0.55 : 0.4) * b);
     ctx.beginPath(); ctx.arc(p[0], p[1], 0.45 + 1.1 * b, 0, 2 * Math.PI); ctx.fill();
   }
@@ -174,8 +200,8 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
   if (sky.sun && sky.sunAlpha > 0.01) {
     const p = project(...sky.sun);
     if (p) {
-      const R = Math.max(4, BIG * f * SUN_R / AU), sw = Math.min(0.1, sky.swarm || 0);
-      ctx.globalAlpha = sky.sunAlpha * (1 - sw);
+      const R = Math.max(4, BIG * f * SUN_R / AU), sw = Math.min(1, sky.swarm || 0);
+      ctx.globalAlpha = sky.sunAlpha * (1 - 0.9 * Math.min(1, sky.shade || 0));
       const lg = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], R);   // limb darkening
       lg.addColorStop(0, pal.inks.ochre); lg.addColorStop(0.7, rgba(pal.inks.ochre, 0.92)); lg.addColorStop(1, rgba(pal.inks.ochre, 0.62));
       ctx.fillStyle = lg;
@@ -190,7 +216,7 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
           ctx.beginPath(); ctx.arc(p[0] + R * (x * nx[0] + y * ny[0]), p[1] + R * (x * nx[1] + y * ny[1]), Math.max(0.55, rr * R), 0, 2 * Math.PI); ctx.fill();
         }
       }
-      const nSw = sw > 1e-9 ? Math.round(900 * Math.sqrt(sw / 0.1)) : 0;
+      const nSw = sw > 1e-9 ? Math.min(900, Math.round(900 * Math.sqrt(sw))) : 0;
       if (nSw) {
         ctx.globalAlpha = sky.sunAlpha;
         ctx.fillStyle = rgba(ink, pal.dark ? 0.7 : 0.6);
@@ -284,6 +310,18 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       }
       ctx.globalAlpha = 1;
     }
+  }
+  // The L4 and L5 habitats, 60° either side of the Moon on its orbit, as far as their people have grown.
+  const l45 = sky.l45;
+  if (l45 && l45.n > 0 && sky.moonAlpha > 0.01) {
+    const Rm = Math.max(4, BIG * f * MOON_R / sky.moonDist), nP = Math.round(L45.length * Math.min(1, l45.n) ** 1.3);
+    ctx.globalAlpha = sky.moonAlpha; ctx.fillStyle = pal.accent;
+    for (const d of l45.dirs) {
+      const p = project(...d);
+      if (!p) continue;
+      for (let k = 0; k < nP; k++) { ctx.beginPath(); ctx.arc(p[0] + Rm * L45[k][0], p[1] + Rm * L45[k][1], 0.75, 0, 2 * Math.PI); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 }
