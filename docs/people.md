@@ -15,7 +15,7 @@ The model is `src/engine/people.js` (`PEOPLE`; its header holds the forms), run 
 
 - **Few new sinks**: the people write through the planet's own inputs: carbon pulses, tillage in the erosion field, land use on the cover, waste heat and sulfate as forcings, the boiled sea.
 - **Factors** split where a split brings its own dynamics: soil (regolith), forest (cover), fossil carbon and ores (finite, their return falling with draw-down), ideas (non-rival, forgotten), fixed capital, energy capital, compute. **AI is capital that does labour** (synthesis): a task CES, so tasks AI can't do bottleneck. **Soft forms over hard caps**: sums over uneven units harmonic, thresholds logistic hazards, floors exponential approaches.
-- **Out of scope**: agents, polities, war, named cultures, tech trees. What a superintelligence wants isn't modelled; the model says what each ending costs, not why it happens.
+- **Out of scope**: agents, named cultures, tech trees; polities and war until the roadmap's second batch (`roadmap.md`). What a superintelligence wants isn't modelled; the model says what each ending costs, not why it happens.
 
 ## Lineages, spread and farming
 
