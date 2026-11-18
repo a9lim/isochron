@@ -87,6 +87,7 @@ export function refineTectonics(c, fine) {
     f.h[i] = p.h[j]; f.phi[i] = p.phi[j]; f.tf[i] = p.tf[j]; f.sut[i] = p.sut[j];
   }
   f.prevOwner.set(f.owner); f.prevRef.set(f.ref);
+  f.trenches();
   f.updateElevation();
   f.balance(1e-6);
   return f;

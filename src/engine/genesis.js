@@ -9,7 +9,7 @@
 import { stream } from '../rng.js';
 import { makeNoise } from '../noise.js';
 import { H_OCEANIC, RHO_OCEANIC, RHO_CONTINENTAL, RHO_MANTLE, FREEBOARD, elevation, subsidence, oceanVolume } from './crust.js';
-import { CONTINENTAL, PARAMS, EARTH_RADIUS_KM } from './plates.js';
+import { CONTINENTAL, PARAMS, EARTH_RADIUS_KM, contSlabAge } from './plates.js';
 
 /**
  * Today's Earth's continental crust as the sim stands it (its fit to ETOPO's bed, the ice's load off:
@@ -174,6 +174,7 @@ export function genesis(tec, seed, opts = {}) {
   framesFromWorld(tec);
   hangSlabs(tec);
 
+  tec.trenches();
   tec.updateElevation();
   tec.water = oceanVolume(g, tec.elev, elevation(H_OCEANIC, 0, 0) + freeboard);
   tec.updateElevation();
@@ -316,16 +317,17 @@ export function framesFromWorld(tec) {
 /**
  * Slabs on the trenches the plates' motions close, as the step hangs them (Tectonics.step): under the
  * denser side, pulling it across the boundary toward the plate above, where the motion closes across
- * the boundary faster than ~1.3 cm/yr and by at least PARAMS.SLAB_CLOSING of the relative motion. Only
- * ocean sinks: where continent closes on continent the step stacks the crust and builds a collision
- * front, not a slab.
+ * the boundary faster than ~1.3 cm/yr and by at least PARAMS.SLAB_CLOSING of the relative motion. Ocean
+ * sinks under anything denser-sided; a continent sinks only under another (a collision: the thinner
+ * crust goes down), pulling as PARAMS.CONT_PULL of an old ocean slab does.
  */
-export function hangSlabs(tec, length = 0.07) {
+export function hangSlabs(tec, length = 0.07, steady = false) {
   const g = tec.grid, n = g.n, pos = g.pos, owner = tec.owner, tf = tec.tf, tan = g.tan;
   const va = new Float64Array(3), vb = new Float64Array(3);
   for (let i = 0; i < n; i++) {
     const a = owner[i];
-    if (tec.phi[i] >= CONTINENTAL) continue;
+    const cont = tec.phi[i] >= CONTINENTAL;
+    if (cont && !(PARAMS.CONT_PULL > 0)) continue;
     // The boundary's normal here, toward the other plates.
     let nx = 0, ny = 0, nz = 0;
     for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) if (owner[g.nbr[t]] !== a) { nx += tan[3 * t]; ny += tan[3 * t + 1]; nz += tan[3 * t + 2]; }
@@ -343,7 +345,10 @@ export function hangSlabs(tec, length = 0.07) {
       const closing = dx * nx + dy * ny + dz * nz;
       if (!(closing > 0.002) || closing < PARAMS.SLAB_CLOSING * Math.hypot(dx, dy, dz)) continue;
       if (tec.buoyancyAt(i) >= tec.buoyancyAt(j)) continue;   // i sinks only if it's the denser side
-      tec.slab[i] = length; tec.slabPlate[i] = a; tec.slabAge[i] = -tf[i];
+      if (cont && tec.phi[j] < CONTINENTAL) continue;   // a continent sinks only against another
+      // With `steady`, each slab as long as its closing keeps it (the step's memory: closing × SLAB_TAU), at most `length`.
+      tec.slab[i] = steady ? Math.min(length, closing * PARAMS.SLAB_TAU) : length;
+      tec.slabPlate[i] = a; tec.slabAge[i] = cont ? contSlabAge() : -tf[i];
       tec.slabDir[3 * i] = nx; tec.slabDir[3 * i + 1] = ny; tec.slabDir[3 * i + 2] = nz;
       break;
     }

@@ -42,7 +42,7 @@
 // and then, so the two agree at ~99.99% of cells a step and statistically over
 // many (tests/gpu-plates.test.mjs).
 import { kernel, storage } from './device.js';
-import { PARAMS, FRAME_EXTRA, freshExtras } from '../engine/plates.js';
+import { PARAMS, FRAME_EXTRA, freshExtras, contSlabAge } from '../engine/plates.js';
 
 const EXTRA = Object.keys(FRAME_EXTRA);
 
@@ -61,7 +61,7 @@ struct Uni {
   kc: f32, kRidge: f32, kSlab: f32, keel: f32,
   kCollide: f32, founderAge: f32, volume: f32, guess: f32,
   segLen: u32, tb: u32, nseg: u32, npatch: u32,
-  kTrench: f32, slabClosing: f32, hStack: f32, pad1: f32,
+  kTrench: f32, slabClosing: f32, hStack: f32, contAge: f32,
   plates: array<Plate, ${MAXP}>,
 };
 `;
@@ -251,30 +251,33 @@ fn taken(f: u32, i: u32) -> bool {
       if (!(dot(d, nn) > U.closing * r * length(nn))) { continue; }
       var slot = 4u;
       if (ncons < 4u) { cons[ncons] = k * n + j; slot = ncons; ncons++; }
-      if (Q.y >= 0.5 && topCont) {
+      let collide = Q.y >= 0.5 && topCont;
+      if (collide) {
         dh += U.collideFrac * Q.x;
         flags |= 2u;
         if (r > 0.0) {
           m1.w = min(1.0, m1.w + 0.5);
           m2 = vec4f(d / r, bitcast<f32>((k & 0xffffu) | (tp << 16u)));
         }
-      } else {
-        // A slab only where the plates close across the boundary (the CPU's SLAB_CLOSING), pulling down-dip
-        // across it; it inherits the longest of its plate's beside the cell (as they stood at the step's start).
-        let ln = length(nn);
-        if (dot(d, nn) > U.slabClosing * r * ln) {
-          var len = 0.0;
-          if (bitcast<u32>(m0.y) == k) { len = m0.x; }
-          for (var e = 0u; e < 6u; e++) {
-            let jn = nb(i, e);
-            if (jn == NONE) { break; }
-            let mj = mem[3u * jn];
-            if (bitcast<u32>(mj.y) == k && mj.x > len) { len = mj.x; }
-          }
-          m0 = vec4f(min(U.slabMax, len + U.cellLen), bitcast<f32>(k), max(0.0, U.t - Q.z), m0.w);
-          m1 = vec4f(nn / ln, m1.w);
-          if (slot < 4u) { flags |= 1u << (20u + slot); }
+      }
+      // A slab only where the plates close across the boundary (the CPU's SLAB_CLOSING), pulling down-dip
+      // across it; it inherits the longest of its plate's beside the cell (as they stood at the step's start).
+      // Under a collision the continent's lithosphere sinks, pulling as its CONT_PULL age's ocean would.
+      let ln = length(nn);
+      if (dot(d, nn) > U.slabClosing * r * ln && (!collide || U.contAge > 0.0)) {
+        var len = 0.0;
+        if (bitcast<u32>(m0.y) == k) { len = m0.x; }
+        for (var e = 0u; e < 6u; e++) {
+          let jn = nb(i, e);
+          if (jn == NONE) { break; }
+          let mj = mem[3u * jn];
+          if (bitcast<u32>(mj.y) == k && mj.x > len) { len = mj.x; }
         }
+        m0 = vec4f(min(U.slabMax, len + U.cellLen), bitcast<f32>(k), select(max(0.0, U.t - Q.z), U.contAge, collide), m0.w);
+        m1 = vec4f(nn / ln, m1.w);
+        if (slot < 4u) { flags |= 1u << (20u + slot); }
+      }
+      if (!collide) {
         m0.w += 1.0;
         narc++;
         if (slot < 4u) { flags |= 1u << (16u + slot); }
@@ -908,7 +911,7 @@ export class GpuPlates {
       ex(Pm.COLLIDE_TAU), fs.kRidge, fs.kSlab, Pm.KEEL,
       Pm.K_COLLIDE, Pm.FOUNDER_AGE, tec.seaWater(), tec.seaLevel], 4);
     u[24] = SEG; u[26] = this.S;
-    f[28] = fs.kTrench; f[29] = Pm.SLAB_CLOSING; f[30] = Pm.H_STACK;
+    f[28] = fs.kTrench; f[29] = Pm.SLAB_CLOSING; f[30] = Pm.H_STACK; f[31] = contSlabAge();
     for (let k = 0; k < MAXP; k++) {
       const o = 32 + 16 * k, p = plates[k];
       if (!p) { f.fill(0, o, o + 16); continue; }
@@ -933,7 +936,7 @@ export class GpuPlates {
     q.submit([enc0.finish()]);
     q.writeBuffer(b.wh, 0, tec.h); q.writeBuffer(b.wphi, 0, tec.phi); q.writeBuffer(b.wtf, 0, tec.tf);
     const ls = new Float32Array(2 * n);
-    for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (tec.flexc ? tec.flexc[i] : 0); ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
+    for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (tec.flexc ? tec.flexc[i] : 0) + tec.trench[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
     q.writeBuffer(b.ls, 0, ls);
     q.writeBuffer(b.cnt, 0, new Uint32Array(NCNT));
     this.uniforms(0, tec.t, false);
@@ -954,13 +957,12 @@ export class GpuPlates {
     const top = this.topBuf || (this.topBuf = new Float32Array(2 * n)), owner = tec.owner, ref = tec.ref, plates = tec.plates;
     for (let i = 0; i < n; i++) { const p = plates[owner[i]], j = ref[i]; top[2 * i] = p.h[j]; top[2 * i + 1] = p.phi[j]; }
     q.writeBuffer(b.top, 0, top);
-    // The ice's load and the flexure's correction (src/engine/crustflex.js, at the step's start: the
-    // CPU swaps in the moved crust's after, Tectonics.stepAsync), and the swells.
-    if (tec.load || tec.swell || tec.flexc || this.lsDirty) {
-      const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n)), fc = tec.flexc;
-      for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (fc ? fc[i] : 0); ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
+    // The ice's load, the flexure's correction (src/engine/crustflex.js) and the trenches (Tectonics.trenches), at
+    // the step's start: the CPU swaps in the moved crust's after (Tectonics.stepAsync); and the swells.
+    {
+      const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n)), fc = tec.flexc, tr = tec.trench;
+      for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (fc ? fc[i] : 0) + tr[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
       q.writeBuffer(b.ls, 0, ls);
-      this.lsDirty = !!(tec.load || tec.swell || fc);
     }
     q.writeBuffer(b.cnt, 0, this.zeros || (this.zeros = new Uint32Array(NCNT)));
     this.uniforms(dt, t1);

@@ -9,8 +9,9 @@
 // crust at age 0) at RIDGE below sea level; the sim's subsidence then gives Earth's own seafloor ages
 // GDH1's depths (within ~0.1 km: 3.65 km at 10 Myr, 5.13 at 64, 5.51 at 150), and each cell's
 // thickness is solved so the sim's isostasy (crust.js, elevation) stands it where ETOPO does: 24 km
-// of continental crust at sea level, 30 at 0.8 km, 60 under Tibet. Trenches, which the sim doesn't
-// bend down, would need negative crust: they're held at H_MIN and stand shallower. Under the ice,
+// of continental crust at sea level, 30 at 0.8 km, 60 under Tibet. The trenches the plates' motions
+// bend (plates.js, trenches) stand part of the trenches' depth; where the rest would need crust thinner
+// than H_MIN it's held there and the cell stands shallower. Under the ice,
 // the bed is held at its measured depth with the ice's load in place (the crust stands where the bed
 // would rebound to). The ocean holds the water that puts the sea at the datum, with the ice's.
 import { stream } from '../rng.js';
@@ -33,6 +34,8 @@ export const EARTH = {
   AGE_DEEP: 100,       // Myr at most for floor aged by its depth (short of PARAMS.FOUNDER_AGE: forearcs don't founder)
   H_MIN: 2,            // km of crust at least
   H_MAX: 75,           // km at most
+  V_JOIN: 0.5 / 637.1, // rad/Myr (0.5 cm/yr): plates moving within this of each other all along their boundary ride as one (platesOf)
+  V_DIFFUSE: 2 / 637.1, // rad/Myr: and plates closing slower than this all along an oceanic boundary (a diffuse one)
 };
 
 const TYPES = { i2: Int16Array, u2: Uint16Array, u1: Uint8Array };
@@ -157,6 +160,45 @@ function platesOf(d, g, plate, ocean) {
     if (best < 0) break;
     label[small] = best; area[best] += area[small]; area[small] = 0;
   }
+  // Diffuse boundaries ride as one plate, the smaller with the larger: two plates that move as one all
+  // along their shared boundary (within EARTH.V_JOIN anywhere on it: Capricorn–Australia, NAM–SAM), or
+  // that close slowly across ocean (every point under EARTH.V_DIFFUSE, dated ocean on both sides along
+  // three quarters of it: India–
+  // Capricorn, the central Indian Ocean's diffuse convergence, Royer and Gordon's; from memory). The
+  // sim's plates are rigid and its boundaries all active: the first would be a seam doing nothing, the
+  // second a trench the slab's own pull runs away on (Capricorn raced into India at 16 cm/yr, India's
+  // slab beneath it grew until it pulled India south off Asia), where Earth's diffuse zone passes the
+  // Java trench's pull on to India.
+  for (;;) {
+    const pair = new Map();
+    for (let i = 0; i < n; i++) {
+      const a = find(plate[i]);
+      for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+        const j = g.nbr[t], b = find(plate[j]);
+        if (b <= a) continue;
+        // As one: the two plates' motions as they now stand (a joined plate moves as its largest part).
+        // Closing slowly: each side's own motion in the data, at the boundaries the data draws.
+        v(a, i, va); v(b, j, vb);
+        const one = Math.hypot(vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]);
+        v(plate[i], i, va); v(plate[j], j, vb);
+        const key = a * K + b, dx = vb[0] - va[0], dy = vb[1] - va[1], dz = vb[2] - va[2], r = Math.hypot(dx, dy, dz);
+        const e = pair.get(key) || { one: 0, max: 0, close: 0, land: 0, L: 0 };
+        e.one = Math.max(e.one, one); e.max = Math.max(e.max, r); e.close -= (dx * g.tan[3 * t] + dy * g.tan[3 * t + 1] + dz * g.tan[3 * t + 2]) * g.ell[t];
+        e.L += g.ell[t];
+        if (ocean[i] < 0.5 || ocean[j] < 0.5) e.land += g.ell[t];
+        pair.set(key, e);
+      }
+    }
+    let pick = -1, pv = Infinity;
+    for (const [key, e] of pair) {
+      const diffuse = e.one < EARTH.V_JOIN || (e.max < EARTH.V_DIFFUSE && e.land < 0.25 * e.L && e.close > 0);
+      if (diffuse && e.one < pv) { pv = e.one; pick = key; }
+    }
+    if (pick < 0) break;
+    let a = Math.floor(pick / K), b = pick % K;
+    if (area[a] < area[b]) [a, b] = [b, a];
+    label[b] = a; area[a] += area[b]; area[b] = 0;
+  }
   const keep = [], index = new Int32Array(K).fill(-1);
   for (let k = 0; k < K; k++) if (find(k) === k && area[k] > 0) { index[k] = keep.length; keep.push(k); }
   const owner = new Int32Array(n);
@@ -194,8 +236,10 @@ export function earthGenesis(tec, seed, d) {
     // Continents' crust is old: its formation time as genesis gives it (it sets the heat flow under ice).
     tf[i] = phi[i] >= 0.5 ? -(900 + 600 * (1 + noise.fbm(x, y, z, 2, 3))) : -age;
     target[i] = s0 + f.bed[i];
-    h[i] = thickness(target[i], phi[i], -tf[i]);
   }
+  // The trenches where Müller's motions close (plates.js, trenches): the crust stands the rest of the measured bed.
+  tec.trenches();
+  for (let i = 0; i < n; i++) h[i] = thickness(target[i], phi[i], -tf[i], tec.trench[i]);
   framesFromWorld(tec);
   // Each cell's channel: its lowest land below its mean surface (src/engine/plates.js's `channel`), so
   // a gorge narrower than a cell drains the basin above it (the Congo's through the Crystal Mountains,
@@ -211,8 +255,10 @@ export function earthGenesis(tec, seed, d) {
     const cut = f.bed[i] - f.reach[i];
     if (cut > 0) tec.plates[tec.owner[i]].gs[tec.ref[i]] = Math.min(SEA.CHANNEL_MAX, cut);
   }
-  // Earth's slabs mostly reach the transition zone (~660 km, from memory), so they hang at SLAB_MAX, where the pull saturates.
-  hangSlabs(tec, PARAMS.SLAB_MAX);
+  // Each slab as long as its closing keeps it in the sim (closing × SLAB_TAU), to SLAB_MAX: Earth's fast
+  // trenches' slabs reach the transition zone (~660 km, from memory), where the pull saturates, and a
+  // slowly closing diffuse boundary (India against Capricorn, ~1.5 cm/yr) hangs a short one, not a trench's.
+  hangSlabs(tec, PARAMS.SLAB_MAX, true);
   tec.seaLevel = s0;
   tec.updateElevation();
   fillSea(tec, s0);

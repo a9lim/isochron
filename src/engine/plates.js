@@ -64,6 +64,10 @@ export const PARAMS = {
   COLLIDE_TAU: 8,  // Myr
   K_SLAB: 0.04,  // slab pull per cell of trench (any level: see balance); 0.008 (× √res) before the slab's resistance, 0.005 while plates' stray pieces pulled too (resolveFragments)
   K_TRENCH: 2,  // a slab's resistance to sinking per cell of trench, along its pull: a saturated slab sinks at K_SLAB/K_TRENCH (0.02 rad/Myr, 12.7 cm/yr) × its age's factor
+  TRENCH: 3,  // km: a trench's depth below the floor it bends from, for a 100 Myr slab (× √(age/100), to 150 Myr): Earth's trenches stand 1.5–5 km below their abyssal plains (from memory)
+  TRENCH_ALPHA: 70,  // km: the bending plate's flexural parameter at 100 Myr (× (age/100)^(3/8), Tₑ ∝ √age): the outer rise ~2.4α out (from memory)
+  TRENCH_V: [0.5, 2],  // cm/yr: a trench deepens to its full depth as the plates close from the first speed to the second
+  CONT_PULL: 0.5,  // a continent's lithosphere sinking under another's (a collision's) pulls at this share of a 100 Myr ocean slab: its mantle's weight less its crust's buoyancy (synthesis; 0: only ocean sinks). Today's Earth's India and Arabia keep closing on Eurasia with it
   SLAB_CLOSING: 0.6,  // share of the relative motion that must close across a boundary for a slab to hang there (CLOSING consumes from 0.3: where plates mostly slide past, consumption is the grid's rounding)
   FOUNDER_AGE: 140,  // Myr: seafloor this old at a plate's edge, or at its own continent's margin, begins to sink
   INITIATE_CELLS: 15,  // old margin cells needed before a passive margin turns active (at level 6; per length elsewhere)
@@ -82,6 +86,9 @@ export const PARAMS = {
   RIFT_SPEED: 0.004,  // rad/Myr per steradian of plate
   WATER_TAU: 150,  // Myr: the ocean's volume drifts toward the land fraction set at genesis (the deep water cycle's stand-in)
 };
+
+/** The age (Myr) at which ocean's slab pulls as a continent's does (CONT_PULL of a 100 Myr slab's, by the balance's √(age/100)). */
+export const contSlabAge = () => 100 * PARAMS.CONT_PULL ** 2;
 
 /** Per frame cell, with the crust: name and the value new crust starts with (−1: not yet seen). */
 export const FRAME_EXTRA = { reg: 0, cf: 0, mq: -1, gz: 0, gs: 0 };
@@ -233,6 +240,7 @@ export class Tectonics {
     this.load = null;                        // km: the bed's depression under ice (src/engine/ice.js)
     this.flexc = null;                       // km: the flexure's correction to the elevation, the frames' cf sampled (src/engine/crustflex.js)
     this.swell = null;                       // km: hotspot swells (src/engine/plumes.js)
+    this.trench = new Float32Array(n);       // km: the sinking plate bent down into its trench and up over the outer rise (trenches)
     this.iceWater = 0;                       // water held as ice (km·sr)
     // The ocean (crust.js, seaMask): the cells below sea level the open ocean reaches. A basin
     // below sea level it doesn't reach is land, dry or holding a lake (solveSea).
@@ -430,7 +438,8 @@ export class Tectonics {
           const closing = dx * nx + dy * ny + dz * nz;
           if (!(closing > PARAMS.CLOSING * r * Math.hypot(nx, ny, nz))) continue;
           Q.mask[j] = 0;
-          if (Q.phi[j] >= CONTINENTAL && topContinental) {
+          const collide = Q.phi[j] >= CONTINENTAL && topContinental;
+          if (collide) {
             // Collision: the crust stacks; the front is a suture.
             P.h[jt] = Math.min(PARAMS.H_STACK, P.h[jt] + PARAMS.COLLIDE_FRAC * Q.h[j]);
             P.sut[jt] = t1;
@@ -443,25 +452,28 @@ export class Tectonics {
             const key = Math.min(top, k) * MAX_PLATES + Math.max(top, k);
             this.pairs.set(key, (this.pairs.get(key) || 0) + 1);
             this.counters.collided++;
-          } else {
-            // Subduction: a slab hangs here and pulls its plate toward the trench,
-            // down-dip, across the boundary (n̂, toward the top plate). Only where
-            // the plates close across it (SLAB_CLOSING): where they mostly slide
-            // past, the overlap is the grid's rounding of a transform. The slab's
-            // length so far follows the trench: inherit the longest slab of this
-            // plate beside the cell, so a migrating trench keeps it.
-            const rn = Math.hypot(nx, ny, nz);
-            if (closing > PARAMS.SLAB_CLOSING * r * rn) {
-              let len = this.slabPlate[i] === k ? this.slab[i] : 0;
-              for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
-                const jn = nbr[t];
-                if (this.slabPlate[jn] === k && this.slab[jn] > len) len = this.slab[jn];
-              }
-              this.slab[i] = Math.min(PARAMS.SLAB_MAX, len + cellLen);
-              this.slabPlate[i] = k;
-              this.slabAge[i] = Math.max(0, this.t - Q.tf[j]);
-              this.slabDir[3 * i] = nx / rn; this.slabDir[3 * i + 1] = ny / rn; this.slabDir[3 * i + 2] = nz / rn;
+          }
+          // A slab hangs here and pulls its plate toward the trench, down-dip, across the
+          // boundary (n̂, toward the top plate). Only where the plates close across it
+          // (SLAB_CLOSING): where they mostly slide past, the overlap is the grid's rounding of
+          // a transform. The slab's length so far follows the trench: inherit the longest slab
+          // of this plate beside the cell, so a migrating trench keeps it. Under a collision the
+          // continent's own lithosphere goes down after the ocean it followed (continental
+          // subduction), pulling as CONT_PULL of an old ocean slab does: its age is stood in by
+          // the age at which ocean pulls that hard (balance's √(age/100)).
+          const rn = Math.hypot(nx, ny, nz);
+          if (closing > PARAMS.SLAB_CLOSING * r * rn && (!collide || PARAMS.CONT_PULL > 0)) {
+            let len = this.slabPlate[i] === k ? this.slab[i] : 0;
+            for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+              const jn = nbr[t];
+              if (this.slabPlate[jn] === k && this.slab[jn] > len) len = this.slab[jn];
             }
+            this.slab[i] = Math.min(PARAMS.SLAB_MAX, len + cellLen);
+            this.slabPlate[i] = k;
+            this.slabAge[i] = collide ? contSlabAge() : Math.max(0, this.t - Q.tf[j]);
+            this.slabDir[3 * i] = nx / rn; this.slabDir[3 * i + 1] = ny / rn; this.slabDir[3 * i + 2] = nz / rn;
+          }
+          if (!collide) {
             // The arc on the plate above.
             P.h[jt] = Math.min(PARAMS.H_STACK, P.h[jt] + PARAMS.ARC_DH * this.res);
             P.phi[jt] = Math.min(1, P.phi[jt] + PARAMS.ARC_DPHI * this.res);
@@ -491,6 +503,7 @@ export class Tectonics {
 
     this.kinematics(dt);
     this.t = t1;
+    this.trenches();
     this.updateElevation();
     this.exchangeWater(dt);
     this.balance(dt);
@@ -533,6 +546,8 @@ export class Tectonics {
     const cell = 4 * Math.PI / this.grid.n;
     c.opened += r.open * dt / cell; c.closed += r.close * dt / cell;
     this.t = t1;
+    // The trenches where the plates now close (the GPU's step stood the crust on the last step's).
+    this.trenches(true);
     // The GPU's level fills every basin below it; the ocean's is the CPU's (solveSea).
     if (this.water > 0) this.solveSea();
     this.exchangeWater(dt);
@@ -668,7 +683,7 @@ export class Tectonics {
       if (patch) {
         const f = this.phi[i], sa = f < 1 ? subsidence(t - this.tf[i]) : 0, rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f;
         this.subs[i] = f < CONTINENTAL ? sa : 0;
-        elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
+        elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0) + this.trench[i];
       }
     }
     return changed;
@@ -763,14 +778,95 @@ export class Tectonics {
   }
 
   updateElevation() {
-    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc, t = this.t, tf = this.tf, phi = this.phi, h = this.h, subs = this.subs, elev = this.elev;
+    const n = this.grid.n, load = this.load, swell = this.swell, fc = this.flexc, trench = this.trench, t = this.t, tf = this.tf, phi = this.phi, h = this.h, subs = this.subs, elev = this.elev;
     for (let i = 0; i < n; i++) {
       // elevation() (crust.js), the age's subsidence once.
       const f = phi[i], sa = f < 1 ? subsidence(t - tf[i]) : 0, rho = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * f;
       subs[i] = f < CONTINENTAL ? sa : 0;
-      elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0);
+      elev[i] = h[i] * (1 - rho / RHO_MANTLE) - (1 - f) * sa + (load ? load[i] : 0) + (swell ? swell[i] : 0) + (fc ? fc[i] : 0) + trench[i];
     }
     if (this.water > 0) this.solveSea();
+  }
+
+  /**
+   * Trenches (standard in form; Turcotte and Schubert's broken elastic plate, from memory): where ocean
+   * sinks, the plate bends down into the trench and up over an outer rise beyond it, w(x) =
+   * −w₀ e^{−x/α} cos(x/α) at x from the trench, each cell taking its mean over its own width (so the
+   * trench is as deep as a cell's mean at any level). A trench is wherever the plates now close across
+   * their boundary (by SLAB_CLOSING of their relative motion, as slabs hang) with the denser side
+   * oceanic: its depth w₀ = TRENCH √(age/100) (age to 150 Myr) × the closing's ramp over TRENCH_V, its
+   * width α = TRENCH_ALPHA (age/100)^{3/8}, carried into the sinking plate from its boundary cells
+   * (Dijkstra; each cell takes its nearest trench's, to 2π α). From the plates' motion, not the slab
+   * memory, so the GPU's path (which keeps that memory) needs nothing more. Writes `trench` (km); with
+   * `patch`, the elevation moves by the change. A collision bends no trench: its foreland is the crust's
+   * flexure's.
+   */
+  trenches(patch = false) {
+    const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, plates = this.plates, R = EARTH_RADIUS_KM;
+    const s = this.trenchScratch && this.trenchScratch.n === n ? this.trenchScratch : (this.trenchScratch = { n, x: new Float64Array(n), w0: new Float64Array(n), a: new Float64Array(n), heap: [] });
+    const x = s.x, w0 = s.w0, al = s.a, tr = this.trench, [v0, v1] = PARAMS.TRENCH_V;
+    x.fill(Infinity);
+    const heap = new TrenchHeap();
+    for (let i = 0; i < n; i++) {
+      if (this.phi[i] >= CONTINENTAL) continue;
+      const a = owner[i], wa = plates[a].w, xi = pos[3 * i], yi = pos[3 * i + 1], zi = pos[3 * i + 2], bi = this.buoyancyAt(i);
+      let best = 0, half = 0;
+      // Each other plate beside the cell: the boundary's normal toward it (the sum of the edges to it, as
+      // slabs hang), its relative motion closing across that, and whether this side is the denser.
+      for (let t0 = nbrOff[i], e = nbrOff[i + 1]; t0 < e; t0++) {
+        const b = owner[nbr[t0]];
+        if (b === a) continue;
+        let first = true;
+        for (let t = nbrOff[i]; t < t0; t++) if (owner[nbr[t]] === b) first = false;
+        if (!first) continue;
+        let nx = 0, ny = 0, nz = 0, top = -Infinity, dsum = 0, m = 0;
+        for (let t = t0; t < e; t++) {
+          const j = nbr[t];
+          if (owner[j] !== b) continue;
+          nx += g.tan[3 * t]; ny += g.tan[3 * t + 1]; nz += g.tan[3 * t + 2];
+          top = Math.max(top, this.buoyancyAt(j)); dsum += g.dist[t]; m++;
+        }
+        if (!(top > bi)) continue;   // this cell sinks only under the more buoyant side
+        const rn = Math.hypot(nx, ny, nz);
+        if (!(rn > 0)) continue;
+        const wb = plates[b].w, dx = wb[0] - wa[0], dy = wb[1] - wa[1], dz = wb[2] - wa[2];
+        const vx = dy * zi - dz * yi, vy = dz * xi - dx * zi, vz = dx * yi - dy * xi;
+        const r = Math.hypot(vx, vy, vz), close = -(vx * nx + vy * ny + vz * nz) / rn;
+        if (!(close > PARAMS.SLAB_CLOSING * r)) continue;
+        const u = Math.min(1, Math.max(0, (close * CM_PER_YR - v0) / (v1 - v0)));
+        const c = u * u * (3 - 2 * u);
+        if (c > best) { best = c; half = 0.5 * dsum / m * R; }
+      }
+      if (!(best > 0)) continue;
+      const age = Math.min(150, Math.max(0, this.t - this.tf[i]));
+      w0[i] = PARAMS.TRENCH * Math.sqrt(age / 100) * best;
+      al[i] = PARAMS.TRENCH_ALPHA * Math.pow(Math.max(age, 5) / 100, 3 / 8);
+      x[i] = half;
+      heap.push(half, i);
+    }
+    // Into the sinking plate, each cell from its nearest trench.
+    while (heap.size) {
+      const [d, i] = heap.pop();
+      if (d > x[i] || d > 2 * Math.PI * al[i]) continue;
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
+        const j = nbr[t];
+        if (owner[j] !== owner[i]) continue;
+        const dj = d + g.dist[t] * R;
+        if (dj < x[j]) { x[j] = dj; w0[j] = w0[i]; al[j] = al[i]; heap.push(dj, j); }
+      }
+    }
+    // Each cell's mean over its width (centred on x, from the trench side's edge at least at 0): F(u) = e^{−u}(sin u − cos u)/2.
+    const F = u => 0.5 * Math.exp(-u) * (Math.sin(u) - Math.cos(u));
+    const elev = this.elev, cell = Math.sqrt(4 * Math.PI / n) * R;
+    for (let i = 0; i < n; i++) {
+      let w = 0;
+      if (x[i] < Infinity && w0[i] > 0) {
+        const a = al[i], u0 = Math.max(0, x[i] - 0.5 * cell) / a, u1 = (x[i] + 0.5 * cell) / a;
+        w = u0 < 2 * Math.PI ? -w0[i] * (F(u1) - F(u0)) / (u1 - u0) : 0;
+      }
+      if (patch) elev[i] += w - tr[i];
+      tr[i] = w;
+    }
   }
 
   /**
@@ -1414,3 +1510,24 @@ export class Tectonics {
 }
 
 export { CONTINENTAL };
+
+/** A binary min-heap of (key, cell) for the trenches' distances. */
+class TrenchHeap {
+  constructor() { this.k = []; this.v = []; }
+  get size() { return this.k.length; }
+  push(key, val) {
+    const k = this.k, v = this.v;
+    let i = k.length; k.push(key); v.push(val);
+    while (i > 0) { const p = (i - 1) >> 1; if (k[p] <= key) break; k[i] = k[p]; v[i] = v[p]; i = p; }
+    k[i] = key; v[i] = val;
+  }
+  pop() {
+    const k = this.k, v = this.v, top = [k[0], v[0]], lk = k.pop(), lv = v.pop();
+    if (k.length) {
+      let i = 0;
+      for (;;) { let c = 2 * i + 1; if (c >= k.length) break; if (c + 1 < k.length && k[c + 1] < k[c]) c++; if (k[c] >= lk) break; k[i] = k[c]; v[i] = v[c]; i = c; }
+      k[i] = lk; v[i] = lv;
+    }
+    return top;
+  }
+}
