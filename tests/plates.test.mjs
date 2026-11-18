@@ -1,6 +1,6 @@
 // Plates: exact rigid motion, crust made equals crust consumed under one
 // relative rotation, sea level conserves water, genesis gives a sane planet,
-// and a plate stays one body.
+// a plate stays one body, and a merge leaves no cell empty.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid, nearest } from '../src/grid/icosphere.js';
@@ -175,4 +175,37 @@ test('a plate is one body: a stray piece joins the plate around it, or past a pl
   for (let i = 0; i < g6.n; i++) assert.equal(tec.plates[tec.owner[i]].mask[tec.ref[i]], 1, 'every world cell reads held crust');
   // And the planet runs on, each plate whole after every step (checked every 0.5 Myr).
   for (let s = 0; s < 40; s++) { tec.step(0.5); assert.equal(mostPieces(tec), 1, `pieces at ${tec.t} Myr`); }
+});
+
+test('a merge of plates whose frames are turned against each other leaves no cell it covered empty', () => {
+  const tec = new Tectonics(grid), n = grid.n, pos = grid.pos;
+  const A = tec.allocPlate(), B = tec.allocPlate();
+  A.alive = B.alive = true;
+  A.w.set([0.05, 0.02, 0.1]); B.w.set([-0.1, 0.07, 0.03]);
+  tec.rotate(1);   // the frames turned ~6° and ~7°, about different axes
+  // Each world cell's crust in its plate's frame cell nearest it (A: x > 0, ocean; B: a continent), so,
+  // as crust the ridges made, each frame has cells within its crust that no world cell shows.
+  for (let i = 0; i < n; i++) {
+    const k = pos[3 * i] > 0 ? 0 : 1, p = tec.plates[k], R = p.R, x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
+    const j = nearest(grid, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z);
+    p.mask[j] = 1; p.h[j] = k ? 35 : 7; p.phi[j] = k; p.tf[j] = -100; p.sut[j] = -1e9;
+    tec.owner[i] = k; tec.ref[i] = j;
+  }
+  let hidden = 0;
+  for (let j = 0; j < n; j++) { let x = 0; for (let i = 0; i < n; i++) if (tec.owner[i] === 1 && tec.ref[i] === j) x++; if (x > 1) hidden += x - 1; }
+  const wasB = Uint8Array.from(tec.owner, o => o === 1);
+  tec.merge(0, 1);
+  let empty = 0, ocean = 0;
+  for (let i = 0; i < n; i++) {
+    assert.equal(tec.owner[i], 0);
+    let inside = !!wasB[i];   // the continent's cells off its seam with a (where a cell of each may share one of a's)
+    for (let t = grid.nbrOff[i]; t < grid.nbrOff[i + 1]; t++) if (!wasB[grid.nbr[t]]) inside = false;
+    if (!A.mask[tec.ref[i]]) empty++;
+    else if (inside && A.phi[tec.ref[i]] !== 1) ocean++;
+  }
+  // (Sent from b's frame cells to a's, b's cells shared by two world cells left a's beside them empty:
+  // the next step made each new ocean, one-cell seas in the continent.)
+  assert.ok(hidden > 20, `${hidden} of b's frame cells shared (the frames' moiré)`);
+  assert.equal(empty, 0, 'world cells on an empty frame cell');
+  assert.equal(ocean, 0, 'the continent\'s cells inside it that read ocean');
 });

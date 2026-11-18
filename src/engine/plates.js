@@ -1237,20 +1237,35 @@ export class Tectonics {
     }
   }
 
-  /** Re-express plate b's crust in plate a's frame; a keeps momentum-weighted ω. */
+  /**
+   * Re-express plate b's crust in plate a's frame; a keeps momentum-weighted ω. Each of a's frame cells
+   * takes the crust of b's frame cell nearest it, where b has crust (and more felsic than a's own, where a
+   * has some): gathered, so every cell under b's crust is filled. (Sent each of b's cells to its nearest of
+   * a's, the two frames turned against each other left a moiré of a's cells under b empty, and the next
+   * step made each new ocean inside the continent: a lattice of one-cell seas.)
+   */
   merge(a, b) {
     const g = this.grid, n = g.n, pos = g.pos;
     const A = this.plates[a], B = this.plates[b];
     const RA = A.R, RB = B.R;
     let guess = -1;
-    for (let j = 0; j < n; j++) {
-      if (!B.mask[j]) continue;
-      const x = pos[3 * j], y = pos[3 * j + 1], z = pos[3 * j + 2];
-      const wx = RB[0] * x + RB[1] * y + RB[2] * z, wy = RB[3] * x + RB[4] * y + RB[5] * z, wz = RB[6] * x + RB[7] * y + RB[8] * z;
-      const ax = RA[0] * wx + RA[3] * wy + RA[6] * wz, ay = RA[1] * wx + RA[4] * wy + RA[7] * wz, az = RA[2] * wx + RA[5] * wy + RA[8] * wz;
-      const ja = nearest(g, ax, ay, az, guess);
+    for (let ja = 0; ja < n; ja++) {
+      const x = pos[3 * ja], y = pos[3 * ja + 1], z = pos[3 * ja + 2];
+      const wx = RA[0] * x + RA[1] * y + RA[2] * z, wy = RA[3] * x + RA[4] * y + RA[5] * z, wz = RA[6] * x + RA[7] * y + RA[8] * z;
+      const bx = RB[0] * wx + RB[3] * wy + RB[6] * wz, by = RB[1] * wx + RB[4] * wy + RB[7] * wz, bz = RB[2] * wx + RB[5] * wy + RB[8] * wz;
+      const jb = nearest(g, bx, by, bz, guess);
+      guess = jb;
+      if (B.mask[jb] && (!A.mask[ja] || B.phi[jb] > A.phi[ja])) copyCell(B, jb, A, ja);
+    }
+    // And each of b's world cells, where the cell of a's it goes to (relocate) is still empty, the crust it
+    // shows: b's frame has empty cells within its crust too, those no world cell showed when the ridge made it.
+    guess = -1;
+    for (let i = 0; i < n; i++) {
+      if (this.owner[i] !== b) continue;
+      const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
+      const ja = nearest(g, RA[0] * x + RA[3] * y + RA[6] * z, RA[1] * x + RA[4] * y + RA[7] * z, RA[2] * x + RA[5] * y + RA[8] * z, guess);
       guess = ja;
-      if (!A.mask[ja] || B.phi[j] > A.phi[ja]) copyCell(B, j, A, ja);
+      if (!A.mask[ja]) copyCell(B, this.ref[i], A, ja);
     }
     const wa = A.area, wb = B.area;
     for (let c = 0; c < 3; c++) { A.w[c] = (A.w[c] * wa + B.w[c] * wb) / (wa + wb); A.torqueExt[c] += B.torqueExt[c]; }
