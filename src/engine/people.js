@@ -158,6 +158,7 @@ import { makeTransfer, prolong } from '../grid/transfer.js';
 import { Year, YEAR } from './year.js';
 import { Routes } from './routes.js';
 import { Peoples } from './peoples.js';
+import { Polities, KP as KPOL } from './polities.js';
 import { COHORTS, stable, stableLookup, stepPyramid, stepTables, ageClock, settle, reference } from './cohorts.js';
 
 export const PEOPLE = {
@@ -427,6 +428,25 @@ export const PEOPLE = {
   TOR: 8, ID_SIG2: 2e-4, ID_KICK: 0.05, R_CONT: 0.01, D_CONT: 0.5, G_FLOOR: 0.05, X_WAY: 0.05, D_MIX: 0.3, F_CONV: 0.25, R_ATT: 1e-5,
   ID_L0: 100, Z_ID0: 4, Z_IDL: 1, ID_LMAX: 2e4, R_MEDIA: 0.02, L_WORLD: 1e4, DT_ID: 10,
   D_SIM: 2, ID_COPY: 1, CL_TRADE: 0.5, ID_EPS: 1e-2, D_HILL: 0.5,
+  // States (batch 2a; src/engine/polities.js, docs/people.md "States"; synthesis, the values speculation): power
+  // projected from the capital, e-fold over C_POL0 + K_POL × the trade's reach of route cost (~160 km by road at
+  // farming's start, ~700 by the Iron Age's), softly at most L_POLMAX (~2,000 km by road; an ocean by sea); arms e-fold per Z_MIL of production, a herder's × (1 + M_HERD) (the horse); allegiance toward
+  // d π^γ/(Σπ^γ + π₀^γ) (POL_G) over T_WAR; those who deliver: herders
+  // DL_HERD, fishers DL_FISH, foragers none; the stateless resistance B_LOC × the region's arms × (1 + K_RUG slope/0.01) ×
+  // (1 + K_EXIT exit); strangers resist (× (1 + K_KIN sim)/(1 + K_KIN)); cohesion Turchin's asabiya by place, R_ASA × the
+  // frontier's weight, D_ASA × the rest (a family apart, D_META, or another way of life), from COH0, at least
+  // A_MIN; founded at R_FORM × x²/(1 + x²), x a stateless city's people over N_STATE; a lost capital's cohesion
+  // × CAP_LOSS; gone under N_DIE people; capitals marked past N_MARK; identity pulled toward the capital's at
+  // R_STATE × the share held (a9: softly); stepped every DT_POL years at least; candidates past EPS_POL of a
+  // shares past S_MIN.
+  DT_POL: 10, T_WAR: 20, POL_G: 3, B_LOC: 0.05, K_RUG: 1, K_EXIT: 2, Z_MIL: 1.5, M_HERD: 2, DL_HERD: 0.5, DL_FISH: 0.5,
+  C_POL0: 3000, K_POL: 6, L_POLMAX: 6e4, K_KIN: 1, S_MIN: 1e-3, D_META: 2, R_ASA: 0.07, D_ASA: 0.002, COH0: 0.5, A_MIN: 0.12, A_NAT: 0.6, Z_NAT: 6.5, W_NAT: 0.3,
+  R_FORM: 2e-3, N_STATE: 2000, N_DIE: 1000, CAP_LOSS: 0.7, N_MARK: 1e6, R_STATE: 0.002, W_RIVAL: 0.3,
+  // What states do (speculation): war's toll where allegiance moves, W_DEATH of those changing hands and W_WORKS
+  // of the works by the share moved; the state's granaries widen a place's store × (1 + G_STATE × the share held);
+  // trade across a border at B_TRADE (McCallum's border effect, ~2–20× by era and estimate, from memory); rivalry
+  // with peer states lifts new ideas × (1 + K_RIVAL × the border's share facing them; a9: contested, so weak).
+  W_DEATH: 0.05, W_WORKS: 0.2, G_STATE: 0.5, B_TRADE: 0.5, K_RIVAL: 0.2,
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   // Where ideas go (synthesis, a9; the size speculation): a place's new ideas are shared between the
   // domains, learning's share ½ − TILT among those who feed themselves (foragers, herders, fishers,
@@ -975,6 +995,8 @@ export class People {
     // the sea's, the fields', what energy buys), and the identities kept by them.
     this.wol = new Float32Array(5 * nL);
     this.ids = new Peoples(this);
+    // States (src/engine/polities.js): who people deliver to.
+    this.pol = new Polities(this);
   }
 
   /** The ending, by chance on two axes (a9): aligned, misaligned or paused; Earth preserved or sacrificed. */
@@ -1806,7 +1828,7 @@ export class People {
   /** The animals kept here against a full herd of a full set of domesticates: their availability × the herd's share × what the tropics' trypanosomes leave. */
   animHere(c) { return this.anim[c] > 0 ? this.anim[c] * this.herdM[c] * this.H.habA[c] : 0; }
   /** The years of food kept against bad years (`demography`'s store): the granary's room past the season's need, S_MAX + 1 − G of a year (G the fields' gap: a single harvest's S_MAX), as knowledge builds it. */
-  reserve(c, fc, z) { const P = this.P; return fc * Math.max(0, P.S_MAX + 1 - this.H.gapY[c]) * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE)) * (1 + P.G_X * this.built(c, 'G')); }
+  reserve(c, fc, z) { const P = this.P; return fc * Math.max(0, P.S_MAX + 1 - this.H.gapY[c]) * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE)) * (1 + P.G_X * this.built(c, 'G')) * (1 + P.G_STATE * this.pol.held(c)); }
   /** The share of the cell under crops this year (the rest of the farmed share fallow). */
   cropped(c) { const f = this.f[c], s = this.H.sfp[c]; return Math.min(f, s) * this.fertility(c, this.H.phiFP[c]) + Math.max(0, f - s) * this.fertility(c); }
   /**
@@ -1943,6 +1965,9 @@ export class People {
     // Who people are (src/engine/peoples.js): their ways of life, conformity, contact, drift.
     this.ids.step(dt);
     lap('peoples');
+    // States (src/engine/polities.js): power, allegiance, cohesion, founding.
+    this.pol.step(dt);
+    lap('states');
     // Farming and its soil, industry's spread, the record.
     this.farming(dt);
     this.soilStep(dt);
@@ -2417,7 +2442,7 @@ export class People {
         const luck = luckC ? 1 + (luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
         const bound = base ? sig((P.D_BASE - (z0 - oL[c])) / P.W_BASE) : 1;   // production's epistemic base
         const share = 2 * (base ? 1 - sL[c] : sL[c]);   // the domain's share of the place's ideas (TILT)
-        let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * share * fL * luck * bound;
+        let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * share * fL * luck * bound * this.pol.rv[c];
         if (wsum > 0) z += (1 - Math.exp(-copy * dt)) * up / wsum;
         // And from the markets met by trade (src/engine/routes.js), as far as life goes through markets.
         if (rt) { const tu = rt.tau(c); if (tu > 0) { const g = rt.gap(rt.marketOf[c], z0, mZ); if (g > 0) z += (1 - Math.exp(-cT * tu * P.COPY * pace * dt)) * g; } }
@@ -2748,7 +2773,7 @@ export class People {
     once('emptied', F.present && earth < 1e4, () => `Earth is empty of people (${(this.space / 1e9).toFixed(2)} billion off-planet)`);
     once('extinct', F.present && people < 1e4, () => `the last people die`);
     const h = this.history;
-    h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, peoples: this.ids.nPeoples, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
+    h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, peoples: this.ids.nPeoples, states: this.pol.nStates, stTop: this.pol.topShare, stHeld: people > 0 ? this.pol.heldN / people : 0, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
       Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, za: E.za, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
       energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, fert: this.fert, room: this.room, hab: this.hab, mined: this.mined, flow: this.flow, ApE: E.ApE || 0, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
       soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0 });
@@ -2857,7 +2882,8 @@ export class People {
     const Wn = top.map(c => site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_NATION));
     const dl = this.dlv && this.dlv.length === idx.length ? this.dlv : (this.dlv = new Float32Array(idx.length));
     const dn = this.dlvN && this.dlvN.length === nL * K ? this.dlvN : (this.dlvN = new Float32Array(nL * K));
-    dl.fill(0); dn.fill(0);
+    const dP = this.dlvP || (this.dlvP = new Float32Array(nL * KPOL)), cP = this.capP || (this.capP = new Int32Array(nL * KPOL)), pol = this.pol;
+    dl.fill(0); dn.fill(0); dP.fill(0); cP.fill(-1);
     const mo = rt.marketOf, cost = new Float64Array(top.length), wk = new Float64Array(top.length), far = new Map();
     for (let d = 0; d < nL; d++) {
       if (!(u[d] > 0)) continue;
@@ -2869,9 +2895,18 @@ export class People {
         const x = md === mc ? 0 : (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I');
         cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.C_NAT0 + P.K_NAT * r)); Zn += wk[k];
       }
-      const nat = Zn > 0 ? P.N_CITY : 0, q = u[d] * Math.max(0, this.Out[d] - this.goods[d]);
-      if (nat > 0) for (let k = 0; k < top.length; k++) {
-        const x = nat * wk[k] / Zn * Math.exp(-cost[k] / ll);
+      // A state's share of it to its capitals (src/engine/polities.js); the stateless share to the largest cities.
+      const h = pol.held(d), nat = Zn > 0 || h > 0 ? P.N_CITY : 0, q = u[d] * Math.max(0, this.Out[d] - this.goods[d]), natG = Zn > 0 ? nat * (1 - h) : 0;
+      if (h > 0) for (let j = 0; j < KPOL; j++) {
+        const k = pol.id[KPOL * d + j];
+        if (k < 0) break;
+        const c = pol.list[k].cap, mc = mo[c], sc = Math.max(s, ind[c]);
+        const x = md === mc ? 0 : (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I'), y = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]) * Math.exp(-x / ll);
+        dP[KPOL * d + j] = y; cP[KPOL * d + j] = c;
+        if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
+      }
+      if (natG > 0) for (let k = 0; k < top.length; k++) {
+        const x = natG * wk[k] / Zn * Math.exp(-cost[k] / ll);
         dn[d * K + k] = x;
         const mc = mo[top[k]];
         if (mc !== md && q * x > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * x); }
@@ -2898,7 +2933,7 @@ export class People {
     if (!rt || !this.dlv || !this.uShare) return;
     const u = this.uSent || (this.uSent = new Float64Array(nL)), a = 1 - Math.exp(-dt / P.T_URB);
     for (let c = 0; c < nL; c++) u[c] += (this.uShare[c] - u[c]) * a;
-    const { off, idx } = rt.catch, dl = this.dlv, dn = this.dlvN, top = this.top, K = P.K_NATION, nt = top.length;
+    const { off, idx } = rt.catch, dl = this.dlv, dn = this.dlvN, top = this.top, K = P.K_NATION, nt = top.length, dP = this.dlvP, cP = this.capP;
     const imp = this.imp, ex = this.exS || (this.exS = new Float64Array(nL)), own = this.ownK || (this.ownK = new Float64Array(nL));
     imp.fill(0); ex.fill(0); own.fill(0);
     own.set(this.K);
@@ -2907,6 +2942,7 @@ export class People {
       const q = u[d] * own[d]; ex[d] = u[d];
       for (let k = off[d]; k < off[d + 1]; k++) imp[idx[k]] += q * dl[k];
       for (let k = 0; k < nt; k++) imp[top[k]] += q * dn[d * K + k];
+      if (dP) for (let j = 0; j < KPOL; j++) { const c = cP[KPOL * d + j]; if (c < 0) break; imp[c] += q * dP[KPOL * d + j]; }
     }
     const cs = this.cityShare, wl = this.econ.on ? 0 : P.S_WORK;
     for (let c = 0; c < nL; c++) { const k = own[c] * (1 - ex[c]) + imp[c]; cs[c] = k > 0 ? imp[c] / k : 0; }
@@ -2918,6 +2954,8 @@ export class People {
       if (!(ex[d] > 0)) continue;
       const q = u[d] * own[d];
       for (let k = off[d]; k < off[d + 1]; k++) { const c = idx[k]; if (imp[c] > 0 && S[c] > 0) lab[d] += (1 - P.F_LEARN) * P.S_WORK * S[c] * q * dl[k] / imp[c]; }
+      // A capital's works go out to the places that send it their share (roads and works out from the centre).
+      if (dP) for (let j = 0; j < KPOL; j++) { const c = cP[KPOL * d + j]; if (c < 0) break; if (imp[c] > 0 && S[c] > 0) lab[d] += (1 - P.F_LEARN) * P.S_WORK * S[c] * q * dP[KPOL * d + j] / imp[c]; }
       lab[d] *= 1 - this.ind[d];   // industry's own works (railways, dams, machines) are its capital's
     }
     const Kl = this.K, K2 = this.K2;

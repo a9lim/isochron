@@ -101,7 +101,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's knowledge, 10 people's culture), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's knowledge, 10 people's culture, 11 people's states), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
@@ -119,7 +119,7 @@ struct U {
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
 @group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)
 @group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²
-@group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // Peoples.drawn, three a vertex: the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels
+@group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // Peoples.drawn, three a vertex: the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels; on the States map Polities.drawn, the largest state's and the second's alike, × their shares
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -162,8 +162,9 @@ fn toView(p: vec3f) -> vec3f {
   o.nrm = vec4f(toView(n), 0.0);
   o.vp = vec4f(v, 0.0);
   // The People view's peoples (Peoples.drawn): on the Culture map the largest way's identity in the
-  // tides' varying, the second's in Knowledge's and the pasture's (none of them drawn there); on
-  // Settlement and Density the fishers' parcels in the tides' x.
+  // tides' varying, the second's in Knowledge's and the pasture's (none of them drawn there); the
+  // States map's states alike (Polities.drawn); on Settlement and Density the fishers' parcels in the
+  // tides' x.
   let cult = u.mode.x > 9.5;
   let id1 = ident[3u * vi + 1u];
   o.wp = vec4f(p, select(past[vi].x, id1.w, cult));
@@ -489,10 +490,10 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8), Knowledge map (9) or Culture map (10)
+  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8), Knowledge map (9), Culture map (10) or States map (11)
   let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
   let folkK = u.mode.x > 8.5 && u.mode.x < 9.5;
-  let folkU = u.mode.x > 9.5;
+  let folkU = u.mode.x > 9.5;       // Culture or States: each drawn as a strain is (hue × hatch angle)
   let folkC = folkD || folkK || folkU;   // the People maps on a chart's base
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
@@ -740,6 +741,9 @@ fn hair(d: f32, w: f32) -> f32 {
       // shortens and the fill fades to the chart: a seam where distant branches meet, none in a continuum.
       // Each tessera takes one angle, in 15° steps dithered between the two nearest by its rank, so its
       // lines run straight (an angle turning per pixel bent them into whorls) and a turn reads gradual.
+      // States (11): each place's largest state alike, its hue and angle its own (set apart from its
+      // neighbours'), faint where it holds few of those who deliver, the second's interleaved: a contested
+      // march (the borders are the overlay's hairlines).
       let d0 = i.td;
       let d1 = vec4f(i.wx.yzw, i.wp.w);
       let had = explored * (1.0 - sheet);
@@ -1075,7 +1079,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : mode.pm === 'culture' ? 10 : 7) : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : mode.pm === 'culture' ? 10 : mode.pm === 'states' ? 11 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

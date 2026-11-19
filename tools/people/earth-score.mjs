@@ -27,7 +27,7 @@ async function one(ov, run) {
   const { People } = await import('../../src/engine/people.js');
   const { stream } = await import('../../src/rng.js');
   const pp = new People(await planetFields('earth', 6), ov);
-  pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples');
+  pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples'); pp.pol.rng = stream(`earth/${run}`, 'people:polities');
   const H = pp.H, deg = 180 / Math.PI, regOf = new Int16Array(pp.nL);
   for (let c = 0; c < pp.nL; c++) { const la = H.lat[c] * deg, lo = H.lon[c] * deg; regOf[c] = REGIONS.findIndex(([, a, b, x, y]) => la >= a && la < b && lo >= x && lo < y); }
   const ev = {};
@@ -38,7 +38,11 @@ async function one(ov, run) {
   let tot = 0;
   for (let c = 0; c < pp.nL; c++) { tot += pp.Ntot[c]; if (regOf[c] >= 0) by[regOf[c]] += pp.Ntot[c]; }
   const at = e => (e ? (/at (-?\d+°, -?\d+°)/.exec(e.s) || [])[1] : null);
-  return { shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
+  // The states (src/engine/polities.js) at 3 and 1 kyr before industry, at it, and at early takeoff: the
+  // effective number, the largest's share of the people held, and the share of the people held.
+  const h = pp.history, near = t => h.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), h[0]);
+  const states = ev.industry ? [ev.industry.t - 3000, ev.industry.t - 1000, ev.industry.t, ev.present ? ev.present.t : pp.t].map(t => { const x = near(t); return [x.states || 0, x.stTop || 0, x.stHeld || 0]; }) : null;
+  return { states, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
     farm: ev.farming ? at(ev.farming) : null, ind: ev.industry ? at(ev.industry) : null, farmToInd: ev.farming && ev.industry ? ev.industry.t - ev.farming.t : null, packages: pp.packages.length,
     origins: pp.packages.slice(0, 6).map(q => `${regOf[q.c] >= 0 ? REGIONS[regOf[q.c]][0] : `${Math.round(q.lat * deg)}°, ${Math.round(q.lon * deg)}°`} (${q.zone})`) };
 }
@@ -61,5 +65,7 @@ if (process.argv[2] === '--one') {
   REGIONS.forEach((r, k) => console.log(r[0].padEnd(18) + (100 * sh[k]).toFixed(1).padStart(8) + (100 * obs[k] / os).toFixed(1).padStart(7)));
   console.log(Object.entries(CONT).map(([n, ks]) => `${n} ${(100 * ks.reduce((a, k) => a + sh[k], 0)).toFixed(0)}% (now ${(100 * ks.reduce((a, k) => a + obs[k], 0) / os).toFixed(0)}%)`).join(' · '));
   for (const [k, r] of runs.entries()) console.log(`draw ${k}: score ${sc[k].toFixed(3)} · farming first at ${r.farm} (${r.packages} origins), industry ${r.farmToInd ? (r.farmToInd / 1e3).toFixed(1) : '-'} kyr later at ${r.ind} · early takeoff ${r.yrs ? r.yrs.toFixed(0) : '-'} yr after industry, ${(r.people / 1e9).toFixed(2)} billion people\n         origins in order: ${r.origins.join(', ')}`);
+  const st = runs.filter(r => r.states);
+  if (st.length) console.log('states (effective number · the largest\'s share · the people held) at ' + ['3 kyr before industry', '1 kyr before', 'industry', 'early takeoff'].map((w, i) => `${w} ${mean(st.map(r => r.states[i][0])).toFixed(1)} · ${(100 * mean(st.map(r => r.states[i][1]))).toFixed(0)}% · ${(100 * mean(st.map(r => r.states[i][2]))).toFixed(0)}%`).join('; '));
   console.log(`score ${mean(sc).toFixed(3)} ± ${Math.sqrt(mean(sc.map(s => (s - mean(sc)) ** 2))).toFixed(3)} over ${draws} draws`);
 }

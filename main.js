@@ -624,7 +624,7 @@ function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
 const EARTH_DIAL = -0.3;      // log₁₀ yr/s: today's Earth opens at half a year a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
-const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'knowledge', 'culture'] };
+const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'knowledge', 'culture', 'states'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
 const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
 function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
@@ -678,12 +678,14 @@ function setView(v) {
   drawDirty = true;
   caption(true);
 }
+/** The Culture map's fields or the States map's into the globe's (they share its buffer). */
+function peopleC() { if (globe && people.ids) globe.setPeopleC(pmMode === 'states' && people.st ? people.st : people.ids, people.grid); }
 /** Show a map by name (MAPS). */
 function setMap(m) {
   if (m === 'zones' || m === 'air') { clMode = m; setView('climate'); }
   else if (m === 'pressure' || m === 'temperature' || m === 'humidity') { wxMode = m; setView('weather'); }
   else if (m === 'tides') setView('tides');
-  else if (m === 'settlement' || m === 'density' || m === 'knowledge' || m === 'culture') { pmMode = m; setView('people'); }
+  else if (m === 'settlement' || m === 'density' || m === 'knowledge' || m === 'culture' || m === 'states') { pmMode = m; setView('people'); peopleC(); }
   else setView('relief');
 }
 /** Show a group at the map it last showed; Weather only where it's live. */
@@ -754,9 +756,10 @@ function startPeople() {
     }
     else if (m.type === 'figure') { people.fig = m.fig; people.pyr = m.pyr; people.pyrRef = m.pyrRef; figuresDirty = true; }
     else if (m.type === 'routes') { people.routes = m; drawDirty = true; }
+    else if (m.type === 'borders') { people.borders = m; drawDirty = true; }
     else if (m.type === 'drawn') {
-      people.drawn = m.d; people.past = m.l; people.ids = m.c; people.zf = m.zf;
-      if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); globe.setPeopleC(m.c, people.grid); }
+      people.drawn = m.d; people.past = m.l; people.ids = m.c; people.st = m.s; people.zf = m.zf;
+      if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); peopleC(); }
       drawDirty = true;
     }
   };
@@ -815,6 +818,8 @@ function caption(force) {
     if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
     // The Culture map counts the peoples (src/engine/peoples.js, `count`).
     if (view === 'people' && pmMode === 'culture' && h.peoples > 0) parts.push(`≈ ${Math.round(+h.peoples.toPrecision(2)).toLocaleString('en')} peoples`);
+    // The States map counts the states (src/engine/polities.js, `count`).
+    if (view === 'people' && pmMode === 'states' && h.states > 0) parts.push(`≈ ${Math.round(+h.states.toPrecision(2)).toLocaleString('en')} ${Math.round(h.states) === 1 ? 'state' : 'states'}`);
   }
   setCaption(parts.join(' · '), true);
 }
@@ -1239,7 +1244,7 @@ function tick(now) {
     if (yf.marks.length) drawDirty = true;
     globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, fronts: people.zf, sun: sf.day });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null, borders: view === 'people' && pmMode === 'states' ? people.borders : null }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
     lap('overlay');
   }
@@ -1283,7 +1288,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
   if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt, lakesDrawn.tint);
   if (coverDrawn) g.setCover(coverDrawn);
-  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPeopleB(people.past, people.grid); g.setPeopleC(people.ids, people.grid); }
+  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPeopleB(people.past, people.grid); peopleC(); }
   if (sulfPattern) g.setSulfate(sulfPattern);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');

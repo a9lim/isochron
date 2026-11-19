@@ -33,7 +33,8 @@
 // c the round trip's mean ((out + home)/2) on the layer the pair sails (steam by the more
 // industrial end's share; the sail's part by land cheaper by the two markets' roads and canals,
 // People's works), reach rising with the more advanced end's knowledge (`reach`), and eased by a
-// common language (the markets' towns' learned identities, src/engine/peoples.js `tradeW`).
+// common language (the markets' towns' learned identities, src/engine/peoples.js `tradeW`) and cut by
+// a border between their states (src/engine/polities.js `border`).
 // Each market buys from the others in proportion to kernel × their food (its supply basket, w):
 // a cell's harvest is then (1 − τ) its own and τ the basket's, τ the share of food that goes
 // through markets (TAU_AG with fields, toward TAU_IND with industry). The harvest's spread pools as
@@ -423,7 +424,8 @@ export class Routes {
         const gw = 1 / (1 + C.R_ROAD * 0.5 * (wri + Wr[j]) + C.K_CANAL * 0.5 * (wci + Wc[j])), cs = RS[o] * (1 - LS[o] * (1 - gw));
         const k0 = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-RI[o] / r);
         // A common language eases trade (src/engine/peoples.js, `tradeW`).
-        const k = ids && k0 > 0 && lead[i] >= 0 && lead[j] >= 0 ? k0 * ids.tradeW(lead[i], lead[j]) : k0;
+        // And a border between their towns' states (src/engine/polities.js, `border`).
+        const k = ids && k0 > 0 && lead[i] >= 0 && lead[j] >= 0 ? k0 * ids.tradeW(lead[i], lead[j]) * (pp.pol ? pp.pol.border(lead[i], lead[j]) : 1) : k0;
         KM[x * na + y] = KM[y * na + x] = k;
       }
     }

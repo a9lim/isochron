@@ -174,6 +174,15 @@ const GLYPHS = {
   fishing: (c, x, y, P) => parcels(c, x, y, P.ocean, 0.1, 0.65),
   // Peoples (src/render/globe.js, the Culture map): each its hue and its hatch's angle, three apart.
   peoples: (c, x, y, P) => { [[0.3, 0.4], [2.4, 1.6], [4.4, 2.7]].forEach(([h, a], k) => idPatch(c, x + 9 * k, y, k < 2 ? 9 : 8, 12, idHue(h, P.dark), a)); },
+  // States (the States map): each a hue and a hatch angle set apart from its neighbours'.
+  states: (c, x, y, P) => { [[0.4, 0], [3.5, 2.094]].forEach(([h, a], k) => idPatch(c, x + 13 * k, y, 13, 12, idHue(h, P.dark), a / 2)); },
+  // A contested march: the second state's hatch between the first's lines.
+  contested: (c, x, y, P) => { idPatch(c, x, y, 26, 12, idHue(0.4, P.dark), 0); idPatch(c, x, y, 26, 12, idHue(3.5, P.dark), 1.047, false, 0.5); },
+  // Borders: between two states a hairline, a state's edge against the stateless fainter.
+  border: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.8); c.lineWidth = 1.2; line(c, x, y + 6, x + 26, y + 6); },
+  edge: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.4); c.lineWidth = 0.6; line(c, x, y + 6, x + 26, y + 6); },
+  // A capital: a ring in the rules' colour.
+  capital: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.85); c.lineWidth = 1.1; c.beginPath(); c.arc(x + 13, y + 6, 3.2, 0, 7); c.stroke(); },
   // Two ways of life in one place: the second's hatch between the first's lines.
   mixed: (c, x, y, P) => { idPatch(c, x, y, 26, 12, idHue(0.3, P.dark), 0.4); idPatch(c, x, y, 26, 12, idHue(2.4, P.dark), 1.6, false, 0.5); },
   // Knowledge's domains: production in the accent and learning in verdigris, each by how near the
@@ -276,6 +285,7 @@ const ITEMS = {
   'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
   'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
   'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities']],
+  'people-states': [['states', 'States'], ['contested', 'Contested'], ['border', 'Border'], ['edge', 'Stateless edge'], ['capital', 'Capital'], ['city', 'Cities']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

@@ -291,6 +291,36 @@ function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
   ctx.setLineDash([]);
 }
 
+// The states' borders (src/engine/polities.js, `borders`): a hairline between two states, fainter where a
+// state meets the stateless; each capital a ring, larger by the people it holds.
+function drawBorders(ctx, cx, cy, r, camera, b, color) {
+  const { P, W, off, caps } = b, lw = Math.sqrt(symbolScale(r)), v = [0, 0, 0];
+  if (P && P.length) {
+    const m = P.length / 3, paths = [new Path2D(), new Path2D()];
+    for (let l = 0; l < off.length; l++) {
+      const end = l + 1 < off.length ? off[l + 1] : m;
+      let px = 0, py = 0, pv = false;
+      for (let k = off[l]; k < end; k++) {
+        camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
+        const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
+        if (vis && pv && k > off[l]) { const w = W[k] > 0.5 ? 1 : 0; paths[w].moveTo(px, py); paths[w].lineTo(x, y); }
+        px = x; py = y; pv = vis;
+      }
+    }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
+    [[0.6, 0.4], [1.2, 0.8]].forEach(([w, a], k) => { ctx.strokeStyle = withAlpha(color, a); ctx.lineWidth = w * lw; ctx.stroke(paths[k]); });
+  }
+  if (caps && caps.length) {
+    ctx.strokeStyle = withAlpha(color, 0.85); ctx.lineWidth = 1.1 * lw;
+    for (let k = 0; k < caps.length; k += 4) {
+      camera.view(caps[k], caps[k + 1], caps[k + 2], v);
+      if (v[2] <= 0.02) continue;
+      const rr = lw * (2.2 + 0.9 * Math.max(0, Math.log10(caps[k + 3] / 1e6)));
+      ctx.beginPath(); ctx.arc(cx + v[0] * r, cy - v[1] * r, rr, 0, 2 * Math.PI); ctx.stroke();
+    }
+  }
+}
+
 function drawPlumes(ctx, cx, cy, r, camera, plumes, palette) {
   const v = [0, 0, 0], sc = symbolScale(r);
   ctx.fillStyle = palette.accent;
@@ -356,6 +386,7 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
     drawRivers(ctx, cx, cy, r, camera, layers.rivers, ink, 1, layers.riverMonth);
   }
   if (folk && layers.routes) drawRoutes(ctx, cx, cy, r, camera, layers.routes, palette.text);
+  if (folk && layers.borders) drawBorders(ctx, cx, cy, r, camera, layers.borders, palette.text);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   // The Climate view's Air chart: the winds as streamlines (src/render/streamlines.js).
   if (layers.air) drawStreamlines(ctx, cx, cy, r, camera, layers.air.sets, withAlpha(palette.text, 0.62), Math.sqrt(symbolScale(r)));

@@ -38,7 +38,7 @@ node tools/engine-cost.mjs 7 20 0.5 earthlike gpu   # the plate step's cost by p
 
 Other headless tools in `tools/`: `hypsometry` (each height's share of the sphere against ETOPO's), `ice-check`, `iceage-survey`, `regolith-survey`, `plates-survey`, `eruption-run`, `pulse-run`, `dust-check`, `anomaly-fit` (each documents its arguments in its header); `tools/people/` holds the people's cached openings and couplers.
 
-`window.__isochron` exposes the page's mirrors (`P`, `tec`, `land`, `climate`, `ice`, `carbon`, `plumes`, `year`), the `engine` worker, `wx`, `globe`, `chart`, `camera`, `scheduler`, `setPlaying`, `setView`, `setMap` (by name: `relief`, `zones`, `air`, `pressure`, `temperature`, `humidity`, `tides`, `settlement`, `density`, `knowledge`, `culture`), `setDial` (log₁₀ yr/s), `tick(now)` (one frame, for driving a hidden tab), `prof` and `engineProf` (the page's and the worker's time by section), `lakes`, `air`, `lines`, `rivers`, `people` and `follow`. `P.years` is the planet's clock.
+`window.__isochron` exposes the page's mirrors (`P`, `tec`, `land`, `climate`, `ice`, `carbon`, `plumes`, `year`), the `engine` worker, `wx`, `globe`, `chart`, `camera`, `scheduler`, `setPlaying`, `setView`, `setMap` (by name: `relief`, `zones`, `air`, `pressure`, `temperature`, `humidity`, `tides`, `settlement`, `density`, `knowledge`, `culture`, `states`), `setDial` (log₁₀ yr/s), `tick(now)` (one frame, for driving a hidden tab), `prof` and `engineProf` (the page's and the worker's time by section), `lakes`, `air`, `lines`, `rivers`, `people` and `follow`. `P.years` is the planet's clock.
 
 ## Layout
 
@@ -52,7 +52,7 @@ src/grid/         icosphere.js (the geodesic grid, gradients, Laplacian), transf
 src/engine/       the model, no DOM: one file per layer (plates, crust, genesis, earth, plumes, polarity, gpts, landscape,
                   regolith, crustflex, flexure, ice, climate, clouds, airheat, seaheat, ocean, orbit, year, volcanoes, soil,
                   ground, lakes, carbon, oceancarbon, vegetation, life, dust, aeolian, pulse, tides, runaway, people,
-                  peoplelink, peoplefit, routes, peoples, cohorts, worlds, solar, mantle), planet.js (every layer stepped together), record.js, refine.js, mirror.js, and the
+                  peoplelink, peoplefit, routes, peoples, polities, cohorts, worlds, solar, mantle), planet.js (every layer stepped together), record.js, refine.js, mirror.js, and the
                   threads (worker.js, people-worker.js)
 src/gpu/          device.js, hierarchy.js (nested grids for multigrid), and each layer's GPU path (ebm, moisture, dust,
                   ice, flexure, tides, soil, plates, surface, weather, season, refine)
