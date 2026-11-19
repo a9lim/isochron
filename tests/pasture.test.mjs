@@ -23,6 +23,7 @@ function pastureAt(occ, rewild = 0) {
   const p = new People(steppe(4), { ...quiet });
   const L = p.newLineage(null, 0, 0);
   p.packages.push({ id: 0 }); p.rewild = rewild;
+  p.anim.fill(1); p.herdM.fill(1);   // a full set of domesticates, their herds full
   for (let c = 0; c < p.nL; c++) L.Z[c] = p.P.Z_HERD + 1;
   p.capacity(L);
   for (let c = 0; c < p.nL; c++) { L.N[c] = occ * L.K[c]; p.Ntot[c] = L.N[c]; }

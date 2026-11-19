@@ -522,11 +522,11 @@ test("the sea feeds a desert coast, and herders hold the grass the plough can't,
   const inland = p.cells.findIndex(i => !coastal.has(i)), coast = p.cells.findIndex(i => coastal.has(i));
   assert.ok(p.H.bS[coast] > 0.5 * p.P.B_SEA && p.H.bS[inland] === 0, `the coast's sea feeds ${p.H.bS[coast].toFixed(4)} a km²`);
   assert.ok(p.H.bS[coast] > p.H.bL[coast], 'more than its dry land does');
-  // Herding, once known (and a farming package exists somewhere), holds more than foraging there.
+  // Herding, once known and with animals (their herds full), holds more than foraging there.
   const L = p.newLineage(null, 0, 0);
   for (let c = 0; c < p.nL; c++) L.Z[c] = p.P.Z_HERD + 1;
   p.capacity(L); const Kf = L.K[inland];
-  p.packages.push({ id: 0 });
+  p.anim.fill(1); p.herdM.fill(1);
   p.capacity(L); const Kh = L.K[inland];
   assert.ok(Kh > 2 * Kf, `herders ${Kh.toFixed(0)} against foragers' ${Kf.toFixed(0)}`);
   // Deep snow in winter and nowhere milder within reach: the herds have no winter.
