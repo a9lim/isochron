@@ -3,7 +3,7 @@
 // grows as the history does; an arrow is a coupling the people's code has, as heavy as what flows.
 //
 // AI is compute's: it thinks (its research minds join people's, `E.AIr`) and works (its share of
-// the work, `sA`), and drives the robots' bodies, which work beside people. Culture is the
+// the work, `sA`), and drives the robots' bodies, which work beside people. Knowledge is the
 // economy's one technology: what the land and the fields carry, output's productivity, energy's
 // intensity and its sources' returns, compute's efficiency (hardware and algorithms), a body's cost.
 // The land holds the economy's endowments: its plants, fossil carbon and ores (the fossil and ore
@@ -19,7 +19,7 @@ export const ECONOMY = {
   sea: [0.08, 0.04, 'Sea'], climate: [0.32, 0.04, 'Climate'], air: [0.6, 0.04, 'Air'], space: [0.88, 0.04, 'Space'],
   land: [0.12, 0.21, 'Land'], energy: [0.8, 0.3, 'Energy'],
   people: [0.3, 0.43, 'People'], farms: [0.1, 0.5, 'Farms'],
-  output: [0.6, 0.55, 'Output'], culture: [0.34, 0.64, 'Culture'],
+  output: [0.6, 0.55, 'Output'], knowledge: [0.34, 0.64, 'Knowledge'],
   minds: [0.14, 0.84, 'Minds'], compute: [0.58, 0.86, 'Compute'], robots: [0.88, 0.76, 'Robots'],
 };
 
@@ -56,7 +56,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
     values: {
       climate: `${meanT.toFixed(1)} °C`, land: `NPP ${Math.round(npp)} Pg/yr`,
       // People and their fields leave the figure with the last of them on Earth (the minds stay: AI's research joins them).
-      people: h.earth >= 1 ? count(h.earth) : null, minds: count(h.minds), culture: `z ${h.zmax.toFixed(2)}`,
+      people: h.earth >= 1 ? count(h.earth) : null, minds: count(h.minds), knowledge: `z ${h.zmax.toFixed(2)}`,
       farms: farms && (h.earth >= 1 || farmed > 5e-4) ? `${pc(farmed)} of land` : null,
       sea: boiled > 0 ? `${Math.round(100 * boiled)}% boiled` : null,
       air: ind ? `${Math.round(pco2)} ppm` : null,
@@ -69,26 +69,26 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
     // Misaligned, AI's nodes are drawn in the red.
     red: m.ending && !m.ending.aligned && !m.ending.paused ? { compute: true, robots: true } : {},
     edges: [
-      // Kremer's loop: the land feeds people, people make minds, minds ideas, and culture raises what the land carries.
+      // Kremer's loop: the land feeds people, people make minds, minds ideas, and knowledge raises what the land carries.
       { from: 'climate', to: 'land', w: rain / la / 1.5, label: `${Math.round(1000 * rain / la)} mm/yr`, bend: 0 },
       { from: 'land', to: 'people', w: 0.25 + 0.5 * (1 - h.farm), label: 'forage', bend: -0.1 },
       { from: 'people', to: 'minds', w: 0.45, bend: 0.1 },
-      { from: 'minds', to: 'culture', w: 0.5, label: 'ideas', bend: -0.1 },
-      { from: 'culture', to: 'people', w: 0.4, bend: 0.1 },
+      { from: 'minds', to: 'knowledge', w: 0.5, label: 'ideas', bend: -0.1 },
+      { from: 'knowledge', to: 'people', w: 0.4, bend: 0.1 },
       // Farming: the fields take land and strip its soil, yield by the soil, and feed people.
       { from: 'farms', to: 'people', w: 0.25 + 0.5 * h.farm, label: 'harvest', bend: 0.1 },
       { from: 'farms', to: 'land', w: farmed / 0.1, label: 'tillage', bend: 0.25 },
       { from: 'land', to: 'farms', w: h.soil / 4, label: `soil ${h.soil.toFixed(1)} m`, bend: 0.25 },
-      { from: 'culture', to: 'farms', w: 0.3, bend: -0.1 },
+      { from: 'knowledge', to: 'farms', w: 0.3, bend: -0.1 },
       { from: 'air', to: 'land', w: Math.min(1, Math.max(0, co2F) / 4), label: 'CO₂', bend: 0.1, on: ind && co2F > 0.05 },
-      // Industry: output from capital (output kept), the work and energy, at culture's productivity,
+      // Industry: output from capital (output kept), the work and energy, at knowledge's productivity,
       // with the land's ores; invested back by return.
       { from: 'output', to: 'output', w: inv('f') / 0.15, label: pc(inv('f')), on: ind && inv('f') >= 5e-4 },
       { from: 'people', to: 'output', w: 0.8 * (ai ? 1 - sA : 1), label: ai ? pc(1 - sA) : '', bend: 0.1 },
       { from: 'compute', to: 'output', w: 0.8 * sA, label: pc(sA), bend: 0.1 },
       { from: 'robots', to: 'output', w: h.Ap / Math.max(1, h.Ap + 0.5 * (E ? E.Lh : 0)), bend: 0.1, on: work },
       { from: 'energy', to: 'output', w: 0.5, bend: 0.12 },
-      { from: 'culture', to: 'output', w: 0.3, bend: 0.1 },
+      { from: 'knowledge', to: 'output', w: 0.3, bend: 0.1 },
       { from: 'land', to: 'output', w: (0.2 + 0.6 * (1 - (E ? E.grade : 1))) * (1 - aA), label: `ores ${E ? E.grade.toFixed(2) : ''}`, bend: -0.12, on: ind && aA < 0.99 },
       // Space's materials: the mass mined for the swarm and the habitats (by log, a megatonne to
       // 10¹⁸ t a year), or while that's little, the asteroids' share of building's.
@@ -98,10 +98,10 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'output', to: 'compute', w: (inv('c') + inv('q')) / 0.08, label: pc(inv('c') + inv('q')), bend: 0.12, on: inv('c') + inv('q') >= 5e-4 },
       { from: 'output', to: 'robots', w: inv('r') / 0.05, label: pc(inv('r')), bend: 0.12, on: inv('r') >= 5e-4 },
       // Energy: the land's fossil carbon and sunlight, space's sunlight (fusion is plant alone); its
-      // intensity and the sources' returns rising with culture; power to the machines and to food.
+      // intensity and the sources' returns rising with knowledge; power to the machines and to food.
       { from: 'land', to: 'energy', w: share(ground), label: watts(ground), bend: -0.08, on: ground > 1e8 },
       { from: 'space', to: 'energy', w: share(h.Es), label: watts(h.Es), bend: 0, on: h.Es >= 1e9 },
-      { from: 'culture', to: 'energy', w: 0.3, bend: -0.1 },
+      { from: 'knowledge', to: 'energy', w: 0.3, bend: -0.1 },
       { from: 'energy', to: 'compute', w: E ? 3 * share(E.Wc) : 0, label: E ? watts(E.Wc) : '', bend: -0.15 },
       { from: 'energy', to: 'robots', w: E ? 3 * share(E.Wr) : 0, label: E ? watts(E.Wr) : '', bend: -0.1, on: work },
       { from: 'energy', to: 'people', w: E ? 3 * share(E.food) : 0, label: 'food', bend: -0.1, on: !!E && E.food > 1e9 },
@@ -111,11 +111,11 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'energy', to: 'air', w: Math.abs(net) / 10, label: `${net >= 0 ? '+' : '−'}${Math.abs(net).toFixed(Math.abs(net) < 1 ? 2 : 1)} Pg/yr`, red: net > 0, bend: 0.05, on: Math.abs(net) > 1e-3 },
       { from: 'air', to: 'climate', w: Math.abs(airF) / 6, label: Wm(airF), bend: 0, on: ind },
       { from: 'energy', to: 'climate', w: heat / 2, label: `heat ${Wm(heat)}`, bend: 0, on: heat > 0.005 },
-      // AI: compute thinks and works; its efficiency rises with culture; it drives the robots' bodies, cheaper with culture.
-      { from: 'culture', to: 'compute', w: 0.3, bend: -0.1, on: ai },
+      // AI: compute thinks and works; its efficiency rises with knowledge; it drives the robots' bodies, cheaper with knowledge.
+      { from: 'knowledge', to: 'compute', w: 0.3, bend: -0.1, on: ai },
       { from: 'compute', to: 'minds', w: h.minds > 0 && E ? Math.min(1, 3 * E.Ar / h.minds) : 0, label: 'research', bend: 0.05 },
       { from: 'compute', to: 'robots', w: 0.3, bend: 0.1, on: work },
-      { from: 'culture', to: 'robots', w: 0.2, bend: 0.1 },
+      { from: 'knowledge', to: 'robots', w: 0.2, bend: 0.1 },
       // Space: its sunlight's power, and the people who go; misaligned, control passes to AI.
       { from: 'people', to: 'space', w: 0.3, label: h.Es >= 1e9 ? count(h.space) : '', bend: -0.25, on: h.space >= 1e3 },
       // Alignment: people's hold on AI, 1 − its control (a9), in the ink; misaligned, the control AI takes back in the red.
@@ -127,10 +127,10 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   };
 }
 
-/** Fig. 2's caption with people: the share invested, the power and its sources; before industry, the minds and culture. */
+/** Fig. 2's caption with people: the share invested, the power and its sources; before industry, the minds and knowledge. */
 export function economyCaption(m) {
   const h = m.last, E = m.econ, Y = h.Y || 0;
-  if (!(m.flags.industry && E && Y > 0)) return `The people · ${count(h.minds)} minds · culture z ${h.zmax.toFixed(2)}`;
+  if (!(m.flags.industry && E && Y > 0)) return `The people · ${count(h.minds)} minds · knowledge z ${h.zmax.toFixed(2)}`;
   const f = E.flows, all = h.Ef + h.Er + h.Eu + h.Es;
   const mix = [['fossil', h.Ef], ['solar', h.Er], ['fusion', h.Eu], ['space', h.Es]].filter(([, v]) => v / all >= 0.005).map(([k, v]) => `${k} ${Math.round(100 * v / all)}%`);
   return `The economy · investing ${Math.round(100 * (f.f + f.c + f.r + f.e + f.q) / Y)}% of output · ${watts(all)}: ${mix.join(', ')}`;

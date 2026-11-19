@@ -1,6 +1,6 @@
 // The people's model (src/engine/people.js) against its oracles, on uniform synthetic planets:
 // the Fisher front's speed, the spread's conservation, a people held at its capacity, the species'
-// clock, the home world-island, culture's equilibrium, the saddle-node threshold and the tip, and
+// clock, the home world-island, knowledge's equilibrium, the saddle-node threshold and the tip, and
 // the hyperbola's t*.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ function uniformPlanet(level) {
   return f;
 }
 const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, SIG_LUCK: 0 };
-/** The people's arrays under one name (each cell's numbers, culture, capacity and minds). */
+/** The people's arrays under one name (each cell's numbers, knowledge, capacity and minds). */
 const pop = p => ({ N: p.Ntot, Z: p.zc, K: p.K, K2: p.K2, M: p.M });
 
 /** Run with a fixed step, calling `each` after every step. */
@@ -71,7 +71,7 @@ test('a people at its capacity holds there before industry', () => {
   assert.ok(Math.abs(N / K - 1) < 1e-6, `people at ${(N / K).toFixed(8)} of the capacity`);
 });
 
-test('the species\' clock: contact rises from L_S0 toward L_SMAX, e-fold per T_S at first, and culture lengthens it', () => {
+test('the species\' clock: contact rises from L_S0 toward L_SMAX, e-fold per T_S at first, and knowledge lengthens it', () => {
   const p = new People(uniformPlanet(3), quiet), P = p.P;
   assert.ok(Math.abs(p.clockL(0) - P.L_S0) < 1e-9);
   const logi = t => P.L_SMAX / (1 + (P.L_SMAX / P.L_S0 - 1) * Math.exp(-t / P.T_S));
@@ -81,7 +81,7 @@ test('the species\' clock: contact rises from L_S0 toward L_SMAX, e-fold per T_S
   assert.ok(P.L_SMAX - p.clockL(20 * P.T_S) < 1e-3 * P.L_SMAX, 'capped');
   p.t = P.T_S;
   const l0 = p.reachL(0), l1 = p.reachL(P.Z_L);
-  assert.ok(Math.abs(l1 / l0 - Math.E) < 0.05 * Math.E, `a Z_L of culture: ×${(l1 / l0).toFixed(3)} (the cap's softness)`);
+  assert.ok(Math.abs(l1 / l0 - Math.E) < 0.05 * Math.E, `a Z_L of knowledge: ×${(l1 / l0).toFixed(3)} (the cap's softness)`);
   assert.ok(p.reachL(30) <= P.L_CMAX, 'at most L_CMAX');
 });
 
@@ -138,7 +138,7 @@ test('two domains held equal stay equal: production and learning step for step (
   assert.ok(p.packages.length > 0 && p.routes && p.routes.active.length > 1, 'farming and trade ran');
 });
 
-/** A uniform world held at its capacity, culture alone moving: the minds within reach at z = 0. */
+/** A uniform world held at its capacity, knowledge alone moving: the minds within reach at z = 0. */
 function heldWorld(params) {
   const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_S0: 1e9, L_SMAX: 1e9, COPY: 0, RHO_R: 0, CAP_F: 1e12, D_BASE: Infinity, ...params });
   const L = pop(p);
@@ -150,7 +150,7 @@ function heldWorld(params) {
 }
 const zMean = L => { let s = 0, w = 0; for (let c = 0; c < L.N.length; c++) { s += L.N[c] * L.Z[c]; w += L.N[c]; } return s / w; };
 
-test('culture settles at A M/λ when capacity doesn\'t answer it', () => {
+test('knowledge settles at A M/λ when capacity doesn\'t answer it', () => {
   const { p, L, M0 } = heldWorld({ THETA: 0, LAMBDA: 1e-3, A_INV: 1e-12 });
   runFixed(p, 50, 2e4);
   const z = zMean(L), zStar = 1e-12 * M0 / 1e-3;
@@ -164,7 +164,7 @@ test('the loop tips past A θ e M₀ = λ, and holds below it', () => {
     w.p.P.A_INV = k * lam / (Math.E * w.M0);
     runFixed(w.p, 20, 3e4);
     const z = zMean(w.L);
-    assert.equal(w.p.tTip !== null, tips, 'the tip is the people\'s event: their mean culture past 1');
+    assert.equal(w.p.tTip !== null, tips, 'the tip is the people\'s event: their mean knowledge past 1');
     if (tips) assert.ok(z > 5, `above the threshold z reached only ${z.toFixed(2)}`);
     else {
       // The lower root of k e^{x−1} = x.
@@ -179,7 +179,7 @@ test('production\'s epistemic base: its ideas fall away once it runs D_BASE ahea
   for (const x of [-1, 0, 1, 2]) {
     const { p } = heldWorld({ THETA: 0, LAMBDA: 1e-12, A_INV: 1e-12, D_BASE: PEOPLE.D_BASE });
     for (let c = 0; c < p.nL; c++) { p.zc[c] = 3; p.zl[c] = 3 - x; }
-    p.culture(10);
+    p.knowledge(10);
     const gP = p.zc[0] - 3, gL = p.zl[0] - (3 - x), want = sg((PEOPLE.D_BASE - x) / PEOPLE.W_BASE);
     assert.ok(gL > 0 && Math.abs(gP / gL - want) < 1e-6, `${x} ahead: production's ideas ×${(gP / gL).toFixed(4)} against ${want.toFixed(4)}`);
   }
@@ -217,7 +217,7 @@ test('the task CES: its limits, its boundary and its derivative', () => {
 });
 
 test('fixed capital settles at the Solow balance, K/Y = s/δ', () => {
-  // Culture held below AI's (no compute), fossil carbon plenty: what's saved past energy's share
+  // Knowledge held below AI's (no compute), fossil carbon plenty: what's saved past energy's share
   // builds fixed capital, which settles where its saving matches its wear.
   const P = { ...PEOPLE, FOSSIL: 1e9 }, E = newEconomy(P), x = { Lh: 1e6, z: 8 };
   E.on = true; E.Kf = 1e5; E.Ke[0] = 1e6;
@@ -548,7 +548,7 @@ test("the stocks: game hunted out where it never knew hominins, held where it di
   const f = uniformPlanet(3);
   const p = new People(f, { ...quiet, A_INV: 0, D0: 0, D_Z: 0 });
   const L = pop(p);
-  for (let c = 0; c < p.nL; c++) L.Z[c] = 5;   // foragers at full culture, as dense as it lets them be
+  for (let c = 0; c < p.nL; c++) L.Z[c] = 5;   // foragers at full knowledge, as dense as it lets them be
   p.capacity();
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
   const half = Math.floor(p.nL / 2);
@@ -570,7 +570,7 @@ test("the stocks: game hunted out where it never knew hominins, held where it di
   for (let k = 0; k < 10; k++) p.stocks(5);
   assert.ok(p.fish[0] < 0.5 * pre, `fifty years of industry's fleets: ${p.fish[0].toFixed(3)}`);
   const low = p.fish[0];
-  p.zc[0] = P.Z_IND + 1 + 4 * P.Z_CONS;   // culture's care eases the take: they come back
+  p.zc[0] = P.Z_IND + 1 + 4 * P.Z_CONS;   // knowledge's care eases the take: they come back
   for (let k = 0; k < 20; k++) p.stocks(5);
   assert.ok(p.fish[0] > low, `and recover as the take eases (${p.fish[0].toFixed(3)})`);
 });
@@ -614,7 +614,7 @@ test('a pause: a third of the draws, the frontier held where it stands, none of 
   const p = new People(f, { ...quiet, ENDING: '3b' });
   p.econ.x = 1.2; p.drawEnding();
   assert.deepEqual([p.ending.code, p.ending.paused, p.ending.aligned, p.ending.preserve], ['3b', true, false, true]);
-  // Capability past the cap is the cap's: compute and culture keep growing, the frontier doesn't.
+  // Capability past the cap is the cap's: compute and knowledge keep growing, the frontier doesn't.
   const held = { ...PEOPLE, X_CAP: p.P.X_CAP };
   const a = capability(1e12, PEOPLE.Z_AI + 0.5, held), b = capability(1e15, PEOPLE.Z_AI + 2, held), free = capability(1e15, PEOPLE.Z_AI + 2, PEOPLE);
   assert.ok(a.x <= 1.2 + 1e-12 && Math.abs(b.x - 1.2) < 1e-12 && free.x > 1.2 && b.bc === capability(1e20, PEOPLE.Z_AI + 3, held).bc);

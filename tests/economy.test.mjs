@@ -26,7 +26,7 @@ const shown = fig => Object.keys(fig.values).filter(k => fig.values[k] !== null)
 test('the hominins: Kremer\'s loop alone', () => {
   const fig = economyOf({ m: report(row()), ...planet });
   check(fig);
-  assert.deepEqual(shown(fig), ['climate', 'culture', 'land', 'minds', 'people']);
+  assert.deepEqual(shown(fig), ['climate', 'knowledge', 'land', 'minds', 'people']);
   assert.match(economyCaption(report(row())), /^The people/);
 });
 
@@ -45,7 +45,7 @@ test('industry brings output (capital its loop), energy and the air; AI brings c
   assert.match(fig.values.robots, /idle$/);
   assert.match(economyCaption(idle), /: fossil 80%, solar 20%$/);
   const live = e => e.on !== false;
-  assert.ok(!fig.edges.some(e => live(e) && (e.from === 'robots' || e.to === 'robots') && e.from !== 'output' && e.from !== 'culture'), 'an idle fleet works nothing and draws no power');
+  assert.ok(!fig.edges.some(e => live(e) && (e.from === 'robots' || e.to === 'robots') && e.from !== 'output' && e.from !== 'knowledge'), 'an idle fleet works nothing and draws no power');
 });
 
 test('alignment is people\'s hold on AI; misaligned, AI\'s nodes are red; extinct people leave the figure', () => {

@@ -73,8 +73,8 @@
 // two patterns of two colours each: blocks for residences (cities in the accent,
 // datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
-// hatch; the sulfate veil as in the Air map. Culture: a chart's base, violet by
-// how near a place's culture is to the frontier's, lines of equal culture every
+// hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, violet by
+// how near a place's knowledge is to the frontier's, lines of equal knowledge every
 // quarter unit (heavier at farming's and industry's), a stipple by the works a
 // km², and of the land's uses only the cities (People.drawnB).
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
@@ -91,7 +91,7 @@ const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal 
 const PLANKTON_WASH = 0.3;    // and a pale, milky turquoise laid over it there (blooms scatter light: so shelves, lightly tinted, show it too)
 const NIGHT_K = 0.24;         // how far night takes a map toward graphite (light theme)
 const NIGHT_K_DARK = 0.55;    // and toward black (dark theme)
-const Z_FARM = 3.0;   // the culture farming begins about and industry's (src/engine/people.js, PEOPLE.Z_FARM, Z_IND): the Culture map's heavier lines
+const Z_FARM = 3.0;   // the knowledge farming begins about and industry's (src/engine/people.js, PEOPLE.Z_FARM, Z_IND): the Knowledge map's heavier lines
 const Z_IND = 7.0;
 const LIGHT_FOLK = vec3f(0.95, 0.79, 0.33);   // the night's lights where people make them: lamplight's yellow
 const LIGHT_BOTS = vec3f(1.0, 0.99, 0.96);    // and where the robots do: white
@@ -101,7 +101,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's culture), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's knowledge), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
@@ -118,7 +118,7 @@ struct U {
 @group(0) @binding(3) var<storage, read> folk: array<vec4f>;
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
 @group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)
-@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y the culture known there, z its lag behind the frontier, w the works a km²
+@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y the knowledge known there, z its lag behind the frontier, w the works a km²
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -165,7 +165,7 @@ fn toView(p: vec3f) -> vec3f {
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
-  // sulfate's optical depth, its haze where the winds carry it, and the culture, its lag and the
+  // sulfate's optical depth, its haze where the winds carry it, and the knowledge, its lag and the
   // works (People.drawnB; the vertex has no varyings to spare).
   o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, past[vi].y, past[vi].z, past[vi].w), u.mode.x > 5.5);
   o.td = td;
@@ -456,7 +456,7 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8) or Culture map (9)
+  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8) or Knowledge map (9)
   let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
   let folkK = u.mode.x > 8.5;
   let folkC = folkD || folkK;       // the People maps on a chart's base
@@ -676,8 +676,8 @@ fn hair(d: f32, w: f32) -> f32 {
       let rlog = i.pq.z;
       pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
     } else if (folkK) {
-      // Culture: violet by how near a place's culture is to the frontier's (full at it, a third half a
-      // unit of culture behind), where people have lived; lines of equal culture every quarter unit (or half, one or two where they crowd),
+      // Knowledge: violet by how near a place's knowledge is to the frontier's (full at it, a third half a
+      // unit of knowledge behind), where people have lived; lines of equal knowledge every quarter unit (or half, one or two where they crowd),
       // heavier at farming's and industry's (Z_FARM, Z_IND: isochrons of knowledge, the fronts by
       // which it spreads); and a stipple, denser by the works a km² (from ~30 person-years to ~10⁴).
       let zk = i.wx.y;
@@ -717,7 +717,7 @@ fn hair(d: f32, w: f32) -> f32 {
     if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (folkK) {
-      // The Culture map keeps only the cities of the land's uses (where the minds gather).
+      // The Knowledge map keeps only the cities of the land's uses (where the minds gather).
     } else if (rank < c2) {
       pland = mix(mix(pland, u.inkD.rgb, 0.14), mix(u.inkD.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (rank < c3) {
@@ -964,7 +964,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
       device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 2);
     },
-    /** Per cell of the people's grid `pg`, four values (People.drawnB): the herders' pasture (a share of the cell), the culture known there, its lag behind the frontier, the works a km². */
+    /** Per cell of the people's grid `pg`, four values (People.drawnB): the herders' pasture (a share of the cell), the knowledge known there, its lag behind the frontier, the works a km². */
     setPeopleB(l, pg) {
       if (pg === mesh) { device.queue.writeBuffer(pastBuf, 0, l); return; }
       if (!pastS) pastS = storage(device, pg.n * 16);
@@ -1005,7 +1005,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'culture' ? 9 : 7) : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

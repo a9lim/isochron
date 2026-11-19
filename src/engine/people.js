@@ -8,7 +8,7 @@
 // land carries, and what it carries makes minds. v1 splits the factors where a split brings its own
 // dynamics and lands on a layer the planet has, each switched on by era:
 //
-//   culture   z, in e-folds of productivity, per cell, in two domains (batch 1c, docs/roadmap.md):
+//   knowledge   z, in e-folds of productivity, per cell, in two domains (batch 1c, docs/roadmap.md):
 //             production (`zc`, techniques: every yield and its thresholds, cold, boats, trade's
 //             reach, industry and the economy) and learning (`zl`, writing, numeracy, science:
 //             contact, copying's pace, research's yield), bound together only by production's
@@ -23,7 +23,7 @@
 //             1/(t* − t), von Foerster's hyperbola (standard algebra). Below a threshold the loop
 //             has a low fixed point (a saddle-node's: A M₀ θ e > λ is where it vanishes, synthesis),
 //             so a people "tips" when the minds within its reach pass ~λ/(Aθe), about a million.
-//   minds     M: people pass ideas over a contact length ℓ, which the species' clock and culture
+//   minds     M: people pass ideas over a contact length ℓ, which the species' clock and knowledge
 //             lengthen (ℓ = ℓ_S(t) e^{z/Z_L}: one clock for everyone, `reachL`, speculation), within
 //             the connected body they live in (land peopled at
 //             MIND_REL of the inhabited world's mean density, and with boats narrow seas): M = N_C
@@ -31,7 +31,7 @@
 //             the body's total N_C (synthesis). The threshold rises with the world: a forager world is
 //             one body, a farming world's sparse margins (the Arctic, the deserts) part it, so the
 //             Americas and Australia keep Kremer's lag. Minds are people × research intensity (rising
-//             with income); AI's research minds join them through the task CES below. Culture is
+//             with income); AI's research minds join them through the task CES below. Knowledge is
 //             also copied from neighbours who know more, as often as people meet (each side's
 //             density against RHO_COPY).
 //   people    a density per cell. Births and deaths (`demography`): deaths by food per person
@@ -45,7 +45,7 @@
 //             capacity is Fisher–KPP (standard: a front at ~2√(rD), less Bramson's delay), with
 //             slope and the capacity's zero as barriers. The sea is crossed by voyages: an empty
 //             shore is settled by a founding party, an event whose chance falls as e^{−km/reach}
-//             (rafts from the start, boats with culture; `voyages`), the flux only between coasts
+//             (rafts from the start, boats with knowledge; `voyages`), the flux only between coasts
 //             both settled; every crossing to 6 sea cells, past that each group of landmasses its
 //             nearest other's (`graph`).
 //   food      K = area × cold limit(z) × [(1 − f) max(b_L meat P_F(z) e^{K_G g}, herd) + b_S F P_F e^{K_G g}
@@ -69,7 +69,7 @@
 //             rivers and by tillage; within a cell the land is ranked (deep, flat bottoms first),
 //             so the fields hold h̄ (1 − ln f) less a deficit of their own, and their tillage is
 //             E_TILL ((1 − f) ln(1 − f) + f)(s̄/S_REF) e^{−(z − Z_FARM)/Z_CONS} (10–100× the
-//             geological rate on slopes, Montgomery 2007, from memory; conservation with culture,
+//             geological rate on slopes, Montgomery 2007, from memory; conservation with knowledge,
 //             synthesis), stepped exactly (`regolithStep`): held here on the cached planet, the
 //             planet's own regolith when live.
 //   stores    working capital's one distinct role: a harvest spread (a year's rain and warmth
@@ -77,11 +77,11 @@
 //             market's supply basket along the routes, src/engine/routes.js) against granaries of up to S_MAX years' food, famine's expected deaths in the
 //             demography; where the dial resolves the year, the planet's own years in place of
 //             the spread (`addYears`: a drought or a volcanic winter is a famine where it fell);
-//             and the seed kept for the next sowing (1/R of the harvest, R rising with culture).
+//             and the seed kept for the next sowing (1/R of the harvest, R rising with knowledge).
 //   seasons   the hungry season: each cell's harvest calendar from its twelve months (`calendar`:
 //             seasons of growing months, a crop each M_CROP months as the warmth allows, roots dug
 //             as needed where the year never cools), the store losing its grain over the longest
-//             gap between harvests (faster with warmth, slower with culture), the crops' rain spread
+//             gap between harvests (faster with warmth, slower with knowledge), the crops' rain spread
 //             over the months they grow (several crops pool it), and the granary's room past the
 //             season's need kept against bad years (`reserve`).
 //   herds     animals domesticated at a farming origin from the large game still standing about it
@@ -114,7 +114,7 @@
 //             efficiency e^{θ_C z}): the automatable shares of cognitive tasks β_c and of physical
 //             tasks β_p (GAP_P orders further) are logistics across the FLOP gap, so investing in
 //             compute buys capability as well as workers. Physical work needs bodies: robots are
-//             capital (`labour`), built by marginal product, worn, powered, cheaper with culture.
+//             capital (`labour`), built by marginal product, worn, powered, cheaper with knowledge.
 //             Within each task group AI and people substitute until AI fills the automatable
 //             tasks, then the tasks combine at σ (`taskLabor`); cognitive against physical at σ_G
 //             (`groupCES`): σ < 1 bounds output by what isn't automated or embodied (Baumol).
@@ -124,7 +124,7 @@
 //             production's compute alone would leave research to people.
 //   heat      surface and space solar are heat-neutral on Earth to first order; fossil carbon and
 //             fusion add heat, together within Earth's heat budget: people's HEAT_MAX W/m², then the
-//             ending's as AI comes to run things. Sulfate from coal cools, scrubbed as culture grows.
+//             ending's as AI comes to run things. Sulfate from coal cools, scrubbed as knowledge grows.
 //   endings   drawn by chance at early takeoff on two axes (a9): aligned, misaligned or paused, and
 //             Earth preserved or sacrificed. Paused (3a, 3b; speculation): frontier capability is held
 //             where the draw finds it by agreement, so the hyperbola breaks and the run goes on; 3a
@@ -168,7 +168,7 @@ export const PEOPLE = {
   // (Peru's, Namibia's) feeds people the land can't. B_SEA keeps the coasts' mean at the flat bonus
   // (half of b) it replaced: the sea's food is moved toward the productive coasts, not added.
   B_SEA: 0.019, PS_REF: 13,
-  R_FISH: 0.3, H_FISH: 0.03, H_FISH_IND: 0.45,   // the fish's regrowth (/yr: Schaefer's r for the stocks people take, a few tenths, from memory); fishing's take before industry and at industry's height (past the regrowth: the twentieth century's collapses), easing with culture as tillage does (Z_CONS)
+  R_FISH: 0.3, H_FISH: 0.03, H_FISH_IND: 0.45,   // the fish's regrowth (/yr: Schaefer's r for the stocks people take, a few tenths, from memory); fishing's take before industry and at industry's height (past the regrowth: the twentieth century's collapses), easing with knowledge as tillage does (Z_CONS)
   // Herders (synthesis): pastoralists' densities (~1 a km² on good steppe, from memory) on the grass
   // within a season's move, held by the leaner of summer's pasture and winter's (grazed standing,
   // where the coldest month is milder than −T_SNOW or the winter too dry for deep snow).
@@ -189,13 +189,13 @@ export const PEOPLE = {
   // ceiling's yield by TRACT (the plough, the ox; the values speculation).
   R_HERD: 0.15, F_DIE: 1.5, TH_DIE: 0.15, B_DZUD: 0.1, C_ANIM: 0.01, K_KEEP: 0.3, A_SEED: 0.05, PATH_ANIM: 0.8, MANURE: 0.35, TRACT: 0.3,
   // Megafauna (synthesis; the overkill's timing speculation): large game as a stock a cell, regrowing
-  // slowly and hunted in proportion to the foragers there and their culture; animals that evolved
+  // slowly and hunted in proportion to the foragers there and their knowledge; animals that evolved
   // beside hominins are wary (NAIVE_CO of a naive fauna's take): the home world-island's (`home`), so
   // they hold where people began and are hunted out beyond it (the Americas', Sahul's). Below M_EXT they're gone.
-  R_MEGA: 0.03, H_MEGA: 0.04, NAIVE_CO: 0.15, M_EXT: 0.02, MEAT: 0.3, MG_REF: 0.6,   // regrowth (/yr: slow breeders, from memory), the take at a forager density B0 with full culture, wariness, extinction, meat's share of foraging at the full stock and the stock it was calibrated at
+  R_MEGA: 0.03, H_MEGA: 0.04, NAIVE_CO: 0.15, M_EXT: 0.02, MEAT: 0.3, MG_REF: 0.6,   // regrowth (/yr: slow breeders, from memory), the take at a forager density B0 with full knowledge, wariness, extinction, meat's share of foraging at the full stock and the stock it was calibrated at
   TREE_EDIBLE: 0.4,                // trees' NPP's share a forager reaches, against grass's
   COAST: 0.5, P_DRY: 250, Q_RIVER: 200, ICE_MAX: 10,   // the coast's bonus; rain (mm) below which water limits; a river (m³/s); ice (m)
-  T_COLD0: 2, K_COLD: 12, W_COLD: 3, // coldest month (°C) a culture of z holds: T_COLD0 − K_COLD z, over W_COLD (−10 °C at the tip, −22 °C at z 2: the Upper Palaeolithic on the mammoth steppe and in Beringia before farming, from memory)
+  T_COLD0: 2, K_COLD: 12, W_COLD: 3, // coldest month (°C) a knowledge of z holds: T_COLD0 − K_COLD z, over W_COLD (−10 °C at the tip, −22 °C at z 2: the Upper Palaeolithic on the mammoth steppe and in Beringia before farming, from memory)
   CAP_F: 8,                        // foraging's ceiling on the base density
   F0: 1, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
   // Crops' land (synthesis): a river's floodplain is watered and renewed by its floods (the Nile's,
@@ -209,20 +209,20 @@ export const PEOPLE = {
   CLIM_S: [7, 10, 0.9, 0.6],       // a crop's climate (its package's origin) against a cell's, Gaussian in the coldest month (K), the warmest (K), log rain and the summer's share of the rain: how far each may differ (a crop's envelope, after BIOCLIM's; synthesis: frost bounds the tropics' crops and the winter's chill the temperate ones', while sowing dates take up the season's rain)
   S_HALF: 0.05, T_ADAPT: 2000, A_ADAPT: 0.3, MIGR_F: 0.5, MIGR_S: 0.5, CLEAR_PACE: 5,
   SOD: 0.8,                        // the share of a cold grassland's arable land its sod keeps from the hoe and the wooden plough (by the cover's grass and the winter's cold: sod × logistic in −T_coldest/5 K)                    // a package suited s takes s/(s + S_HALF) × (1 + S_HALF) of the arable land (farmers grow a poor crop on the best land only)
-  R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of culture
+  R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of knowledge
   LIFT_MAX: 4,                     // industry's farming at most this many times the organic ceiling
   E_AG: 200,                       // W of industrial energy a person fed past the organic ceiling takes (fertilizer, machines, transport; rough, from memory)
   CO2_FERT: 0.25,                  // crops' yield × (1 + β ln(CO₂/280)), VECODE's β
   // Stores: the harvests' weather against granaries and trade (working capital's one distinct role;
   // trade pools the harvests along the routes, src/engine/routes.js)
   E_RAIN: 0.7, IRR: 0.5,           // a harvest's spread per unit of a year's log-rain spread (rain-fed; ×IRR by a river or lake)
-  S_MAX: 0.5, Z_STORE: 1.5,        // years of food a farmer can keep against bad years past a single harvest's year (reached e-fold per Z_STORE of culture past Z_FARM); a shorter gap between harvests leaves the granary more room (`reserve`)
+  S_MAX: 0.5, Z_STORE: 1.5,        // years of food a farmer can keep against bad years past a single harvest's year (reached e-fold per Z_STORE of knowledge past Z_FARM); a shorter gap between harvests leaves the granary more room (`reserve`)
   // The hungry season (standard in outline; the forms synthesis): a harvest is kept until the next,
   // so a single harvest's food must last the year and a warm delta's three crops only four months.
   // The calendar (`calendar`): each season of at least M_SEASON growing months bears a crop each M_CROP
   // months (as many as the warmth allows), harvested at its end; the longest gap between harvests is
   // the store's, the month before the harvest that ends it the lean month. A store loses L_KEEP a year
-  // at farming's start, e-fold less per Z_KEEP of culture past Z_FARM, to L_KEEP_MIN (pre-modern farm
+  // at farming's start, e-fold less per Z_KEEP of knowledge past Z_FARM, to L_KEEP_MIN (pre-modern farm
   // stores lost ~10–20% of their grain over a season to rot, insects and rodents, from memory), faster
   // in the warmth (Q_ROT). Where the whole year grows and never cools (past T_ROOT), roots and plantains
   // are dug as needed, a gap of M_ROOT (the perhumid tropics' yams, taro and bananas, from memory).
@@ -230,12 +230,12 @@ export const PEOPLE = {
   // growing months' (white at the month: its spread × √(M_CROP/months), a single crop's as the year's
   // was), so several crops a year pool it and a season too short for one bears more.
   L_KEEP: 0.3, Z_KEEP: 2, L_KEEP_MIN: 0.02, Q_ROT: 2, M_CROP: 4, M_SEASON: 2, M_ROOT: 2, T_ROOT: 18,   // …; the losses × Q_ROT per 10 K of the year's mean past 15 °C (insects and moulds: grain keeps worst in the warm, damp tropics, from memory)
-  C_TRADE: 0.1, C_TRADE_L: 1, C_TRADE_PKG: 1,   // culture and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets): production's techniques little (tacit: learned at someone's elbow; synthesis), learning's as a neighbour's (texts travel), crops as a neighbour's. (Both at a whole neighbour's had carried ideas down the Americas, a quarter of the world at takeoff on Earth, against ~19% without; both at 0.3, ~21%.)
+  C_TRADE: 0.1, C_TRADE_L: 1, C_TRADE_PKG: 1,   // knowledge and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets): production's techniques little (tacit: learned at someone's elbow; synthesis), learning's as a neighbour's (texts travel), crops as a neighbour's. (Both at a whole neighbour's had carried ideas down the Americas, a quarter of the world at takeoff on Earth, against ~19% without; both at 0.3, ~21%.)
   B_TMAX: 0.5,                     // a harvest's most sensitivity to a year's warmth (per K: a crop near its degree-days' floor, where a cold summer takes half of it a degree; synthesis)
   SIG_REF: 0.3,                    // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory; at 0.15 the wet tropics' steady rain outweighed the dry lands' domesticates, and Earth's first fields were in the Congo)
   // Soil (a renewable stock)
   H_YIELD: 0.3, Y_STONY: 0.3,      // m: the yield's e-folding in soil depth (topsoil); what fields on thin and stony ground still bear (terraced and manured hillsides: the Mediterranean's, farmed since the Neolithic; synthesis)
-  E_TILL: 1, S_REF: 0.005, Z_CONS: 2,   // mm/yr of tillage's erosion at slope S_REF, falling e-fold per Z_CONS of culture past Z_FARM
+  E_TILL: 1, S_REF: 0.005, Z_CONS: 2,   // mm/yr of tillage's erosion at slope S_REF, falling e-fold per Z_CONS of knowledge past Z_FARM
   SDR: 0.3,                        // the share of it that leaves the cell (the rest settles downslope and on its floodplains: sediment delivery ratios of ~0.1–0.3 at this scale, from memory); the fields lose it all
   T_REFILL: 2000,                  // yr: the soil's production refilling the fields' deficit (~0.1 mm/yr near the surface, Heimsath's, from memory)
   // People
@@ -252,7 +252,7 @@ export const PEOPLE = {
   // Works (speculation): what a surplus builds besides people (monuments, writing, schools), in
   // person-years a cell: S_WORK of its city people's labour, decaying over T_WORK without upkeep.
   // Forgetting falls as λ/(1 + w/W_WORK), w the works a person, so a people with works keeps its
-  // culture through a crash; the labour is the Malthusian choice, fewer children fed (capacity × 1 − S_WORK u).
+  // knowledge through a crash; the labour is the Malthusian choice, fewer children fed (capacity × 1 − S_WORK u).
   S_WORK: 0.25, T_WORK: 500, W_WORK: 10, W_WORK_P: Infinity,   // works keep learning (W_WORK person-years a person halves its forgetting); production's, practised every day, by none (W_WORK_P)
   // Works by kind (synthesis; the labour's sizes from memory, rough): F_LEARN of a city's works labour
   // builds its learning (the works above); the rest goes back to the land that feeds it, in proportion
@@ -276,16 +276,16 @@ export const PEOPLE = {
   R_SALT: 1.5e-3, L_SALT0: 3e-4, L_SALT: 0.01,
   // A region's luck (speculation: the chanciness of discovery, which a mean field of ideas leaves out):
   // each cell's ideas × e^{σξ − σ²/2}, ξ a smooth random field of unit variance (K_LUCK bumps of width
-  // L_LUCK km, their amplitudes Ornstein–Uhlenbeck in culture: renewed e-fold per Z_LUCK of the
+  // L_LUCK km, their amplitudes Ornstein–Uhlenbeck in knowledge: renewed e-fold per Z_LUCK of the
   // frontier's advance), its mean over the world's people held at one, so the lead passes among the
   // places where minds are thick rather than holding at the densest from the first fields to the
-  // takeoff (every new line of equal culture had risen at one spot). It hastens history (the world
+  // takeoff (every new line of equal knowledge had risen at one spot). It hastens history (the world
   // follows its luckiest dense region): σ 0.7 left ~5 billion people at early takeoff.
   // Only past Z_LUCK0 (the settled peoples', a unit before farming's): on the foragers' tip too, the
   // first tip came ~100 kyr early (its time goes exponentially with the ideas' rate) and the takeoff
   // too soon after industry.
   SIG_LUCK: 0.4, L_LUCK: 1500, K_LUCK: 160, Z_LUCK: 0.3, Z_LUCK0: 2,
-  BETA_R: 0.25,                    // ideas get harder to find past industry's culture: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
+  BETA_R: 0.25,                    // ideas get harder to find past industry's knowledge: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
   // The species' clock (speculation): the first people's contact length ℓ_S (km, at z = 0) rises from
   // L_S0, e-fold per T_S at first, toward L_SMAX (a logistic in ℓ_S): one clock for everyone, so the
   // tip is still the loop's threshold, crossed where density and climate let the minds pass it (the
@@ -293,24 +293,24 @@ export const PEOPLE = {
   // Thomas 2009, from memory). Contact ℓ = ℓ_S e^{z/Z_L}, at most L_CMAX.
   L_S0: 1000, L_SMAX: 3000, T_S: 35e3, Z_L: 1.5, L_CMAX: 2e4,
   MIND_REL: 0.3,                   // the density (against the inhabited world's mean) a body's people keep up across
-  V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of culture
+  V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of knowledge
   COPY: 2e-3, RHO_COPY: 0.02,      // copying better neighbours (/yr at z = 0); the density (per km²) at which half the contacts are made
   RHO_R: 0.5, S_R_MAX: 1,          // research intensity ∝ y^ρ, capped at a subsistence-year's: a rich people's larger research share is offset by research's falling yield (BETA_R), so Kremer's A holds at Earth's 1960 (~1.8%/yr of productivity at 3 B; 3 at 3× gave the industrial era ~5–9%/yr at takeoff, and 90–220 Pg C burned by then)
-  Z_BOAT: 0, L_SEA0: 40, L_SEA: 600, Z_SEA: 1.5, HOPS: 6, LONG_HOPS: 40, K_LONG: 4,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA (1 − e^{−z/Z_SEA}) (km: rafts', then boats' along coasts and between islands, a few hundred km by the Upper Palaeolithic: Sahul and Bering crossed); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its K_LONG nearest others, to LONG_HOPS, then rounds until all are joined)
-  L_OCEAN: 4000, Z_OCEAN: 6.2, W_OCEAN: 0.2,   // … and the open ocean's, a logistic in culture (deep-sea navigation: the Polynesians', then Europe's ~1500; synthesis): coastal craft reach a few hundred km for tens of kyr, then ships cross oceans within centuries
+  Z_BOAT: 0, L_SEA0: 40, L_SEA: 600, Z_SEA: 1.5, HOPS: 6, LONG_HOPS: 40, K_LONG: 4,   // sea crossings: from knowledge Z_BOAT, the reach L_SEA0 + L_SEA (1 − e^{−z/Z_SEA}) (km: rafts', then boats' along coasts and between islands, a few hundred km by the Upper Palaeolithic: Sahul and Bering crossed); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its K_LONG nearest others, to LONG_HOPS, then rounds until all are joined)
+  L_OCEAN: 4000, Z_OCEAN: 6.2, W_OCEAN: 0.2,   // … and the open ocean's, a logistic in knowledge (deep-sea navigation: the Polynesians', then Europe's ~1500; synthesis): coastal craft reach a few hundred km for tens of kyr, then ships cross oceans within centuries
   OCEAN_HOPS: 80, M_ROUTE: 6, D_ROUTE: 1500,   // ocean routes: each landmass to every other within OCEAN_HOPS cells of sea, at up to M_ROUTE landings at least D_ROUTE km apart (the Atlantic beside Bering: a crossing between landmasses that the short ones already join, but by the long way round)
-  S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of culture, × e^{−km/reach}; the founders (synthesis)
+  S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of knowledge, × e^{−km/reach}; the founders (synthesis)
   F_SAP: 1.8,                      // the first people's foraging over the base density's (cooking, projectiles, nets; speculation): what the hominins' evolving reach had come to by their tip
   // Production's epistemic base (speculation, after Mokyr's Gifts of Athena, 2002, from memory:
   // techniques plateau unless the knowledge beneath them widens): production's ideas × sig((D_BASE −
   // (z_P − z_L))/W_BASE), so they fall away once techniques run D_BASE ahead of learning. Copying
   // isn't bounded (a technique can be taken up without its why).
   D_BASE: 1, W_BASE: 0.25,
-  Z0: 0.5,                         // the culture the first people begin with (the Middle Stone Age's, the archaic peoples' before them; speculation)
+  Z0: 0.5,                         // the knowledge the first people begin with (the Middle Stone Age's, the archaic peoples' before them; speculation)
   N_MIN: 0.003,                    // per km²: land counted as peopled (reached, the minds' bodies, the spread's crossings)
   R_ORIGIN: 1000,                  // km: the first people at the heart of the broadest tree–grass mosaic, summed this far (speculation)
   // The home world-island (synthesis): the origin's land, joined by land and by crossings of up to
-  // D_ARCH km, as cold as a culture of Z_ARCH holds (the archaic peoples', Neanderthals' Europe and
+  // D_ARCH km, as cold as a knowledge of Z_ARCH holds (the archaic peoples', Neanderthals' Europe and
   // Denisovans' Asia; Sunda by the glacial shelves, Flores and Luzon, not Sahul or the Americas: from
   // memory). Its game had long known hominins and is wary; elsewhere it meets people naive.
   Z_ARCH: 1, D_ARCH: 300,
@@ -326,13 +326,13 @@ export const PEOPLE = {
   DOMESTIC: { Af: 0.01, Am: 0.02, Aw: 0.25, As: 0.5, BS: 0.6, Cf: 0.2, Cs: 1, Cw: 0.7, Df: 0.1, Ds: 0.2, Dw: 0.2 },
   D_OASIS: 5,
   // Industry: where it starts and how it spreads
-  IND_PACE: 60,                    // industry's spread by contact keeps culture's pace only to this many times its own (the works, capital and skills a place builds: industrialization reached the world's regions over two centuries, not one; from memory)
+  IND_PACE: 60,                    // industry's spread by contact keeps knowledge's pace only to this many times its own (the works, capital and skills a place builds: industrialization reached the world's regions over two centuries, not one; from memory)
   RHO_IND: 10,                     // people per km² past which a farming people has the labour and the markets for industry
   Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
   // The industrial economy (standard forms; Earth's values from memory)
-  A_I0: 0.7, THETA_I: 0.85, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), ×e^{THETA_I} per unit of culture past it, capital's share, saving, workers' share
+  A_I0: 0.7, THETA_I: 0.85, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), ×e^{THETA_I} per unit of knowledge past it, capital's share, saving, workers' share
   DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
   E_SUB: 200, Z_EFF: 5.5, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~100 at the takeoff, as Earth's ~19 TW over ~8 B × ~22 sy now), falling toward E_MIN_Y e-fold per Z_EFF
   SIGMA_E: 0.3, W_E: 0.07,                          // energy against the capital–labour bundle: elasticity (standard estimates ~0.1–0.6) and energy's cost share (~6–8% of world output); both from memory
@@ -342,14 +342,14 @@ export const PEOPLE = {
   // Building power takes physical work (a9: "humans also seem able to tile the earth in factories and solar panels before
   // there's even 10 million robots"): power plants on Earth are built at most at S_BUILD of the physical work (people's and
   // robots', worker-years) × B_POW W of average power a worker-year at Z_AI (~10 kW: solar's jobs against its installs,
-  // from memory), e-fold per Z_BP of culture, to B_UP times it (better tools, but hands: speculation); space solar by the
+  // from memory), e-fold per Z_BP of knowledge, to B_UP times it (better tools, but hands: speculation); space solar by the
   // robots alone, B_SPACE W a robot-year (thin film from asteroids: speculation).
   S_BUILD: 0.1, B_POW: 1e4, Z_BP: 2, B_UP: 10, B_SPACE: 1e8,
   M_K: 1, E_M0: 30, X_SCALE: 2e13, X_CRUST: 1e14, G_B: 0.3, SKINNER: 10,   // materials per sy invested; their energy (W per unit a year) at the first grades, rising as 1/grade while the grade falls arithmetically as the tonnage drawn rises geometrically (Lasky's rule, from memory), from X_SCALE to G_B of the first grade at the end of the crust's rich ores (X_CRUST), then ×SKINNER (common rock past Skinner's barrier; the lumped number speculation)
   R_MIN: 0.03, W_INV: 0.1,                          // the return beyond wear that investment must clear (a real interest rate, from memory); the switch's width in log return over cost
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
   // AI (speculation): capability from effective compute, labour from compute, bodies from robots
-  Z_AI: 10.35, B_MAX: 1, SIGMA: 0.5,                // culture where AI's efficiencies are referenced (early takeoff lands near it, at Earth's ~20–25 sy a person); the automatable share's most; the tasks' elasticity
+  Z_AI: 10.35, B_MAX: 1, SIGMA: 0.5,                // knowledge where AI's efficiencies are referenced (early takeoff lands near it, at Earth's ~20–25 sy a person); the automatable share's most; the tasks' elasticity
   X20: 8.08, THETA_C: 40, FLOP_GAP: 4,              // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr. (8.7 with S_IT at 5%: lowered by S_IT's log ratio, so the timeline holds.)
   GAP_P: 1.5, PHI: 0.5, SIGMA_G: 0.5,               // physical tasks need GAP_P orders more (Moravec, speculation); their share of production's tasks (~half, from memory); cognitive against physical, elasticity
   // Ordinary computing's share of investment past energy (compute exists before AI pays): Earth's
@@ -414,7 +414,7 @@ export const PEOPLE = {
   // Not normalized away: farming slows the world's learning until cities and machines free people.
   R_FARM: 0.5,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large: learning's (BETA_CITY), not production's (BETA_CITY_P 1: everyone at work makes techniques; the domains, batch 1c); the cities placed again in the step every DT_PLACES years
   G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
-  K_CITY: 1.5, K_LOSS: 10, C_CITY0: 3000, C_NAT0: 15000,   // a city's pull on a cell's food falls e-fold over C_CITY0 + K_CITY × the trade's reach of route cost (src/engine/routes.js: ~100 km by road at farming's start, ~200 km and ~6,000 by sea at the Iron Age's culture; the country's scale over C_NAT0 + K_NAT × it, ~500 km by road: at the trade's reach alone, farming's largest city was a tenth of history's, ~25,000 at 65 million people), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
+  K_CITY: 1.5, K_LOSS: 10, C_CITY0: 3000, C_NAT0: 15000,   // a city's pull on a cell's food falls e-fold over C_CITY0 + K_CITY × the trade's reach of route cost (src/engine/routes.js: ~100 km by road at farming's start, ~200 km and ~6,000 by sea at the Iron Age's knowledge; the country's scale over C_NAT0 + K_NAT × it, ~500 km by road: at the trade's reach alone, farming's largest city was a tenth of history's, ~25,000 at 65 million people), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
   T_URB: 40,                       // years the cities' share of a cell's food takes to follow its urban share (people move to the towns as fast as the work does, over about a generation: the nineteenth century's urbanization ran at ~0.5–1 point a year, from memory); moved at once, the countryside starved faster than it could walk to the cities
   D_CITY: 0.01,                    // deaths a year past the countryside's in a city's people (the crowd diseases: pre-industrial cities' deaths outran their births, kept up by migrants; standard, the size from memory), × the square of medicine's share still to come (sewers and clean water made the rich world's cities as healthy as its countryside by ~1900, ahead of most of medicine: from memory)
   SITE_COAST: 1.5, SITE_RIVER: 1,  // a port's and a river's pull on a city, against an inland site's
@@ -430,7 +430,7 @@ export const PEOPLE = {
   DT_EARLY: 2000,                  // the step's most before the people tip (the forager era, where nothing moves faster; after it, longer steps let several farming origins fire at once)
   T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
   DT_ECON: 10,                     // the step's most from early takeoff on (past the fine stretch, 500-year steps set the economy oscillating: energy collapsing and recovering a step apart, the people to trillions)
-  Z_SAT: 30,                       // culture past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
+  Z_SAT: 30,                       // knowledge past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
 };
 
 const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
@@ -598,7 +598,7 @@ function groupCES(Gc, Gp, phi, sigma) {
 }
 
 /**
- * Production's labour from people Lh, production's compute Kc and robots Kr at culture z, with
+ * Production's labour from people Lh, production's compute Kc and robots Kr at knowledge z, with
  * the machines running at the shares `run` ({c, r, q}: production's compute, the robots,
  * research's compute; a number for all three); research's compute Kq runs AI's research minds,
  * and both stocks make the largest training runs (capability). Of production's AI
@@ -683,7 +683,7 @@ export function newEconomy(P) {
 }
 
 /**
- * One step of the world's industrial economy over dt years, given its workers Lh and its culture
+ * One step of the world's industrial economy over dt years, given its workers Lh and its knowledge
  * z (the industrial cells' mean): output held to the energy it gets, investment to energy first and
  * then between fixed capital and compute by their marginal products, capital worn and built exactly
  * for a steady inflow, fossil carbon burned, materials drawn.
@@ -911,9 +911,9 @@ export class People {
     this.Ef = new Float64Array(nL);
     this.f = new Float32Array(nL); this.pkg = new Int16Array(nL).fill(-1); this.packages = []; this.pkgT = new Float64Array(nL);   // the farmed share, its package, and when it was taken up
     this.ind = new Float32Array(nL);
-    // The people: each cell's numbers, culture, minds, and capacity at its own production (K) and at
+    // The people: each cell's numbers, knowledge, minds, and capacity at its own production (K) and at
     // the best anywhere (K2: what migrants could make of it, the spread's weights).
-    // Culture is production's (zc) and learning's (zl).
+    // Knowledge is production's (zc) and learning's (zl).
     this.Ntot = new Float64Array(nL); this.zc = new Float64Array(nL); this.zl = new Float64Array(nL);
     this.M = new Float64Array(nL); this.K = new Float64Array(nL); this.K2 = new Float64Array(nL);
     this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
@@ -1166,9 +1166,9 @@ export class People {
    * The stocks over a step (synthesis): works (built by the city people's labour, S_WORK of it a
    * year, decaying over T_WORK); large game and the coast's fish, each logistic in its own
    * share with a take h, dM/dt = R M (1 − M) − h M, solved exactly. Game: h = H_MEGA × wariness ×
-   * the foragers' density against B0 (at most 3) × their foraging's culture (P_F/CAP_F); gone below
+   * the foragers' density against B0 (at most 3) × their foraging's knowledge (P_F/CAP_F); gone below
    * M_EXT for good. Fish: H_FISH where people live on a coast (by their crowding), and industry's
-   * fleets H_FISH_IND × its share, easing with culture as tillage does.
+   * fleets H_FISH_IND × its share, easing with knowledge as tillage does.
    */
   stocks(dt) {
     const P = this.P, H = this.H, nL = this.nL, Ntot = this.Ntot, z = this.zc;
@@ -1645,7 +1645,7 @@ export class People {
   }
   /**
    * The home world-island (PEOPLE.Z_ARCH, D_ARCH): the land joined to `from` by land and by crossings
-   * of up to D_ARCH km, as cold as a culture of Z_ARCH holds; 1 there, 0 elsewhere.
+   * of up to D_ARCH km, as cold as a knowledge of Z_ARCH holds; 1 there, 0 elsewhere.
    */
   home(from) {
     const P = this.P, E = this.E, H = this.H, nL = this.nL, isle = new Uint8Array(nL), ok = c => H.alive[c] && this.coldOK(c, P.Z_ARCH) > 0.5;
@@ -1675,7 +1675,7 @@ export class People {
   soilYield(c) { const P = this.P; return P.Y_STONY + (1 - P.Y_STONY) * (1 - Math.exp(-this.fieldSoil(c) / P.H_YIELD)); }
   capacity() {
     const P = this.P, nL = this.nL, N = this.Ntot, Z = this.zc;
-    // K at each cell's own culture, and K2 at the best anywhere people live (what their migrants
+    // K at each cell's own knowledge, and K2 at the best anywhere people live (what their migrants
     // could make of a cell: the spread's weights; crowding uses K).
     let zb = 0;
     for (let c = 0; c < nL; c++) if (N[c] > 0 && Z[c] > zb) zb = Z[c];
@@ -1691,7 +1691,7 @@ export class People {
       const z = Zs ? Zs[c] : zConst, ez = ex(P.THETA * z);
       const PF = ez / (1 + (ez - 1) / P.CAP_F);
       let farm = 0;
-      // Migrants who farm (their best culture past farming's) see unfarmed land as the fields
+      // Migrants who farm (their best knowledge past farming's) see unfarmed land as the fields
       // they'd make of it: MIGR_F of its arable land, with crops suited MIGR_S (the spread's
       // weights only: a farming people's spread is demic, Ammerman and Cavalli-Sforza's wave of
       // advance, from memory; with the cell's own fields alone, a continent of foragers had looked
@@ -1770,11 +1770,11 @@ export class People {
     const ir = H.irrPot[c] > 0 ? H.irrPot[c] * this.built(c, 'C') : 0, f1 = Math.min(f, s), f2 = Math.min(Math.max(0, f - s), ir);
     return f1 * H.afp[c] * this.fertility(c, H.phiFP[c]) * kf + f2 * H.afp[c] * this.fertility(c) * (1 - this.salt[c]) * kf + Math.max(0, f - s - f2) * H.aup[c] * this.fertility(c) * this.soilYield(c) * ku;
   }
-  /** A store's loss a year at culture z: L_KEEP at farming's start, e-fold less per Z_KEEP, to L_KEEP_MIN. */
+  /** A store's loss a year at knowledge z: L_KEEP at farming's start, e-fold less per Z_KEEP, to L_KEEP_MIN. */
   keepRate(z) { const P = this.P; return P.L_KEEP_MIN + (P.L_KEEP - P.L_KEEP_MIN) * Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_KEEP); }
   /** The animals kept here against a full herd of a full set of domesticates: their availability × the herd's share × what the tropics' trypanosomes leave. */
   animHere(c) { return this.anim[c] > 0 ? this.anim[c] * this.herdM[c] * this.H.habA[c] : 0; }
-  /** The years of food kept against bad years (`demography`'s store): the granary's room past the season's need, S_MAX + 1 − G of a year (G the fields' gap: a single harvest's S_MAX), as culture builds it. */
+  /** The years of food kept against bad years (`demography`'s store): the granary's room past the season's need, S_MAX + 1 − G of a year (G the fields' gap: a single harvest's S_MAX), as knowledge builds it. */
   reserve(c, fc, z) { const P = this.P; return fc * Math.max(0, P.S_MAX + 1 - this.H.gapY[c]) * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE)) * (1 + P.G_X * this.built(c, 'G')); }
   /** The share of the cell under crops this year (the rest of the farmed share fallow). */
   cropped(c) { const f = this.f[c], s = this.H.sfp[c]; return Math.min(f, s) * this.fertility(c, this.H.phiFP[c]) + Math.max(0, f - s) * this.fertility(c); }
@@ -1804,7 +1804,7 @@ export class People {
   }
   /** The species' contact length at the step's time (km, at z = 0): a logistic from L_S0 toward L_SMAX, e-fold per T_S at first. */
   clockL(t = this.t) { const P = this.P; return P.L_SMAX / (1 + (P.L_SMAX / P.L_S0 - 1) * Math.exp(-t / P.T_S)); }
-  /** Contact length (km) at culture z: the species' clock × e^{z/Z_L}, at most L_CMAX. */
+  /** Contact length (km) at knowledge z: the species' clock × e^{z/Z_L}, at most L_CMAX. */
   reachL(z) { const P = this.P; return softMin(this.clockL() * Math.exp(Math.min(Math.max(0, z) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
@@ -1863,7 +1863,7 @@ export class People {
     if (this.yrTake > 0) { const k = 1 - this.yrTake / this.yrW; for (const a of this.yr) for (let c = 0; c < nL; c++) a[c] *= k; this.yrW -= this.yrTake; if (this.yrW < 1e-9) this.yrW = 0; }
     lap('growth');
     if (this.debug) this.check('growth');
-    // Spread: Fisher–KPP, culture carried with the migrants (upwind).
+    // Spread: Fisher–KPP, knowledge carried with the migrants (upwind).
     const Ng = this.Ng; Ng.set(Ntot);
     this.diffuse(dt); this.voyages(dt);
     if (this.debug) this.check('spread');
@@ -1883,7 +1883,7 @@ export class People {
     this.economy(dt);
     if (this.debug) this.check('economy');
     lap('economy');
-    // Minds within reach, and culture; research's intensity by the cell's output a person.
+    // Minds within reach, and knowledge; research's intensity by the cell's output a person.
     const sR = this.sR || (this.sR = new Float64Array(nL)), sRP = this.sRP || (this.sRP = new Float64Array(nL));
     for (let c = 0; c < nL; c++) sR[c] = sRP[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0;
     // Cities' minds: where farming has made cities, a cell's city people's by their city's size,
@@ -1912,9 +1912,9 @@ export class People {
       }
     }
     this.lucky();
-    this.lastRate = this.culture(dt);
-    if (this.debug) this.check('culture');
-    lap('culture');
+    this.lastRate = this.knowledge(dt);
+    if (this.debug) this.check('knowledge');
+    lap('knowledge');
     // Farming and its soil, industry's spread, the record.
     this.farming(dt);
     this.soilStep(dt);
@@ -1953,7 +1953,7 @@ export class People {
     // distribution: Fretwell and Lucas, from memory), across each edge at the harmonic mean of its
     // ends' capacity per km², so a cell that can hold no one takes no one, and a rich cell whose
     // births have fallen doesn't drain into poorer ones. With capacity even it is Fisher's diffusion.
-    // K here is the capacity at the best culture (K2: migrants carry it), for crowding and weights
+    // K here is the capacity at the best knowledge (K2: migrants carry it), for crowding and weights
     // alike, so the explicit step's bound holds.
     const u = this.dens || (this.dens = new Float64Array(nL)), kd = this.kden || (this.kden = new Float64Array(nL));
     const Dc = this.dcell || (this.dcell = new Float64Array(nL)), D0 = this.Dz(0);
@@ -1966,8 +1966,8 @@ export class People {
     for (let q = 0; q < na; q++) { const c = act[q]; kd[c] = K2[c] / H.area[c]; }
     for (let s = 0; s < nsub; s++) {
       for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; dL[c] = 0; }
-      // Each cell's dispersal at its own culture; an edge's is the geometric mean of its ends' (the
-      // law at the ends' mean culture wherever it is exponential in z, below its cap: a root a
+      // Each cell's dispersal at its own knowledge; an edge's is the geometric mean of its ends' (the
+      // law at the ends' mean knowledge wherever it is exponential in z, below its cap: a root a
       // edge in place of the law's exponential and powers).
       for (let q = 0; q < na; q++) { const c = act[q]; u[c] = K2[c] > 1e-12 ? N[c] / K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
       for (let x = 0; x < ne; x++) {
@@ -2025,7 +2025,7 @@ export class People {
   }
 
   // Voyages (synthesis): an empty shore across the sea is settled by a founding party, an event
-  // whose rate a year is S_SEA × the departure's crowding × culture's pace (e^{z/Z_V}) × e^{−km/reach}
+  // whose rate a year is S_SEA × the departure's crowding × knowledge's pace (e^{z/Z_V}) × e^{−km/reach}
   // per crossing. Spread across the sea (`diffuse`) is a flux only between settled coasts, so the
   // distance counts: a continuous flux, however faint, seeded every shore at once as soon as boats
   // reached it at all, and the people grow from a millionth of a person.
@@ -2302,8 +2302,8 @@ export class People {
     return out;
   }
 
-  /** Culture over the step, each domain alike: ideas in, losses out, exact; copying from better neighbours and trade partners. */
-  culture(dt) {
+  /** Knowledge over the step, each domain alike: ideas in, losses out, exact; copying from better neighbours and trade partners. */
+  knowledge(dt) {
     const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, ZP = this.zc, ZL = this.zl, Ntot = N;
     const MP = this.MP || (this.MP = new Float64Array(nL));
     let zmax = 0, zmaxL = 0;
@@ -2339,16 +2339,16 @@ export class People {
         let ring = m[c];
         for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
         const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];
-        // People's research yields less past industry's culture (ideas get harder to find); AI's
+        // People's research yields less past industry's knowledge (ideas get harder to find); AI's
         // own progress is its measured pace (THETA_C), so its minds join at full yield.
         const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-P.BETA_R * Math.max(0, ZL[c] - P.Z_IND));
         M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
       }
     }
-    // Culture, each domain: ideas in, losses out, exact over the step; copying better neighbours and
+    // Knowledge, each domain: ideas in, losses out, exact over the step; copying better neighbours and
     // trade partners, at learning's pace (people who read copy faster).
     const gain = P.A_INV, Wk = this.works, rt = this.routes && this.routes.active && this.routes.active.length ? this.routes : null;
-    // Each domain's culture as the step found it (each cell's copying reads the others' before theirs).
+    // Each domain's knowledge as the step found it (each cell's copying reads the others' before theirs).
     const oP = this.zOld || (this.zOld = new Float64Array(nL)), oL = this.zOldL || (this.zOldL = new Float64Array(nL));
     oP.set(ZP); oL.set(ZL);
     const dens = d => { const r = Ntot[d] / H.area[d]; return r / (r + P.RHO_COPY); };
@@ -2557,7 +2557,7 @@ export class People {
     // crops do: toward the mean of the better-stocked neighbours' at C_ANIM a year, by the edges'
     // contact × the herds each neighbour keeps (its herd's share × what the trypanosomes leave × its
     // land's room for them, fields or pasture, against K_KEEP: no herds cross the tundra or the tsetse's
-    // belt as fast as a steppe), × culture's pace past industry (the colonists' cattle and horses on the
+    // belt as fast as a steppe), × knowledge's pace past industry (the colonists' cattle and horses on the
     // pampas and the prairies within decades), exact over the step.
     const a0 = this.a0 || (this.a0 = new Float64Array(nL));
     a0.set(this.anim);
@@ -2588,7 +2588,7 @@ export class People {
   }
 
   // Tillage's erosion (mm/yr) on the farmed share, by the slope, falling as conservation comes with
-  // culture; the soil stepped by the planet (cached: here; live: the planet's regolith).
+  // knowledge; the soil stepped by the planet (cached: here; live: the planet's regolith).
   soilStep(dt) {
     const P = this.P, H = this.H, nL = this.nL, zc = this.zc, Ef = this.Ef;
     // The fields' mean slope is the flattest share f's, s̄ ((1 − f) ln(1 − f) + f)/f, so the cell's
@@ -2615,7 +2615,7 @@ export class People {
   industry(dt) {
     const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zc;
     if (!this.flags.industry) {
-      // A hazard where culture, a dense farming people (its labour and markets: RHO_IND a km²) and
+      // A hazard where knowledge, a dense farming people (its labour and markets: RHO_IND a km²) and
       // coal and ore all suffice (each a logistic, not a gate; by the farmed share alone, it had
       // begun on the Arctic's thin fields).
       for (let c = 0; c < nL; c++) {
@@ -2660,13 +2660,13 @@ export class People {
       if (this.f[c] > 0) { const a = H.area[c] * this.f[c]; soilF += a * this.fieldSoil(c); farmA += a; }
     }
     if (E.on) minds += E.AIr;
-    // The people tip where their mean culture passes 1 (the loop's low branch gone).
+    // The people tip where their mean knowledge passes 1 (the loop's low branch gone).
     let zs = 0, best = 0;
     for (let c = 0; c < nL; c++) if (this.Ntot[c] > 0) { zs += this.Ntot[c] * this.zc[c]; if (this.zc[c] > zmax) { zmax = this.zc[c]; best = c; } }
     this.zbar = people > 0 ? zs / people : 0;
     if (this.tTip === null && this.zbar > 1) {
       this.tTip = this.t; this.flags.tipped = true;
-      this.event('tip', `the people tip: mean culture past 1 (${people.toFixed(0)} people, contact ${this.reachL(0).toFixed(0)} km at none, frontier at ${deg(this.H.lat[best]).toFixed(0)}°, ${deg(this.H.lon[best]).toFixed(0)}°)`);
+      this.event('tip', `the people tip: mean knowledge past 1 (${people.toFixed(0)} people, contact ${this.reachL(0).toFixed(0)} km at none, frontier at ${deg(this.H.lat[best]).toFixed(0)}°, ${deg(this.H.lon[best]).toFixed(0)}°)`);
     }
     const earth = people;
     people += this.space;
@@ -2718,7 +2718,7 @@ export class People {
     if (F.dial && this.dtCap && this.t - this.dialAt > P.T_FINE) this.dtCap = null;
   }
 
-  /** The next step: from the culture's pace and the minds' doubling, at most twice the last. */
+  /** The next step: from the knowledge's pace and the minds' doubling, at most twice the last. */
   nextDt() {
     const P = this.P, h = this.history, n = h.length;
     let grow = 0;
@@ -2799,7 +2799,7 @@ export class People {
    * catchment by the local routes (Routes.catch), each city drawing as its site (ports, rivers) ×
    * its density^G_CITY × e^{−cost/(K_CITY reach)}, and N_CITY to the K_NATION largest cities over the
    * markets' routes, as their density^G_NATION × e^{−cost/(K_NAT reach)}, reach the trade's at the
-   * cell's culture (Routes.reach) and the cost by sail or steam by industry's share; of each,
+   * cell's knowledge (Routes.reach) and the cost by sail or steam by industry's share; of each,
    * e^{−cost/(K_LOSS reach)} arrives. Into `dlv` (per catchment entry) and `dlvN` (per cell and
    * city), and the long ones' flows for the routes' drawing (Routes.feedFlows).
    */
@@ -2991,10 +2991,10 @@ export class People {
 
   /**
    * What the People view draws besides `drawn`, four values a cell of the people's grid (drawn only):
-   * the herders' pasture (a share of the cell, from `drawn`'s claims); the culture known there (the
+   * the herders' pasture (a share of the cell, from `drawn`'s claims); the knowledge known there (the
    * best of its people's, held where they've gone: what its ruins knew); how far that lags the
    * frontier's (the most anyone knows); and the works there a km² (learning's and the land's,
-   * person-years). The Culture map reads the last three.
+   * person-years). The Knowledge map reads the last three.
    */
   drawnB(out = null) {
     const n = this.planet.grid.n, nL = this.nL, zc = this.zc, wk = this.wk, A = this.H.area;
@@ -3007,9 +3007,9 @@ export class People {
       out[o] = this.past[c];
       out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
     }
-    // The culture carried from where people know it onto the cells beside them (the sea, lakes, land
+    // The knowledge carried from where people know it onto the cells beside them (the sea, lakes, land
     // no one has lived on), three rings out, each its neighbours' mean, so the globe's interpolation
-    // draws no cliff of culture at a coast or at the edge of the inhabited land (the map shows it only
+    // draws no cliff of knowledge at a coast or at the edge of the inhabited land (the map shows it only
     // on land people have reached).
     const g = this.planet.grid, val = this.zVal && this.zVal.length === n ? this.zVal : (this.zVal = new Float32Array(n)), has = new Uint8Array(n);
     val.fill(0);

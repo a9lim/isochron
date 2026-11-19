@@ -1,6 +1,6 @@
 // What the People view draws besides `drawn` (People.drawnB): the herders' pasture follows the
 // herders who are there, not the land they could hold, and a preserving ending's rewilding retires
-// it with the fields; the Culture map's culture, its lag behind the frontier, and the works a km².
+// it with the fields; the Knowledge map's knowledge, its lag behind the frontier, and the works a km².
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -18,7 +18,7 @@ function steppe(level) {
   return f;
 }
 const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
-/** The people's arrays under one name (each cell's numbers, culture, capacity and minds). */
+/** The people's arrays under one name (each cell's numbers, knowledge, capacity and minds). */
 const pop = p => ({ N: p.Ntot, Z: p.zc, K: p.K, K2: p.K2, M: p.M });
 
 /** Herders known everywhere, the people at `occ` of the capacity; the pasture's mean share of a cell. */
@@ -51,7 +51,7 @@ test('a preserving ending\'s rewilding retires the herds with the fields', () =>
   assert.ok(wild.K < 0.5 * kept.K, `the land feeds as foragers' then (${(wild.K / kept.K).toFixed(2)} of the herders' capacity)`);
 });
 
-test('the Culture map: the culture known, its lag behind the frontier, held where people have gone, and carried onto the cells beside it (the sea, land no one has lived on)', () => {
+test('the Knowledge map: the knowledge known, its lag behind the frontier, held where people have gone, and carried onto the cells beside it (the sea, land no one has lived on)', () => {
   const f = steppe(4);
   for (let i = 0; i < f.n; i++) if (f.grid.pos[3 * i + 2] > 0.6) f.elev[i] = -2;   // a sea in the north
   const p = new People(f, { ...quiet });
@@ -64,11 +64,11 @@ test('the Culture map: the culture known, its lag behind the frontier, held wher
   let l = p.drawnB();
   assert.ok(Math.abs(l[4 * i0 + 1] - p.zc[c0]) < 1e-5 && Math.abs(l[4 * i0 + 2] - (zf - p.zc[c0])) < 1e-5);
   assert.ok(Math.abs(l[4 * i0 + 3] - 5e4 / p.H.area[c0]) < 1e-3 * 5e4 / p.H.area[c0], 'the works a km²');
-  // Its people gone, a place keeps the culture its ruins knew.
+  // Its people gone, a place keeps the knowledge its ruins knew.
   const z0 = p.zc[c0]; p.Ntot[c0] = 0; L.N[c0] = 0;
   l = p.drawnB();
   assert.ok(Math.abs(l[4 * i0 + 1] - z0) < 1e-5);
-  // A sea cell beside the land carries its land neighbours' mean, so the coast isn't a cliff of culture.
+  // A sea cell beside the land carries its land neighbours' mean, so the coast isn't a cliff of knowledge.
   const g = f.grid;
   for (let i = 0; i < g.n; i++) {
     if (p.loc[i] >= 0) continue;

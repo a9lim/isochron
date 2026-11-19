@@ -1,5 +1,5 @@
 // The routes: one transport cost for every flow between the people's cells (docs/people.md,
-// "Routes and trade"; the roadmap's seam rule 2). Food, crops and culture run on them now; batch
+// "Routes and trade"; the roadmap's seam rule 2). Food, crops and knowledge run on them now; batch
 // 2's deliveries and goods are to run on the same costs.
 //
 // The graph is the people's grid's parent (level 5 under the people's 6: ~220 km), its nodes the
@@ -32,13 +32,13 @@
 // between active markets (those with fields: trade comes with farming), a kernel e^{−c/reach},
 // c the round trip's mean ((out + home)/2) on the layer the pair sails (steam by the more
 // industrial end's share; the sail's part by land cheaper by the two markets' roads and canals,
-// People's works), reach rising with the more advanced end's culture (`reach`).
+// People's works), reach rising with the more advanced end's knowledge (`reach`).
 // Each market buys from the others in proportion to kernel × their food (its supply basket, w):
 // a cell's harvest is then (1 − τ) its own and τ the basket's, τ the share of food that goes
 // through markets (TAU_AG with fields, toward TAU_IND with industry). The harvest's spread pools as
 // a one-factor model of the weather's correlation ρ = e^{−d/L_CORR} (each market's anomaly its
 // correlation with the buyer's, plus its own): the basket's variance Σ w²(1 − ρ²) + (Σ w ρ)², its
-// covariance with the cell's own Σ w ρ (synthesis). Culture and crops are copied from the markets
+// covariance with the cell's own Σ w ρ (synthesis). Knowledge and crops are copied from the markets
 // met by trade (contact the kernel × N/(N + N_MEET), at most a whole one), and the long-distance flows (τ × food × w,
 // between markets over D_DRAW apart) are drawn along the routes as lines as heavy as their flux.
 import { buildGrid } from '../grid/icosphere.js';
@@ -54,11 +54,11 @@ export const ROUTES = {
   C_STEAM: 0.3, C_RAIL: 3, H_RAIL: 1, C_BARGE: 1.5, C_PORT_IND: 30, V_STEAM: 6, K_STEAM: 0.05,   // industry's: steamship, rail (×(1 + climb/H_RAIL)), barge, port (sea-km a km; a ton-km by steam a third of sail's, by rail a tenth of the wagon's: from memory)
   C_FILL: 3000,                    // land whose nearest market costs more is given its own
   R_ROAD: 1, K_CANAL: 5,           // the land's works on the markets' routes: the sail's part by land ÷ (1 + R_ROAD × the pair's roads + K_CANAL × its canals' share of the land), both its two markets' mean (roads at their full room halve it; canals over a fifth of the land halve it, the boats going where the water does: the Grand Canal's, Mesopotamia's; synthesis)
-  R_T0: 300, Z_RT: 1.1, R_TMAX: 1e5,   // the trade's reach (sea-km of cost that cuts it e-fold): R_T0 at farming's knowledge, ×e per Z_RT of culture past it (grain by sea from Egypt to Rome, ~3,000 sea-km, at ~0.3 of the local market's weight by Rome's; the Atlantic's ~10,000 at ~0.1 by 1600; synthesis), at most R_TMAX
+  R_T0: 300, Z_RT: 1.1, R_TMAX: 1e5,   // the trade's reach (sea-km of cost that cuts it e-fold): R_T0 at farming's knowledge, ×e per Z_RT of knowledge past it (grain by sea from Egypt to Rome, ~3,000 sea-km, at ~0.3 of the local market's weight by Rome's; the Atlantic's ~10,000 at ~0.1 by 1600; synthesis), at most R_TMAX
   TAU_AG: 0.15, TAU_IND: 0.9,      // the share of a farming people's food that goes through markets (rents, taxes, the towns' food), and an industrial people's
   L_CORR: 1500,                    // km: the weather's correlation length (a year's harvest anomalies, ρ = e^{−d/L_CORR}; rough, from memory)
   DT_TRADE: 10,                    // years between the trade's kernels (the masses move slowly)
-  K_PART: 12, N_MEET: 1e5,         // the markets met by trade each keeps for copying culture and crops; the people a market needs to be met at half its kernel (a town's)
+  K_PART: 12, N_MEET: 1e5,         // the markets met by trade each keeps for copying knowledge and crops; the people a market needs to be met at half its kernel (a town's)
   M_CATCH: 48, C_CATCH: 3e4,       // a cell's catchment for its cities' food (`catchments`): its nearest cells by the local routes, at most this many and this cost
   N_FLOW: 600, D_DRAW: 1000,       // the largest flows drawn, between markets at least D_DRAW km apart (the long-distance trade: a neighbour's exchange drew the grid)
 };
@@ -358,9 +358,9 @@ export class Routes {
 
   /**
    * The trade's kernel among the active markets (every DT_TRADE years): per market its food, people,
-   * culture and industry from the people's cells; the supply basket's weights `w` (dense, rows the
+   * knowledge and industry from the people's cells; the supply basket's weights `w` (dense, rows the
    * buyers), its variance V and covariance C with the buyer's own harvest (`pool`), the K_PART
-   * markets each meets most (contact ∝ kernel × people) with their culture and their crops, and the
+   * markets each meets most (contact ∝ kernel × people) with their knowledge and their crops, and the
    * flows for drawing.
    */
   trade(force = false) {
@@ -442,7 +442,7 @@ export class Routes {
         if (j !== i && wj > 1e-4 && r < this.rhoDraw) keep((C.TAU_AG + (C.TAU_IND - C.TAU_AG) * S[i]) * wj * F[i], i, j);
       }
       V[i] = v2 + cw * cw; Cv[i] = cw;
-      // The markets met most by trade, for culture and crops: each by its kernel × N/(N + N_MEET),
+      // The markets met most by trade, for knowledge and crops: each by its kernel × N/(N + N_MEET),
       // as much as a neighbour at most (an isolated market's few dear routes meet it little: shared
       // out among its partners, they had carried Eurasia's ideas to the Americas by the Aleutians).
       const o = i * C.K_PART;
@@ -460,7 +460,7 @@ export class Routes {
     this.flows = Array.from({ length: fn }, (_, k) => [fi[k], fj[k], fq[k]]).sort((a, b) => b[2] - a[2]);
   }
 
-  /** A domain's culture to copy from market k's trade partners against z (their means Z: production's mZ, learning's mZL): Σ contact × the gap where they know more, over at least all of it. */
+  /** A domain's knowledge to copy from market k's trade partners against z (their means Z: production's mZ, learning's mZL): Σ contact × the gap where they know more, over at least all of it. */
   gap(k, z, Z = this.mZ) {
     const K = this.C.K_PART, pk = this.part.k, pw = this.part.w;
     let g = 0, w = 0;
@@ -468,7 +468,7 @@ export class Routes {
     return w > 1 ? g / w : g;
   }
 
-  /** The trade's reach (sea-km) at culture z. */
+  /** The trade's reach (sea-km) at knowledge z. */
   reach(z) { const C = this.C, x = C.R_T0 * Math.exp(Math.min(60, (z - this.pp.P.Z_FARM) / C.Z_RT)); return x / (1 + x / C.R_TMAX); }
 
   /** The share of cell c's food that goes through markets. */
