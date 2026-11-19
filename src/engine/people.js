@@ -240,7 +240,7 @@ export const PEOPLE = {
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 4.5, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (4.5: with the pyramids' aging, today's Earth at ~9 B at early takeoff, as before them; steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
+  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 6.5, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (6.5: today's Earth at ~8 B at early takeoff, with the pyramids' aging and a region's luck hastening the industrial era; 4.5 left ~6.5 B with luck; steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   AGE: 0.0087, Y_AGE: 30,          // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
@@ -273,6 +273,17 @@ export const PEOPLE = {
   // stepped exactly; the canals' fields yield × (1 − s), and the canals are kept only as far as they
   // still pay. A floodplain's floods carry its salts away.
   R_SALT: 1.5e-3, L_SALT0: 3e-4, L_SALT: 0.01,
+  // A region's luck (speculation: the chanciness of discovery, which a mean field of ideas leaves out):
+  // each cell's ideas × e^{σξ − σ²/2}, ξ a smooth random field of unit variance (K_LUCK bumps of width
+  // L_LUCK km, their amplitudes Ornstein–Uhlenbeck in culture: renewed e-fold per Z_LUCK of the
+  // frontier's advance), its mean over the world's people held at one, so the lead passes among the
+  // places where minds are thick rather than holding at the densest from the first fields to the
+  // takeoff (every new line of equal culture had risen at one spot). It hastens history (the world
+  // follows its luckiest dense region): σ 0.7 left ~5 billion people at early takeoff.
+  // Only past Z_LUCK0 (the settled peoples', a unit before farming's): on the foragers' tip too, the
+  // first tip came ~100 kyr early (its time goes exponentially with the ideas' rate) and the takeoff
+  // too soon after industry.
+  SIG_LUCK: 0.4, L_LUCK: 1500, K_LUCK: 160, Z_LUCK: 0.3, Z_LUCK0: 2,
   BETA_R: 0.25,                    // ideas get harder to find past industry's culture: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
   L_C0: 50, Z_L: 1.5, L_CMAX: 2e4,  // contact length (km) at g + z = 0, ×e per Z_L, at most
   MIND_REL: 0.3,                   // the density (against the inhabited world's mean) a body's people keep up across
@@ -385,7 +396,7 @@ export const PEOPLE = {
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
-  K_CITY: 1.5, K_LOSS: 10,         // a city's pull on a cell's food falls e-fold over K_CITY × the trade's reach of route cost (src/engine/routes.js: ~90 km by road, ~2,800 by sea at the Iron Age's culture), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
+  K_CITY: 1.5, K_LOSS: 10, C_CITY0: 3000, C_NAT0: 15000,   // a city's pull on a cell's food falls e-fold over C_CITY0 + K_CITY × the trade's reach of route cost (src/engine/routes.js: ~100 km by road at farming's start, ~200 km and ~6,000 by sea at the Iron Age's culture; the country's scale over C_NAT0 + K_NAT × it, ~500 km by road: at the trade's reach alone, farming's largest city was a tenth of history's, ~25,000 at 65 million people), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
   T_URB: 40,                       // years the cities' share of a cell's food takes to follow its urban share (people move to the towns as fast as the work does, over about a generation: the nineteenth century's urbanization ran at ~0.5–1 point a year, from memory); moved at once, the countryside starved faster than it could walk to the cities
   D_CITY: 0.01,                    // deaths a year past the countryside's in a city's people (the crowd diseases: pre-industrial cities' deaths outran their births, kept up by migrants; standard, the size from memory), × the square of medicine's share still to come (sewers and clean water made the rich world's cities as healthy as its countryside by ~1900, ahead of most of medicine: from memory)
   SITE_COAST: 1.5, SITE_RIVER: 1,  // a port's and a river's pull on a city, against an inland site's
@@ -1880,6 +1891,7 @@ export class People {
       const k = wN > 0 ? nN / wN : 1;
       for (let c = 0; c < nL; c++) if (Ntot[c] > 0) sR[c] *= this.uw[c] * k;
     }
+    this.lucky();
     let rate = 0;
     for (const L of live) rate = Math.max(rate, this.culture(L, live, dt));
     this.lastRate = rate;
@@ -2357,7 +2369,8 @@ export class People {
       const copy = P.COPY * this.speed(z0) / P.V0 * dens(c);
       let accGap = 0;
       for (const o of others) if (o.N[c] > 0 && o.Z[c] > z0) accGap += (o.Z[c] - z0) * o.N[c] / Ntot[c];
-      let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL;
+      const luck = this.luckC ? 1 + (this.luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
+      let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL * luck;
       if (wsum > 0) z += (1 - Math.exp(-copy * dt)) * up / wsum;
       // And from the markets met by trade (src/engine/routes.js), as far as life goes through markets.
       if (rt) { const tu = rt.tau(c); if (tu > 0) { const g = rt.gap(rt.marketOf[c], z0); if (g > 0) z += (1 - Math.exp(-P.C_TRADE * tu * P.COPY * this.speed(z0) / P.V0 * dt)) * g; } }
@@ -2366,6 +2379,52 @@ export class People {
       rate = Math.max(rate, Math.abs(z - z0) / dt);
     }
     return rate;
+  }
+
+  /**
+   * A region's luck (PEOPLE.SIG_LUCK): each cell's multiplier on its ideas, e^{σξ − σ²/2}, ξ = Σ a_k w_k
+   * over its six nearest of K_LUCK bumps (seeded sites; weights Gaussian in distance over L_LUCK,
+   * normalized so ξ has unit variance), the amplitudes a_k Ornstein–Uhlenbeck in the frontier's
+   * advance (renewed e-fold per Z_LUCK of it).
+   */
+  lucky() {
+    const P = this.P, nL = this.nL, H = this.H;
+    if (!this.luckW) {
+      const r = stream(this.planet.seed, 'people:luck'), K = P.K_LUCK, site = new Float64Array(3 * K);
+      for (let k = 0; k < K; k++) { const z = 2 * r.uniform() - 1, a = 2 * Math.PI * r.uniform(), s = Math.sqrt(1 - z * z); site[3 * k] = s * Math.cos(a); site[3 * k + 1] = s * Math.sin(a); site[3 * k + 2] = z; }
+      this.luckA = Float64Array.from({ length: K }, () => r.normal()); this.luckR = r;
+      this.luckI = new Int16Array(6 * nL); this.luckW = new Float32Array(6 * nL); this.luckC = new Float64Array(nL).fill(1);
+      const g = this.planet.grid, d = new Float64Array(K), o = Array.from({ length: K }, (_, k) => k);
+      for (let c = 0; c < nL; c++) {
+        const i = this.cells[c], x = g.pos[3 * i], y = g.pos[3 * i + 1], z = g.pos[3 * i + 2];
+        for (let k = 0; k < K; k++) d[k] = R * Math.acos(Math.max(-1, Math.min(1, x * site[3 * k] + y * site[3 * k + 1] + z * site[3 * k + 2])));
+        o.sort((a, b) => d[a] - d[b]);
+        let s2 = 0;
+        for (let j = 0; j < 6; j++) { const w = Math.exp(-0.5 * (d[o[j]] / P.L_LUCK) ** 2) + 1e-6; this.luckI[6 * c + j] = o[j]; this.luckW[6 * c + j] = w; s2 += w * w; }
+        for (let j = 0; j < 6; j++) this.luckW[6 * c + j] /= Math.sqrt(s2);
+      }
+      this.luckZ = null;
+    }
+    // The frontier's advance since the last step renews the amplitudes.
+    let zf = 0;
+    if (this.zc) for (let c = 0; c < nL; c++) if (this.Ntot[c] > 0 && this.zc[c] > zf) zf = this.zc[c];
+    const dz = this.luckZ === null ? 0 : Math.max(0, zf - this.luckZ);
+    this.luckZ = this.luckZ === null ? zf : Math.max(this.luckZ, zf);
+    if (dz > 0) {
+      const e = Math.exp(-dz / P.Z_LUCK), q = Math.sqrt(1 - e * e), A = this.luckA;
+      for (let k = 0; k < A.length; k++) A[k] = A[k] * e + q * this.luckR.normal();
+    }
+    const A = this.luckA, s = P.SIG_LUCK, I = this.luckI, W = this.luckW, out = this.luckC;
+    let sw = 0, sn = 0;
+    for (let c = 0; c < nL; c++) {
+      let xi = 0;
+      for (let j = 0; j < 6; j++) xi += A[I[6 * c + j]] * W[6 * c + j];
+      out[c] = Math.exp(s * xi - 0.5 * s * s);
+      if (this.Ntot[c] > 0) { sw += this.Ntot[c] * out[c]; sn += this.Ntot[c]; }
+    }
+    // Its mean over the world's people one at every step, so luck moves the ideas about and adds none.
+    if (sw > 0) { const k = sn / sw; for (let c = 0; c < nL; c++) out[c] *= k; }
+    void H;
   }
 
   // Connected bodies of cells that pass `ok`, by land and by crossings within `reach`.
@@ -2846,7 +2905,7 @@ export class People {
       for (let k = 0; k < top.length; k++) {
         const c = top[k], mc = mo[c], sc = Math.max(s, ind[c]);
         const x = md === mc ? 0 : (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I');
-        cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.K_NAT * r)); Zn += wk[k];
+        cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.C_NAT0 + P.K_NAT * r)); Zn += wk[k];
       }
       const nat = Zn > 0 ? P.N_CITY : 0, q = u[d] * Math.max(0, this.Out[d] - this.goods[d]);
       if (nat > 0) for (let k = 0; k < top.length; k++) {
@@ -2858,7 +2917,7 @@ export class People {
       // The region's: over the catchment by the local routes, cheaper by the roads at either end.
       let Z = 0;
       const rd = this.built(d, 'R'), cost2 = this.cost2 || (this.cost2 = new Float64Array(rt.C.M_CATCH + 1));
-      for (let k = off[d]; k < off[d + 1]; k++) { const x = ((1 - s) * cS[k] + s * cI[k]) / (1 + P.R_X * 0.5 * (rd + this.built(idx[k], 'R'))), w = Wt[idx[k]] * Math.exp(-x / (P.K_CITY * r)); cost2[k - off[d]] = x; dl[k] = w; Z += w; }
+      for (let k = off[d]; k < off[d + 1]; k++) { const x = ((1 - s) * cS[k] + s * cI[k]) / (1 + P.R_X * 0.5 * (rd + this.built(idx[k], 'R'))), w = Wt[idx[k]] * Math.exp(-x / (P.C_CITY0 + P.K_CITY * r)); cost2[k - off[d]] = x; dl[k] = w; Z += w; }
       for (let k = off[d]; k < off[d + 1]; k++) { const x = cost2[k - off[d]]; dl[k] = Z > 0 ? (1 - nat) * dl[k] / Z * Math.exp(-x / ll) : k === off[d] ? 1 - nat : 0; }
     }
     rt.feedFlows = [...far].map(([key, q]) => [Math.floor(key / 65536), key % 65536, q]).sort((a, b) => b[2] - a[2]).slice(0, rt.C.N_FLOW);
@@ -3001,6 +3060,19 @@ export class People {
       out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
       out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been
     }
+    // Densities as log₁₀ (people and robots a km², 10⁻⁹ for none), so the globe interpolates them in
+    // log: a dense cell fades over its neighbours rather than filling its hexagon at a city's tint.
+    for (let i = 0; i < n; i++) { out[8 * i] = Math.log10(Math.max(out[8 * i], 1e-9)); out[8 * i + 6] = Math.log10(Math.max(out[8 * i + 6], 1e-9)); }
+    // Reached, carried onto the cells beside reached land where no one could live (the sea, a lake,
+    // an ice sheet), so the frontier's hairline runs where land is unreached, not along a coast.
+    const g = this.planet.grid, fd = this.fields, rch = this.rchB && this.rchB.length === n ? this.rchB : (this.rchB = new Uint8Array(n));
+    for (let i = 0; i < n; i++) rch[i] = out[8 * i + 7] > 0 ? 1 : 0;
+    for (let i = 0; i < n; i++) {
+      if (rch[i]) continue;
+      const c = this.loc[i];
+      if (c >= 0 && H.alive[c] && !(fd && fd.lake && fd.lake[i] > 0.3)) continue;
+      for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) if (rch[g.nbr[t]]) { out[8 * i + 7] = 1; break; }
+    }
     return out;
   }
 
@@ -3019,18 +3091,27 @@ export class People {
     for (let c = 0; c < nL; c++) { if (zc && this.Ntot[c] > 0) zs[c] = zc[c]; if (this.Ntot[c] > 0 && zs[c] > zf) zf = zs[c]; }
     for (let c = 0; c < nL; c++) {
       const o = 4 * this.cells[c];
-      out[o] = this.past[c]; out[o + 1] = zs[c]; out[o + 2] = zs[c] > 0 ? zf - zs[c] : 0;
+      out[o] = this.past[c];
       out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
     }
-    // The culture and its lag carried onto the sea's cells beside the land (their land neighbours'
-    // mean), so the globe's interpolation doesn't draw a coast as a cliff of culture.
-    const g = this.planet.grid;
-    for (let i = 0; i < n; i++) {
-      if (this.loc[i] >= 0) continue;
-      let s = 0, l = 0, k = 0;
-      for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const c = this.loc[g.nbr[t]]; if (c >= 0 && zs[c] > 0) { s += zs[c]; l += zf - zs[c]; k++; } }
-      if (k) { out[4 * i + 1] = s / k; out[4 * i + 2] = l / k; }
+    // The culture carried from where people know it onto the cells beside them (the sea, lakes, land
+    // no one has lived on), three rings out, each its neighbours' mean, so the globe's interpolation
+    // draws no cliff of culture at a coast or at the edge of the inhabited land (the map shows it only
+    // on land people have reached).
+    const g = this.planet.grid, val = this.zVal && this.zVal.length === n ? this.zVal : (this.zVal = new Float32Array(n)), has = new Uint8Array(n);
+    val.fill(0);
+    for (let c = 0; c < nL; c++) if (zs[c] > 0) { val[this.cells[c]] = zs[c]; has[this.cells[c]] = 1; }
+    for (let r = 0; r < 3; r++) {
+      const add = [];
+      for (let i = 0; i < n; i++) {
+        if (has[i]) continue;
+        let s = 0, k = 0;
+        for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const j = g.nbr[t]; if (has[j]) { s += val[j]; k++; } }
+        if (k) add.push(i, s / k);
+      }
+      for (let q = 0; q < add.length; q += 2) { val[add[q]] = add[q + 1]; has[add[q]] = 1; }
     }
+    for (let i = 0; i < n; i++) if (has[i]) { out[4 * i + 1] = val[i]; out[4 * i + 2] = zf - val[i]; }
     return out;
   }
 

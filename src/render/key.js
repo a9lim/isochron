@@ -242,8 +242,8 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms'], ['route', 'Route'], ['lane', 'Sea lane']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms'], ['route', 'Route'], ['lane', 'Sea lane']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
   'people-culture': [['culture', 'Culture'], ['isoculture', 'Equal culture'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };

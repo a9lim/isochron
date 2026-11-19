@@ -508,14 +508,14 @@ export class Routes {
   }
 
   /**
-   * The routes for drawing (drawn only): the edges carrying at least `rel` of the most flux, traced
-   * into lines through the nodes where they don't branch, relaxed toward their neighbours (the
-   * grid's zigzag along a coast) and corner-cut on the sphere, ends held (so lines meeting at a node
-   * share it). Returns { P (Float32 3 a point), W (each point's flux: the
+   * The routes for drawing (drawn only): the edges carrying at least `rel` of the most flux, their
+   * network relaxed toward each node's neighbours (branches too, only its ends held), traced into
+   * lines through the nodes where they don't branch, each relaxed again (the grid's zigzag along a
+   * coast) and corner-cut on the sphere, its ends held (so lines meeting at a node share it). Returns { P (Float32 3 a point), W (each point's flux: the
    * segment's ending there), sea (1 where the segment ending there is at sea), off (each line's
    * first point; the last is P's length) }.
    */
-  lines(rel = 0.01, cuts = 2, relax = 6) {
+  lines(rel = 0.01, cuts = 2, relax = 6, net = 8) {
     const { a, b, q } = this.flux(), g = this.g, land = this.land, n = g.n;
     let qm = 0;
     for (let k = 0; k < q.length; k++) qm = Math.max(qm, q[k]);
@@ -537,9 +537,27 @@ export class Routes {
     };
     for (const [u, e] of adj) if (e.length !== 2) for (const [v, w] of e) if (!used.has(key(u, v))) walk(u, v, w);
     for (const [u, e] of adj) for (const [v, w] of e) if (!used.has(key(u, v))) walk(u, v, w);
+    // The whole network relaxed first, its branches too (only its ends held): each node halfway to its
+    // neighbours' mean, `net` times. Held at the branches, the lines met there in sharp Vs (a coastal
+    // route's dip to the grid's sea node and back) and the network kept the grid's angles.
+    const pos = new Map();
+    for (const u of adj.keys()) pos.set(u, [g.pos[3 * u], g.pos[3 * u + 1], g.pos[3 * u + 2]]);
+    for (let it = 0; it < net; it++) {
+      const np = new Map();
+      for (const [u, e] of adj) {
+        const p = pos.get(u);
+        if (e.length < 2) { np.set(u, p); continue; }
+        let x = 0, y = 0, z = 0;
+        for (const [v] of e) { const q = pos.get(v); x += q[0]; y += q[1]; z += q[2]; }
+        x = 0.5 * p[0] + 0.5 * x / e.length; y = 0.5 * p[1] + 0.5 * y / e.length; z = 0.5 * p[2] + 0.5 * z / e.length;
+        const r = Math.hypot(x, y, z);
+        np.set(u, [x / r, y / r, z / r]);
+      }
+      for (const [u, p] of np) pos.set(u, p);
+    }
     const P = [], W = [], S = [], off = [];
     for (const [nodes, ws] of chains) {
-      let pts = nodes.map(i => [g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2]]), wt = [ws[0], ...ws], sea = [0, ...nodes.slice(1).map((v, k) => (!land[v] && !land[nodes[k]] ? 1 : 0))];
+      let pts = nodes.map(i => pos.get(i).slice()), wt = [ws[0], ...ws], sea = [0, ...nodes.slice(1).map((v, k) => (!land[v] && !land[nodes[k]] ? 1 : 0))];
       sea[0] = sea[1] || 0;
       for (let it = 0; it < relax && pts.length > 2; it++) {
         const np = pts.map(p => p.slice());

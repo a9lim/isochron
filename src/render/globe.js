@@ -667,28 +667,36 @@ fn hair(d: f32, w: f32) -> f32 {
     if (folkD) {
       // People: the accent by log density, a faint wash wherever anyone lives deepening to the farms'
       // densities (~0.003 to ~300 a km²), then a step for the cities (~200 to ~4,000 a km²).
-      let plog = log(max(i.pp.x, 1e-9)) / 2.302585;
+      let plog = i.pp.x;   // log₁₀ a km², interpolated in log (People.drawn)
       let rural = smoothstep(-3.2, -2.5, plog) * select(0.08 + 0.22 * smoothstep(-2.5, 2.5, plog), 0.05 + 0.16 * smoothstep(-2.5, 2.5, plog), dark);
       let urban = smoothstep(2.3, 3.6, plog) * select(0.42, 0.55, dark);
       pland = mix(pland, u.accent.rgb, rural + urban);
       // Robots at work (worker-equivalents a km², ~1 to ~3,000 by log): verdigris over the people, so a
       // few million robots near the cities barely show and billions over the land do.
-      let rlog = log(max(i.pq.z, 1e-12)) / 2.302585;
+      let rlog = i.pq.z;
       pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
     } else if (folkK) {
       // Culture: violet by how near a place's culture is to the frontier's (full at it, a third half a
-      // unit of culture behind), where people have lived; lines of equal culture every quarter unit,
+      // unit of culture behind), where people have lived; lines of equal culture every quarter unit (or half, one or two where they crowd),
       // heavier at farming's and industry's (Z_FARM, Z_IND: isochrons of knowledge, the fronts by
       // which it spreads); and a stipple, denser by the works a km² (from ~30 person-years to ~10⁴).
       let zk = i.wx.y;
       let had = explored * step(1e-3, zk);
       pland = mix(pland, u.inkG.rgb, select(0.5, 0.55, dark) * exp(-2.0 * max(i.wx.z, 0.0)) * had);
-      let zz = 4.0 * zk;
-      let fz = max(fwidth(zz), 1e-4);
-      let apart = smoothstep(0.35, 0.18, fz);   // lines closer than ~3 px fade (a cliff of culture, not a front)
-      pland = mix(pland, u.text.rgb, 0.32 * hair(abs(zz - round(zz)), fz) * had * apart);
-      let era = max(hair(abs(zk - Z_FARM), 2.2 * 0.25 * fz), hair(abs(zk - Z_IND), 2.2 * 0.25 * fz));
-      pland = mix(pland, u.text.rgb, 0.55 * era * had * apart);
+      // Index contours: each line at the coarsest of a quarter, a half, one or two units it falls on,
+      // drawn where lines of that interval stand ≥ ~6 px apart, so a steep front (settlers among
+      // foragers) keeps every fourth or eighth line rather than stacking them all.
+      let fzk = max(fwidth(zk), 1e-5);
+      var iso = 0.0;
+      for (var L = 0u; L < 4u; L++) {
+        let iv = 0.25 * f32(1u << L);
+        let x = zk / iv;
+        let fx = fzk / iv;
+        iso = max(iso, hair(abs(x - round(x)), fx) * smoothstep(4.0, 7.0, 1.0 / fx));
+      }
+      pland = mix(pland, u.text.rgb, 0.32 * iso * had);
+      let era = max(hair(abs(zk - Z_FARM), 2.2 * fzk), hair(abs(zk - Z_IND), 2.2 * fzk));
+      pland = mix(pland, u.text.rgb, 0.55 * era * had);
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
@@ -760,8 +768,9 @@ fn hair(d: f32, w: f32) -> f32 {
   let night = u.sun.w * dusk / 3.0;
   if (night > 0.0) {
     c = mix(c, select(u.text.rgb, vec3f(0.0), dark), select(NIGHT_K, NIGHT_K_DARK, dark) * night);
-    let folkN = select(i.pp.x, max(i.pp.x, 4000.0), rank < i.pp.z);
-    let bots = max(i.pq.z, 0.0);
+    let dens = pow(10.0, i.pp.x);
+    let folkN = select(dens, max(dens, 4000.0), rank < i.pp.z);
+    let bots = pow(10.0, i.pq.z);
     let lq = log(max(folkN + bots, 1e-9)) / 2.302585;
     let lit = pow(smoothstep(0.0, 3.6, lq), 2.2) * step(0.0, cst) * (1.0 - lk) * (1.0 - sheet);
     let col = mix(LIGHT_FOLK, LIGHT_BOTS, bots / max(folkN + bots, 1e-9));

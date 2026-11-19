@@ -49,7 +49,7 @@ test('a preserving ending\'s rewilding retires the herds with the fields', () =>
   assert.ok(wild.K < 0.5 * kept.K, `the land feeds as foragers' then (${(wild.K / kept.K).toFixed(2)} of the herders' capacity)`);
 });
 
-test('the Culture map: the culture known, its lag behind the frontier, held where people have gone, and carried onto the sea beside the land', () => {
+test('the Culture map: the culture known, its lag behind the frontier, held where people have gone, and carried onto the cells beside it (the sea, land no one has lived on)', () => {
   const f = steppe(4);
   for (let i = 0; i < f.n; i++) if (f.grid.pos[3 * i + 2] > 0.6) f.elev[i] = -2;   // a sea in the north
   const p = new People(f, { ...quiet });
@@ -71,7 +71,7 @@ test('the Culture map: the culture known, its lag behind the frontier, held wher
   for (let i = 0; i < g.n; i++) {
     if (p.loc[i] >= 0) continue;
     const nb = []; for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const c = p.loc[g.nbr[t]]; if (c >= 0) nb.push(c); }
-    if (!nb.length) { assert.equal(l[4 * i + 1], 0); continue; }
+    if (!nb.length) continue;
     const m = nb.reduce((a, c) => a + p.zShow[c], 0) / nb.length;
     assert.ok(Math.abs(l[4 * i + 1] - m) < 1e-5); break;
   }

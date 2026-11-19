@@ -18,7 +18,7 @@ function uniformPlanet(level) {
   for (let i = 0; i < n; i++) f.zones[NZ * i + 2] = 1;
   return f;
 }
-const quiet = { H_FARM: 0, S_BG: 0, V_G: 0, CHECK: 1e12, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+const quiet = { H_FARM: 0, S_BG: 0, V_G: 0, CHECK: 1e12, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, SIG_LUCK: 0 };
 
 /** Run with a fixed step, calling `each` after every step. */
 function runFixed(p, dt, T, each = () => {}) { while (p.t < T - 1e-9) { p.step(Math.min(dt, T - p.t)); each(p); } }
@@ -271,7 +271,7 @@ test('cities are fed along the routes: each cell keeps 1 − u of its food, and 
   // The people follow the food: drawn, a cell's people are the model's, and its city the share that came in.
   const out = p.drawn();
   let model = 0, drawn = 0;
-  for (let c = 0; c < p.nL; c++) { model += p.Ntot[c]; drawn += out[8 * p.cells[c]] * p.H.area[c]; }
+  for (let c = 0; c < p.nL; c++) { model += p.Ntot[c]; drawn += 10 ** out[8 * p.cells[c]] * p.H.area[c]; }
   assert.ok(Math.abs(drawn / model - 1) < 1e-6, `drawn ${drawn.toExponential(4)} against ${model.toExponential(4)}`);
 });
 
@@ -554,4 +554,26 @@ test('a pause: a third of the draws, the frontier held where it stands, none of 
   const held = { ...PEOPLE, X_CAP: p.P.X_CAP };
   const a = capability(1e12, PEOPLE.Z_AI + 0.5, held), b = capability(1e15, PEOPLE.Z_AI + 2, held), free = capability(1e15, PEOPLE.Z_AI + 2, PEOPLE);
   assert.ok(a.x <= 1.2 + 1e-12 && Math.abs(b.x - 1.2) < 1e-12 && free.x > 1.2 && b.bc === capability(1e20, PEOPLE.Z_AI + 3, held).bc);
+});
+
+test('a region\'s luck: a smooth field of multipliers on ideas, mean one, renewed as the frontier advances', () => {
+  const p = new People(uniformPlanet(5), { H_FARM: 0 });
+  p.zc = new Float64Array(p.nL).fill(1); p.Ntot.fill(1);
+  p.lucky();
+  const m0 = Float64Array.from(p.luckC);
+  // The multiplier's log has the spread SIG_LUCK and the multiplier a mean near one over the world.
+  let s = 0, s2 = 0, mean = 0;
+  for (let c = 0; c < p.nL; c++) { const x = Math.log(m0[c]) + 0.5 * PEOPLE.SIG_LUCK ** 2; s += x; s2 += x * x; mean += m0[c]; }
+  const sd = Math.sqrt(s2 / p.nL - (s / p.nL) ** 2);
+  assert.ok(sd > 0.3 * PEOPLE.SIG_LUCK && sd < 1.5 * PEOPLE.SIG_LUCK, `log spread ${sd.toFixed(2)} against ${PEOPLE.SIG_LUCK}`);
+  assert.ok(Math.abs(mean / p.nL - 1) < 0.5, `mean ${(mean / p.nL).toFixed(2)}`);
+  // Smooth: neighbours alike, far places not.
+  const g = p.planet.grid; let dn = 0, k = 0;
+  for (let c = 0; c < p.nL; c++) { const i = p.cells[c]; const j = p.loc[g.nbr[g.nbrOff[i]]]; if (j >= 0) { dn += Math.abs(Math.log(m0[c] / m0[j])); k++; } }
+  assert.ok(dn / k < 0.25 * PEOPLE.SIG_LUCK, `neighbours differ by ${(dn / k).toFixed(3)} in log`);
+  // Held while the frontier stands; renewed as it advances.
+  p.lucky(); assert.deepEqual(Array.from(p.luckC), Array.from(m0));
+  p.zc.fill(1 + 5 * PEOPLE.Z_LUCK); p.lucky();
+  let moved = 0; for (let c = 0; c < p.nL; c++) moved += Math.abs(Math.log(p.luckC[c] / m0[c]));
+  assert.ok(moved / p.nL > 0.3 * PEOPLE.SIG_LUCK, 'renewed after five of Z_LUCK');
 });
