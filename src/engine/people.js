@@ -3005,13 +3005,32 @@ export class People {
   }
 
   /**
-   * The herders' pasture, drawn (synthesis): a share of each cell, four values a cell of the people's
-   * grid (the rest room for more), from `drawn`'s claims (`past`).
+   * What the People view draws besides `drawn`, four values a cell of the people's grid (drawn only):
+   * the herders' pasture (a share of the cell, from `drawn`'s claims); the culture known there (the
+   * best of its people's, held where they've gone: what its ruins knew); how far that lags the
+   * frontier's (the most anyone knows); and the works there a km² (learning's and the land's,
+   * person-years). The Culture map reads the last three.
    */
-  pasture(out = null) {
-    const n = this.planet.grid.n;
+  drawnB(out = null) {
+    const n = this.planet.grid.n, nL = this.nL, zc = this.zc, wk = this.wk, A = this.H.area;
     out = out || new Float32Array(4 * n); out.fill(0);
-    for (let c = 0; c < this.nL; c++) out[4 * this.cells[c]] = this.past[c];
+    const zs = this.zShow || (this.zShow = new Float32Array(nL));
+    let zf = 0;
+    for (let c = 0; c < nL; c++) { if (zc && this.Ntot[c] > 0) zs[c] = zc[c]; if (this.Ntot[c] > 0 && zs[c] > zf) zf = zs[c]; }
+    for (let c = 0; c < nL; c++) {
+      const o = 4 * this.cells[c];
+      out[o] = this.past[c]; out[o + 1] = zs[c]; out[o + 2] = zs[c] > 0 ? zf - zs[c] : 0;
+      out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
+    }
+    // The culture and its lag carried onto the sea's cells beside the land (their land neighbours'
+    // mean), so the globe's interpolation doesn't draw a coast as a cliff of culture.
+    const g = this.planet.grid;
+    for (let i = 0; i < n; i++) {
+      if (this.loc[i] >= 0) continue;
+      let s = 0, l = 0, k = 0;
+      for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const c = this.loc[g.nbr[t]]; if (c >= 0 && zs[c] > 0) { s += zs[c]; l += zf - zs[c]; k++; } }
+      if (k) { out[4 * i + 1] = s / k; out[4 * i + 2] = l / k; }
+    }
     return out;
   }
 

@@ -104,7 +104,7 @@ let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
 let clMode = 'zones';               // the Climate view's map: its zones, or the air (winds, dust, the veil)
-let pmMode = 'settlement';          // the People view's map: where people have reached, their and the robots' density, or the light they make
+let pmMode = 'settlement';          // the People view's map: where people have reached, their and the robots' density, or their culture and works
 // The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
 const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
 let tide = null;
@@ -623,7 +623,7 @@ function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
 const EARTH_DIAL = -0.3;      // log₁₀ yr/s: today's Earth opens at half a year a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
-const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density'] };
+const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'culture'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
 const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
 function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
@@ -682,7 +682,7 @@ function setMap(m) {
   if (m === 'zones' || m === 'air') { clMode = m; setView('climate'); }
   else if (m === 'pressure' || m === 'temperature' || m === 'humidity') { wxMode = m; setView('weather'); }
   else if (m === 'tides') setView('tides');
-  else if (m === 'settlement' || m === 'density') { pmMode = m; setView('people'); }
+  else if (m === 'settlement' || m === 'density' || m === 'culture') { pmMode = m; setView('people'); }
   else setView('relief');
 }
 /** Show a group at the map it last showed; Weather only where it's live. */
@@ -755,7 +755,7 @@ function startPeople() {
     else if (m.type === 'routes') { people.routes = m; drawDirty = true; }
     else if (m.type === 'drawn') {
       people.drawn = m.d; people.past = m.l;
-      if (globe) { globe.setPeople(m.d, people.grid); globe.setPasture(m.l, people.grid); }
+      if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); }
       drawDirty = true;
     }
   };
@@ -1280,7 +1280,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
   if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt, lakesDrawn.tint);
   if (coverDrawn) g.setCover(coverDrawn);
-  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPasture(people.past, people.grid); }
+  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPeopleB(people.past, people.grid); }
   if (sulfPattern) g.setSulfate(sulfPattern);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');

@@ -62,7 +62,7 @@
 // wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
 // at the amphidromic points, at the slowest dials the line of high water
 // sweeping round them, and a stipple where the tide loses its energy.
-// The People view (the People scenario, src/engine/people.js) has two maps.
+// The People view (the People scenario, src/engine/people.js) has three maps.
 // Settlement: the Relief view's land and sea where people have ever lived and
 // grey terra incognita where they haven't, a hairline at the frontier. Density:
 // a chart's base with the ice sheets under people as a tint in the accent by log
@@ -73,7 +73,10 @@
 // two patterns of two colours each: blocks for residences (cities in the accent,
 // datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
-// hatch; the sulfate veil as in the Air map.
+// hatch; the sulfate veil as in the Air map. Culture: a chart's base, violet by
+// how near a place's culture is to the frontier's, lines of equal culture every
+// quarter unit (heavier at farming's and industry's), a stipple by the works a
+// km², and of the land's uses only the cities (People.drawnB).
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
 // away from the Sun in three steps (the Sun 0°, 6° and 12° below the horizon:
 // civil, nautical and astronomical twilight) and lights it where people and
@@ -88,6 +91,8 @@ const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal 
 const PLANKTON_WASH = 0.3;    // and a pale, milky turquoise laid over it there (blooms scatter light: so shelves, lightly tinted, show it too)
 const NIGHT_K = 0.24;         // how far night takes a map toward graphite (light theme)
 const NIGHT_K_DARK = 0.55;    // and toward black (dark theme)
+const Z_FARM = 3.0;   // the culture farming begins about and industry's (src/engine/people.js, PEOPLE.Z_FARM, Z_IND): the Culture map's heavier lines
+const Z_IND = 7.0;
 const LIGHT_FOLK = vec3f(0.95, 0.79, 0.33);   // the night's lights where people make them: lamplight's yellow
 const LIGHT_BOTS = vec3f(1.0, 0.99, 0.96);    // and where the robots do: white
 struct U {
@@ -96,7 +101,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's culture), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
@@ -113,7 +118,7 @@ struct U {
 @group(0) @binding(3) var<storage, read> folk: array<vec4f>;
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
 @group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)
-@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // the herders' pasture (People.pasture): x a share of the cell
+@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y the culture known there, z its lag behind the frontier, w the works a km²
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -160,8 +165,9 @@ fn toView(p: vec3f) -> vec3f {
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
-  // sulfate's optical depth, its haze where the winds carry it (the vertex has no varyings to spare).
-  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, 0.0, 0.0, 0.0), u.mode.x > 5.5);
+  // sulfate's optical depth, its haze where the winds carry it, and the culture, its lag and the
+  // works (People.drawnB; the vertex has no varyings to spare).
+  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, past[vi].y, past[vi].z, past[vi].w), u.mode.x > 5.5);
   o.td = td;
   // The lakes eased from the last drawn to the new here (linear, so as the fragments would), which
   // leaves room beside them for the sea's ice (c holds the land's snow) and their tint.
@@ -450,9 +456,10 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7) or Density map (8)
-  let folkD = u.mode.x > 7.5;
-  let folkC = folkD;                // the People maps on a chart's base
+  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8) or Culture map (9)
+  let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
+  let folkK = u.mode.x > 8.5;
+  let folkC = folkD || folkK;       // the People maps on a chart's base
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
   let tA = length(tz);
@@ -668,6 +675,23 @@ fn hair(d: f32, w: f32) -> f32 {
       // few million robots near the cities barely show and billions over the land do.
       let rlog = log(max(i.pq.z, 1e-12)) / 2.302585;
       pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
+    } else if (folkK) {
+      // Culture: violet by how near a place's culture is to the frontier's (full at it, a third half a
+      // unit of culture behind), where people have lived; lines of equal culture every quarter unit,
+      // heavier at farming's and industry's (Z_FARM, Z_IND: isochrons of knowledge, the fronts by
+      // which it spreads); and a stipple, denser by the works a km² (from ~30 person-years to ~10⁴).
+      let zk = i.wx.y;
+      let had = explored * step(1e-3, zk);
+      pland = mix(pland, u.inkG.rgb, select(0.5, 0.55, dark) * exp(-2.0 * max(i.wx.z, 0.0)) * had);
+      let zz = 4.0 * zk;
+      let fz = max(fwidth(zz), 1e-4);
+      let apart = smoothstep(0.35, 0.18, fz);   // lines closer than ~3 px fade (a cliff of culture, not a front)
+      pland = mix(pland, u.text.rgb, 0.32 * hair(abs(zz - round(zz)), fz) * had * apart);
+      let era = max(hair(abs(zk - Z_FARM), 2.2 * 0.25 * fz), hair(abs(zk - Z_IND), 2.2 * 0.25 * fz));
+      pland = mix(pland, u.text.rgb, 0.55 * era * had * apart);
+      let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
+      let wd = smoothstep(1.5, 4.0, wl);
+      pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
     } else {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
     }
@@ -684,6 +708,8 @@ fn hair(d: f32, w: f32) -> f32 {
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
     if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
+    } else if (folkK) {
+      // The Culture map keeps only the cities of the land's uses (where the minds gather).
     } else if (rank < c2) {
       pland = mix(mix(pland, u.inkD.rgb, 0.14), mix(u.inkD.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (rank < c3) {
@@ -929,8 +955,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
       device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 2);
     },
-    /** Per cell of the people's grid `pg`, four values (People.pasture): the herders' pasture, a share of the cell. */
-    setPasture(l, pg) {
+    /** Per cell of the people's grid `pg`, four values (People.drawnB): the herders' pasture (a share of the cell), the culture known there, its lag behind the frontier, the works a km². */
+    setPeopleB(l, pg) {
       if (pg === mesh) { device.queue.writeBuffer(pastBuf, 0, l); return; }
       if (!pastS) pastS = storage(device, pg.n * 16);
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
@@ -970,7 +996,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : 7) : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'culture' ? 9 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

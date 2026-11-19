@@ -150,6 +150,19 @@ const GLYPHS = {
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
   // Pasture: parcels as the farms', in ochre.
   pasture: (c, x, y, P) => parcels(c, x, y, P.inks.ochre, 0.1, 0.65),
+  // Culture: violet by how near the frontier's a place's is, far behind (left) to at the frontier (right).
+  culture: (c, x, y, P) => {
+    for (let a = 0; a < 26; a++) { c.fillStyle = P.inks.violet; c.globalAlpha = (P.dark ? 0.55 : 0.5) * Math.exp(-4 * (1 - a / 25)); c.fillRect(x + a, y, 1, 12); }
+    c.globalAlpha = 1;
+    c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+  },
+  isoculture: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  era: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.55); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
+  // Works: dots on a staggered lattice in the rules' colour, as the shader's `stipple`.
+  works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
+  // The routes (src/render/overlay.js, drawRoutes): roads and rivers solid, sea lanes dashed, in the rules' colour.
+  route: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; line(c, x, y + 6, x + 26, y + 6); },
+  lane: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; c.setLineDash([4.8, 4]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   // Night: the night side's three steps, the Sun 0°, 6° and 12° below the horizon (the shader's NIGHT_K).
   night: (c, x, y, P) => {
     for (let k = 0; k < 3; k++) { c.fillStyle = nightGround(P, (k + 1) / 3); c.fillRect(x + k * 26 / 3, y, 26 / 3 + 0.3, 12); }
@@ -229,8 +242,9 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms'], ['route', 'Route'], ['lane', 'Sea lane']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms'], ['route', 'Route'], ['lane', 'Sea lane']],
+  'people-culture': [['culture', 'Culture'], ['isoculture', 'Equal culture'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

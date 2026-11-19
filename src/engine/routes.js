@@ -3,8 +3,10 @@
 // 2's deliveries and goods are to run on the same costs.
 //
 // The graph is the people's grid's parent (level 5 under the people's 6: ~220 km), its nodes the
-// coarse cells, land or sea as the people's fields have them. Each directed edge has a cost in
-// sea-km (a cargo carried a km by sea on a fair wind), in two layers:
+// coarse cells, land or sea as the people's fields have them, each joined to its ring and the six
+// between its ring and the next (`twelve`: twelve directions 30° apart, so paths run near great
+// circles). Each directed edge has a cost in sea-km (a cargo carried a km by sea on a fair wind),
+// in two layers:
 //   sail     by sea, the year's mean speed a sailing ship makes along the edge: through the water
 //            a share of the wind's speed by the angle off it (fastest running before it, a beat's
 //            G_UP close-hauled), at the year's six points of the planet's own surface wind, plus the
@@ -29,7 +31,8 @@
 // Trade (`trade`, synthesis on the gravity model of trade, standard: Tinbergen 1962, from memory):
 // between active markets (those with fields: trade comes with farming), a kernel e^{−c/reach},
 // c the round trip's mean ((out + home)/2) on the layer the pair sails (steam by the more
-// industrial end's share), reach rising with the more advanced end's culture (`reach`).
+// industrial end's share; the sail's part by land cheaper by the two markets' roads and canals,
+// People's works), reach rising with the more advanced end's culture (`reach`).
 // Each market buys from the others in proportion to kernel × their food (its supply basket, w):
 // a cell's harvest is then (1 − τ) its own and τ the basket's, τ the share of food that goes
 // through markets (TAU_AG with fields, toward TAU_IND with industry). The harvest's spread pools as
@@ -50,6 +53,7 @@ export const ROUTES = {
   V_SHIP: 2.5, W_REF: 7, W_HALF: 4, G_UP: 0.15, V_ROW: 0.3, ICE_OPEN: 0.05,   // m/s: a merchant sailing ship's speed before a fair wind of W_REF (~5 knots, from memory), the wind's speed that halves it, a beat's share close-hauled, an oar's or a drift's; the least open share of a sea under ice
   C_STEAM: 0.3, C_RAIL: 3, H_RAIL: 1, C_BARGE: 1.5, C_PORT_IND: 30, V_STEAM: 6, K_STEAM: 0.05,   // industry's: steamship, rail (×(1 + climb/H_RAIL)), barge, port (sea-km a km; a ton-km by steam a third of sail's, by rail a tenth of the wagon's: from memory)
   C_FILL: 3000,                    // land whose nearest market costs more is given its own
+  R_ROAD: 1, K_CANAL: 5,           // the land's works on the markets' routes: the sail's part by land ÷ (1 + R_ROAD × the pair's roads + K_CANAL × its canals' share of the land), both its two markets' mean (roads at their full room halve it; canals over a fifth of the land halve it, the boats going where the water does: the Grand Canal's, Mesopotamia's; synthesis)
   R_T0: 300, Z_RT: 1.1, R_TMAX: 1e5,   // the trade's reach (sea-km of cost that cuts it e-fold): R_T0 at farming's knowledge, ×e per Z_RT of culture past it (grain by sea from Egypt to Rome, ~3,000 sea-km, at ~0.3 of the local market's weight by Rome's; the Atlantic's ~10,000 at ~0.1 by 1600; synthesis), at most R_TMAX
   TAU_AG: 0.15, TAU_IND: 0.9,      // the share of a farming people's food that goes through markets (rents, taxes, the towns' food), and an industrial people's
   L_CORR: 1500,                    // km: the weather's correlation length (a year's harvest anomalies, ρ = e^{−d/L_CORR}; rough, from memory)
@@ -86,8 +90,8 @@ export class Heap {
 }
 
 /** Dijkstra over a CSR graph from `src` (or several), into dist and pred (Uint16, 65535 none). */
-export function dijkstra(g, cost, src, dist, pred, heap, owner = null, own = null) {
-  dist.fill(Infinity); if (pred) pred.fill(65535);
+export function dijkstra(g, cost, src, dist, pred, heap, owner = null, own = null, extra = null, acc = null) {
+  dist.fill(Infinity); if (pred) pred.fill(65535); if (acc) acc.fill(0);
   heap.n = 0;
   const srcs = typeof src === 'number' ? [src] : src;
   srcs.forEach((s, k) => { dist[s] = 0; if (owner) owner[s] = own ? own[k] : k; heap.push(0, s); });
@@ -97,7 +101,7 @@ export function dijkstra(g, cost, src, dist, pred, heap, owner = null, own = nul
     if (d > dist[u]) continue;
     for (let o = nbrOff[u]; o < nbrOff[u + 1]; o++) {
       const w = nbr[o], nd = d + cost[o];
-      if (nd < dist[w]) { dist[w] = nd; if (pred) pred[w] = u; if (owner) owner[w] = owner[u]; heap.push(nd, w); }
+      if (nd < dist[w]) { dist[w] = nd; if (pred) pred[w] = u; if (owner) owner[w] = owner[u]; if (extra) acc[w] = acc[u] + extra[o]; heap.push(nd, w); }
     }
   }
 }
@@ -116,6 +120,34 @@ export function sailSpeed(h, w, cu, open, C = ROUTES) {
     v += Math.max(C.V_ROW, s + along) / 6;
   }
   return v * Math.max(C.ICE_OPEN, open);
+}
+
+/**
+ * A grid's graph in twelve directions: each node's ring, and the six nodes between it and its
+ * second ring (the far corner of each rhombus u–a–v–b over two adjacent ring nodes a, b). Returns
+ * { n, nbrOff, nbr, via } (via: per edge, the ring nodes it passes between; none for the ring's).
+ */
+export function twelve(g) {
+  const n = g.n, lists = Array.from({ length: n }, () => []), vias = Array.from({ length: n }, () => []);
+  const ring = u => g.nbr.subarray(g.nbrOff[u], g.nbrOff[u + 1]);
+  for (let u = 0; u < n; u++) {
+    const R1 = ring(u), seen = new Map();
+    for (const a of R1) { lists[u].push(a); vias[u].push([]); }
+    for (let x = 0; x < R1.length; x++) for (let y = x + 1; y < R1.length; y++) {
+      const a = R1[x], b = R1[y], Ra = ring(a);
+      if (!Ra.includes(b)) continue;
+      for (const v of Ra) {
+        if (v === u || R1.includes(v) || !ring(b).includes(v)) continue;
+        if (seen.has(v)) { vias[u][seen.get(v)].push(a, b); continue; }
+        seen.set(v, lists[u].length); lists[u].push(v); vias[u].push([a, b]);
+      }
+    }
+  }
+  const nbrOff = new Int32Array(n + 1);
+  for (let u = 0; u < n; u++) nbrOff[u + 1] = nbrOff[u] + lists[u].length;
+  const nbr = new Int32Array(nbrOff[n]), via = new Array(nbrOff[n]);
+  for (let u = 0; u < n; u++) lists[u].forEach((v, k) => { nbr[nbrOff[u] + k] = v; via[nbrOff[u] + k] = [...new Set(vias[u][k])]; });
+  return { n, nbrOff, nbr, via };
 }
 
 export class Routes {
@@ -168,13 +200,34 @@ export class Routes {
         cS[o] = (C.C_PORT + 0.5 * km * C.C_SEA) * iced; cI[o] = (C.C_PORT_IND + 0.5 * km * C.C_STEAM) * iced;
       }
     }
+    // Twelve directions: each node's ring and the six nodes between it and the second ring (the far
+    // corner of each rhombus u–a–v–b), each at the cheaper of its two two-step paths scaled to the
+    // straight length. On the ring's six alone, the shortest paths ran one straight leg and turned
+    // once (a hexagonal grid's metric is ~15% long off its axes), and flows sharing a first leg and
+    // parting at the turn drew triangles.
+    const G = this.G = twelve(g), m2 = G.nbrOff[n];
+    const eS = this.eS = new Float32Array(m2), eI = this.eI = new Float32Array(m2), eL = new Float32Array(m2);
+    const edge = (u, v) => { for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) if (g.nbr[o] === v) return o; return -1; };
+    for (let u = 0; u < n; u++) for (let o = G.nbrOff[u]; o < G.nbrOff[u + 1]; o++) {
+      const v = G.nbr[o], d = edge(u, v);
+      if (d >= 0) { eS[o] = cS[d]; eI[o] = cI[d]; eL[o] = land[u] && land[v] ? cS[d] : 0; continue; }
+      const kmUV = R * Math.acos(Math.min(1, g.pos[3 * u] * g.pos[3 * v] + g.pos[3 * u + 1] * g.pos[3 * v + 1] + g.pos[3 * u + 2] * g.pos[3 * v + 2]));
+      let bs = Infinity, bi = Infinity, bl = 0;
+      for (const a of G.via[o]) {
+        const o1 = edge(u, a), o2 = edge(a, v), r = kmUV / (g.dist[o1] * R + g.dist[o2] * R);
+        const s1 = (cS[o1] + cS[o2]) * r, i1 = (cI[o1] + cI[o2]) * r;
+        if (s1 < bs) { bs = s1; bl = ((land[u] && land[a] ? cS[o1] : 0) + (land[a] && land[v] ? cS[o2] : 0)) * r; }
+        if (i1 < bi) bi = i1;
+      }
+      eS[o] = bs; eI[o] = bi; eL[o] = bl;
+    }
     // Markets: the grandparent's living land, then any land the sail can't reach from one cheaply.
-    const heap = this.heap = new Heap(m + n + 1), dist = new Float64Array(n), owner = new Int32Array(n).fill(-1);
+    const heap = this.heap = new Heap(m2 + n + 1), dist = new Float64Array(n), owner = new Int32Array(n).fill(-1);
     const mk = [];
     for (let i = 0; i < gm.n; i++) if (alive[i]) mk.push(i);
     for (;;) {
       if (!mk.length) { for (let i = 0; i < n; i++) if (alive[i]) { mk.push(i); break; } if (!mk.length) break; }
-      dijkstra(g, cS, mk, dist, null, heap, owner);
+      dijkstra(G, eS, mk, dist, null, heap, owner);
       let far = -1, fd = C.C_FILL;
       for (let i = 0; i < n; i++) if (alive[i] && dist[i] > fd) { fd = dist[i]; far = i; }
       if (far < 0) break;
@@ -200,17 +253,21 @@ export class Routes {
     // Every market's costs to every other, and its paths, on both layers.
     this.D = { S: new Float32Array(nm * nm), I: new Float32Array(nm * nm) };
     this.pred = { S: new Uint16Array(nm * n), I: new Uint16Array(nm * n) };
-    for (const [L, cost] of [['S', cS], ['I', cI]]) {
+    // The sail's part by land each way (what roads and canals cheapen, `trade`).
+    const DL = new Float32Array(nm * nm), acc = new Float64Array(n);
+    for (const [L, cost] of [['S', eS], ['I', eI]]) {
       const D = this.D[L];
       for (let a = 0; a < nm; a++) {
         const pr = this.pred[L].subarray(a * n, (a + 1) * n);
-        dijkstra(g, cost, mk[a], dist, pr, heap);
-        for (let b = 0; b < nm; b++) D[a * nm + b] = dist[mk[b]];
+        dijkstra(G, cost, mk[a], dist, pr, heap, null, null, L === 'S' ? eL : null, acc);
+        for (let b = 0; b < nm; b++) { D[a * nm + b] = dist[mk[b]]; if (L === 'S') DL[a * nm + b] = acc[mk[b]]; }
       }
     }
-    // The round trips' mean costs, both layers (`cost`).
+    // The round trips' mean costs, both layers (`cost`), and the sail's share of them by land.
     this.R = { S: new Float32Array(nm * nm), I: new Float32Array(nm * nm) };
     for (const L of ['S', 'I']) { const D = this.D[L], Rm = this.R[L]; for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]); }
+    const LS = this.LS = new Float32Array(nm * nm), DS = this.D.S;
+    for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) { const t = DS[a * nm + b] + DS[b * nm + a]; LS[a * nm + b] = t > 0 && Number.isFinite(t) ? (DL[a * nm + b] + DL[b * nm + a]) / t : 0; }
     // The weather's correlation between markets.
     const rho = this.rho = new Float32Array(nm * nm), P = this.mpos;
     for (let a = 0; a < nm; a++) for (let b = a; b < nm; b++) {
@@ -280,8 +337,16 @@ export class Routes {
     return h;
   }
 
-  /** The round trip's mean cost between markets a and b on a layer ('S' sail, 'I' steam). */
-  cost(a, b, L = 'S') { return this.R[L][a * this.nm + b]; }
+  /**
+   * The round trip's mean cost between markets a and b on a layer ('S' sail, 'I' steam); the sail's
+   * part by land cheapened by the pair's roads and canals (`trade` sets them).
+   */
+  cost(a, b, L = 'S') {
+    const o = a * this.nm + b, x = this.R[L][o];
+    if (L !== 'S' || !this.mWr) return x;
+    const C = this.C, g = 1 / (1 + C.R_ROAD * 0.5 * (this.mWr[a] + this.mWr[b]) + C.K_CANAL * 0.5 * (this.mWc[a] + this.mWc[b]));
+    return x * (1 - this.LS[o] * (1 - g));
+  }
 
   /** The nodes from market a's node to node `to` along a layer's path, `to` first. */
   path(a, to, L = 'S') {
@@ -319,6 +384,15 @@ export class Routes {
         if (pp.pkg[c] >= 0) { const key = k * 4096 + pp.pkg[c]; byPkg.set(key, (byPkg.get(key) || 0) + a); }
       }
     }
+    // Each market's roads (their built share) and canals (the land they water), by area.
+    const Wr = this.mWr || (this.mWr = new Float64Array(nm)), Wc = this.mWc || (this.mWc = new Float64Array(nm));
+    Wr.fill(0); Wc.fill(0);
+    if (pp.wk) for (let c = 0; c < nL; c++) {
+      const k = mo[c], a = pp.H.area[c];
+      if (pp.wk.R[c] > 0) Wr[k] += a * pp.built(c, 'R');
+      if (pp.wk.C[c] > 0) Wc[k] += a * pp.H.irrPot[c] * pp.built(c, 'C');
+    }
+    for (let k = 0; k < nm; k++) if (A[k] > 0) { Wr[k] /= A[k]; Wc[k] /= A[k]; }
     pk.fill(-1);
     const best = new Float64Array(nm);
     for (const [key, a] of byPkg) { const k = Math.floor(key / 4096); if (a > best[k]) { best[k] = a; pk[k] = key % 4096; } }
@@ -335,13 +409,14 @@ export class Routes {
     const part = this.part || (this.part = { k: new Int32Array(nm * C.K_PART).fill(-1), w: new Float32Array(nm * C.K_PART) });
     part.k.fill(-1); part.w.fill(0);
     // The kernel, symmetric, once a pair.
-    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, RI = this.R.I;
+    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, RI = this.R.I, LS = this.LS;
     for (let x = 0; x < na; x++) {
-      const i = act[x], ri = reach[x], si = S[i];
+      const i = act[x], ri = reach[x], si = S[i], wri = Wr[i], wci = Wc[i];
       KM[x * na + x] = 1;
       for (let y = x + 1; y < na; y++) {
         const j = act[y], r = ri > reach[y] ? ri : reach[y], s = si > S[j] ? si : S[j], o = i * nm + j;
-        const k = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-RS[o] / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-RS[o] / r) + s * Math.exp(-RI[o] / r);
+        const gw = 1 / (1 + C.R_ROAD * 0.5 * (wri + Wr[j]) + C.K_CANAL * 0.5 * (wci + Wc[j])), cs = RS[o] * (1 - LS[o] * (1 - gw));
+        const k = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-RI[o] / r);
         KM[x * na + y] = KM[y * na + x] = k;
       }
     }

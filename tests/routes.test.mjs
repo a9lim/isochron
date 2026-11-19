@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
 import { People } from '../src/engine/people.js';
-import { Routes, ROUTES, sailSpeed, dijkstra, Heap } from '../src/engine/routes.js';
+import { Routes, ROUTES, sailSpeed, dijkstra, Heap, twelve } from '../src/engine/routes.js';
 
 const R = 6371;
 
@@ -95,4 +95,31 @@ test('a market pools the harvest by its basket: one-factor variance', () => {
   const p = rt.pool(c);
   assert.ok(Math.abs(p.pool - want) < 1e-9 && p.tau === tau);
   pp.f[c] = 0; assert.equal(rt.pool(c).pool, 1);   // foragers don't trade food
+});
+
+test('twelve directions: paths on an even graph run within a few percent of the great circle', () => {
+  const g = buildGrid(4), G = twelve(g), n = g.n;
+  let deg12 = 0;
+  for (let u = 0; u < n; u++) { const d = G.nbrOff[u + 1] - G.nbrOff[u]; if (d === 12) deg12++; else assert.equal(d, 10, `a pentagon's ten (${d} at ${u})`); }
+  assert.equal(deg12, n - 12);
+  // Cost = length: the worst ratio of path to great circle over far pairs, on six directions and twelve.
+  const km = (u, v) => Math.acos(Math.min(1, g.pos[3 * u] * g.pos[3 * v] + g.pos[3 * u + 1] * g.pos[3 * v + 1] + g.pos[3 * u + 2] * g.pos[3 * v + 2]));
+  const cost6 = Float32Array.from({ length: g.nbrOff[n] }, (_, o) => g.dist[o]);
+  const cost12 = new Float32Array(G.nbrOff[n]);
+  for (let u = 0; u < n; u++) for (let o = G.nbrOff[u]; o < G.nbrOff[u + 1]; o++) cost12[o] = km(u, G.nbr[o]);
+  const dist = new Float64Array(n), heap = new Heap(4 * G.nbrOff[n]);
+  const worst = (graph, cost) => { let w = 0; for (const s of [0, 100, 777]) { dijkstra(graph, cost, s, dist, null, heap); for (let v = 0; v < n; v++) { const d = km(s, v); if (d > 0.5 && d < 2.5) w = Math.max(w, dist[v] / d); } } return w; };
+  const w6 = worst(g, cost6), w12 = worst(G, cost12);
+  assert.ok(w6 > 1.1, `six directions run long off their axes (${w6.toFixed(3)})`);
+  assert.ok(w12 < 1.05, `twelve run within 5% (${w12.toFixed(3)})`);
+});
+
+test('roads and canals cheapen the sail\'s part by land between two markets', () => {
+  const f = islands([1, 1, 1, 1, 1, 1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f);
+  const a = 0, b = 1, base = rt.cost(a, b, 'S'), land = rt.LS[a * rt.nm + b];
+  rt.mWr = new Float64Array(rt.nm).fill(1); rt.mWc = new Float64Array(rt.nm);
+  assert.ok(Math.abs(rt.cost(a, b, 'S') - base * (1 - land / 2)) < 1e-6 * base, 'roads at their room halve the part by land');
+  rt.mWr.fill(0); rt.mWc.fill(0.2);
+  assert.ok(Math.abs(rt.cost(a, b, 'S') - base * (1 - land / 2)) < 1e-6 * base, 'canals over a fifth of the land halve it too');
+  assert.equal(rt.cost(a, b, 'I'), rt.R.I[a * rt.nm + b], 'steam and rail are industry\'s own');
 });
