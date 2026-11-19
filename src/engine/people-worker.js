@@ -20,7 +20,7 @@ import { People } from './people.js';
 import { solarSystem } from './solar.js';
 import { figureOf } from './peoplefit.js';
 import { stable } from './cohorts.js';
-let pyrRef = null, routesAt = null;   // Fig. 9's reference; the trade kernel last drawn
+let pyrRef = null, routesAt = null, lastTears = 0;   // Fig. 9's reference; the trade kernel last drawn; the peoples' tears last sent
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
@@ -159,5 +159,11 @@ function post(force) {
       const r = rt.lines();
       self.postMessage({ type: 'routes', ...r }, [r.P.buffer, r.W.buffer, r.sea.buffer, r.off.buffer]);
     }
+  }
+  // The peoples' tears (src/engine/peoples.js), once a second (~10–20 ms).
+  if (force || now - lastTears > 1000) {
+    lastTears = now;
+    const r = people.ids.tears();
+    self.postMessage({ type: 'tears', ...r }, [r.P.buffer, r.W.buffer, r.off.buffer]);
   }
 }

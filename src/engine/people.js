@@ -157,6 +157,7 @@ import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 import { Year, YEAR } from './year.js';
 import { Routes } from './routes.js';
+import { Peoples } from './peoples.js';
 import { COHORTS, stable, stableLookup, stepPyramid, stepTables, ageClock, settle, reference } from './cohorts.js';
 
 export const PEOPLE = {
@@ -349,6 +350,7 @@ export const PEOPLE = {
   R_MIN: 0.03, W_INV: 0.1,                          // the return beyond wear that investment must clear (a real interest rate, from memory); the switch's width in log return over cost
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
   // AI (speculation): capability from effective compute, labour from compute, bodies from robots
+  ALG: 0.8,                                        // AI's efficiency: algorithms' share, on learning (research-weighted, `za`), against hardware's on production (log ratio of algorithms' ~3×/yr to FLOP per dollar's ~1.35×/yr, Epoch, from memory; a9, batch 1c): AI needs science first, its chips second
   Z_AI: 10.35, B_MAX: 1, SIGMA: 0.5,                // knowledge where AI's efficiencies are referenced (early takeoff lands near it, at Earth's ~20–25 sy a person); the automatable share's most; the tasks' elasticity
   X20: 8.08, THETA_C: 40, FLOP_GAP: 4,              // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr. (8.7 with S_IT at 5%: lowered by S_IT's log ratio, so the timeline holds.)
   GAP_P: 1.5, PHI: 0.5, SIGMA_G: 0.5,               // physical tasks need GAP_P orders more (Moravec, speculation); their share of production's tasks (~half, from memory); cognitive against physical, elasticity
@@ -406,6 +408,24 @@ export const PEOPLE = {
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
+  // Peoples (src/engine/peoples.js, docs/people.md "Peoples"; synthesis unless marked): identity's drift (σ² a dimension a
+  // year: a language apart, d 1, in ~1.25 kyr parted, Romance's; a family, d ~2.3, in ~6.5 kyr; from memory); contact's
+  // rate at no distance (a dialect levels in about a century), the distance that halves it, its floor (unlike peoples
+  // still borrow and intermarry), and its share between two
+  // ways of life (whole with the cities); a way's two atoms
+  // merging within D_MERGE (one dialect); conformity within a way (a minority's shift over a few centuries);
+  // identity's contact length, ID_L0 km, e-fold per Z_IDL of learning past writing's Z_ID0 (a band's marriages and a
+  // village's, then writing's, print's, broadcast's: ~500 km at learning 6, ~1,400 at 7, the world by ~10; at
+  // e^{z_L/1.75} from the first, continents had fused by farming; speculation), to ID_LMAX; the media's pull toward the
+  // world's mean past it (R_MEDIA × 1 − e^{−(ℓ/L_WORLD)²}); learning's copying by how alike two places are
+  // (D_SIM, a family apart, halves it: the literate's language spans spoken ones, Pollock's cosmopolis, from memory; ID_COPY of the way to none, once learning is written: past Z_ID0); a common language's lift in trade's kernel (CL_TRADE: ×1.5
+  // between peoples alike against strangers; gravity models find ~1.4–2, from memory); migrants carried past
+  // ID_EPS of where they go a substep; tears drawn past T_TEAR where both sides hold RHO_TEAR a km², peoples counted
+  // alike within D_HILL; identity stepped
+  // every DT_ID years at least.
+  ID_SIG2: 5e-5, R_CONT: 0.01, D_CONT: 0.5, G_FLOOR: 0.05, D_MERGE: 0.15, R_CONF: 0.02, X_WAY: 0.05,
+  ID_L0: 70, Z_ID0: 4, Z_IDL: 1, ID_LMAX: 2e4, R_MEDIA: 0.02, L_WORLD: 1e4, DT_ID: 10,
+  D_SIM: 2, ID_COPY: 1, CL_TRADE: 0.5, ID_EPS: 1e-2, T_TEAR: 1, RHO_TEAR: 0.02, D_HILL: 0.5,
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   // Where ideas go (synthesis, a9; the size speculation): a place's new ideas are shared between the
   // domains, learning's share ½ − TILT among those who feed themselves (foragers, herders, fishers,
@@ -579,7 +599,8 @@ export function energyCES(q, sigma, w) {
 
 /**
  * Capability (speculation, after Davidson's compute-centric framework, from memory): effective
- * compute is the compute stock × hardware's and algorithms' efficiency, e^{θ_C (z − Z_AI)}; tasks'
+ * compute is the compute stock × hardware's and algorithms' efficiency, e^{θ_C (z − Z_AI)} at AI's
+ * knowledge z (`za`: ALG of it learning's, the rest production's); tasks'
  * requirements spread over the FLOP gap, so the automatable share of cognitive tasks is a
  * logistic in log₁₀ effective compute, 20% at X20 and ~98% FLOP_GAP orders on, and physical
  * tasks' the same GAP_P orders further (Moravec's paradox).
@@ -598,7 +619,8 @@ function groupCES(Gc, Gp, phi, sigma) {
 }
 
 /**
- * Production's labour from people Lh, production's compute Kc and robots Kr at knowledge z, with
+ * Production's labour from people Lh, production's compute Kc and robots Kr at production's knowledge z
+ * (the robots' bodies) and AI's za (its capability and its labour a unit of compute), with
  * the machines running at the shares `run` ({c, r, q}: production's compute, the robots,
  * research's compute; a number for all three); research's compute Kq runs AI's research minds,
  * and both stocks make the largest training runs (capability). Of production's AI
@@ -606,10 +628,10 @@ function groupCES(Gc, Gp, phi, sigma) {
  * (soft-min with the robots), the remainder cognitive; each task group by `taskLabor` (people
  * split by the groups' shares), the groups by `groupCES`.
  */
-export function labour(Lh, Kc, Kr, z, run, P, Kq = 0, bmax = Infinity) {
+export function labour(Lh, Kc, Kr, z, run, P, Kq = 0, bmax = Infinity, za = z) {
   const uc = typeof run === 'number' ? run : run.c, ur = typeof run === 'number' ? run : run.r, uq = typeof run === 'number' ? run : run.q;
-  const chiRaw = P.X_AI * ex(P.THETA_AI * (z - P.Z_AI)), chi = chiRaw / (1 + chiRaw / P.X_MAX);
-  const { bc, bp, x } = capability(Kc + Kq, z, P);
+  const chiRaw = P.X_AI * ex(P.THETA_AI * (za - P.Z_AI)), chi = chiRaw / (1 + chiRaw / P.X_MAX);
+  const { bc, bp, x } = capability(Kc + Kq, za, P);
   const Ar = Kq * chi * uq, Aprod = Kc * chi * uc, A = Ar + Aprod;
   const cost = P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300)), bodies = Math.min(Kr / cost, bmax);
   const Ap = softMin(P.PHI * Aprod, ur * bodies, 4), Ac = Aprod - Ap;
@@ -688,13 +710,13 @@ export function newEconomy(P) {
  * then between fixed capital and compute by their marginal products, capital worn and built exactly
  * for a steady inflow, fossil carbon burned, materials drawn.
  */
-export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null, capS: capS0 = null, keepF: keep = 1, heatB: heat0 = null }, dt, P) {
+export function industrialStep(E, { Lh, z, za = z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null, capS: capS0 = null, keepF: keep = 1, heatB: heat0 = null }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
   const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND));
   // The robots this step can field: the paid-for bodies, as far as the fleet's ramp has grown.
   const bmax = Math.max(P.B_SEED, E.Bc || 0) * Math.exp(dt / P.T_ROB), bodyCost = P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300));
-  const T0 = labour(Lh, E.Kc, E.Kr, z, 1, P, E.Kq, bmax);
+  const T0 = labour(Lh, E.Kc, E.Kr, z, 1, P, E.Kq, bmax, za);
   // Energy: compute's power, materials' for building, output's (its intensity falling with z).
   const eY = P.E_MIN_Y + (P.E_SUB - P.E_MIN_Y) * Math.exp(-(z - P.Z_IND) / P.Z_EFF);
   // Ores' grades fall smoothly past the crust's rich ones (Skinner's barrier as a gap in the grades' distribution).
@@ -754,11 +776,11 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     const Eq = P.W_C * E.Kq, uq = Eq > 0 ? Math.min(1, sup / Eq) : 1, s1 = sup - uq * Eq;
     const Epc = P.W_C * E.Kc, uc = Epc > 0 ? Math.min(1, s1 / Epc) : 1, s2 = Math.max(0, s1 - uc * Epc);
     const outAt = ur => {
-      const T = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: ur, q: uq }, P, E.Kq, bmax), Ypot = Kf3 * Math.pow(T.L, 1 - P.ALPHA), Eo = Math.max(0, s2 - P.W_R * T.Ap);
+      const T = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: ur, q: uq }, P, E.Kq, bmax, za), Ypot = Kf3 * Math.pow(T.L, 1 - P.ALPHA), Eo = Math.max(0, s2 - P.W_R * T.Ap);
       return { T, Ypot, Eo, Y: Ypot > 0 ? Ypot * energyCES(Eo / (eYM * Ypot), P.SIGMA_E, P.W_E) : 0 };
     };
     // The robots' share their power allows (W_R Ap ≤ s2, inverting the soft-min), then the best within it.
-    const Tc = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: 1, q: uq }, P, E.Kq, bmax), xP = P.PHI * Tc.Aprod, aMax = s2 / P.W_R;
+    const Tc = labour(Lh, E.Kc, E.Kr, z, { c: uc, r: 1, q: uq }, P, E.Kq, bmax, za), xP = P.PHI * Tc.Aprod, aMax = s2 / P.W_R;
     let urMax = 1;
     if (xP > aMax && Tc.bodies > 0) urMax = Math.min(1, aMax > 0 ? xP / Math.pow(Math.pow(xP / aMax, 4) - 1, 0.25) / Tc.bodies : 0);
     // All the robots run unless fewer running makes measurably more (a part in 10⁶): where energy
@@ -825,7 +847,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     // only once the fleet could all run, a robot's return jumped from nothing to the bottleneck's
     // worth as power came free, and a step's saving went to robots: below, at most what the ramp fields.)
     const MPf = E.Kf > 0 ? sKL * P.ALPHA * Y / E.Kf : Infinity;
-    const MPc = YL > 0 && uc >= 1 ? Math.max(0, sKL * YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, run, P, E.Kq, bmax).L - T.L) / hc - lamE * P.W_C) : 0;
+    const MPc = YL > 0 && uc >= 1 ? Math.max(0, sKL * YL * Math.max(0, labour(Lh, E.Kc + hc, E.Kr, z, run, P, E.Kq, bmax, za).L - T.L) / hc - lamE * P.W_C) : 0;
     let wf = 1, wc = 0;
     if (MPf !== Infinity) { const a = MPf ** 4, b = MPc ** 4, t = a + b; if (t > 0) { wf = a / t; wc = b / t; } }
     const RU = MPf === Infinity ? Infinity : Math.max(MPf / (P.DELTA_F + P.R_MIN), MPc / (P.DELTA_C + P.R_MIN)) / emb;
@@ -839,7 +861,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
     // had outgrown it).
     let Rr = 0;
     if (YL > 0 && ur >= urMax && urMax >= 1) {
-      const Tu = labour(Lh, E.Kc, E.Kr, z, run, P, E.Kq), Tr = labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq);
+      const Tu = labour(Lh, E.Kc, E.Kr, z, run, P, E.Kq, Infinity, za), Tr = labour(Lh, E.Kc, E.Kr + hr, z, run, P, E.Kq, Infinity, za);
       const gain = sKL * YL * Math.max(0, Tr.L - Tu.L) / hr, cost = lamE * P.W_R * Math.max(0, Tr.Ap - Tu.Ap) / hr;
       Rr = gain / (cost + (P.DELTA_R + P.R_MIN) * emb);
     }
@@ -873,7 +895,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   const Iall = st.Iall, Emat = em * P.M_K * Iall;
   E.S -= burned; E.X += P.M_K * Iall * (1 - aA) * dt; E.I = Iall; E.sInv = st.s;
   E.sup = sup;
-  Object.assign(E, { Y, Ypot, avail, A, run, Es, EfoodGot: st.sF, EcdrGot: st.sC, capU, capS, aA, ApE, ApS, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, eY, em, wc, wr: Ir + Irob > 0 ? Irob / (Ir + Irob) : 0,
+  Object.assign(E, { Y, Ypot, avail, A, run, Es, EfoodGot: st.sF, EcdrGot: st.sC, capU, capS, aA, ApE, ApS, Ecomp: sup - Eo, chi: T.chi, beta: T.bc, betaP: T.bp, x: T.x, AAI: T.A, AIr: T.Ar, Ap: T.Ap, bodies: T.bodies, need, Ef, Er, Eu, Emat, EcompFull: Ecomp, burned, Lh, z, za, eY, em, wc, wr: Ir + Irob > 0 ? Irob / (Ir + Irob) : 0,
     sKL: st.sKL, lamE: st.lamE, gK: st.gK, gE: st.gE, grade, sReal: st.sReal, A0: T0.A });
   E.heat = (Ef + Eu) / AREA_M2;
   E.aer = dt > 0 ? -P.AER * (burned / dt) * Math.exp(-Math.max(0, z - P.Z_IND) / P.Z_SCRUB) : 0;
@@ -948,6 +970,10 @@ export class People {
     this.fert = 0; this.room = 0; this.mined = 0; this.mMerc = 0; this.mBelt = 0; this.src = null; this.flow = 0; this.hab = 0; this.probeT = null;
     this.offBots = 0;   // the most robots ever at work off-world: a world once opened stays open
     this.swPeak = 0;    // the swarm's largest yet (W): its mass is kept for it, so its swings don't take homes back
+    // Peoples (src/engine/peoples.js): each cell's food by way of life (`capAt`: foraging's, herding's,
+    // the sea's, the fields', what energy buys), and the identities kept by them.
+    this.wol = new Float32Array(5 * nL);
+    this.ids = new Peoples(this);
   }
 
   /** The ending, by chance on two axes (a9): aligned, misaligned or paused; Earth preserved or sacrificed. */
@@ -1638,6 +1664,7 @@ export class People {
     const E = this.E, seedCells = [best];
     for (let o = E.off[best]; o < E.off[best + 1]; o++) if (!E.hop[o]) seedCells.push(E.nb[o]);
     for (const c of seedCells) { this.Ntot[c] = 0.5 * H.area[c] * H.b[c]; this.zc[c] = this.zl[c] = P.Z0; }
+    this.ids.seed(seedCells);
     const isle = this.home(best);
     for (let c = 0; c < nL; c++) this.naive[c] = isle[c] ? P.NAIVE_CO : 1;
     this.event('origin', `the first people at ${deg(H.lat[best]).toFixed(0)}°, ${deg(H.lon[best]).toFixed(0)}° (b ${H.b[best].toFixed(3)}/km²)`);
@@ -1723,7 +1750,12 @@ export class People {
       K[c] = this.hE * H.area[c] * this.coldOK(c, z) * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
       // Herders' hold on the unfarmed land, as a share of the cell they'd graze at the food capacity
       // (drawn: the pasture, by how near the capacity the people are).
-      if (Zs) { this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) : 0; this.Kown[c] = K[c]; }
+      if (Zs) {
+        this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) : 0; this.Kown[c] = K[c];
+        // Each way of life's food (peoples' ways): the land's, foraged or herded as herders hold it.
+        const a = this.hE * H.area[c] * this.coldOK(c, z), L = (1 - fc) * Math.max(forage, herd), hs = herd > 0 ? sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) : 0, w = this.wol, o = 5 * c;
+        w[o] = a * L * (1 - hs); w[o + 1] = a * L * hs; w[o + 2] = a * H.bS[c] * this.fish[c] * PF * eg; w[o + 3] = a * farm / sick; w[o + 4] = this.Ksyn[c] * (1 - this.boiled);
+      }
     }
   }
   /**
@@ -1907,6 +1939,9 @@ export class People {
     this.lastRate = this.knowledge(dt);
     if (this.debug) this.check('knowledge');
     lap('knowledge');
+    // Who people are (src/engine/peoples.js): their ways of life, conformity, contact, drift.
+    this.ids.step(dt);
+    lap('peoples');
     // Farming and its soil, industry's spread, the record.
     this.farming(dt);
     this.soilStep(dt);
@@ -1924,7 +1959,7 @@ export class People {
   }
 
   diffuse(dt) {
-    const H = this.H, F = this.F, nL = this.nL, N = this.Ntot, Z = this.zc, ZL = this.zl, K2 = this.K2;
+    const H = this.H, F = this.F, nL = this.nL, N = this.Ntot, Z = this.zc, ZL = this.zl, K2 = this.K2, ids = this.ids;
     let zmax = 0;
     for (let c = 0; c < nL; c++) if (N[c] > 0 && Z[c] > zmax) zmax = Z[c];
     const Dm = this.Dz(zmax), reach = this.seaReach(zmax);
@@ -1977,6 +2012,8 @@ export class People {
         else k = Math.sqrt(Dc[c] * Dc[d]) * F.k[e];
         const flux = kScale * k * rho * (ud - uc) * h;    // people from d to c
         const zc = flux > 0 ? Z[d] : Z[c], zl = flux > 0 ? ZL[d] : ZL[c];
+        // Migrants carry who they are (src/engine/peoples.js), where they're more than a trickle.
+        if (flux > 0 ? ids.carries(c, flux) : ids.carries(d, -flux)) { if (flux > 0) ids.carry(d, c, flux); else ids.carry(c, d, -flux); }
         dN[c] += flux; dN[d] -= flux; dZ[c] += flux * zc; dZ[d] -= flux * zc; dL[c] += flux * zl; dL[d] -= flux * zl;
       }
       for (let q = 0; q < na; q++) {
@@ -2036,6 +2073,7 @@ export class People {
       if (r.uniform() > 1 - Math.exp(-h * dt)) continue;
       const n = Math.min(P.FOUNDERS, 0.1 * N[c]);
       Z[d] = (N[d] * Z[d] + n * Z[c]) / (N[d] + n); ZL[d] = (N[d] * ZL[d] + n * ZL[c]) / (N[d] + n); N[d] += n; N[c] -= n;
+      this.ids.carry(c, d, n);
     }
   }
 
@@ -2107,9 +2145,16 @@ export class People {
     const E = this.econ, end0 = this.ending, pause = end0 && end0.paused ? end0 : null, end = pause ? null : end0, sA = E.on ? E.sA : 0;
     this.goods.fill(0);
     if (E.on) {
-      let Lh = 0, zs = 0;
-      for (let c = 0; c < nL; c++) { const w = this.lfp[c] * Ntot[c] * ind[c]; Lh += w; zs += w * zc[c]; }
+      let Lh = 0, zs = 0, mR = 0, zr = 0;
+      const zl = this.zl, sR = this.sR;
+      for (let c = 0; c < nL; c++) {
+        const w = this.lfp[c] * Ntot[c] * ind[c]; Lh += w; zs += w * zc[c];
+        const m = (sR ? sR[c] : 1) * Ntot[c]; mR += m; zr += m * zl[c];
+      }
       const z = Lh > 0 ? zs / Lh : E.z;
+      // AI's knowledge: its algorithms' share learning's, where the researchers are (their minds, the
+      // cities' by their size), the rest its chips', production's (ALG).
+      const za = P.ALG * (mR > 0 ? zr / mR : z) + (1 - P.ALG) * z;
       // Food bought with energy, once the technology has come: for the people the land can't feed,
       // and room past it while it's cheap. A misaligned AI that sacrifices Earth keeps it, and the goods, from
       // people as it takes control.
@@ -2128,7 +2173,7 @@ export class People {
       // Paused and kept (3b): people's own capture, ramping in as fossil carbon is phased out.
       const since = pause ? this.t - this.endAt : 0, phase = pause && pause.preserve ? 1 - Math.exp(-since / P.T_PHASE) : 0;
       const cdr = end && end.preserve ? sA * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR : phase * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR_P, Ecdr = cdr * P.J_CDR / YEAR_S;
-      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA, capR: this.solarRoom(), capS: this.swarmRoom(), keepF: 1 - phase, heatB: pause && pause.preserve ? P.HEAT_MAX * (1 - phase) + P.HEAT_HELD * phase : null }, dt, P);
+      industrialStep(E, { Lh, z, za, Efood, Ecdr, ending: end, sA, capR: this.solarRoom(), capS: this.swarmRoom(), keepF: 1 - phase, heatB: pause && pause.preserve ? P.HEAT_MAX * (1 - phase) + P.HEAT_HELD * phase : null }, dt, P);
       this.placeSolar(E.Er);
       this.offBots = Math.max(this.offBots, E.ApS || 0); this.swPeak = Math.max(this.swPeak, E.cs || 0);
       const gF = Efood > 0 ? E.EfoodGot / Efood : 1;
@@ -2296,7 +2341,7 @@ export class People {
 
   /** Knowledge over the step, each domain alike: ideas in, losses out, exact; copying from better neighbours and trade partners. */
   knowledge(dt) {
-    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, ZP = this.zc, ZL = this.zl, Ntot = N;
+    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, ZP = this.zc, ZL = this.zl, Ntot = N, ids = this.ids;
     let zmax = 0, zmaxL = 0;
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) continue;
@@ -2323,7 +2368,9 @@ export class People {
     m.fill(0);
     for (let c = 0; c < nL; c++) if (N[c] > 0) m[c] = sR[c] * N[c];
     for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) tot[comp.id[c]] += m[c];
+    const sL0 = this.sL, sLe = this.sLe || (this.sLe = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
+      sLe[c] = sL0[c];
       if (!(N[c] > 0)) continue;
       let ring = m[c];
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
@@ -2332,6 +2379,9 @@ export class People {
       // own progress is its measured pace (THETA_C), so its minds join at full yield.
       const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-P.BETA_R * Math.max(0, ZL[c] - P.Z_IND));
       M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
+      // AI's minds share their ideas as a city's do (labs are urban; a9): learning's share of what
+      // they add is a city dweller's, whatever the cell's own mix.
+      if (M[c] > Mh) sLe[c] = (sL0[c] * Mh + (0.5 + P.TILT) * (M[c] - Mh)) / M[c];
     }
     // Knowledge, each domain: ideas in, losses out, exact over the step; copying better neighbours and
     // trade partners, at learning's pace (people who read copy faster).
@@ -2341,7 +2391,7 @@ export class People {
     oP.set(ZP); oL.set(ZL);
     const dens = d => { const r = Ntot[d] / H.area[d]; return r / (r + P.RHO_COPY); };
     let rate = 0;
-    const sL = this.sL;
+    const sL = this.sLe;
     for (const [Z, zo, mZ, luckC, wW, cT, base] of [[ZP, oP, rt && rt.mZ, this.luckC, P.W_WORK_P, P.C_TRADE, true], [ZL, oL, rt && rt.mZL, this.luckL, P.W_WORK, P.C_TRADE_L, false]]) {
       for (let c = 0; c < nL; c++) {
         if (!(N[c] > 0)) continue;
@@ -2359,7 +2409,8 @@ export class People {
           const zd = zo[d];
           if (zd <= z0) { wsum += E.hop[o] ? 0 : E.slope[o]; continue; }
           const e = E.hop[o] ? (reach > 0 ? Math.exp(-E.km[o] / reach) : 0) : E.slope[o];
-          up += e * dens(d) * (zd - z0); wsum += e;
+          // Learning's texts need a shared language (src/engine/peoples.js); production's tacit copying doesn't.
+          up += e * dens(d) * (zd - z0) * (base ? 1 : ids.copyW(c, d)); wsum += e;
         }
         const pace = this.speed(oL[c]) / P.V0, copy = P.COPY * pace * dens(c);
         const luck = luckC ? 1 + (luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
@@ -2641,6 +2692,8 @@ export class People {
   // Merges, extinctions, splits (every CHECK years).
   record(dt) {
     const P = this.P, nL = this.nL, E = this.econ, H = this.H;
+    // The effective number of peoples (src/engine/peoples.js, `count`), every 2 kyr, every 25 years past industry.
+    if (this.tCount == null || this.t - this.tCount >= (E.on ? P.DT_PLACES : 2000)) { this.ids.count(); this.tCount = this.t; }
     for (let c = 0; c < nL; c++) if (!this.reached[c] && this.Ntot[c] >= P.N_MIN * H.area[c]) this.reached[c] = 1;
     let minds = 0, people = 0, farm = 0, indp = 0, zmax = 0, soilF = 0, farmA = 0;
     for (let c = 0; c < nL; c++) {
@@ -2694,8 +2747,8 @@ export class People {
     once('emptied', F.present && earth < 1e4, () => `Earth is empty of people (${(this.space / 1e9).toFixed(2)} billion off-planet)`);
     once('extinct', F.present && people < 1e4, () => `the last people die`);
     const h = this.history;
-    h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
-      Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
+    h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, peoples: this.ids.nPeoples, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
+      Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, za: E.za, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
       energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, fert: this.fert, room: this.room, hab: this.hab, mined: this.mined, flow: this.flow, ApE: E.ApE || 0, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
       soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0 });
     // The dial runs out where the minds double in under a day over the last few steps (one step's

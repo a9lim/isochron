@@ -32,7 +32,8 @@
 // between active markets (those with fields: trade comes with farming), a kernel e^{−c/reach},
 // c the round trip's mean ((out + home)/2) on the layer the pair sails (steam by the more
 // industrial end's share; the sail's part by land cheaper by the two markets' roads and canals,
-// People's works), reach rising with the more advanced end's knowledge (`reach`).
+// People's works), reach rising with the more advanced end's knowledge (`reach`), and eased by a
+// common language (the markets' towns' learned identities, src/engine/peoples.js `tradeW`).
 // Each market buys from the others in proportion to kernel × their food (its supply basket, w):
 // a cell's harvest is then (1 − τ) its own and τ the basket's, τ the share of food that goes
 // through markets (TAU_AG with fields, toward TAU_IND with industry). The harvest's spread pools as
@@ -371,12 +372,16 @@ export class Routes {
     const S = this.mS || (this.mS = new Float64Array(nm)), Fd = this.mFd || (this.mFd = new Float64Array(nm)), A = this.mA || (this.mA = new Float64Array(nm));
     F.fill(0); N.fill(0); Z.fill(0); ZL.fill(0); S.fill(0); Fd.fill(0); A.fill(0);
     const zc = pp.zc, zl = pp.zl, Ntot = pp.Ntot, mo = this.marketOf;
+    // Each market's most peopled cell (its town), whose learned identity is the market's language.
+    const lead = this.mLead || (this.mLead = new Int32Array(nm)), leadN = this.mLeadN || (this.mLeadN = new Float64Array(nm));
+    lead.fill(-1); leadN.fill(0);
     // Each market's crops: the package on most of its fields.
     const pk = this.mPkg || (this.mPkg = new Int32Array(nm)), byPkg = new Map();
     for (let c = 0; c < nL; c++) {
       const k = mo[c], n = Ntot[c];
       A[k] += pp.H.area[c];
       if (!(n > 0)) continue;
+      if (n > leadN[k]) { leadN[k] = n; lead[k] = c; }
       N[k] += n; Z[k] += n * (zc ? zc[c] : 0); ZL[k] += n * (zl ? zl[c] : 0); S[k] += n * pp.ind[c];
       if (pp.f[c] > 0) {
         F[k] += pp.Out[c] - pp.goods[c];
@@ -409,14 +414,16 @@ export class Routes {
     const part = this.part || (this.part = { k: new Int32Array(nm * C.K_PART).fill(-1), w: new Float32Array(nm * C.K_PART) });
     part.k.fill(-1); part.w.fill(0);
     // The kernel, symmetric, once a pair.
-    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, RI = this.R.I, LS = this.LS;
+    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, RI = this.R.I, LS = this.LS, ids = pp.ids;
     for (let x = 0; x < na; x++) {
       const i = act[x], ri = reach[x], si = S[i], wri = Wr[i], wci = Wc[i];
       KM[x * na + x] = 1;
       for (let y = x + 1; y < na; y++) {
         const j = act[y], r = ri > reach[y] ? ri : reach[y], s = si > S[j] ? si : S[j], o = i * nm + j;
         const gw = 1 / (1 + C.R_ROAD * 0.5 * (wri + Wr[j]) + C.K_CANAL * 0.5 * (wci + Wc[j])), cs = RS[o] * (1 - LS[o] * (1 - gw));
-        const k = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-RI[o] / r);
+        const k0 = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-RI[o] / r);
+        // A common language eases trade (src/engine/peoples.js, `tradeW`).
+        const k = ids && k0 > 0 && lead[i] >= 0 && lead[j] >= 0 ? k0 * ids.tradeW(lead[i], lead[j]) : k0;
         KM[x * na + y] = KM[y * na + x] = k;
       }
     }

@@ -104,7 +104,7 @@ let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
 let clMode = 'zones';               // the Climate view's map: its zones, or the air (winds, dust, the veil)
-let pmMode = 'settlement';          // the People view's map: where people have reached, their and the robots' density, or their knowledge and works
+let pmMode = 'settlement';          // the People view's map: where people have reached, their and the robots' density, their knowledge and works, or who they are
 // The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
 const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
 let tide = null;
@@ -624,7 +624,7 @@ function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
 const EARTH_DIAL = -0.3;      // log₁₀ yr/s: today's Earth opens at half a year a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
-const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'knowledge'] };
+const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'knowledge', 'culture'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
 const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
 function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
@@ -683,7 +683,7 @@ function setMap(m) {
   if (m === 'zones' || m === 'air') { clMode = m; setView('climate'); }
   else if (m === 'pressure' || m === 'temperature' || m === 'humidity') { wxMode = m; setView('weather'); }
   else if (m === 'tides') setView('tides');
-  else if (m === 'settlement' || m === 'density' || m === 'knowledge') { pmMode = m; setView('people'); }
+  else if (m === 'settlement' || m === 'density' || m === 'knowledge' || m === 'culture') { pmMode = m; setView('people'); }
   else setView('relief');
 }
 /** Show a group at the map it last showed; Weather only where it's live. */
@@ -754,6 +754,7 @@ function startPeople() {
     }
     else if (m.type === 'figure') { people.fig = m.fig; people.pyr = m.pyr; people.pyrRef = m.pyrRef; figuresDirty = true; }
     else if (m.type === 'routes') { people.routes = m; drawDirty = true; }
+    else if (m.type === 'tears') { people.tears = m; drawDirty = true; }
     else if (m.type === 'drawn') {
       people.drawn = m.d; people.past = m.l; people.zf = m.zf;
       if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); }
@@ -813,6 +814,8 @@ function caption(force) {
     const st = m.off && m.off.stars;
     parts.push(`${headcount(h.earth)} people` + (h.space >= 1e3 ? `, ${headcount(h.space)} off-planet` : '') + (st && st.people >= 1e3 ? `, ${headcount(st.people)} at other stars` : ''));
     if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
+    // The Culture map counts the peoples (src/engine/peoples.js, `count`).
+    if (view === 'people' && pmMode === 'culture' && h.peoples > 0) parts.push(`≈ ${Math.round(+h.peoples.toPrecision(2)).toLocaleString('en')} peoples`);
   }
   setCaption(parts.join(' · '), true);
 }
@@ -1237,7 +1240,7 @@ function tick(now) {
     if (yf.marks.length) drawDirty = true;
     globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, fronts: people.zf, sun: sf.day });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null, tears: view === 'people' && pmMode === 'culture' ? people.tears : null }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
     lap('overlay');
   }

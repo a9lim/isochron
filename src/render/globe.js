@@ -456,10 +456,11 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8) or Knowledge map (9)
+  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8), Knowledge map (9) or Culture map (10)
   let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
-  let folkK = u.mode.x > 8.5;
-  let folkC = folkD || folkK;       // the People maps on a chart's base
+  let folkK = u.mode.x > 8.5 && u.mode.x < 9.5;
+  let folkU = u.mode.x > 9.5;
+  let folkC = folkD || folkK || folkU;   // the People maps on a chart's base
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
   let tA = length(tz);
@@ -697,9 +698,10 @@ fn hair(d: f32, w: f32) -> f32 {
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
-    } else {
+    } else if (!folkU) {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
     }
+    // The Culture map is the chart, the cities and the peoples' tears (drawn over it, src/render/overlay.js).
     // The land's uses by the rank at the tessera's site: cities at its lows, then datacenters,
     // factories, farms, solar farms and the herders' pasture outward.
     let c1 = i.pp.z;
@@ -713,8 +715,8 @@ fn hair(d: f32, w: f32) -> f32 {
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
     if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
-    } else if (folkK) {
-      // The Knowledge map keeps only the cities of the land's uses (where the minds gather).
+    } else if (folkK || folkU) {
+      // The Knowledge and Culture maps keep only the cities of the land's uses (where the minds gather, and the ways meet).
     } else if (rank < c2) {
       pland = mix(mix(pland, u.inkD.rgb, 0.14), mix(u.inkD.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (rank < c3) {
@@ -1004,7 +1006,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : 7) : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : mode.pm === 'culture' ? 10 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

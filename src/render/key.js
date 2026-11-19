@@ -159,6 +159,9 @@ const GLYPHS = {
   works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
   // The routes (src/render/overlay.js, drawRoutes): roads and rivers solid, sea lanes dashed, in the rules' colour.
   route: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; line(c, x, y + 6, x + 26, y + 6); },
+  // The peoples' tears (src/render/overlay.js, drawTears): a language's apart faint, a family's heavy.
+  tearL: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.35); c.lineWidth = 0.5; line(c, x, y + 6, x + 26, y + 6); },
+  tearF: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.75); c.lineWidth = 1.4; line(c, x, y + 6, x + 26, y + 6); },
   lane: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; c.setLineDash([4.8, 4]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   // Night: the night side's three steps, the Sun 0°, 6° and 12° below the horizon (the shader's NIGHT_K).
   night: (c, x, y, P) => {
@@ -249,6 +252,7 @@ const ITEMS = {
   'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
   'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
   'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
+  'people-culture': [['tearL', 'Languages apart'], ['tearF', 'Families apart'], ['city', 'Cities']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 
