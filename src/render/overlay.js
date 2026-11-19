@@ -291,28 +291,6 @@ function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
   ctx.setLineDash([]);
 }
 
-// The peoples' tears (src/engine/peoples.js, `tears`): hairlines where adjacent places' identities part, by
-// the distance across: a language's apart (from T_TEAR, 1) faint, a family's (past ~2.3) heavy.
-const TEAR_FAMILY = 2.3;
-function drawTears(ctx, cx, cy, r, camera, tears, color) {
-  const { P, W, off } = tears;
-  if (!P || !P.length) return;
-  const lw = Math.sqrt(symbolScale(r)), v = [0, 0, 0], m = P.length / 3;
-  const paths = [new Path2D(), new Path2D()];
-  for (let l = 0; l < off.length; l++) {
-    const end = l + 1 < off.length ? off[l + 1] : m;
-    let px = 0, py = 0, pv = false;
-    for (let k = off[l]; k < end; k++) {
-      camera.view(P[3 * k], P[3 * k + 1], P[3 * k + 2], v);
-      const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
-      if (vis && pv && k > off[l]) { const b = W[k] >= TEAR_FAMILY ? 1 : 0; paths[b].moveTo(px, py); paths[b].lineTo(x, y); }
-      px = x; py = y; pv = vis;
-    }
-  }
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
-  [[0.5, 0.35], [1.4, 0.75]].forEach(([w, a], b) => { ctx.strokeStyle = withAlpha(color, a); ctx.lineWidth = w * lw; ctx.stroke(paths[b]); });
-}
-
 function drawPlumes(ctx, cx, cy, r, camera, plumes, palette) {
   const v = [0, 0, 0], sc = symbolScale(r);
   ctx.fillStyle = palette.accent;
@@ -378,7 +356,6 @@ export function drawOverlay(ctx, w, h, dpr, camera, layers, palette) {
     drawRivers(ctx, cx, cy, r, camera, layers.rivers, ink, 1, layers.riverMonth);
   }
   if (folk && layers.routes) drawRoutes(ctx, cx, cy, r, camera, layers.routes, palette.text);
-  if (folk && layers.tears) drawTears(ctx, cx, cy, r, camera, layers.tears, palette.text);
   if (weather) { drawChart(ctx, cx, cy, r, camera, layers.chart, palette, layers.chartFade ?? 1, symbolScale(r), layers.wxNow); return; }
   // The Climate view's Air chart: the winds as streamlines (src/render/streamlines.js).
   if (layers.air) drawStreamlines(ctx, cx, cy, r, camera, layers.air.sets, withAlpha(palette.text, 0.62), Math.sqrt(symbolScale(r)));

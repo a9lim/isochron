@@ -25,6 +25,26 @@ function blocks(c, x, y, P, ink) {
   c.beginPath(); for (let a = 1.5; a < 26; a += 3.4) { c.moveTo(x + a, y); c.lineTo(x + a, y + 12); } for (let b = 1.5; b < 12; b += 3.4) { c.moveTo(x, y + b); c.lineTo(x + 26, y + b); } c.stroke();
   c.globalAlpha = 1;
 }
+// The peoples' hue wheel (src/render/globe.js, idWheel; Miasma's strain wheel): OKLCH at one lightness and
+// chroma a theme, its zero opposite the accent, hurried through the accent with its chroma dipping there.
+function idHue(h, dark) {
+  const L = dark ? 0.62 : 0.525, C0 = dark ? 0.10 : 0.08, ah = dark ? 0.3473 : 0.4346;
+  const v = ((h / (2 * Math.PI) + 0.5) % 1 + 1) % 1, hh = ah + 2 * Math.PI * v + 0.35 * Math.sin(2 * Math.PI * v);
+  const dh = Math.abs(Math.atan2(Math.sin(hh - ah), Math.cos(hh - ah))), C = C0 * (1 - 0.5 * Math.exp(-((dh / 0.5236) ** 2)));
+  const a = C * Math.cos(hh), b = C * Math.sin(hh);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, q = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const lin = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * q];
+  return '#' + lin.map(c => { const v2 = Math.min(1, Math.max(0, c)); return Math.round(255 * (v2 <= 0.0031308 ? 12.92 * v2 : 1.055 * Math.pow(v2, 1 / 2.4) - 0.055)).toString(16).padStart(2, '0'); }).join('');
+}
+// A patch of a people's mark: a wash of its hue and its hatch at its angle (ph shifts the lines a half period).
+function idPatch(c, x, y, w, h, ink, ang, wash = true, ph = 0) {
+  c.save(); c.beginPath(); c.rect(x, y, w, h); c.clip();
+  if (wash) { c.fillStyle = rgba(ink, 0.22); c.fillRect(x, y, w, h); }
+  c.strokeStyle = rgba(ink, 0.85); c.lineWidth = 0.9;
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  c.beginPath(); for (let t = -20 + ph * 4; t <= 20; t += 4) { const cx = x + w / 2 - dy * t, cy = y + h / 2 + dx * t; c.moveTo(cx - 24 * dx, cy - 24 * dy); c.lineTo(cx + 24 * dx, cy + 24 * dy); } c.stroke();
+  c.restore();
+}
 // Parcels: each furrowed its own way, in the colour (fields: farms and solar farms).
 function parcels(c, x, y, ink, wash, a) {
   const ps = [[x, y, 9, 6, 0.6], [x + 9, y, 9, 6, -0.5], [x + 18, y, 8, 6, 1.4], [x, y + 6, 12, 6, 0.1], [x + 12, y + 6, 14, 6, 2.2]];
@@ -130,7 +150,7 @@ const GLYPHS = {
   },
   // The land's uses, as the shader draws them on the tesserae: blocks for residences (people's cities
   // in the accent, AI's datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
-  // farms in indigo), factories a heavy hatch.
+  // farms in verdigris, pasture in ochre, the fishers' in the sea's blue), factories a heavy hatch.
   city: (c, x, y, P) => blocks(c, x, y, P, P.accent),
   datacenter: (c, x, y, P) => blocks(c, x, y, P, P.inks.verdigris),
   factory: (c, x, y, P) => {
@@ -140,7 +160,7 @@ const GLYPHS = {
     c.beginPath(); for (let t = -12; t < 26; t += 2.8) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 12, y); } c.stroke();
     c.restore();
   },
-  solar: (c, x, y, P) => parcels(c, x, y, P.inks.indigo, 0.12, 0.7),
+  solar: (c, x, y, P) => parcels(c, x, y, P.inks.verdigris, 0.12, 0.7),
   // Land no one has lived on yet (the Settlement map): grey, against the explored land's colours.
   unknown: (c, x, y, P) => {
     c.fillStyle = mixHex(P.canvas, P.text, P.dark ? 0.12 : 0.13); c.fillRect(x, y, 26, 12);
@@ -150,6 +170,12 @@ const GLYPHS = {
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
   // Pasture: parcels as the farms', in ochre.
   pasture: (c, x, y, P) => parcels(c, x, y, P.inks.ochre, 0.1, 0.65),
+  // The fishers' parcels, as the farms', in the sea's blue.
+  fishing: (c, x, y, P) => parcels(c, x, y, P.ocean, 0.1, 0.65),
+  // Peoples (src/render/globe.js, the Culture map): each its hue and its hatch's angle, three apart.
+  peoples: (c, x, y, P) => { [[0.3, 0.4], [2.4, 1.6], [4.4, 2.7]].forEach(([h, a], k) => idPatch(c, x + 9 * k, y, k < 2 ? 9 : 8, 12, idHue(h, P.dark), a)); },
+  // Two ways of life in one place: the second's hatch between the first's lines.
+  mixed: (c, x, y, P) => { idPatch(c, x, y, 26, 12, idHue(0.3, P.dark), 0.4); idPatch(c, x, y, 26, 12, idHue(2.4, P.dark), 1.6, false, 0.5); },
   // Knowledge's domains: production in the accent and learning in verdigris, each by how near the
   // frontier's a place's is, far behind (left) to at the frontier (right).
   production: (c, x, y, P) => lag(c, x, y, P, P.accent),
@@ -159,9 +185,6 @@ const GLYPHS = {
   works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
   // The routes (src/render/overlay.js, drawRoutes): roads and rivers solid, sea lanes dashed, in the rules' colour.
   route: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; line(c, x, y + 6, x + 26, y + 6); },
-  // The peoples' tears (src/render/overlay.js, drawTears): a language's apart faint, a family's heavy.
-  tearL: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.35); c.lineWidth = 0.5; line(c, x, y + 6, x + 26, y + 6); },
-  tearF: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.75); c.lineWidth = 1.4; line(c, x, y + 6, x + 26, y + 6); },
   lane: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; c.setLineDash([4.8, 4]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   // Night: the night side's three steps, the Sun 0°, 6° and 12° below the horizon (the shader's NIGHT_K).
   night: (c, x, y, P) => {
@@ -249,10 +272,10 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
   'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
-  'people-culture': [['tearL', 'Languages apart'], ['tearF', 'Families apart'], ['city', 'Cities']],
+  'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

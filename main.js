@@ -754,10 +754,9 @@ function startPeople() {
     }
     else if (m.type === 'figure') { people.fig = m.fig; people.pyr = m.pyr; people.pyrRef = m.pyrRef; figuresDirty = true; }
     else if (m.type === 'routes') { people.routes = m; drawDirty = true; }
-    else if (m.type === 'tears') { people.tears = m; drawDirty = true; }
     else if (m.type === 'drawn') {
-      people.drawn = m.d; people.past = m.l; people.zf = m.zf;
-      if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); }
+      people.drawn = m.d; people.past = m.l; people.ids = m.c; people.zf = m.zf;
+      if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); globe.setPeopleC(m.c, people.grid); }
       drawDirty = true;
     }
   };
@@ -1240,7 +1239,7 @@ function tick(now) {
     if (yf.marks.length) drawDirty = true;
     globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, fronts: people.zf, sun: sf.day });
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null, tears: view === 'people' && pmMode === 'culture' ? people.tears : null }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
     lap('overlay');
   }
@@ -1284,7 +1283,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
   if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt, lakesDrawn.tint);
   if (coverDrawn) g.setCover(coverDrawn);
-  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPeopleB(people.past, people.grid); }
+  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPeopleB(people.past, people.grid); g.setPeopleC(people.ids, people.grid); }
   if (sulfPattern) g.setSulfate(sulfPattern);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');

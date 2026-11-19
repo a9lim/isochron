@@ -408,24 +408,25 @@ export const PEOPLE = {
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
-  // Peoples (src/engine/peoples.js, docs/people.md "Peoples"; synthesis unless marked): identity's drift (σ² a dimension a
-  // year: a language apart, d 1, in ~1.25 kyr parted, Romance's; a family, d ~2.3, in ~6.5 kyr; from memory); contact's
-  // rate at no distance (a dialect levels in about a century), the distance that halves it, its floor (unlike peoples
-  // still borrow and intermarry), and its share between two
-  // ways of life (whole with the cities); a way's two atoms
-  // merging within D_MERGE (one dialect); conformity within a way (a minority's shift over a few centuries);
+  // Peoples (src/engine/peoples.js, docs/people.md "Peoples"; synthesis, the values speculation): identity's torus (TOR
+  // around: a language apart is 1, a family ~2.3); its drift (σ² a dimension a year: a language apart in ~1.25 kyr
+  // parted, Romance's, from memory) and a founder's kick (a dimension) where migrants settle an empty place;
+  // contact's rate at no distance (a dialect levels in about a century), the distance that halves it, its floor
+  // (unlike peoples still borrow and intermarry), and its share between two ways of life (whole with the cities);
+  // the conformist mixing's scale (near peoples average, far ones shift to the larger); the share of the way to a new
+  // way of life's customs its takers take, and every point's drift toward its way's (~100 kyr: weak, a9; at ~10 kyr it held
+  // the foragers' world within a unit of their point, ≈2 peoples);
   // identity's contact length, ID_L0 km, e-fold per Z_IDL of learning past writing's Z_ID0 (a band's marriages and a
   // village's, then writing's, print's, broadcast's: ~500 km at learning 6, ~1,400 at 7, the world by ~10; at
-  // e^{z_L/1.75} from the first, continents had fused by farming; speculation), to ID_LMAX; the media's pull toward the
-  // world's mean past it (R_MEDIA × 1 − e^{−(ℓ/L_WORLD)²}); learning's copying by how alike two places are
-  // (D_SIM, a family apart, halves it: the literate's language spans spoken ones, Pollock's cosmopolis, from memory; ID_COPY of the way to none, once learning is written: past Z_ID0); a common language's lift in trade's kernel (CL_TRADE: ×1.5
-  // between peoples alike against strangers; gravity models find ~1.4–2, from memory); migrants carried past
-  // ID_EPS of where they go a substep; tears drawn past T_TEAR where both sides hold RHO_TEAR a km², peoples counted
-  // alike within D_HILL; identity stepped
-  // every DT_ID years at least.
-  ID_SIG2: 5e-5, R_CONT: 0.01, D_CONT: 0.5, G_FLOOR: 0.05, D_MERGE: 0.15, R_CONF: 0.02, X_WAY: 0.05,
-  ID_L0: 70, Z_ID0: 4, Z_IDL: 1, ID_LMAX: 2e4, R_MEDIA: 0.02, L_WORLD: 1e4, DT_ID: 10,
-  D_SIM: 2, ID_COPY: 1, CL_TRADE: 0.5, ID_EPS: 1e-2, T_TEAR: 1, RHO_TEAR: 0.02, D_HILL: 0.5,
+  // e^{z_L/1.75} from the first, continents had fused by farming), to ID_LMAX; the media's pull toward the world's
+  // mean past it (R_MEDIA × 1 − e^{−(ℓ/L_WORLD)²}); learning's copying by how alike two places are (D_SIM, a family
+  // apart, halves it: the literate's language spans spoken ones, Pollock's cosmopolis, from memory; ID_COPY of the way
+  // to none, once learning is written: past Z_ID0); a common language's lift in trade's kernel (CL_TRADE: ×1.5
+  // between peoples alike against strangers; gravity models find ~1.4–2, from memory); migrants carried past ID_EPS
+  // of where they go a substep; peoples counted alike within D_HILL; identity stepped every DT_ID years at least.
+  TOR: 8, ID_SIG2: 2e-4, ID_KICK: 0.05, R_CONT: 0.01, D_CONT: 0.5, G_FLOOR: 0.05, X_WAY: 0.05, D_MIX: 0.3, F_CONV: 0.25, R_ATT: 1e-5,
+  ID_L0: 100, Z_ID0: 4, Z_IDL: 1, ID_LMAX: 2e4, R_MEDIA: 0.02, L_WORLD: 1e4, DT_ID: 10,
+  D_SIM: 2, ID_COPY: 1, CL_TRADE: 0.5, ID_EPS: 1e-2, D_HILL: 0.5,
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   // Where ideas go (synthesis, a9; the size speculation): a place's new ideas are shared between the
   // domains, learning's share ½ − TILT among those who feed themselves (foragers, herders, fishers,
@@ -3012,6 +3013,10 @@ export class People {
       // Herders' pasture, past the fields: their hold as far as the herders are there (the people
       // against the capacity, so a frontier's few graze little and food from elsewhere none), on the grass.
       this.past[c] = this.Kown[c] > 0 ? take(this.herdS[c] * Math.min(1, this.Ntot[c] / this.Kown[c]) * Math.min(1, H.fg[c] / 0.5)) : 0;
+      // Fishers' parcels, past the pasture: the sea's share of the food the unfarmed land's people forage
+      // (`capAt`, by way of life) on that land, as far as the people are there (drawn only).
+      const wf5 = 5 * c, fs = this.wol[wf5] + this.wol[wf5 + 1] + this.wol[wf5 + 2];
+      (this.fishU || (this.fishU = new Float32Array(nL)))[c] = this.Kown[c] > 0 && fs > 0 ? take((1 - this.f[c]) * this.wol[wf5 + 2] / fs * Math.min(1, this.Ntot[c] / this.Kown[c])) : 0;
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
       out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
       out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been
