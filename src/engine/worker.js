@@ -391,16 +391,19 @@ function startPeople(port) {
 }
 /** The planet's fields on the people's grid, once a climate cycle has run and after each. */
 // The opening (PLANET.ICE_*; Planet.settleClimate headless): climate cycles back to back, and after
-// each a seeded planet's ice a chunk further off the clock on the GPU, the two together, until the
+// each, on a seeded planet, the whole fast sim a chunk further off the clock, the two together, until the
 // climate has settled and the ice is at its balance, seen by a cycle since (Planet.opened). The page
 // holds its clock until then (the `opened` of the climate message), the people wait for it, and the
 // grown ice goes to the page as the opening ends.
 let opened = false;
 async function openingStep() {
   if (!P.earth && !P.iceGrown) {
-    const v0 = P.iceVolume(), g = P.iceGpu;
-    if (g) { g.advance(PLANET.ICE_CHUNK, 1e5); while (g.reading) await nextTask(); await g.read(true); } else P.ice.advance(PLANET.ICE_CHUNK, Infinity);
-    P.openingIceDone(v0);
+    // The whole fast sim a chunk further off the clock (the ice in full on the GPU), then its state read
+    // back so the regolith takes the chunk's glacial erosion and till within the opening.
+    const H0 = Float32Array.from(P.ice.H), g = P.iceGpu;
+    P.fast(PLANET.ICE_CHUNK, Infinity, PLANET.OPEN_RATE, 1e5);
+    if (g) { while (g.reading) await nextTask(); await g.read(true); }
+    P.openingIceDone(H0);
   }
   opened = P.opened();
   if (opened) sendFast(false); else pending = Math.max(pending, 1);

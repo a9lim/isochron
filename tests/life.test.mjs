@@ -17,7 +17,8 @@ const landC = P => { const t = P.life.veg.totals(); return t.veg + t.soil; };
 test('life: the opening is settled, and carbon is kept across land, air and sea', () => {
   const P = opening();
   assert.ok(P.carbon.settled, 'the sea settled at the end of the closure');
-  assert.ok(Math.abs(P.carbon.pco2 - CARBON.PCO2_0) < 0.5, `CO₂ at the opening ${P.carbon.pco2.toFixed(2)}`);
+  // The opening's fast chunks step the carbon too, its ice cooling the planet a little (~0.6 ppm down over ~80 kyr).
+  assert.ok(Math.abs(P.carbon.pco2 - CARBON.PCO2_0) < 1.5, `CO₂ at the opening ${P.carbon.pco2.toFixed(2)}`);
   const sea0 = P.carbon.sea.inventory().C / OC.PG, land0 = landC(P);
   // The land's store out of balance: a cooler climate (the cover relaxes, its carbon moves), and a pulse.
   const S = CLIMATE.S;

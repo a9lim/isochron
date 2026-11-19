@@ -55,11 +55,14 @@ export const PLANET = {
   LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
   LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
   // The opening (`settleClimate`; the page's worker alike): climate cycles back to back, and after
-  // each a seeded planet's ice ICE_CHUNK years further off the clock (today's Earth opens on its
-  // measured ice), the two together, until the climate has settled, a chunk moves the ice less than
-  // ICE_TOL (at least ICE_MIN years, at most ICE_MAX) and a cycle has seen it since (from none, a
-  // seeded planet's sheets take ~20–60 kyr to their balance with the climate they cool).
-  ICE_CHUNK: 5e3, ICE_TOL: 0.01, ICE_MIN: 2e4, ICE_MAX: 1.2e5,
+  // each, on a seeded planet, the whole fast sim ICE_CHUNK years further off the clock (its ice, the
+  // regolith taking the ice's erosion as it comes, the carbon, the lakes, the sea), at OPEN_RATE's
+  // closures; today's Earth opens on its measured ice. Until the climate has settled, a chunk moves the
+  // ice's thickness less than ICE_TOL anywhere (Σ|ΔH| against ΣH: a sheet whose volume held while it
+  // thickened here and thinned there had gone on moving, and the land with it, after the opening; at
+  // least ICE_MIN years, at most ICE_MAX) and a cycle has seen it since (from
+  // none, a seeded planet's sheets take ~20–60 kyr to their balance with the climate they cool).
+  ICE_CHUNK: 5e3, ICE_TOL: 0.03, ICE_MIN: 2e4, ICE_MAX: 1.2e5, OPEN_RATE: 1e6,
 };
 
 export { Record, SERIES } from './record.js';
@@ -215,14 +218,14 @@ export class Planet {
    * time budget, and the year (live below ~100 yr/s). Headless, a fast step stands for a
    * tenth of a second of the dial.
    */
-  fast(dt, iceMs = 4, rate = 10 * dt) {
+  fast(dt, iceMs = 4, rate = 10 * dt, iceSteps = 48) {
     this.runaway.step(dt, this.carbon);
     this.life.fast(dt, rate);
     this.carbon.step(dt);
     CLIMATE.CO2 = this.carbon.pco2;
     if (dt > 0) {
       // On the GPU where there is one (src/gpu/ice.js), else here (headless).
-      if (this.iceGpu) this.iceGpu.advance(dt); else this.ice.advance(dt, iceMs);
+      if (this.iceGpu) this.iceGpu.advance(dt, iceSteps); else this.ice.advance(dt, iceMs);
       // The regolith: the ice's erosion and till into it and the crust, production against the rivers.
       this.regolith.advance(dt);
       // Re-solve the sea only when the ice and the lakes have moved ~10 cm of it (the solve is ~5 ms),
@@ -363,19 +366,22 @@ export class Planet {
   }
   /** The ice's volume (m × km² of the unit sphere: comparable with itself). */
   iceVolume() { const H = this.ice.H, A = this.grid.area; let v = 0; for (let i = 0; i < this.grid.n; i++) v += H[i] * A[i]; return v; }
-  /** The opening's ice after a climate cycle (PLANET.ICE_*): ICE_CHUNK years further off the clock (headless; the page's worker steps it on the GPU and calls `openingIceDone`). Nothing for today's Earth, or once grown. */
+  /** The opening after a climate cycle (PLANET.ICE_*): the fast sim ICE_CHUNK years further off the clock, the ice in full (headless; the page's worker on its GPU, then `openingIceDone`). Nothing for today's Earth, or once grown. */
   openingIce() {
     if (this.earth || this.iceGrown) return;
-    const v0 = this.iceVolume();
-    this.ice.advance(PLANET.ICE_CHUNK, Infinity);
-    this.openingIceDone(v0);
+    const H0 = Float32Array.from(this.ice.H);
+    this.fast(PLANET.ICE_CHUNK, Infinity, PLANET.OPEN_RATE, Infinity);
+    this.openingIceDone(H0);
   }
-  /** A chunk of the opening's ice stepped (its volume v0 before): the sea re-solved, the years counted, and grown once the chunk moved it less than ICE_TOL. */
-  openingIceDone(v0) {
+  /** A chunk of the opening stepped (the ice's thickness H0 before): the regolith given the chunk's glacial erosion and till now (not at the first step after the opening), the sea re-solved, the years counted, and grown once the chunk moved the ice's thickness less than ICE_TOL. */
+  openingIceDone(H0) {
+    this.regolith.flush();
     this.tec.updateElevation();
     this.iceYears = (this.iceYears || 0) + PLANET.ICE_CHUNK;
-    const v = this.iceVolume();
-    if ((this.iceYears >= PLANET.ICE_MIN && Math.abs(v - v0) <= PLANET.ICE_TOL * Math.max(v, 1e-12)) || this.iceYears >= PLANET.ICE_MAX) { this.iceGrown = true; this.iceGrownAt = this.climate.stats.cycles; }
+    const H = this.ice.H, A = this.grid.area;
+    let moved = 0, held = 0;
+    for (let i = 0; i < H.length; i++) { moved += Math.abs(H[i] - H0[i]) * A[i]; held += H[i] * A[i]; }
+    if ((this.iceYears >= PLANET.ICE_MIN && moved <= PLANET.ICE_TOL * Math.max(held, 1e-12)) || this.iceYears >= PLANET.ICE_MAX) { this.iceGrown = true; this.iceGrownAt = this.climate.stats.cycles; }
   }
   /** The opening over: the climate settled and (a seeded planet's) its ice at its balance, seen by a cycle since. */
   opened() { const cs = this.climate.stats; return cs.settled > 0 && (!!this.earth || (!!this.iceGrown && cs.cycles > this.iceGrownAt)); }

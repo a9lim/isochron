@@ -13,7 +13,7 @@ import { FIELDS, fieldsOf } from '../../src/engine/peoplelink.js';
 
 export { fieldsOf };
 const CACHE = join(dirname(fileURLToPath(import.meta.url)), '.cache');
-const VERSION = 13;  // bumped when the planet's climate or the fields change (8: the air takes the ground's evaporation; 9: a year's mean T′ spread; 10: the coast's sea's export; 11: the winds, currents and sea ice for the routes; 13: a seeded planet's ice grown with its climate in the opening)
+const VERSION = 14;  // bumped when the planet's climate or the fields change (8: the air takes the ground's evaporation; 9: a year's mean T′ spread; 10: the coast's sea's export; 11: the winds, currents and sea ice for the routes; 13: a seeded planet's ice grown with its climate in the opening; 14: the whole fast sim in its chunks, to the ice's thickness)
 
 export async function planetFields(seed = 'earthlike', level = 6, { log = () => {}, engine = +(process.env.ENGINE || level) } = {}) {
   engine = Math.max(level, engine);

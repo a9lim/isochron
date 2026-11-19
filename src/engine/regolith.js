@@ -182,6 +182,9 @@ export class Regolith {
     return true;
   }
 
+  /** The years banked updated now, whatever the real-time gap (the opening's chunks). */
+  flush() { this.update(this.bank); this.bank = 0; this.lastAt = typeof performance !== 'undefined' ? performance.now() : 0; }
+
   /**
    * One update over `years`: the ice's erosion and till since the last (the crust thinned and
    * thickened, the layer stripped and laid down, the outwash banked for the rivers), then
