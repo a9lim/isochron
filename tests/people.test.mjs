@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, WORLDS, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES, earthBots, fertility, migration } from '../src/engine/people.js';
+import { People, PEOPLE, WORLDS, softerMin, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES, earthBots, fertility, migration } from '../src/engine/people.js';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -123,6 +123,28 @@ test('the home world-island: the origin\'s land and its short crossings, as cold
   const home = p.home(p.origin);
   for (let c = 0; c < p.nL; c++) assert.equal(p.naive[c], home[c] ? p.P.NAIVE_CO : 1);
   assert.ok(Math.abs(p.zc[p.origin] - p.P.Z0) < 1e-12 && p.Ntot[p.origin] > 0, 'the first people begin with Z0');
+});
+
+test('the softer minimum: exact where the two agree, symmetric, between the lower and the lower plus w ln 2', () => {
+  for (const [a, b, w] of [[3, 3, 0.25], [0, 0, 1], [7.123456789, 7.123456789, 0.1]]) assert.equal(softerMin(a, b, w), a);
+  for (const [a, b] of [[2, 5], [5, 2], [3, 3.1], [-1, 4]]) {
+    const v = softerMin(a, b, 0.25), lo = Math.min(a, b);
+    assert.equal(v, softerMin(b, a, 0.25));
+    assert.ok(v >= lo - 1e-12 && v <= lo + 0.25 * Math.LN2 + 1e-12, `${v} for ${a}, ${b}`);
+    assert.ok(Math.abs(v - -0.25 * Math.log((Math.exp(-a / 0.25) + Math.exp(-b / 0.25)) / 2)) < 1e-12, 'its closed form');
+  }
+});
+
+test('two domains held equal stay equal: production and learning step for step (ideas, luck, copying, migrants, trade), their joint either', () => {
+  const p = new People(uniformPlanet(4), { Z_IND: 1e9, Z_AI: 1e9, H_FARM: 1e-3 }), g = p.planet.grid;
+  p.capacity();
+  for (let c = 0; c < p.nL; c++) { p.Ntot[c] = 0.8 * p.K[c]; p.zc[c] = p.zl[c] = 2.6 + 0.6 * g.pos[3 * p.cells[c] + 2]; }
+  p.joint();
+  for (let k = 0; k < 60; k++) {
+    p.step(40);
+    for (let c = 0; c < p.nL; c++) if (p.zc[c] !== p.zl[c] || p.zj[c] !== p.zc[c]) assert.fail(`step ${k}, cell ${c}: production ${p.zc[c]}, learning ${p.zl[c]}, joint ${p.zj[c]}`);
+  }
+  assert.ok(p.packages.length > 0 && p.routes && p.routes.active.length > 1, 'farming and trade ran');
 });
 
 /** A uniform world held at its capacity, culture alone moving: the minds within reach at z = 0. */
@@ -299,8 +321,8 @@ test('a sea wider than HOPS is crossed by the long crossings, and a voyage settl
   // The north settled at capacity with boats far beyond the gap: the south is reached only by a
   // voyage (the flux runs only between settled coasts), and then fills.
   const L = pop(p);
-  for (let c = 0; c < p.nL; c++) L.Z[c] = 20;
-  p.capacity();
+  for (let c = 0; c < p.nL; c++) L.Z[c] = p.zl[c] = 20;
+  p.joint(); p.capacity();
   for (let c = 0; c < p.nL; c++) if (north(c)) L.N[c] = L.K[c];
   const south = () => { let s = 0; for (let c = 0; c < p.nL; c++) if (!north(c)) s += L.N[c]; return s; };
   assert.equal(south(), 0);

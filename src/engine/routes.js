@@ -367,17 +367,17 @@ export class Routes {
     const C = this.C, pp = this.pp, nm = this.nm, nL = pp.nL;
     if (!force && this.tTrade !== null && pp.t - this.tTrade < C.DT_TRADE) return;
     this.tTrade = pp.t;
-    const F = this.mF || (this.mF = new Float64Array(nm)), N = this.mN || (this.mN = new Float64Array(nm)), Z = this.mZ || (this.mZ = new Float64Array(nm));
+    const F = this.mF || (this.mF = new Float64Array(nm)), N = this.mN || (this.mN = new Float64Array(nm)), Z = this.mZ || (this.mZ = new Float64Array(nm)), ZL = this.mZL || (this.mZL = new Float64Array(nm));
     const S = this.mS || (this.mS = new Float64Array(nm)), Fd = this.mFd || (this.mFd = new Float64Array(nm)), A = this.mA || (this.mA = new Float64Array(nm));
-    F.fill(0); N.fill(0); Z.fill(0); S.fill(0); Fd.fill(0); A.fill(0);
-    const zc = pp.zc, Ntot = pp.Ntot, mo = this.marketOf;
+    F.fill(0); N.fill(0); Z.fill(0); ZL.fill(0); S.fill(0); Fd.fill(0); A.fill(0);
+    const zc = pp.zc, zl = pp.zl, Ntot = pp.Ntot, mo = this.marketOf;
     // Each market's crops: the package on most of its fields.
     const pk = this.mPkg || (this.mPkg = new Int32Array(nm)), byPkg = new Map();
     for (let c = 0; c < nL; c++) {
       const k = mo[c], n = Ntot[c];
       A[k] += pp.H.area[c];
       if (!(n > 0)) continue;
-      N[k] += n; Z[k] += n * (zc ? zc[c] : 0); S[k] += n * pp.ind[c];
+      N[k] += n; Z[k] += n * (zc ? zc[c] : 0); ZL[k] += n * (zl ? zl[c] : 0); S[k] += n * pp.ind[c];
       if (pp.f[c] > 0) {
         F[k] += pp.Out[c] - pp.goods[c];
         const a = pp.f[c] * pp.H.area[c]; Fd[k] += a;
@@ -397,7 +397,7 @@ export class Routes {
     const best = new Float64Array(nm);
     for (const [key, a] of byPkg) { const k = Math.floor(key / 4096); if (a > best[k]) { best[k] = a; pk[k] = key % 4096; } }
     const act = [];
-    for (let k = 0; k < nm; k++) { if (N[k] > 0) { Z[k] /= N[k]; S[k] /= N[k]; } if (F[k] > 0) act.push(k); }
+    for (let k = 0; k < nm; k++) { if (N[k] > 0) { Z[k] /= N[k]; ZL[k] /= N[k]; S[k] /= N[k]; } if (F[k] > 0) act.push(k); }
     this.active = act;
     const na = act.length;
     const V = this.V || (this.V = new Float64Array(nm)), Cv = this.Cv || (this.Cv = new Float64Array(nm));
@@ -460,9 +460,9 @@ export class Routes {
     this.flows = Array.from({ length: fn }, (_, k) => [fi[k], fj[k], fq[k]]).sort((a, b) => b[2] - a[2]);
   }
 
-  /** The culture to copy from market k's trade partners against z: Σ contact × the gap where they know more, over at least all of it. */
-  gap(k, z) {
-    const K = this.C.K_PART, pk = this.part.k, pw = this.part.w, Z = this.mZ;
+  /** A domain's culture to copy from market k's trade partners against z (their means Z: production's mZ, learning's mZL): Σ contact × the gap where they know more, over at least all of it. */
+  gap(k, z, Z = this.mZ) {
+    const K = this.C.K_PART, pk = this.part.k, pw = this.part.w;
     let g = 0, w = 0;
     for (let q = 0; q < K; q++) { const j = pk[k * K + q]; if (j < 0) break; w += pw[k * K + q]; if (Z[j] > z) g += pw[k * K + q] * (Z[j] - z); }
     return w > 1 ? g / w : g;
