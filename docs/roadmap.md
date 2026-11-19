@@ -15,9 +15,8 @@ The seam between the batches holds by four rules:
 
 ### Batch 1a: local texture
 
-Built 2026-11-18 (`people.md`, "Food, years, ages and works" and the pause; the Lights map and the night side in `scene.md`; Fig. 9 the ages). Earth's score held within its draws' spread (~1.16 ± 0.06 over eight against ~1.12). Open from it:
+Built 2026-11-18 (`people.md`, "Food, years, ages and works" and the pause; the night side and its lights in `scene.md`; Fig. 9 the ages). Earth's score held within its draws' spread (~1.16 ± 0.06 over eight against ~1.12). Open from it:
 
-- **The Lights map's countryside**: industry lights the land almost evenly (light follows each person's goods, and rural and urban people earn alike); night-lights imagery is dark between bright cities. A rural share of the light by density, or the cities' share of the goods, would sharpen it.
 - **Births by age**: births don't read the pyramid, so a baby bust echoes in deaths and workers but not in births a generation on.
 - **The pause**: what a paused world does in space, and whether a pause can lapse. Batch 2 makes it something polities agree to.
 - **Herders** take the unfarmed land where they'd feed more than foragers (a hard choice, softened only in the drawing); traction and manure are 1b's.

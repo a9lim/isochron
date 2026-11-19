@@ -9,8 +9,8 @@
 //                     limit the runaway is the planet's (src/engine/runaway.js)
 //   to the page       `people` ~10 times a second (the clock, what's owed, the follow dial's pace,
 //                     the last of the record, new events), `drawn` ~4 times a second (people and
-//                     robots per km² and the land's uses, eight a cell: People.drawn; the light
-//                     made, four a cell, and Earth's: People.lights), `figure` once a second
+//                     robots per km² and the land's uses, eight a cell: People.drawn; the herders'
+//                     pasture, four a cell: People.pasture), `figure` once a second
 //                     (Fig. 8: src/engine/peoplefit.js; Fig. 9: the world's ages)
 // The first hominins are placed on the first fields that come (the climate's first cycle). The
 // page's ticks owe the people years; the people step toward them at their own pace (People.nextDt)
@@ -150,7 +150,7 @@ function post(force) {
   }
   if (force || now - lastDrawn > 250) {
     lastDrawn = now;
-    const d = people.drawn(), l = people.lights(d);
-    self.postMessage({ type: 'drawn', d, l, lm: people.lightTotal }, [d.buffer, l.buffer]);
+    const d = people.drawn(), l = people.pasture();
+    self.postMessage({ type: 'drawn', d, l }, [d.buffer, l.buffer]);
   }
 }

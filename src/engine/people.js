@@ -327,10 +327,6 @@ export const PEOPLE = {
   T_WILD: 30,                      // years abandoned fields take to go back to the wild (old fields reforest in decades, from memory)
   T_MACH: 30, MACH_FLOOR: 1e-3,    // years industry's footprint takes to follow its workers; the footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
   // Night (drawn only: `lights`): the light people make, lumens a person over the night (synthesis)
-  LM_FIRE: 20,                     // hearths and lamps, every person's: ~300 W of wood a person (1–2 kg a day) at a flame's ~0.15 lm/W (a candle's 12 lm from ~80 W), about half of it burning by night; a farmer's few lamps (~10 lm each, a few hours a night) add a few lm (all from memory; the number speculation)
-  S_LIGHT: 0.02,                   // electric light's share of the power people's goods take (~2,900 TWh of electricity a year for lighting against ~15 TW of primary power in 2005, IEA, from memory)
-  LM_W0: 10, LM_W1: 150, Z_LM: 2,  // lm a W of electric light: from industry's first lamps (gas mantles, filaments: ~2–15) toward LEDs' (~150), e-fold per Z_LM of culture past Z_IND (from memory; the pace speculation)
-  LM_MAX: 1e5,                     // the most light a person uses, approached softly (a home and its street lit all night; speculation)
   // Stepping
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4, NSUB_IND: 48,   // the spread's most substeps a step, before industry and after (its mobility needs them in the economy's 10-year steps)
   DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
@@ -778,7 +774,7 @@ export class People {
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
     // The stocks people draw on (`stocks`): large game and the coast's fish (shares of their own
     // without people), and how wary each cell's game is of people (set when people first come).
-    this.herdS = new Float64Array(nL); this.past = new Float64Array(nL);   // herders' hold on the unfarmed land, and their pasture's share of the cell (drawn)
+    this.herdS = new Float64Array(nL); this.past = new Float64Array(nL); this.Kown = new Float64Array(nL);   // herders' hold on the unfarmed land, their pasture's share of the cell (drawn), and the capacity it was found at
     this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1); this.met = new Uint8Array(nL);
     // Each cell's pyramid (src/engine/cohorts.js), at the pre-industrial reference until people come;
     // the aging it adds to the crude death rate, and its workers' share.
@@ -1450,14 +1446,16 @@ export class People {
       // Foraging on land with its game, or herding where the herds yield more; the sea's, the fish's share left.
       const forage = H.bL[c] * (1 + P.MEAT * this.mega[c]) / (1 + P.MEAT * P.MG_REF) * PF * eg;
       let herd = 0;
-      if (H.herd[c] > 0 && this.packages.length) {
+      if (H.herd[c] > 0 && this.packages.length) {   // retired with the fields where a preserving ending rewilds the land
         const zh = z - P.Z_HERD, xh = ex(P.THETA * Math.max(0, zh));
-        herd = sig(zh / P.W_HERD) * H.herd[c] * xh / (1 + (xh - 1) / P.CAP_H);
+        herd = sig(zh / P.W_HERD) * H.herd[c] * xh / (1 + (xh - 1) / P.CAP_H) * (1 - this.rewild);
       }
       // Works' labour (S_WORK of the urban share) feeds no one.
       const wk = this.uShare && !this.econ.on ? 1 - P.S_WORK * this.uShare[c] : 1;
       K[c] = this.hE * H.area[c] * this.coldOK(c, z) * wk * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
-      if (Zs) this.herdS[c] = herd > 0 ? sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) : 0;   // herders' hold on the unfarmed land (drawn: the pasture)
+      // Herders' hold on the unfarmed land, as a share of the cell they'd graze at the food capacity
+      // (drawn: the pasture, by how near the capacity the people are).
+      if (Zs) { this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) * wk : 0; this.Kown[c] = K[c]; }
     }
   }
   /**
@@ -2618,7 +2616,9 @@ export class People {
       const wc = (S[c] + Math.max(0, (1 - u[c]) * this.Ntot[c] - P.D_RUR * A[c])) / (A[c] * P.D_URB), dc = take(pd / P.D_DC), wf = pf / P.D_FAC, k = wc + wf > room ? room / (wc + wf) : 1;
       const city = take(wc * k), fac = take(wf * k);
       const farm = take(this.cropped(c));
-      this.past[c] = this.Ntot[c] > 0 ? take((1 - this.f[c]) * this.herdS[c] * H.fg[c]) : 0;   // herders' pasture: the grass they hold, past the fields
+      // Herders' pasture, past the fields: their hold as far as the herders are there (the people
+      // against the capacity, so a frontier's few graze little and food from elsewhere none), on the grass.
+      this.past[c] = this.Kown[c] > 0 ? take(this.herdS[c] * Math.min(1, this.Ntot[c] / this.Kown[c]) * Math.min(1, H.fg[c] / 0.5)) : 0;
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
       out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
       out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been
@@ -2627,39 +2627,13 @@ export class People {
   }
 
   /**
-   * The Lights map (synthesis; drawn only, after night-lights imagery): the light each cell's people
-   * make by night, lumens a km². Every person's hearths and lamps give LM_FIRE; with industry, each
-   * person's electric light is S_LIGHT of the power their goods take (the cell's goods a person,
-   * the people's share of output, × output's energy intensity eY), at an efficacy rising with
-   * culture from LM_W0 toward LM_W1 lm a W, softly at most LM_MAX lm a person. Machines work unlit,
-   * and people who lose their share of output lose its light. Four values a cell of the people's
-   * grid, from `drawn`'s output `d` (its people and their cities' land): the light on the
-   * countryside (lm a km² of the land outside cities), on the cities (lm a km² of city), and the
-   * light a person (lm); `lightTotal` the whole Earth's (lm). The fourth is the herders' pasture
-   * (a share of the cell, from `drawn`), carried with the light for want of a slot.
+   * The herders' pasture, drawn (synthesis): a share of each cell, four values a cell of the people's
+   * grid (the rest room for more), from `drawn`'s claims (`past`).
    */
-  lights(d, out = null) {
-    const n = this.planet.grid.n, H = this.H, E = this.econ, P = this.P, nL = this.nL, A = H.area;
+  pasture(out = null) {
+    const n = this.planet.grid.n;
     out = out || new Float32Array(4 * n); out.fill(0);
-    if (!this.city) this.places();
-    const S = this.city, u = this.uShare;
-    // Electric light's lumens a W of the power a person's goods take.
-    const elec = E.on ? P.S_LIGHT * (E.eY || 0) * (P.LM_W1 - (P.LM_W1 - P.LM_W0) * Math.exp(-Math.max(0, (E.z || 0) - P.Z_IND) / P.Z_LM)) : 0;
-    let total = 0;
-    for (let c = 0; c < nL; c++) {
-      const i = this.cells[c], o = 4 * i, q = 8 * i, people = d[q] * A[c], cs = d[q + 2];
-      if (!(people > 0)) continue;
-      const lam = P.LM_FIRE + (elec > 0 && this.Ntot[c] > 0 ? softMin(elec * this.goods[c] / this.Ntot[c], P.LM_MAX) : 0);
-      // The cities hold their own people and the countryside's past D_RUR a km² (`drawn`'s towns).
-      const town = Math.min(people, S[c] + Math.max(0, (1 - u[c]) * this.Ntot[c] - P.D_RUR * A[c]));
-      out[o] = lam * (people - town) / (A[c] * Math.max(1e-3, 1 - cs));
-      out[o + 1] = cs > 1e-6 ? lam * town / (A[c] * cs) : lam * P.D_URB;   // where there's no city, what one would be (so the refined field stays smooth)
-      out[o + 2] = lam;
-      total += lam * people;
-    }
-    // The fourth value isn't light: the herders' pasture, a share of the cell (`drawn`), carried here for want of a slot.
-    for (let c = 0; c < nL; c++) out[4 * this.cells[c] + 3] = this.past[c];
-    this.lightTotal = total;
+    for (let c = 0; c < this.nL; c++) out[4 * this.cells[c]] = this.past[c];
     return out;
   }
 
