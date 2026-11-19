@@ -51,7 +51,7 @@ test('a preserving ending\'s rewilding retires the herds with the fields', () =>
   assert.ok(wild.K < 0.5 * kept.K, `the land feeds as foragers' then (${(wild.K / kept.K).toFixed(2)} of the herders' capacity)`);
 });
 
-test('the Knowledge map: production and learning known, their frontiers, held where people have gone, and carried onto every cell beyond (the sea, land no one has lived on), without a cliff', () => {
+test('the Knowledge map: production and learning known, their frontiers, and carried from where people live onto every cell beyond (the sea, ruins, land no one has lived on), without a cliff', () => {
   const f = steppe(4);
   for (let i = 0; i < f.n; i++) if (f.grid.pos[3 * i + 2] > 0.6) f.elev[i] = -2;   // a sea in the north
   const p = new People(f, { ...quiet });
@@ -63,13 +63,15 @@ test('the Knowledge map: production and learning known, their frontiers, held wh
   p.works[c0] = 5e4;
   let l = p.drawnB();
   assert.ok(Math.abs(l[4 * i0 + 1] - p.zc[c0]) < 1e-5 && Math.abs(l[4 * i0 + 2] - p.zl[c0]) < 1e-5);
-  assert.equal(p.zfP, Math.fround(Math.max(...Array.from(p.zc))));
-  assert.equal(p.zfL, Math.fround(Math.max(...Array.from(p.zl))));
+  assert.equal(p.zfP, Math.max(...Array.from(p.zc)));
+  assert.equal(p.zfL, Math.max(...Array.from(p.zl)));
   assert.ok(Math.abs(l[4 * i0 + 3] - 5e4 / p.H.area[c0]) < 1e-3 * 5e4 / p.H.area[c0], 'the works a km²');
-  // Its people gone, a place keeps the knowledge its ruins knew.
-  const z0 = p.zc[c0]; p.Ntot[c0] = 0; L.N[c0] = 0;
+  // Its people gone, a place shows its living neighbours' mean, not what its ruins knew (an ice sheet
+  // over once-peopled land had kept an old age's knowledge beside a living frontier's).
+  p.Ntot[c0] = 0; L.N[c0] = 0; L.Z[c0] = 0;
   l = p.drawnB();
-  assert.ok(Math.abs(l[4 * i0 + 1] - z0) < 1e-5);
+  const nb0 = []; for (let t = f.grid.nbrOff[i0]; t < f.grid.nbrOff[i0 + 1]; t++) { const c = p.loc[f.grid.nbr[t]]; if (c >= 0 && p.Ntot[c] > 0) nb0.push(c); }
+  assert.ok(Math.abs(l[4 * i0 + 1] - nb0.reduce((a, c) => a + p.zc[c], 0) / nb0.length) < 1e-5);
   // Every cell of the sea gets a value, each its already-reached neighbours' mean: the first ring
   // beside the land its land neighbours' mean, and no step between neighbours larger than inland.
   const g = f.grid;
@@ -78,7 +80,7 @@ test('the Knowledge map: production and learning known, their frontiers, held wh
     if (p.loc[i] >= 0) continue;
     assert.ok(l[4 * i + 1] > 0 && l[4 * i + 2] > 0, `cell ${i} carried`);
     const nb = []; for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const c = p.loc[g.nbr[t]]; if (c >= 0) nb.push(c); }
-    if (nb.length && !ring1) { const m = nb.reduce((a, c) => a + p.zShow[c], 0) / nb.length; assert.ok(Math.abs(l[4 * i + 1] - m) < 1e-5); ring1 = true; }
+    if (nb.length && !ring1) { const m = nb.reduce((a, c) => a + p.zc[c], 0) / nb.length; assert.ok(Math.abs(l[4 * i + 1] - m) < 1e-5); ring1 = true; }
     for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) worst = Math.max(worst, Math.abs(l[4 * i + 1] - l[4 * g.nbr[t] + 1]));
   }
   let inland = 0;

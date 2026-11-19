@@ -74,7 +74,7 @@
 // datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
 // hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, production
-// as an accent wash and learning as a verdigris hatch by how near each is to its
+// as an accent wash and learning as a verdigris one by how near each is to its
 // frontier, lines of equal production solid (heavier at farming's and industry's)
 // and of equal learning dashed, a stipple by the works a km², and of the land's
 // uses only the cities (People.drawnB). The ice is plain on the People charts.
@@ -680,18 +680,18 @@ fn hair(d: f32, w: f32) -> f32 {
       pland = mix(pland, u.inkD.rgb, select(0.55, 0.6, dark) * smoothstep(0.0, 3.5, rlog));
     } else if (folkK) {
       // Knowledge in its two domains, where people have been: production as an accent wash and learning
-      // as a verdigris hatch (two washes mixed to a grey where both were near), each by how near the
-      // place is to its frontier (full at it, a third half a unit behind); lines of equal production solid (heavier at farming's and industry's, Z_FARM and
+      // as a verdigris one, each by how near the place is to its frontier (full at it, a third half a
+      // unit behind; where both are near they mix to a grey); lines of equal production solid (heavier at farming's and industry's, Z_FARM and
       // Z_IND: the fronts by which they spread) and of equal learning dashed in verdigris, each line at
       // the coarsest of a quarter, a half, one or two units it falls on where such lines stand ≥ ~6 px
       // apart (a steep front keeps every fourth or eighth); and a stipple, denser by the works a km²
       // (from ~30 person-years to ~10⁴).
       let zp = i.wx.y;
       let zl = i.wx.z;
-      let had = explored;
-      pland = mix(pland, u.accent.rgb, select(0.45, 0.5, dark) * exp(-2.0 * max(u.steam.z - zp, 0.0)) * had);
-      let lh = hatch(T, vec2f(0.7071, 0.7071), 4.5 * u.mode.z, 1.0 * u.mode.z);
-      pland = mix(pland, u.inkD.rgb, select(0.75, 0.8, dark) * lh * exp(-2.0 * max(u.steam.w - zl, 0.0)) * had);
+      let had = explored * (1.0 - sheet);   // where people have been, never over an ice sheet
+      let a = select(0.4, 0.45, dark);
+      pland = mix(pland, u.accent.rgb, a * exp(-2.0 * max(u.steam.z - zp, 0.0)) * had);
+      pland = mix(pland, u.inkD.rgb, a * exp(-2.0 * max(u.steam.w - zl, 0.0)) * had);
       let fzp = max(fwidth(zp), 1e-5);
       let fzl = max(fwidth(zl), 1e-5);
       var isoP = 0.0;

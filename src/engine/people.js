@@ -2982,31 +2982,32 @@ export class People {
   /**
    * What the People view draws besides `drawn`, four values a cell of the people's grid (drawn only):
    * the herders' pasture (a share of the cell, from `drawn`'s claims); production's and learning's
-   * knowledge there (held where people have gone: what its ruins knew); and the works there a km²
+   * knowledge there (where no one lives, carried from where people do); and the works there a km²
    * (learning's and the land's, person-years). Each domain's frontier (the most anyone knows) is kept
    * as `zfP`, `zfL`. The Knowledge map reads the last three.
    */
   drawnB(out = null) {
     const n = this.planet.grid.n, nL = this.nL, wk = this.wk, A = this.H.area;
     out = out || new Float32Array(4 * n); out.fill(0);
-    const sP = this.zShow || (this.zShow = new Float32Array(nL)), sL = this.zShowL || (this.zShowL = new Float32Array(nL));
     let fP = 0, fL = 0;
     for (let c = 0; c < nL; c++) {
-      if (this.Ntot[c] > 0) { sP[c] = this.zc[c]; sL[c] = this.zl[c]; if (sP[c] > fP) fP = sP[c]; if (sL[c] > fL) fL = sL[c]; }
+      if (this.Ntot[c] > 0) { if (this.zc[c] > fP) fP = this.zc[c]; if (this.zl[c] > fL) fL = this.zl[c]; }
       const o = 4 * this.cells[c];
       out[o] = this.past[c];
       out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
     }
     this.zfP = fP; this.zfL = fL;
-    // Knowledge carried from where people know it onto every cell beyond, ring by ring, each its
+    // Knowledge carried from where people live now onto every cell beyond, ring by ring, each its
     // known neighbours' mean, so the globe's interpolation draws no cliff of knowledge at a coast, an
     // ice sheet or the edge of the inhabited land however wide the land no one lives on (the map
-    // shows it only where people have been).
+    // shows it only where people have been). Ruins aren't held at what they knew: an ice sheet or a
+    // sea that had advanced over land once lived on kept an old age's knowledge beside a living
+    // frontier's, and its lines stacked along the ice and the drowned coast.
     const g = this.planet.grid, vP = this.zVal && this.zVal.length === n ? this.zVal : (this.zVal = new Float32Array(n));
     const vL = this.zValL && this.zValL.length === n ? this.zValL : (this.zValL = new Float32Array(n)), has = new Uint8Array(n);
     vP.fill(0); vL.fill(0);
     let front = [];
-    for (let c = 0; c < nL; c++) if (sP[c] > 0 || sL[c] > 0) { const i = this.cells[c]; vP[i] = sP[c]; vL[i] = sL[c]; has[i] = 1; front.push(i); }
+    for (let c = 0; c < nL; c++) if (this.Ntot[c] > 0) { const i = this.cells[c]; vP[i] = this.zc[c]; vL[i] = this.zl[c]; has[i] = 1; front.push(i); }
     const seen = new Uint8Array(n);
     for (const i of front) seen[i] = 1;
     while (front.length) {

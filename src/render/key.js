@@ -152,15 +152,8 @@ const GLYPHS = {
   pasture: (c, x, y, P) => parcels(c, x, y, P.inks.ochre, 0.1, 0.65),
   // Knowledge's domains: production in the accent and learning in verdigris, each by how near the
   // frontier's a place's is, far behind (left) to at the frontier (right).
-  production: (c, x, y, P) => lag(c, x, y, P, P.accent, P.dark ? 0.5 : 0.45),
-  // Learning: a verdigris hatch, its strokes stronger toward the frontier, as the shader's.
-  learning: (c, x, y, P) => {
-    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
-    c.strokeStyle = P.inks.verdigris; c.lineWidth = 1;
-    for (let a = -12; a < 26; a += 4.5) { c.globalAlpha = (P.dark ? 0.8 : 0.75) * Math.exp(-4 * (1 - Math.min(1, Math.max(0, (a + 6) / 25)))); line(c, x + a, y + 12, x + a + 12, y); }
-    c.restore(); c.globalAlpha = 1;
-    c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
-  },
+  production: (c, x, y, P) => lag(c, x, y, P, P.accent),
+  learning: (c, x, y, P) => lag(c, x, y, P, P.inks.verdigris),
   isoproduction: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
   // Equal learning: dashed in verdigris, as the shader breaks its lines.
   isolearning: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.verdigris, 0.75); c.lineWidth = 1; c.setLineDash([4, 2.5]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
@@ -233,9 +226,9 @@ function nightGround(P, k) {
   return `rgb(${C.map((v, i) => Math.round((v + (L[i] - v) * 0.16) * (1 - t) + N[i] * t)).join(', ')})`;
 }
 
-/** Production's wash, far behind its frontier (left) to at it (right), as the Knowledge map's e^{−2 × the lag}. */
-function lag(c, x, y, P, ink, a0) {
-  for (let a = 0; a < 26; a++) { c.fillStyle = ink; c.globalAlpha = a0 * Math.exp(-4 * (1 - a / 25)); c.fillRect(x + a, y, 1, 12); }
+/** A domain of knowledge's wash, far behind its frontier (left) to at it (right), as the Knowledge map's e^{−2 × the lag}. */
+function lag(c, x, y, P, ink) {
+  for (let a = 0; a < 26; a++) { c.fillStyle = ink; c.globalAlpha = (P.dark ? 0.45 : 0.4) * Math.exp(-4 * (1 - a / 25)); c.fillRect(x + a, y, 1, 12); }
   c.globalAlpha = 1;
   c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
 }
