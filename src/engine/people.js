@@ -50,7 +50,8 @@
 //             game (`meat`, a stock hunted down where people arrive, src/engine/people.js `stocks`);
 //             the sea's b_S from the coast's export production, its fish F a stock that industry's
 //             fleets draw down; herders on the land the plough can't use, held by the leaner of
-//             their summer and winter pastures within a season's move (`rates`); farming's fields Y(f) take a
+//             their summer and winter pastures within a season's move (`rates`) and by their herd
+//             (`herds`, below); farming's fields Y(f) take a
 //             river's floodplain first (watered, renewed by its floods, cropped as often as the
 //             growing season's degree-days allow) and then the uplands (rain-fed, cropped only as
 //             far as the rain hasn't leached the soil: the rest lies fallow, until industry's
@@ -73,6 +74,18 @@
 //             demography; where the dial resolves the year, the planet's own years in place of
 //             the spread (`addYears`: a drought or a volcanic winter is a famine where it fell);
 //             and the seed kept for the next sowing (1/R of the harvest, R rising with culture).
+//   seasons   the hungry season: each cell's harvest calendar from its twelve months (`calendar`:
+//             seasons of growing months, a crop each M_CROP months as the warmth allows, roots dug
+//             as needed where the year never cools), the store losing its grain over the longest
+//             gap between harvests (faster with warmth, slower with culture), the crops' rain spread
+//             over the months they grow (several crops pool it), and the granary's room past the
+//             season's need kept against bad years (`reserve`).
+//   herds     animals domesticated at a farming origin from the large game still standing about it
+//             (so a fauna hunted out leaves its farmers none: Diamond's argument, from memory),
+//             carried with the crops and passed by contact; each cell's herd a stock, its share of
+//             what the land keeps, logistic less die-offs in bad years (a dry year; a cold one where
+//             the winter is snowbound: the dzud); herders' food, and mixed farming's manure (less
+//             fallow) and traction (the organic ceiling lifted), less in the trypanosomes' tropics.
 //   farming   an origin hazard where people are settled near foraging's ceiling, know enough
 //             (z ≥ Z_FARM) and have domesticates (the zones' seasonally dry climates: after Blumler
 //             via Diamond, from memory), as far as no crops at hand suit the place; packages (each
@@ -155,6 +168,20 @@ export const PEOPLE = {
   // where the coldest month is milder than −T_SNOW or the winter too dry for deep snow).
   D_HERD: 0.8, CAP_H: 2, G_HERD: 0.3, T_SNOW: 8, W_SNOW: 3, P_SNOW: 60,
   Z_HERD: 3.25, W_HERD: 0.25,     // herding's knowledge (past farming's: animals are domesticated with the crops, then herded where crops can't go)
+  // Herds as a stock (synthesis on Diamond's argument, from memory: the large domesticates came from
+  // the large herbivores still standing where people had long lived). A farming origin domesticates
+  // the large game about it (`mega`: wary faunas held where hominins began, naive ones were hunted
+  // out), its animals carried with its crops and passed by contact among people who know farming
+  // (C_ANIM a year at full contact, by the herds the neighbour keeps: its land's room for them is full
+  // at K_KEEP of it in fields, or pasture keeping that share of a full herders' density, a good
+  // steppe's, so the tundra, the deserts and the tsetse's belt pass them slowly). A cell's herd is a share of what its grass and fodder could keep: logistic at R_HERD (cattle herds grow ~10–20% a year at best, from memory), less die-offs in bad
+  // years, F_DIE of the pasture's shortfall past TH_DIE (a dry year's grass, and a cold year where the
+  // winter is snowbound, B_DZUD a K: the steppe's dzud, which took ~a fifth of Mongolia's herds in
+  // 2009–10, from memory), rebuilt over years. The warm, wet tropics' trypanosomes (nagana: the tsetse's
+  // belt, standard) keep PATH_ANIM of the herds out where the farmers' diseases are. Herders need
+  // animals; mixed farming's manure makes up MANURE of the fallow's lack, and traction lifts the organic
+  // ceiling's yield by TRACT (the plough, the ox; the values speculation).
+  R_HERD: 0.15, F_DIE: 1.5, TH_DIE: 0.15, B_DZUD: 0.1, C_ANIM: 0.01, K_KEEP: 0.3, A_SEED: 0.05, PATH_ANIM: 0.8, MANURE: 0.35, TRACT: 0.3,
   // Megafauna (synthesis; the overkill's timing speculation): large game as a stock a cell, regrowing
   // slowly and hunted in proportion to the foragers there and their culture; animals that evolved
   // beside hominins are wary (NAIVE_CO of a naive fauna's take), so they hold where people began and
@@ -182,7 +209,20 @@ export const PEOPLE = {
   CO2_FERT: 0.25,                  // crops' yield × (1 + β ln(CO₂/280)), VECODE's β
   // Stores: the harvests' weather against granaries and trade (working capital's one distinct role)
   E_RAIN: 0.7, IRR: 0.5,           // a harvest's spread per unit of a year's log-rain spread (rain-fed; ×IRR by a river or lake)
-  S_MAX: 0.5, Z_STORE: 1.5,        // years of food a farmer can keep, reached e-fold per Z_STORE of culture past Z_FARM
+  S_MAX: 0.5, Z_STORE: 1.5,        // years of food a farmer can keep against bad years past a single harvest's year (reached e-fold per Z_STORE of culture past Z_FARM); a shorter gap between harvests leaves the granary more room (`reserve`)
+  // The hungry season (standard in outline; the forms synthesis): a harvest is kept until the next,
+  // so a single harvest's food must last the year and a warm delta's three crops only four months.
+  // The calendar (`calendar`): each season of at least M_SEASON growing months bears a crop each M_CROP
+  // months (as many as the warmth allows), harvested at its end; the longest gap between harvests is
+  // the store's, the month before the harvest that ends it the lean month. A store loses L_KEEP a year
+  // at farming's start, e-fold less per Z_KEEP of culture past Z_FARM, to L_KEEP_MIN (pre-modern farm
+  // stores lost ~10–20% of their grain over a season to rot, insects and rodents, from memory), faster
+  // in the warmth (Q_ROT). Where the whole year grows and never cools (past T_ROOT), roots and plantains
+  // are dug as needed, a gap of M_ROOT (the perhumid tropics' yams, taro and bananas, from memory).
+  // Cold months only wait (a winter wheat sown in autumn ripens in spring). A harvest's rain anomaly is its
+  // growing months' (white at the month: its spread × √(M_CROP/months), a single crop's as the year's
+  // was), so several crops a year pool it and a season too short for one bears more.
+  L_KEEP: 0.3, Z_KEEP: 2, L_KEEP_MIN: 0.02, Q_ROT: 2, M_CROP: 4, M_SEASON: 2, M_ROOT: 2, T_ROOT: 18,   // …; the losses × Q_ROT per 10 K of the year's mean past 15 °C (insects and moulds: grain keeps worst in the warm, damp tropics, from memory)
   Z_TRADE: 7, W_TRADE: 1, L_CORR: 1500,   // food traded comes with industry; the weather's correlation length (km), so trade pools ~(ℓ/L_CORR)² harvests
   B_TMAX: 0.5,                     // a harvest's most sensitivity to a year's warmth (per K: a crop near its degree-days' floor, where a cold summer takes half of it a degree; synthesis)
   SIG_REF: 0.3,                    // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory; at 0.15 the wet tropics' steady rain outweighed the dry lands' domesticates, and Earth's first fields were in the Congo)
@@ -353,6 +393,48 @@ export function partialG(v) {
   const Phi = 0.5 * (1 + (v >= 0 ? erf : -erf));
   return v * Phi + phi;
 }
+/**
+ * A crop's year (synthesis; PEOPLE's hungry season): `mo` the twelve months (January first), 2 where
+ * a crop grows, 1 where it lies dormant (too cold: a winter wheat waits under the snow, so the cold
+ * doesn't end its season), 0 where the season ends (warm but dry); `hCap` the most crops a season's
+ * warmth allows, `allGap` the gap (months) where every month grows. Each season (a run of months not
+ * ended) whose growing months number at least M_SEASON bears min(hCap, ⌊L/M_CROP⌋) crops (at least one),
+ * each harvested at the end of its share of them. Returns { gap, grow, lean, n }: the longest span
+ * between harvests (months; 12 for one harvest, and where nothing ripens), the months the crops grow,
+ * the month before the harvest that ends the longest gap (−1 where none), and the harvests a year.
+ */
+export function calendar(mo, hCap, allGap, P, out = {}) {
+  let nGrow = 0, s0 = -1;
+  for (let m = 0; m < 12; m++) { if (mo[m] === 2) nGrow++; if (!mo[m]) s0 = m; }
+  if (nGrow === 12) { out.gap = allGap; out.grow = 12; out.lean = -1; out.n = 12 / allGap; return out; }
+  // Seasons run between the months that end them; with none, one season wraps the year from the
+  // first growing month after a dormant one.
+  if (s0 < 0) for (let m = 0; m < 12; m++) if (mo[m] === 1 && mo[(m + 1) % 12] === 2) { s0 = m; break; }
+  const harv = [];
+  let grow = 0;
+  if (s0 >= 0) for (let k = 1; k <= 12; k++) {
+    const m0 = (s0 + k) % 12;
+    if (!mo[m0] || (mo[(m0 + 11) % 12] && k > 1)) continue;   // the start of a season
+    const gm = [];
+    for (let L = 0; L < 12; L++) { const m = (m0 + L) % 12; if (!mo[m] || (L > 0 && m === (s0 + 1) % 12)) break; if (mo[m] === 2) gm.push(m); }
+    if (gm.length < P.M_SEASON) continue;
+    const h = Math.max(1, Math.min(hCap, Math.floor(gm.length / P.M_CROP)));
+    for (let j = 0; j < h; j++) harv.push(gm[Math.round((j + 1) * gm.length / h) - 1]);
+    grow += Math.min(gm.length, h * P.M_CROP);
+  }
+  out.grow = grow; out.n = harv.length;
+  if (!harv.length) { out.gap = 12; out.lean = -1; return out; }
+  harv.sort((a, b) => a - b);
+  let gap = 0, end = harv[0];
+  for (let j = 0; j < harv.length; j++) {
+    const a = harv[j], b = harv[(j + 1) % harv.length], d = harv.length === 1 ? 12 : (b - a + 12) % 12;
+    if (d > gap) { gap = d; end = b; }
+  }
+  out.gap = gap; out.lean = (end + 11) % 12;
+  return out;
+}
+/** The share of a harvest left on average as it is eaten evenly over a gap of G years, the store losing ℓ a year: (1 − e^{−ℓG})/(ℓG). */
+export const kept = (G, l) => { const x = l * G; return x > 1e-9 ? (1 - Math.exp(-x)) / x : 1 - x / 2; };
 const ex = x => Math.exp(Math.min(x, 300));
 const deg = r => r * 180 / Math.PI;
 /** A solar farm's yield where it stands, against a dry subtropical site's (D_SOL): the sun's height and the sky's clearness (synthesis). */
@@ -776,6 +858,9 @@ export class People {
     // without people), and how wary each cell's game is of people (set when people first come).
     this.herdS = new Float64Array(nL); this.past = new Float64Array(nL); this.Kown = new Float64Array(nL);   // herders' hold on the unfarmed land, their pasture's share of the cell (drawn), and the capacity it was found at
     this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1); this.met = new Uint8Array(nL);
+    // Herds (`stocks`, `farming`): the domesticates people have here (0–1 of a full set), the herd's
+    // share of what the grass and fodder could keep, and its die-offs a year (`herdYears`).
+    this.anim = new Float64Array(nL); this.herdM = new Float64Array(nL); this.hLoss = new Float64Array(nL);
     // Each cell's pyramid (src/engine/cohorts.js), at the pre-industrial reference until people come;
     // the aging it adds to the crude death rate, and its workers' share.
     const KC = COHORTS.K, ref = stable(this.P.B_PRE, 0);
@@ -835,6 +920,11 @@ export class People {
       alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), sigP: new Float64Array(nL), sigT: new Float64Array(nL), sigTy: new Float64Array(nL), sR: new Float64Array(nL), irr: new Float64Array(nL), bF: new Float64Array(nL), bW: new Float64Array(nL), bL: new Float64Array(nL), bS: new Float64Array(nL), herd: new Float64Array(nL), fg: new Float64Array(nL), sumH: new Float64Array(nL), winH: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
       hot: new Float64Array(nL), sun: new Float64Array(nL), arable: new Float64Array(nL),
       sfp: new Float64Array(nL), phi: new Float64Array(nL), sod: new Float64Array(nL), phiFP: new Float64Array(nL), path: new Float64Array(nL), afp: new Float64Array(nL), aup: new Float64Array(nL), clim: new Float32Array(4 * nL),
+      // The hungry season (`calendar`): the floodplain's and the uplands' longest gaps between harvests
+      // (years), the fields' gap by their yields, the crops' rain spread against a single grain's
+      // season (κ), the lean month (−1 where none); the herds' winter snow and the share of them the
+      // tropics' trypanosomes leave.
+      gapFP: new Float64Array(nL).fill(1), gapUp: new Float64Array(nL).fill(1), rot: new Float64Array(nL).fill(1), gapY: new Float64Array(nL).fill(1), kap: new Float64Array(nL).fill(1), lean: new Int8Array(nL).fill(-1), snowy: new Float64Array(nL), habA: new Float64Array(nL),
     };
     this.sol = new Float64Array(nL);   // the share of each cell under solar farms (People.placeSolar)
     this.X = { cells: new Int32Array(0), area: new Float64Array(0), sun: new Float64Array(0), sol: new Float64Array(0), mach: new Float64Array(0) };
@@ -851,7 +941,7 @@ export class People {
   /** The rates the planet sets, from its fields (once on the cached opening; after each climate cycle when live). */
   rates(f) {
     const P = this.P, g = f.grid, H = this.H, cells = this.cells, nL = this.nL;
-    const dw = ZN.map(z => P.DOMESTIC[z] || 0);
+    const dw = ZN.map(z => P.DOMESTIC[z] || 0), okUp = new Uint8Array(12), okFp = new Uint8Array(12), cal = {};
     for (let c = 0; c < nL; c++) {
       const i = cells[c];
       H.alive[c] = f.elev[i] > 0 && f.ice[i] < P.ICE_MAX ? 1 : 0;
@@ -879,7 +969,7 @@ export class People {
       // Herders' pastures: summer's the grass's production, winter's what of it stands to be grazed.
       let Pw = 0; { const o = Array.from({ length: 12 }, (_, m) => m).sort((x, y) => f.T12[12 * i + x] - f.T12[12 * i + y]); for (let k = 0; k < 4; k++) Pw += f.P12[12 * i + o[k]]; }
       const graze = H.alive[c] ? fg * f.npp[i] * (1 - H.hot[c]) : 0, snowy = (1 - sig((Tc + P.T_SNOW) / P.W_SNOW)) * sig((Pw - P.P_SNOW) / 20);
-      H.sumH[c] = graze; H.winH[c] = graze * (1 - snowy) * sig((fg - P.G_HERD) / 0.1); H.fg[c] = fg;
+      H.sumH[c] = graze; H.winH[c] = graze * (1 - snowy) * sig((fg - P.G_HERD) / 0.1); H.fg[c] = fg; H.snowy[c] = snowy;
       // Crops (synthesis): on a river's floodplain watered (the climate's warmth alone limits them)
       // and renewed by its floods; on the uplands rain-fed, on soil the rain leaches.
       const sfp = Math.min(P.FP_MAX, P.W_FP * Math.sqrt(Math.max(0, f.discharge[i])) / Math.sqrt(H.area[c]));
@@ -896,7 +986,7 @@ export class People {
         const m = k % 12, T = f.T12[12 * i + m], pm = f.P12[12 * i + m], pe = P.PET_K * Math.max(0, T + 4);
         const ok = T > 5 && pm + carry >= 0.5 * pe;
         carry = Math.min(P.LGP_SOIL, Math.max(0, carry + pm - pe));
-        if (k >= 12 && ok) lgp++;
+        if (k >= 12) { if (ok) lgp++; okUp[m] = ok ? 2 : T > 5 ? 0 : 1; okFp[m] = T > 5 ? 2 : 1; }
       }
       const wet = Math.min(1, Math.max(0, (lgp - P.LGP_DRY) / (P.LGP_WET - P.LGP_DRY)));
       const cold = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3), up = P.ARABLE_MAX * cold * wet * (1 - Math.exp(-P.S_ARABLE / Math.max(slope, 1e-6)));
@@ -948,6 +1038,19 @@ export class People {
       H.bF[c] = wFp + wUp > 0 ? Math.min(P.B_TMAX, (wFp * bFp + wUp * bUp) / (wFp + wUp)) : 0;
       const nT = 3000 / (1 + Math.exp(1.315 - 0.119 * Ta)), nP = 3000 * (1 - Math.exp(-0.000664 * Pa));
       H.bW[c] = nT < nP ? Math.min(P.B_TMAX, 0.119 * (1 - nT / 3000)) : 0;
+      // The hungry season (`calendar`): the floodplain's crops by warmth alone, as many as its
+      // degree-days allow; the uplands' by their growing months, at most two (and where the whole year
+      // grows and never cools, roots dug as needed). Their gaps (years), and the crops' rain spread over
+      // the months they grow against a single crop's, by the fields' yields.
+      const hFp = Math.max(1, Math.min(P.CROPS_MAX, Math.round(nc))), hUp = Math.max(1, Math.min(2, Math.floor(nc)));
+      calendar(okFp, hFp, 12 / hFp, P, cal); const gFp = cal.gap / 12, kFp = Math.sqrt(P.M_CROP / Math.max(1, cal.grow)), lFp = cal.lean;
+      calendar(okUp, hUp, Tc > P.T_ROOT ? P.M_ROOT : 12 / hUp, P, cal); const gUp = cal.gap / 12, kUp = Math.sqrt(P.M_CROP / Math.max(1, cal.grow)), lUp = cal.lean;
+      const wk = wFp + wUp;
+      H.gapFP[c] = gFp; H.gapUp[c] = gUp; H.rot[c] = Math.min(4, Math.max(0.25, Math.pow(P.Q_ROT, (Ta - 15) / 10)));
+      H.gapY[c] = wk > 0 ? (wFp * gFp + wUp * gUp) / wk : 1;
+      H.kap[c] = wk > 0 ? Math.min(1.6, Math.max(0.5, (wFp * kFp + wUp * kUp) / wk)) : 1;
+      H.lean[c] = wk > 0 ? (wFp >= wUp ? lFp : lUp) : -1;
+      H.habA[c] = 1 - P.PATH_ANIM * H.path[c];
       H.sigY[c] = this.harvestSigma(c, 1);
     }
     // Herders move within a season's reach (the cell and its neighbours): the best summer pasture and
@@ -999,6 +1102,9 @@ export class People {
         const m = logi(this.mega[c], P.R_MEGA, h);
         this.mega[c] = m < P.M_EXT ? 0 : m;
       }
+      // Herds: the stock's share of what its grass and fodder could keep, logistic at R_HERD less the
+      // die-offs (`herdYears`), exact; with people or without (the domesticates gone feral on empty grass).
+      if (this.anim[c] > 0) this.herdM[c] = logi(this.herdM[c], P.R_HERD, this.hLoss[c]);
       // Works: built by the urban share's labour, decaying over T_WORK (exact).
       const u = this.uShare ? this.uShare[c] : 0, build = P.S_WORK * u * N, ew = Math.exp(-dt / P.T_WORK);
       if (build > 0 || this.works[c] > 0) this.works[c] = this.works[c] * ew + build * P.T_WORK * (1 - ew);
@@ -1022,20 +1128,23 @@ export class People {
   /**
    * The harvest's year-to-year anomaly at cell c with farmed share fc (synthesis): a = α R + β T̄′, R a
    * year's log-rain anomaly and T̄′ its mean temperature anomaly; α = E_RAIN (× IRR by a river or a
-   * lake), β the yield's warmth sensitivity (`rates`); farmers bear it whole, foragers half (they
-   * move), less the sea's share of their food. Into `out`: [α, β].
+   * lake), β the yield's warmth sensitivity (`rates`); farmers bear it whole, their rain's part as the
+   * months their crops grow have it (κ, `calendar`: a single short season more, several crops a year
+   * less), foragers half (they move), less the sea's share of their food. Into `out`: [α, β].
    */
   harvestCoef(c, fc, out = this.hc || (this.hc = [0, 0])) {
-    const H = this.H, sea = H.b[c] > 0 ? H.bS[c] / H.b[c] : 0, fo = 0.5 * (1 - fc) * (1 - sea), g = fc + fo;   // the sea's food doesn't follow the land's rain or warmth
-    out[0] = this.P.E_RAIN * H.irr[c] * g; out[1] = fc * H.bF[c] + fo * H.bW[c];
+    const H = this.H, sea = H.b[c] > 0 ? H.bS[c] / H.b[c] : 0, fo = 0.5 * (1 - fc) * (1 - sea);   // the sea's food doesn't follow the land's rain or warmth
+    out[0] = this.P.E_RAIN * H.irr[c] * (fc * H.kap[c] + fo); out[1] = fc * H.bF[c] + fo * H.bW[c];   // the crops' rain over the months they grow (κ: several crops a year pool it)
     return out;
   }
   /**
    * The closure's relative spread of the harvest: R and T̄′ correlated as the year makes them (over
    * land a warm year is a dry one: cov = ρ s σ_Ty²/σ_T, s the month's log-rain spread, src/engine/year.js).
    */
-  harvestSigma(c, fc) {
-    const H = this.H, [a, b] = this.harvestCoef(c, fc), sT = H.sigTy[c];
+  harvestSigma(c, fc) { const [a, b] = this.harvestCoef(c, fc); return this.spreadOf(c, a, b); }
+  /** The closure's spread of a R + b T̄′ at cell c. */
+  spreadOf(c, a, b) {
+    const H = this.H, sT = H.sigTy[c];
     const cov = H.sigT[c] > 0 ? YEAR.RHO_LAND * H.sR[c] * sT * sT / H.sigT[c] : 0;
     return Math.sqrt(Math.max(0, a * a * H.sigP[c] * H.sigP[c] + b * b * sT * sT + 2 * a * b * cov));
   }
@@ -1077,6 +1186,28 @@ export class People {
     out.m = (a * s * mZ + b * mT) / pool;
     out.s = Math.sqrt(Math.max(0, a * a * s * s * vZ + b * b * vT + 2 * a * b * s * cZT)) / pool;
     return out;
+  }
+
+  /**
+   * The herds' die-offs a year at each cell with animals (synthesis): F_DIE of the pasture's shortfall
+   * past TH_DIE, its anomaly E_RAIN R + B_DZUD × snowy × T̄′ (a dry year's grass; a cold year where the
+   * winter is snowbound: the dzud), over the closure's spread, and where the dial resolves the year over
+   * the step's realized years for their share (as `realYears`). Read before the step takes its years.
+   */
+  herdYears() {
+    const P = this.P, H = this.H, nL = this.nL, W = this.yrW, ph = W > 1e-9 && this.yrTake > 0 ? this.yrPhi : 0, yr = this.yr;
+    const loss = (m, s) => P.F_DIE * (s > 1e-9 ? s * partialG((-m - P.TH_DIE) / s) : Math.max(0, -m - P.TH_DIE));
+    for (let c = 0; c < nL; c++) {
+      if (!(this.anim[c] > 0)) { this.hLoss[c] = 0; continue; }
+      const a = P.E_RAIN, b = P.B_DZUD * H.snowy[c];
+      let L = ph < 1 ? (1 - ph) * loss(0, this.spreadOf(c, a, b)) : 0;
+      if (ph > 0) {
+        const s = H.sR[c], mZ = yr[0][c] / W, mT = yr[2][c] / W;
+        const vZ = Math.max(0, yr[1][c] / W - mZ * mZ), vT = Math.max(0, yr[3][c] / W - mT * mT), cZT = yr[4][c] / W - mZ * mT;
+        L += ph * loss(a * s * mZ + b * mT, Math.sqrt(Math.max(0, a * a * s * s * vZ + b * b * vT + 2 * a * b * s * cZT)));
+      }
+      this.hLoss[c] = L;
+    }
   }
 
   // Edges between land cells (with the relief's cost) and crossings of up to HOPS sea cells (with
@@ -1433,11 +1564,13 @@ export class People {
       if (fc > 0) {
         // The organic ceiling, and industry's above it (fertilizer, machines, breeding: a few times
         // the organic yields, modern grain's against pre-industrial, from memory), each approached softly.
-        const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A), capI = softMin(x, P.CAP_A * P.LIFT_MAX, 1);
+        // Draft animals lift the organic ceiling's yield (TRACT); industry's machines take over above it.
+        const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A) * (1 + P.TRACT * this.animHere(c)), capI = softMin(x, P.CAP_A * P.LIFT_MAX, 1);
         const PA = cap + ind[c] * lift * Math.max(0, capI - cap);
-        // Less the seed kept for the next sowing (working capital's first claim).
-        const seed = 1 / (P.R_SEED0 * Math.exp(Math.min(Math.max(0, z - P.Z_FARM) / P.Z_R, 50)));
-        farm = fc === f[c] ? this.fieldYield(c) * this.suitHere(c) * PA * fert * (1 - seed) : this.fieldYield(c, fc) * P.MIGR_S * PA * fert * (1 - seed);
+        // Less the seed kept for the next sowing (working capital's first claim), and what the store
+        // loses between harvests (the hungry season).
+        const seed = 1 / (P.R_SEED0 * Math.exp(Math.min(Math.max(0, z - P.Z_FARM) / P.Z_R, 50))), l = this.keepRate(z);
+        farm = fc === f[c] ? this.fieldYield(c, fc, l) * this.suitHere(c) * PA * fert * (1 - seed) : this.fieldYield(c, fc, l) * P.MIGR_S * PA * fert * (1 - seed);
       }
       // The land's, as habitable as Earth still is; and what energy buys indoors, until the oceans boil.
       // The tropics' diseases among settled farmers (malaria spread with clearing and standing water;
@@ -1445,10 +1578,12 @@ export class People {
       const yg = this.Ntot[c] > 0 ? this.goods[c] / this.Ntot[c] : 0, sick = 1 + P.PATH * H.path[c] * Math.exp(-Math.max(0, yg) / P.Y_D);
       // Foraging on land with its game, or herding where the herds yield more; the sea's, the fish's share left.
       const forage = H.bL[c] * (1 + P.MEAT * this.mega[c]) / (1 + P.MEAT * P.MG_REF) * PF * eg;
+      // Herders need animals: their herd is the stock's (`stocks`), its share of what the grass keeps.
       let herd = 0;
-      if (H.herd[c] > 0 && this.packages.length) {   // retired with the fields where a preserving ending rewilds the land
+      const an = H.herd[c] > 0 ? this.animHere(c) : 0;
+      if (an > 0) {   // retired with the fields where a preserving ending rewilds the land
         const zh = z - P.Z_HERD, xh = ex(P.THETA * Math.max(0, zh));
-        herd = sig(zh / P.W_HERD) * H.herd[c] * xh / (1 + (xh - 1) / P.CAP_H) * (1 - this.rewild);
+        herd = sig(zh / P.W_HERD) * H.herd[c] * an * xh / (1 + (xh - 1) / P.CAP_H) * (1 - this.rewild);
       }
       // Works' labour (S_WORK of the urban share) feeds no one.
       const wk = this.uShare && !this.econ.on ? 1 - P.S_WORK * this.uShare[c] : 1;
@@ -1463,12 +1598,23 @@ export class People {
    * floodplain first (watered and renewed: cropped every year), then the uplands, where the leached
    * soil lies fallow but for its fertility's share, industry's fertilizer making up the rest.
    */
-  fertility(c, p = this.H.phi[c]) { const x = this.ind ? this.ind[c] * (this.lift || 0) : 0; return p + (1 - p) * x; }
-  fieldYield(c, f = this.f[c]) {
-    const H = this.H, s = H.sfp[c];
-    // The floodplain's soil is its alluvium; the uplands' the regolith (soilYield).
-    return Math.min(f, s) * H.afp[c] * this.fertility(c, H.phiFP[c]) + Math.max(0, f - s) * H.aup[c] * this.fertility(c) * this.soilYield(c);
+  fertility(c, p = this.H.phi[c]) {
+    // Mixed farming's manure makes up MANURE of the fallow's lack where the animals are kept; industry's fertilizer the rest.
+    const x = this.ind ? this.ind[c] * (this.lift || 0) : 0, q = this.anim ? p + (1 - p) * this.P.MANURE * this.animHere(c) : p;
+    return q + (1 - q) * x;
   }
+  /** The fields' yield; with a store's loss rate `l` (a year, at 15 °C: × the cell's warmth, `rot`), what's left of it as it's eaten over each kind of field's gap between harvests (`kept`). */
+  fieldYield(c, f = this.f[c], l = 0) {
+    const H = this.H, s = H.sfp[c], lr = l * H.rot[c], kf = l > 0 ? kept(H.gapFP[c], lr) : 1, ku = l > 0 ? kept(H.gapUp[c], lr) : 1;
+    // The floodplain's soil is its alluvium; the uplands' the regolith (soilYield).
+    return Math.min(f, s) * H.afp[c] * this.fertility(c, H.phiFP[c]) * kf + Math.max(0, f - s) * H.aup[c] * this.fertility(c) * this.soilYield(c) * ku;
+  }
+  /** A store's loss a year at culture z: L_KEEP at farming's start, e-fold less per Z_KEEP, to L_KEEP_MIN. */
+  keepRate(z) { const P = this.P; return P.L_KEEP_MIN + (P.L_KEEP - P.L_KEEP_MIN) * Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_KEEP); }
+  /** The animals kept here against a full herd of a full set of domesticates: their availability × the herd's share × what the tropics' trypanosomes leave. */
+  animHere(c) { return this.anim[c] > 0 ? this.anim[c] * this.herdM[c] * this.H.habA[c] : 0; }
+  /** The years of food kept against bad years (`demography`'s store): the granary's room past the season's need, S_MAX + 1 − G of a year (G the fields' gap: a single harvest's S_MAX), as culture builds it. */
+  reserve(c, fc, z) { const P = this.P; return fc * Math.max(0, P.S_MAX + 1 - this.H.gapY[c]) * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE)); }
   /** The share of the cell under crops this year (the rest of the farmed share fallow). */
   cropped(c) { const f = this.f[c], s = this.H.sfp[c]; return Math.min(f, s) * this.fertility(c, this.H.phiFP[c]) + Math.max(0, f - s) * this.fertility(c); }
   /**
@@ -1539,7 +1685,7 @@ export class People {
       // pools it once industry comes; granaries hold up to a share of a year.
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tr = sig((z - P.Z_TRADE) / P.W_TRADE), ell = this.reachL(this.gMax + z);
       const pool = Math.sqrt(1 + tr * (ell / P.L_CORR) ** 2), sg = this.harvestSigma(c, fc) / pool;
-      const st = P.S_MAX * fc * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE));
+      const st = this.reserve(c, fc, z);
       const { N: Nn, crowd, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, pool, ry), this.aging[c]);
       this.famine += famine * Nt;
       // The pyramid over the step: births, the deaths past senescence (the total's, less the pyramid's
@@ -1555,6 +1701,7 @@ export class People {
       for (let k = 0; k < nl; k++) { lw[k] = lw[k] === -Infinity ? 0 : Math.exp(lw[k] - mx); sw += lw[k]; }
       for (let k = 0; k < nl; k++) { const v = Nn * lw[k] / sw; live[k].N[c] = v > 1e-6 ? v : 0; }
     }
+    this.herdYears();
     if (this.yrTake > 0) { const k = 1 - this.yrTake / this.yrW; for (const a of this.yr) for (let c = 0; c < nL; c++) a[c] *= k; this.yrW -= this.yrTake; if (this.yrW < 1e-9) this.yrW = 0; }
     lap('growth');
     if (this.debug) this.check('growth', live);
@@ -2154,8 +2301,14 @@ export class People {
       if (haz <= 0 || this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
       const q = this.packages.length, clim = Float32Array.from(H.clim.subarray(4 * c, 4 * c + 4));
       let zk = 0; for (let k = 1; k < 14; k++) if (H.zv[14 * c + k] > H.zv[14 * c + zk]) zk = k;
-      this.packages.push({ c, t: this.t, lat: H.lat[c], lon: H.lon[c], clim, zone: ZN[zk] });
+      // Its animals: the large game still standing about it, against the stock meat's share was set at
+      // (wary faunas held where hominins began; where people came after the tip, it was hunted out).
+      let mg = this.mega[c];
+      for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) mg = Math.max(mg, this.mega[E.nb[o]]);
+      const anim = Math.min(1, mg / P.MG_REF);
+      this.packages.push({ c, t: this.t, lat: H.lat[c], lon: H.lon[c], clim, zone: ZN[zk], anim });
       pkg[c] = q; this.pkgT[c] = this.t; f[c] = Math.max(f[c], 0.01 * H.arable[c] + 1e-4);
+      this.tame(c, anim);
       this.event('farming', `farming begins (package ${q}) at ${deg(H.lat[c]).toFixed(0)}°, ${deg(H.lon[c]).toFixed(0)}° in ${this.packages[q].zone} (z ${zc[c].toFixed(2)})`);
     }
     // Spread and growth within cells. Fields no one works go back to the wild over T_WILD (they
@@ -2186,7 +2339,7 @@ export class People {
       // Past industry, crops travel with its pace (the colonists' wheat and cattle reached the
       // pampas and the prairies within decades; synthesis): the uptake and the clearing × `pace`.
       const pace = 1 + (softMin(this.speed(zk) / P.V0, P.IND_PACE, 4) - 1) * sig((zk - P.Z_IND) / 0.5);
-      if (bestQ >= 0 && this.rng.uniform() < 1 - Math.exp(-P.C_PKG * know * rate * pace * dt)) { pkg[c] = bestQ; this.pkgT[c] = this.t; s0 = this.suit(bestQ, c); }
+      if (bestQ >= 0 && this.rng.uniform() < 1 - Math.exp(-P.C_PKG * know * rate * pace * dt)) { pkg[c] = bestQ; this.pkgT[c] = this.t; s0 = this.suit(bestQ, c); this.tame(c, this.packages[bestQ].anim || 0); }
       if (pkg[c] < 0) continue;
       // Logistic toward the arable land the crop is worth farming on, exactly (the live planet's
       // climate moves it, so the share can sit above it and fall back), none past the heat limit,
@@ -2207,6 +2360,38 @@ export class People {
       const e = Math.exp(Math.min(50, P.R_ADOPT * Math.min(pace, P.CLEAR_PACE) * dt));
       f[c] = tgt > 1e-9 ? (fs > 0 ? tgt * fs * e / (tgt + fs * (e - 1)) : 0) : fs / e;
     }
+    // Animals pass by contact among people who know farming, and onto empty land next to them, as
+    // crops do: toward the mean of the better-stocked neighbours' at C_ANIM a year, by the edges'
+    // contact × the herds each neighbour keeps (its herd's share × what the trypanosomes leave × its
+    // land's room for them, fields or pasture, against K_KEEP: no herds cross the tundra or the tsetse's
+    // belt as fast as a steppe), × culture's pace past industry (the colonists' cattle and horses on the
+    // pampas and the prairies within decades), exact over the step.
+    const a0 = this.a0 || (this.a0 = new Float64Array(nL));
+    a0.set(this.anim);
+    for (let c = 0; c < nL; c++) {
+      if (!H.alive[c]) continue;
+      let zk = Ntot[c] > 0 ? zc[c] : 0, gap = 0, W = 0;
+      for (let o = E.off[c]; o < E.off[c + 1]; o++) {
+        const d = E.nb[o];
+        if (!(a0[d] > a0[c]) || !(Ntot[d] > 0)) continue;
+        const kd = this.herdM[d] * H.habA[d] * Math.min(1, (f0[d] + H.herd[d] / P.D_HERD) / P.K_KEEP);
+        const e = kd * (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]);
+        if (!(e > 0)) continue;
+        gap += e * (a0[d] - a0[c]); W += e;
+        if (!(Ntot[c] > 0)) zk = Math.max(zk, zc[d]);
+      }
+      if (!(W > 0)) continue;
+      const know = sig((zk - (P.Z_FARM - 0.5)) / 0.25);
+      if (know < 1e-3) continue;
+      const pace = 1 + (softMin(this.speed(zk) / P.V0, P.IND_PACE, 4) - 1) * sig((zk - P.Z_IND) / 0.5);
+      this.tame(c, a0[c] + (1 - Math.exp(-P.C_ANIM * know * pace * W * dt)) * gap / W);
+    }
+  }
+  /** Animals reach cell c (a share `a` of a full set of domesticates): its herd starts from A_SEED of what the land keeps. */
+  tame(c, a) {
+    if (!(a > this.anim[c])) return;
+    this.anim[c] = a;
+    if (this.herdM[c] < this.P.A_SEED) this.herdM[c] = this.P.A_SEED;
   }
 
   // Tillage's erosion (mm/yr) on the farmed share, by the slope, falling as conservation comes with

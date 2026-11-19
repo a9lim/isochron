@@ -19,15 +19,15 @@ Built 2026-11-18 (`people.md`, "Food, years, ages and works" and the pause; the 
 
 - **Births by age**: births don't read the pyramid, so a baby bust echoes in deaths and workers but not in births a generation on.
 - **The pause**: what a paused world does in space, and whether a pause can lapse. Batch 2 makes it something polities agree to.
-- **Herders** take the unfarmed land where they'd feed more than foragers (a hard choice, softened only in the drawing); traction and manure are 1b's.
+- **Herders** take the unfarmed land where they'd feed more than foragers (a hard choice, softened only in the drawing).
 - **Cost**: the pyramids add ~5 ms to a step under `T_STABLE` with the land full; `places` ~13 ms every `DT_PLACES` years.
 
 ### Batch 1b: flows
 
 - **Trade on the winds** (synthesis). The route graph: by sea, routes priced on the planet's own winds and gyres (the sail's cost by month); by land, on the relief and the rivers. Flows run by a gravity model between markets, carrying food, crops and culture, and later goods and energy, drawn as lines as heavy as their flux. They replace the trade closure (`L_CORR`): harvests pool along routes, not by a correlation length. Monsoon trade and the oceans' sailing loops should come out of the winds.
 - **Cities that must be fed.** Cities become the model's, not only the drawing's: a city cell holds its own fields' food and what reaches it along the routes, with its foodshed drawn upstream. This lifts the demography's assumption that a cell's people are bounded by its own food, the change most likely to move Earth's score, so it gets a tuning pass of its own.
-- **The hungry season** (standard). From each crop's harvest calendar (the twelve months' warmth and growing period), stores must bridge the gap between harvests, so lean months differ by place.
-- **Herds as a stock**: herds per cell with their winter fodder, manure for the fields and traction for the plough (Eurasia's head start in domesticates, below).
+- **The hungry season**: built (`people.md`, "The hungry season"; `tests/hungry.test.mjs`): each cell's harvest calendar, the store's losses over the longest gap, the crops' rain spread pooled over their months, the granary's room past the season kept against bad years. Open: the lean month (`H.lean`) isn't drawn; granaries as works (below) would set the store's room and losses by place, not by culture alone; foragers' and herders' own lean seasons.
+- **Herds as a stock**: built (`people.md`, "Herds"; `tests/herds.test.mjs`): animals domesticated where large game survived a farming origin, carried with crops and by contact; a per-cell herd share, logistic less die-offs (drought, the dzud); herders need it; manure and traction on mixed farms. Open: winter fodder as its own limit (hay with culture), the animals' own climates (the camel's desert, the yak's plateau, the water buffalo's paddies), the horse's reach for batch 2's frontiers, and the herd drawn.
 - **Irrigation and salt**: canals from rivers onto dry floodplains, and salt rising over centuries through the ground's water until fields are lost (Mesopotamia's sequence, from memory), a drag on dry lands' cities.
 - **Works as places' improvements**: terraces, canals, granaries and roads, each with its own effect (on yield, water, stores, a route's cost), built by labour and kept by upkeep. Left alone they decay slowly, so an abandoned valley keeps a reason to be resettled.
 
@@ -55,7 +55,7 @@ From the same brainstorm, for later: languages as fast lineages and place names 
 
 ### Open in the model as it stands
 
-- **People on Earth** (`people.md` "On Earth"): Asia's paddies (wet rice beyond the floodplains, terraced and canal-fed, the densest pre-industrial farming); Eurasia's head start in large domesticates (the plough, manure, traction; the Americas farm like Eurasia once Bering lets culture through); industry-era migration (the Americas and Australia filled by ships, not by diffusion); and, first, the climate's monsoon and tropical rain, which set most of what's left.
+- **People on Earth** (`people.md` "On Earth"): Asia's paddies (wet rice beyond the floodplains, terraced and canal-fed, the densest pre-industrial farming); Eurasia's head start in large domesticates, now from the overkill (1b's herds), leaks through the model's mild Chukotka and gives Africa as much as Eurasia; industry-era migration (the Americas and Australia filled by ships, not by diffusion); and, first, the climate's monsoon and tropical rain, which set most of what's left.
 - **People, open**: the robot fleet's swings long after the dial (Ap between ~10¹⁷ and ~10²¹ in the same ending, a cycle of decades); capital's weight (K/Y ~2.3 against Earth's 3–4); a runaway's end (carbonates baked into a CO₂ atmosphere); the swarm's pace (mining's own ramp would slow it past the belt); surveys across seeds (how often a world tips, farming's origins, the follow dial's length).
 
 ## The planet
