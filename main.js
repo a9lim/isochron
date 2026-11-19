@@ -754,7 +754,7 @@ function startPeople() {
     else if (m.type === 'figure') { people.fig = m.fig; people.pyr = m.pyr; people.pyrRef = m.pyrRef; figuresDirty = true; }
     else if (m.type === 'routes') { people.routes = m; drawDirty = true; }
     else if (m.type === 'drawn') {
-      people.drawn = m.d; people.past = m.l;
+      people.drawn = m.d; people.past = m.l; people.zf = m.zf;
       if (globe) { globe.setPeople(m.d, people.grid); globe.setPeopleB(m.l, people.grid); }
       drawDirty = true;
     }
@@ -1234,7 +1234,7 @@ function tick(now) {
     lap('lines');
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, sun: sf.day });
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, fronts: people.zf, sun: sf.day });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;

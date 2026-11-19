@@ -150,13 +150,20 @@ const GLYPHS = {
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
   // Pasture: parcels as the farms', in ochre.
   pasture: (c, x, y, P) => parcels(c, x, y, P.inks.ochre, 0.1, 0.65),
-  // Knowledge: violet by how near the frontier's a place's is, far behind (left) to at the frontier (right).
-  knowledge: (c, x, y, P) => {
-    for (let a = 0; a < 26; a++) { c.fillStyle = P.inks.violet; c.globalAlpha = (P.dark ? 0.55 : 0.5) * Math.exp(-4 * (1 - a / 25)); c.fillRect(x + a, y, 1, 12); }
-    c.globalAlpha = 1;
+  // Knowledge's domains: production in the accent and learning in verdigris, each by how near the
+  // frontier's a place's is, far behind (left) to at the frontier (right).
+  production: (c, x, y, P) => lag(c, x, y, P, P.accent, P.dark ? 0.5 : 0.45),
+  // Learning: a verdigris hatch, its strokes stronger toward the frontier, as the shader's.
+  learning: (c, x, y, P) => {
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.strokeStyle = P.inks.verdigris; c.lineWidth = 1;
+    for (let a = -12; a < 26; a += 4.5) { c.globalAlpha = (P.dark ? 0.8 : 0.75) * Math.exp(-4 * (1 - Math.min(1, Math.max(0, (a + 6) / 25)))); line(c, x + a, y + 12, x + a + 12, y); }
+    c.restore(); c.globalAlpha = 1;
     c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
-  isoknowledge: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  isoproduction: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  // Equal learning: dashed in verdigris, as the shader breaks its lines.
+  isolearning: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.verdigris, 0.75); c.lineWidth = 1; c.setLineDash([4, 2.5]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   era: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.55); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
   // Works: dots on a staggered lattice in the rules' colour, as the shader's `stipple`.
   works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
@@ -226,6 +233,13 @@ function nightGround(P, k) {
   return `rgb(${C.map((v, i) => Math.round((v + (L[i] - v) * 0.16) * (1 - t) + N[i] * t)).join(', ')})`;
 }
 
+/** Production's wash, far behind its frontier (left) to at it (right), as the Knowledge map's e^{−2 × the lag}. */
+function lag(c, x, y, P, ink, a0) {
+  for (let a = 0; a < 26; a++) { c.fillStyle = ink; c.globalAlpha = a0 * Math.exp(-4 * (1 - a / 25)); c.fillRect(x + a, y, 1, 12); }
+  c.globalAlpha = 1;
+  c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+}
+
 /** A wash between the paper and an ink, as the charts tint. */
 function wash(c, x, y, P, ink, a) {
   c.fillStyle = mixHex(P.canvas, ink, a); c.fillRect(x, y, 26, 12);
@@ -244,7 +258,7 @@ const ITEMS = {
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
   'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
   'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
-  'people-knowledge': [['knowledge', 'Knowledge'], ['isoknowledge', 'Equal knowledge'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
+  'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['isoproduction', 'Equal production'], ['isolearning', 'Equal learning'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

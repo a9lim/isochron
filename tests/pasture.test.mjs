@@ -1,6 +1,6 @@
 // What the People view draws besides `drawn` (People.drawnB): the herders' pasture follows the
 // herders who are there, not the land they could hold, and a preserving ending's rewilding retires
-// it with the fields; the Knowledge map's knowledge, its lag behind the frontier, and the works a km².
+// it with the fields; the Knowledge map's production and learning, carried everywhere, and the works a km².
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -51,30 +51,37 @@ test('a preserving ending\'s rewilding retires the herds with the fields', () =>
   assert.ok(wild.K < 0.5 * kept.K, `the land feeds as foragers' then (${(wild.K / kept.K).toFixed(2)} of the herders' capacity)`);
 });
 
-test('the Knowledge map: the knowledge known, its lag behind the frontier, held where people have gone, and carried onto the cells beside it (the sea, land no one has lived on)', () => {
+test('the Knowledge map: production and learning known, their frontiers, held where people have gone, and carried onto every cell beyond (the sea, land no one has lived on), without a cliff', () => {
   const f = steppe(4);
   for (let i = 0; i < f.n; i++) if (f.grid.pos[3 * i + 2] > 0.6) f.elev[i] = -2;   // a sea in the north
   const p = new People(f, { ...quiet });
   const L = pop(p);
   p.capacity();
-  for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; L.Z[c] = 2 + p.H.lat[c]; }
+  for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; L.Z[c] = 2 + p.H.lat[c]; p.zl[c] = 1.5 + 0.5 * p.H.lat[c]; }
   p.drawn();
-  const zf = Math.max(...Array.from(p.zc)), c0 = 7, i0 = p.cells[c0];
+  const c0 = 7, i0 = p.cells[c0];
   p.works[c0] = 5e4;
   let l = p.drawnB();
-  assert.ok(Math.abs(l[4 * i0 + 1] - p.zc[c0]) < 1e-5 && Math.abs(l[4 * i0 + 2] - (zf - p.zc[c0])) < 1e-5);
+  assert.ok(Math.abs(l[4 * i0 + 1] - p.zc[c0]) < 1e-5 && Math.abs(l[4 * i0 + 2] - p.zl[c0]) < 1e-5);
+  assert.equal(p.zfP, Math.fround(Math.max(...Array.from(p.zc))));
+  assert.equal(p.zfL, Math.fround(Math.max(...Array.from(p.zl))));
   assert.ok(Math.abs(l[4 * i0 + 3] - 5e4 / p.H.area[c0]) < 1e-3 * 5e4 / p.H.area[c0], 'the works a km²');
   // Its people gone, a place keeps the knowledge its ruins knew.
   const z0 = p.zc[c0]; p.Ntot[c0] = 0; L.N[c0] = 0;
   l = p.drawnB();
   assert.ok(Math.abs(l[4 * i0 + 1] - z0) < 1e-5);
-  // A sea cell beside the land carries its land neighbours' mean, so the coast isn't a cliff of knowledge.
+  // Every cell of the sea gets a value, each its already-reached neighbours' mean: the first ring
+  // beside the land its land neighbours' mean, and no step between neighbours larger than inland.
   const g = f.grid;
+  let ring1 = false, worst = 0;
   for (let i = 0; i < g.n; i++) {
     if (p.loc[i] >= 0) continue;
+    assert.ok(l[4 * i + 1] > 0 && l[4 * i + 2] > 0, `cell ${i} carried`);
     const nb = []; for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const c = p.loc[g.nbr[t]]; if (c >= 0) nb.push(c); }
-    if (!nb.length) continue;
-    const m = nb.reduce((a, c) => a + p.zShow[c], 0) / nb.length;
-    assert.ok(Math.abs(l[4 * i + 1] - m) < 1e-5); break;
+    if (nb.length && !ring1) { const m = nb.reduce((a, c) => a + p.zShow[c], 0) / nb.length; assert.ok(Math.abs(l[4 * i + 1] - m) < 1e-5); ring1 = true; }
+    for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) worst = Math.max(worst, Math.abs(l[4 * i + 1] - l[4 * g.nbr[t] + 1]));
   }
+  let inland = 0;
+  for (let c = 0; c < p.nL; c++) { const i = p.cells[c]; for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) if (p.loc[g.nbr[t]] >= 0) inland = Math.max(inland, Math.abs(l[4 * i + 1] - l[4 * g.nbr[t] + 1])); }
+  assert.ok(ring1 && worst <= inland + 1e-5, `the sea's steepest step ${worst.toFixed(3)} against the land's ${inland.toFixed(3)}`);
 });

@@ -151,7 +151,7 @@ function post(force) {
   if (force || now - lastDrawn > 250) {
     lastDrawn = now;
     const d = people.drawn(), l = people.drawnB();
-    self.postMessage({ type: 'drawn', d, l }, [d.buffer, l.buffer]);
+    self.postMessage({ type: 'drawn', d, l, zf: [people.zfP || 0, people.zfL || 0] }, [d.buffer, l.buffer]);
     // The trade's routes (src/engine/routes.js), as each new kernel comes.
     const rt = people.routes;
     if (rt && rt.tTrade !== routesAt) {
