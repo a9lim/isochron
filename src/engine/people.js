@@ -194,7 +194,7 @@ export const PEOPLE = {
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 6, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
+  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 4.5, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (4.5: with the pyramids' aging, today's Earth at ~9 B at early takeoff, as before them; steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   AGE: 0.0087, Y_AGE: 30,          // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
@@ -305,7 +305,7 @@ export const PEOPLE = {
   F_PROBE: 0.01, V_PROBE: 0.5, N_STAR: 0.004, HAB_OPENS: 7,   // …; and where habitats about the Sun open (as WORLDS' `opens`)
   FOUNDERS_STAR: 1e4,                               // aligned: the people a probe starts a star's settlement with (grown or carried; speculation)
   S_ABS: 238,                                       // the sunlight Earth absorbs (W/m²: (1 − 0.3) × 1361/4, standard), which a sacrificing swarm shades by its share
-  P_PAUSE: 1 / 3, T_PHASE: 30, T_CDR_P: 300,     // a pause's odds (the rest aligned or not at P_ALIGN); 3b's fossil phase-out (yr, e-fold) and people's capture (yr to draw the excess CO₂ down, against an aligned AI's T_CDR)
+  P_PAUSE: 1 / 3, T_PHASE: 30, T_CDR_P: 300, HEAT_HELD: 0.5,   // … and the waste heat 3b's coordination allows (W/m², reached as fossil carbon is phased out)     // a pause's odds (the rest aligned or not at P_ALIGN); 3b's fossil phase-out (yr, e-fold) and people's capture (yr to draw the excess CO₂ down, against an aligned AI's T_CDR)
   P_ALIGN: 0.5, P_PRESERVE: 0.5, ENDING: null,      // the endings' odds on two axes (a9: "up to chance"), drawn at early takeoff from the seed: aligned or not, Earth preserved or not ('1a' misaligned and Earth sacrificed, '1b' misaligned and preserved, '2a' aligned and sacrificed, '2b' aligned and preserved); ENDING forces one
   T_SA: 2, T_DIS: 30,                               // AI's share of the work it could do (sA) is handed to it over T_SA years; misaligned: humans' control falls toward AI's share of the work over T_DIS years (gradual disempowerment, Kulveit and others 2025, from memory), and their births with it (no floor)
   HEAT_SAC: 1000, HEAT_PRES: 0.1,                   // Earth's heat budget (W/m²) as AI comes to run things: sacrificed (Earth a radiator at ~385 K: the oceans boil) or preserved (heavy industry off-world)
@@ -551,7 +551,7 @@ export function newEconomy(P) {
  * then between fixed capital and compute by their marginal products, capital worn and built exactly
  * for a steady inflow, fossil carbon burned, materials drawn.
  */
-export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null, capS: capS0 = null, keepF: keep = 1 }, dt, P) {
+export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null, capS: capS0 = null, keepF: keep = 1, heatB: heat0 = null }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
   const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND));
@@ -576,7 +576,7 @@ export function industrialStep(E, { Lh, z, Efood = 0, Ecdr = 0, ending = null, s
   // people's (HEAT_MAX) until AI runs things (its share of the work, sA), then the ending's: a
   // sacrificed Earth is a radiator, a preserved one keeps its heavy industry off-world and its
   // fossil carbon in the ground.
-  const heatB = ending ? P.HEAT_MAX * (1 - sA) + (ending.preserve ? P.HEAT_PRES : P.HEAT_SAC) * sA : P.HEAT_MAX;
+  const heatB = heat0 ?? (ending ? P.HEAT_MAX * (1 - sA) + (ending.preserve ? P.HEAT_PRES : P.HEAT_SAC) * sA : P.HEAT_MAX);   // `heatB`: a paused world's own
   const keepF = (ending && ending.preserve ? 1 - sA : 1) * keep;   // `keep`: a paused world's own phase-out
   // Surface solar's ceiling is the land it may stand on (People.solarRoom: D_SOL W/m² where the
   // sun is best, less as it weakens; by default all Earth's land, 1.49e14 m², standard); space
@@ -1836,7 +1836,7 @@ export class People {
       // Paused and kept (3b): people's own capture, ramping in as fossil carbon is phased out.
       const since = pause ? this.t - this.endAt : 0, phase = pause && pause.preserve ? 1 - Math.exp(-since / P.T_PHASE) : 0;
       const cdr = end && end.preserve ? sA * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR : phase * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR_P, Ecdr = cdr * P.J_CDR / YEAR_S;
-      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA, capR: this.solarRoom(), capS: this.swarmRoom(), keepF: 1 - phase }, dt, P);
+      industrialStep(E, { Lh, z, Efood, Ecdr, ending: end, sA, capR: this.solarRoom(), capS: this.swarmRoom(), keepF: 1 - phase, heatB: pause && pause.preserve ? P.HEAT_MAX * (1 - phase) + P.HEAT_HELD * phase : null }, dt, P);
       this.placeSolar(E.Er);
       this.offBots = Math.max(this.offBots, E.ApS || 0); this.swPeak = Math.max(this.swPeak, E.cs || 0);
       const gF = Efood > 0 ? E.EfoodGot / Efood : 1;

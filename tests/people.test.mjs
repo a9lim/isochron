@@ -180,7 +180,7 @@ test('births and deaths: zero growth at the food capacity before industry, the f
   // With industry's income: deaths fall first (growth rises), then births (growth falls).
   const rate = yg => { const r = demography(5e5, 1e6, yg, 1e-3, P); return { b: r.b, d: r.d, g: r.b - r.d }; };
   const e = rate(0), m = rate(3), l = rate(30);
-  assert.ok(m.d < 0.6 * e.d && m.b > 0.9 * e.b, `at y_g 3 mortality has fallen (d ${m.d.toFixed(4)} against ${e.d.toFixed(4)}) and fertility not yet (b ${m.b.toFixed(4)})`);
+  assert.ok(m.d < 0.6 * e.d && m.b > 0.8 * e.b, `at y_g 3 mortality has fallen (d ${m.d.toFixed(4)} against ${e.d.toFixed(4)}) and fertility not yet (b ${m.b.toFixed(4)})`);
   assert.ok(m.g > e.g + 0.005 && l.g < m.g - 0.01, `growth rises then falls: ${e.g.toFixed(4)}, ${m.g.toFixed(4)}, ${l.g.toFixed(4)}`);
   // Rich, in the long run: replacement (neither growing nor dying out).
   const rich = g(1, 1e9, 1e6);
