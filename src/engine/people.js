@@ -8,37 +8,34 @@
 // land carries, and what it carries makes minds. v1 splits the factors where a split brings its own
 // dynamics and lands on a layer the planet has, each switched on by era:
 //
-//   culture   z, in e-folds of productivity, per lineage and cell. Ideas come from the minds a cell
+//   culture   z, in e-folds of productivity, per cell. Ideas come from the minds a cell
 //             can learn from, M (the collective brain: Henrich 2004, from memory), at A M^ψ a year,
 //             and are lost at λ z (imperfect copying; Tasmania's loss over ~10 kyr sets λ), less
 //             where a cell's works keep them (`works`: monuments, writing, schools; the land's
 //             works, terraces, canals, granaries and roads, are the cities' labour sent back to the
 //             land that feeds them, `stocks`, with the canals' salt). A is
-//             Kremer's constant (von Foerster's C = 1/(θA)). Social reach g is a lineage's trait,
-//             rising as a clock (speculation): it lengthens contact and raises foraging's yield
-//             (e^{K_G g}). With ψ = 1 and a capacity ∝ e^{θz}, the loop's population runs as
+//             Kremer's constant (von Foerster's C = 1/(θA)). With ψ = 1 and a capacity ∝ e^{θz}, the loop's population runs as
 //             1/(t* − t), von Foerster's hyperbola (standard algebra). Below a threshold the loop
 //             has a low fixed point (a saddle-node's: A M₀ θ e > λ is where it vanishes, synthesis),
-//             so a branch "tips" when the minds within its reach pass ~λ/(Aθe), about a million.
-//   minds     M: people pass ideas over a contact length ℓ, which the trait and culture lengthen
-//             (ℓ = L_C0 e^{(g + z)/Z_L}), within the connected body they live in (land peopled at
+//             so a people "tips" when the minds within its reach pass ~λ/(Aθe), about a million.
+//   minds     M: people pass ideas over a contact length ℓ, which the species' clock and culture
+//             lengthen (ℓ = ℓ_S(t) e^{z/Z_L}: one clock for everyone, `reachL`, speculation), within
+//             the connected body they live in (land peopled at
 //             MIND_REL of the inhabited world's mean density, and with boats narrow seas): M = N_C
 //             (1 − e^{−πℓ²ρ/N_C}), the local minds' density ρ over a disc of radius ℓ, saturating at
 //             the body's total N_C (synthesis). The threshold rises with the world: a forager world is
 //             one body, a farming world's sparse margins (the Arctic, the deserts) part it, so the
 //             Americas and Australia keep Kremer's lag. Minds are people × research intensity (rising
-//             with income) and the other lineages' at η; AI's research minds join them through the
-//             task CES below. Culture is also copied from neighbours who know more, of any lineage, as
-//             often as people meet (each side's density against RHO_COPY).
-//   people    a density per lineage. Births and deaths (`demography`): deaths by food per person
+//             with income); AI's research minds join them through the task CES below. Culture is
+//             also copied from neighbours who know more, as often as people meet (each side's
+//             density against RHO_COPY).
+//   people    a density per cell. Births and deaths (`demography`): deaths by food per person
 //             (hunger below subsistence, disease at density), cut by medicine as industrial income
 //             rises; births fall with industrial income only; so mortality falls before fertility
 //             (the demographic transition's stages, standard; Earth's rates from memory). Each
 //             cell's pyramid of five-year cohorts rides its total (src/engine/cohorts.js): its old
 //             people's deaths are the cell's aging, its working ages the economy's workers. The cell's
-//             total is solved exactly against the harmonic mean of its lineages' capacities, the
-//             shares by their crowding (Lotka–Volterra in one niche: the higher capacity excludes
-//             the lower; standard). Spread down the gradient of crowding N/K rather than density
+//             total is solved exactly against its capacity. Spread down the gradient of crowding N/K rather than density
 //             (toward the ideal free distribution: Fretwell and Lucas, from memory), which on even
 //             capacity is Fisher–KPP (standard: a front at ~2√(rD), less Bramson's delay), with
 //             slope and the capacity's zero as barriers. The sea is crossed by voyages: an empty
@@ -137,11 +134,10 @@
 //             the carriers eat; the people follow the food, and die faster in cities until
 //             sanitation; the cities' sizes weigh their dwellers' minds (urban scaling, the world's
 //             minds kept). Industry's machines on its workers' footprint (drawn).
-//   lineages  a lineage whose range stays broken into isolated pieces for T_SPLIT splits; gene flow
-//             where lineages meet mixes their traits and ancestry, and two that keep sharing most of
-//             the smaller's range for T_MERGE become one (soft species, synthesis). The first
-//             hominins are placed at the heart of the broadest tree–grass mosaic on the landmass that can hold the
-//             most of them, summed over R_ORIGIN (speculation).
+//   origin    the first people (Homo sapiens, 150 kyr before the dial runs out on Earth) at the heart
+//             of the broadest tree–grass mosaic on the landmass that can hold the most of them, summed
+//             over R_ORIGIN (speculation). The archaic peoples before them aren't modelled; their mark
+//             is the home world-island's wary game (`home`).
 //
 // Units: years, km, people, z in e-folds; output in subsistence-years a year (sy/yr, a person's
 // subsistence a year), capital in sy; energy in W; carbon in Pg C.
@@ -189,8 +185,8 @@ export const PEOPLE = {
   R_HERD: 0.15, F_DIE: 1.5, TH_DIE: 0.15, B_DZUD: 0.1, C_ANIM: 0.01, K_KEEP: 0.3, A_SEED: 0.05, PATH_ANIM: 0.8, MANURE: 0.35, TRACT: 0.3,
   // Megafauna (synthesis; the overkill's timing speculation): large game as a stock a cell, regrowing
   // slowly and hunted in proportion to the foragers there and their culture; animals that evolved
-  // beside hominins are wary (NAIVE_CO of a naive fauna's take), so they hold where people began and
-  // are hunted out where people arrived after the tip (the Americas', Sahul's). Below M_EXT they're gone.
+  // beside hominins are wary (NAIVE_CO of a naive fauna's take): the home world-island's (`home`), so
+  // they hold where people began and are hunted out beyond it (the Americas', Sahul's). Below M_EXT they're gone.
   R_MEGA: 0.03, H_MEGA: 0.04, NAIVE_CO: 0.15, M_EXT: 0.02, MEAT: 0.3, MG_REF: 0.6,   // regrowth (/yr: slow breeders, from memory), the take at a forager density B0 with full culture, wariness, extinction, meat's share of foraging at the full stock and the stock it was calibrated at
   TREE_EDIBLE: 0.4,                // trees' NPP's share a forager reaches, against grass's
   COAST: 0.5, P_DRY: 250, Q_RIVER: 200, ICE_MAX: 10,   // the coast's bonus; rain (mm) below which water limits; a river (m³/s); ice (m)
@@ -247,7 +243,7 @@ export const PEOPLE = {
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   D_IND: 1e4,                      // … and industry's (railways and steamships, a logistic about Z_IND: the American and Siberian frontiers moved ~30–50 km a year in the nineteenth century, from memory), on top, past D_MAX
   // Ideas
-  THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
+  THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
   // Works (speculation): what a surplus builds besides people (monuments, writing, schools), in
   // person-years a cell: S_WORK of its city people's labour, decaying over T_WORK without upkeep.
   // Forgetting falls as λ/(1 + w/W_WORK), w the works a person, so a people with works keeps its
@@ -285,23 +281,29 @@ export const PEOPLE = {
   // too soon after industry.
   SIG_LUCK: 0.4, L_LUCK: 1500, K_LUCK: 160, Z_LUCK: 0.3, Z_LUCK0: 2,
   BETA_R: 0.25,                    // ideas get harder to find past industry's culture: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
-  L_C0: 50, Z_L: 1.5, L_CMAX: 2e4,  // contact length (km) at g + z = 0, ×e per Z_L, at most
+  // The species' clock (speculation): the first people's contact length ℓ_S (km, at z = 0) rises from
+  // L_S0, e-fold per T_S at first, toward L_SMAX (a logistic in ℓ_S): one clock for everyone, so the
+  // tip is still the loop's threshold, crossed where density and climate let the minds pass it (the
+  // Middle Stone Age's innovations that came and went with its people's numbers: Powell, Shennan and
+  // Thomas 2009, from memory). Contact ℓ = ℓ_S e^{z/Z_L}, at most L_CMAX.
+  L_S0: 1000, L_SMAX: 3000, T_S: 35e3, Z_L: 1.5, L_CMAX: 2e4,
   MIND_REL: 0.3,                   // the density (against the inhabited world's mean) a body's people keep up across
   V0: 1, Z_V: 1.5,                  // copying's pace ×e per Z_V of culture
-  COPY: 2e-3, ACC: 2e-3, RHO_COPY: 0.02,   // copying better neighbours, and other lineages in the cell (/yr at z = 0); the density (per km²) at which half the contacts are made
+  COPY: 2e-3, RHO_COPY: 0.02,      // copying better neighbours (/yr at z = 0); the density (per km²) at which half the contacts are made
   RHO_R: 0.5, S_R_MAX: 1,          // research intensity ∝ y^ρ, capped at a subsistence-year's: a rich people's larger research share is offset by research's falling yield (BETA_R), so Kremer's A holds at Earth's 1960 (~1.8%/yr of productivity at 3 B; 3 at 3× gave the industrial era ~5–9%/yr at takeoff, and 90–220 Pg C burned by then)
   Z_BOAT: 0, L_SEA0: 40, L_SEA: 600, Z_SEA: 1.5, HOPS: 6, LONG_HOPS: 40, K_LONG: 4,   // sea crossings: from culture Z_BOAT, the reach L_SEA0 + L_SEA (1 − e^{−z/Z_SEA}) (km: rafts', then boats' along coasts and between islands, a few hundred km by the Upper Palaeolithic: Sahul and Bering crossed); cells of sea a crossing spans (every edge within HOPS; past it, each group of landmasses its K_LONG nearest others, to LONG_HOPS, then rounds until all are joined)
   L_OCEAN: 4000, Z_OCEAN: 6.2, W_OCEAN: 0.2,   // … and the open ocean's, a logistic in culture (deep-sea navigation: the Polynesians', then Europe's ~1500; synthesis): coastal craft reach a few hundred km for tens of kyr, then ships cross oceans within centuries
   OCEAN_HOPS: 80, M_ROUTE: 6, D_ROUTE: 1500,   // ocean routes: each landmass to every other within OCEAN_HOPS cells of sea, at up to M_ROUTE landings at least D_ROUTE km apart (the Atlantic beside Bering: a crossing between landmasses that the short ones already join, but by the long way round)
   S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of culture, × e^{−km/reach}; the founders (synthesis)
-  // The trait (speculation: social reach as a clock)
-  V_G: 2e-3, T_GEN: 25, S_BG: 0.04, NE_SHARE: 0.1, G_MAX: 9,   // the trait lengthens contact, up to G_MAX (ℓ at L_CMAX)
-  K_G: 0.1,                        // … and raises foraging's yield, e^{K_G g} (cooking, hunting: speculation)
-  // Lineages
-  L_MAX: 12, CHECK: 10e3, T_SPLIT: 200e3, P_MIN: 3000, N_MIN: 0.003, P_EXT: 100, GENE_FLOW: 2e-3,   // N_MIN per km²; CHECK and T_MERGE shorten with culture's pace (e^{−z/Z_V}: people travel and mix as they copy), so lineages sharing a range merge within centuries once they do
-  R_ORIGIN: 1000,                  // km: the first hominins at the heart of the broadest tree–grass mosaic, summed this far (speculation)
-  MERGE: 0.1, T_MERGE: 50e3,       // lineages in contact (sharing this much of the smaller's numbers) for T_MERGE become one: kinds of hominin interbreeding where they meet (soft species; with half shared, lineages on two continents met only at their coasts and never merged: 3–6 at takeoff)
-  T_ISO: 300e3,                    // isolation grows with the time two lineages' lines have been apart, τ, as their incompatibilities snowball (∝ τ²: Orr 1995, from memory): their gene flow and their merging both × e^{−(τ/T_ISO)²}, so lineages long apart meet as near strangers, the abler replacing the other where they share land with a little admixture (Neanderthals and us, ~600 kyr apart, a few % of our genome; a9: "too big of a gap … go extinct rather than merge"; the scale speculation). (With e^{−τ/T}, culture's pace still merged lineages 500 kyr apart within years once industry brought them together.)
+  F_SAP: 1.8,                      // the first people's foraging over the base density's (cooking, projectiles, nets; speculation): what the hominins' evolving reach had come to by their tip
+  Z0: 0.5,                         // the culture the first people begin with (the Middle Stone Age's, the archaic peoples' before them; speculation)
+  N_MIN: 0.003,                    // per km²: land counted as peopled (reached, the minds' bodies, the spread's crossings)
+  R_ORIGIN: 1000,                  // km: the first people at the heart of the broadest tree–grass mosaic, summed this far (speculation)
+  // The home world-island (synthesis): the origin's land, joined by land and by crossings of up to
+  // D_ARCH km, as cold as a culture of Z_ARCH holds (the archaic peoples', Neanderthals' Europe and
+  // Denisovans' Asia; Sunda by the glacial shelves, Flores and Luzon, not Sahul or the Americas: from
+  // memory). Its game had long known hominins and is wary; elsewhere it meets people naive.
+  Z_ARCH: 1, D_ARCH: 300,
   // Farming
   Z_FARM: 3, W_FARM: 0.15, H_FARM: 6e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, C_PKG: 0.05,
   BREED: 1,                        // industry's breeding: a crop's climate envelope × (1 + BREED × industry's share)
@@ -409,7 +411,7 @@ export const PEOPLE = {
   // Stepping
   T_ROUTES: 1000,                  // years between the routes' rebuilds as the land changes under them
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4, NSUB_IND: 48,   // the spread's most substeps a step, before industry and after (its mobility needs them in the economy's 10-year steps)
-  DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
+  DT_EARLY: 2000,                  // the step's most before the people tip (the forager era, where nothing moves faster; after it, longer steps let several farming origins fire at once)
   T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
   DT_ECON: 10,                     // the step's most from early takeoff on (past the fine stretch, 500-year steps set the economy oscillating: energy collapsing and recovering a step apart, the people to trillions)
   Z_SAT: 30,                       // culture past which nothing here changes (χ at X_MAX, β at B_MAX, energy's intensity at its floor, every source mature): held there (synthesis)
@@ -525,14 +527,14 @@ export function taskLabor(Lh, A, beta, sigma) {
  * planet's own years are known (`real`: the share phi of the step they cover, and the harvest's
  * anomaly over them, mean m and spread s), they stand in for that share: F_FAM y s G((u − y m)/(y s)).
  * dN/dt = N (b − d) is a logistic on either side of N = K (fed, and short), each solved exactly; a
- * step that crosses K keeps its side's law (a small error). Returns the new total and the deaths'
- * density coefficient, which sets competition between lineages.
+ * step that crosses K keeps its side's law (a small error). Returns the new total, the births' and
+ * deaths' rates, famine's deaths and medicine's factor on senescence.
  */
 export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
   const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0);
-  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0, b, d: 0.05, famine: 0, m: ms };
+  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms };
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
   else { r = b - m * P.B_PRE - age + P.F_FAM; a = P.F_FAM / K; }
@@ -546,7 +548,7 @@ export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real =
   }
   const e = Math.exp(Math.max(-50, Math.min(50, r * dt)));
   const Nn = Math.abs(r) > 1e-12 ? r * N * e / (r + a * N * (e - 1)) : N / (1 + a * N * dt);
-  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, crowd: a * K, b, d: b - (r - a * N), famine: dv, m: ms };   // m: senescence's medicine
+  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, b, d: b - (r - a * N), famine: dv, m: ms };   // m: senescence's medicine
 }
 
 /**
@@ -885,7 +887,7 @@ export class People {
     this.P = { ...PEOPLE, M_MERC: system.quarry.mass, M_BELT: system.belt.mass, ...params };
     this.planet = planet;
     this.rng = stream(planet.seed, 'people'); this.seaRng = stream(planet.seed, 'people:sea');
-    this.t = 0; this.events = []; this.history = []; this.lineages = []; this.nextId = 0;
+    this.t = 0; this.events = []; this.history = []; this.tTip = null;
     this.index(); this.rates(planet); this.graph(); this.fossilMap(); this.oreMap();
     const nL = this.nL;
     this.soil = new Float64Array(nL); this.dField = new Float64Array(nL);   // the regolith's mean (m); the fields' deficit past it (m)
@@ -893,12 +895,15 @@ export class People {
     this.Ef = new Float64Array(nL);
     this.f = new Float32Array(nL); this.pkg = new Int16Array(nL).fill(-1); this.packages = []; this.pkgT = new Float64Array(nL);   // the farmed share, its package, and when it was taken up
     this.ind = new Float32Array(nL);
-    this.Ntot = new Float64Array(nL); this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
+    // The people: each cell's numbers, culture (z), minds, and capacity at its own culture (K) and at
+    // the best culture anywhere (K2: what migrants could make of it, the spread's weights).
+    this.Ntot = new Float64Array(nL); this.zc = new Float64Array(nL); this.M = new Float64Array(nL); this.K = new Float64Array(nL); this.K2 = new Float64Array(nL);
+    this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
     // The stocks people draw on (`stocks`): large game and the coast's fish (shares of their own
-    // without people), and how wary each cell's game is of people (set when people first come).
+    // without people), and how wary each cell's game is of people (the home world-island's, `seed`).
     this.herdS = new Float64Array(nL); this.past = new Float64Array(nL); this.Kown = new Float64Array(nL);   // herders' hold on the unfarmed land, their pasture's share of the cell (drawn), and the capacity it was found at
-    this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1); this.met = new Uint8Array(nL);
+    this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1);
     // Herds (`stocks`, `farming`): the domesticates people have here (0–1 of a full set), the herd's
     // share of what the grass and fodder could keep, and its die-offs a year (`herdYears`).
     this.anim = new Float64Array(nL); this.herdM = new Float64Array(nL); this.hLoss = new Float64Array(nL);
@@ -1147,14 +1152,12 @@ export class People {
    * M_EXT for good. Fish: H_FISH where people live on a coast (by their crowding), and industry's
    * fleets H_FISH_IND × its share, easing with culture as tillage does.
    */
-  stocks(dt, live) {
+  stocks(dt) {
     const P = this.P, H = this.H, nL = this.nL, Ntot = this.Ntot, z = this.zc;
-    const tipped = this.lineages.some(L => L.tipped !== null);
     const logi = (M, R, h) => { const r = R - h; if (!(M > 0)) return 0; if (Math.abs(r) < 1e-12) return M / (1 + R * M * dt); const e = Math.exp(Math.max(-60, Math.min(60, r * dt))); return r * M * e / (r + R * M * (e - 1)); };
     for (let c = 0; c < nL; c++) {
       if (!H.alive[c]) continue;
       const N = Ntot[c];
-      if (N > 0 && !this.met[c]) { this.naive[c] = tipped ? 1 : P.NAIVE_CO; this.met[c] = 1; }
       if (this.mega[c] > 0) {
         const zz = z ? z[c] : 0, ez = ex(P.THETA * zz), PF = ez / (1 + (ez - 1) / P.CAP_F);
         const rho = N / H.area[c] * (1 - this.f[c]), h = P.H_MEGA * this.naive[c] * Math.min(3, rho / P.B0) * PF / P.CAP_F;
@@ -1593,28 +1596,12 @@ export class People {
   }
 
   // ---- Lineages ---------------------------------------------------------------------------
-  /** Years since two lineages' lines parted: when the later of them left their last common ancestor. */
-  divergence(A, B) {
-    const left = new Map();
-    for (let L = A, t = this.t; L; t = L.born, L = L.parent >= 0 ? this.lineages[L.parent] : null) left.set(L.id, t);
-    for (let L = B, t = this.t; L; t = L.born, L = L.parent >= 0 ? this.lineages[L.parent] : null) if (left.has(L.id)) return this.t - Math.min(left.get(L.id), t);
-    return this.t;
-  }
-
-  newLineage(parent, born, g) {
-    const nL = this.nL, id = this.nextId++;
-    const L = { id, parent: parent ? parent.id : -1, born, died: null, g, anc: new Map([[id, 1]]),
-      N: new Float64Array(nL), Z: new Float64Array(nL), M: new Float64Array(nL), K: new Float64Array(nL),
-      total: 0, zbar: 0, zmax: 0, peak: 0, multiSince: null, tipped: null, lat: 0, lon: 0 };
-    this.lineages.push(L);
-    return L;
-  }
-  // The first hominins: the heart of the broadest tree–grass mosaic (the mosaic summed within
-  // R_ORIGIN) on the landmass that can hold the most of them. A radiation of apes lives across an
-  // ecotone on a continent, not in one cell or on an islet: the best single cell is a near tie among
-  // tropical coasts the world over (on today's Earth within 2% from Southeast Asia to West Africa).
+  // The first people: the heart of the broadest tree–grass mosaic (the mosaic summed within
+  // R_ORIGIN) on the landmass that can hold the most of them. People arise across an ecotone on a
+  // continent, not in one cell or on an islet: the best single cell is a near tie among tropical
+  // coasts the world over (on today's Earth within 2% from Southeast Asia to West Africa).
   seed() {
-    const H = this.H, nL = this.nL, body = this.components(() => true, 0);
+    const P = this.P, H = this.H, nL = this.nL, body = this.components(() => true, 0);
     const room = new Float64Array(body.count);
     for (let c = 0; c < nL; c++) room[body.id[c]] += H.area[c] * H.b[c] * this.coldOK(c, 0);
     let home = 0; for (let k = 1; k < body.count; k++) if (room[k] > room[home]) home = k;
@@ -1630,13 +1617,31 @@ export class People {
       if (sum > bestS) { bestS = sum; best = cand[a]; }
     }
     if (best < 0) for (let c = 0; c < nL; c++) if (body.id[c] === home && (best < 0 || H.b[c] > H.b[best])) best = c;
-    const L = this.newLineage(null, 0, 0);
-    L.lat = H.lat[best]; L.lon = H.lon[best];
+    this.origin = best;
     const E = this.E, seedCells = [best];
     for (let o = E.off[best]; o < E.off[best + 1]; o++) if (!E.hop[o]) seedCells.push(E.nb[o]);
-    for (const c of seedCells) L.N[c] = 0.5 * H.area[c] * H.b[c];
-    this.event('origin', `the first hominins at ${deg(L.lat).toFixed(0)}°, ${deg(L.lon).toFixed(0)}° (b ${H.b[best].toFixed(3)}/km²)`);
-    return L;
+    for (const c of seedCells) { this.Ntot[c] = 0.5 * H.area[c] * H.b[c]; this.zc[c] = P.Z0; }
+    const isle = this.home(best);
+    for (let c = 0; c < nL; c++) this.naive[c] = isle[c] ? P.NAIVE_CO : 1;
+    this.event('origin', `the first people at ${deg(H.lat[best]).toFixed(0)}°, ${deg(H.lon[best]).toFixed(0)}° (b ${H.b[best].toFixed(3)}/km²)`);
+  }
+  /**
+   * The home world-island (PEOPLE.Z_ARCH, D_ARCH): the land joined to `from` by land and by crossings
+   * of up to D_ARCH km, as cold as a culture of Z_ARCH holds; 1 there, 0 elsewhere.
+   */
+  home(from) {
+    const P = this.P, E = this.E, H = this.H, nL = this.nL, isle = new Uint8Array(nL), ok = c => H.alive[c] && this.coldOK(c, P.Z_ARCH) > 0.5;
+    if (!ok(from)) return isle;
+    const stack = [from]; isle[from] = 1;
+    while (stack.length) {
+      const u = stack.pop();
+      for (let o = E.off[u]; o < E.off[u + 1]; o++) {
+        const d = E.nb[o];
+        if (isle[d] || !ok(d) || (E.hop[o] && E.km[o] > P.D_ARCH)) continue;
+        isle[d] = 1; stack.push(d);
+      }
+    }
+    return isle;
   }
   event(kind, text) { this.events.push({ t: this.t, kind, text }); if (this.onEvent) this.onEvent(this.t, kind, text); }
 
@@ -1650,16 +1655,15 @@ export class People {
    */
   fieldSoil(c) { return Math.max(0, this.soil[c] * (1 - Math.log(Math.max(this.f[c], 0.02))) - this.dField[c]); }
   soilYield(c) { const P = this.P; return P.Y_STONY + (1 - P.Y_STONY) * (1 - Math.exp(-this.fieldSoil(c) / P.H_YIELD)); }
-  capacity(L) {
-    const P = this.P, H = this.H, nL = this.nL, f = this.f, ind = this.ind, eg = Math.exp(P.K_G * L.g);
-    // K at each cell's own culture, and K2 at the lineage's best (what its migrants could make of a
-    // cell: the spread's weights; crowding uses K).
+  capacity() {
+    const P = this.P, nL = this.nL, N = this.Ntot, Z = this.zc;
+    // K at each cell's own culture, and K2 at the best anywhere people live (what their migrants
+    // could make of a cell: the spread's weights; crowding uses K).
     let zb = 0;
-    for (let c = 0; c < nL; c++) if (L.N[c] > 0 && L.Z[c] > zb) zb = L.Z[c];
-    if (!L.K2) L.K2 = new Float64Array(nL);
-    this.capAt(L, L.Z, L.K, eg); this.capAt(L, null, L.K2, eg, zb);
+    for (let c = 0; c < nL; c++) if (N[c] > 0 && Z[c] > zb) zb = Z[c];
+    this.capAt(Z, this.K, P.F_SAP); this.capAt(null, this.K2, P.F_SAP, zb);
   }
-  capAt(L, Zs, K, eg, zConst = 0) {
+  capAt(Zs, K, eg, zConst = 0) {
     const P = this.P, H = this.H, nL = this.nL, f = this.f, ind = this.ind;
     // Industry lifts farming past the organic ceiling as far as farming's own energy is met (E_AG a person fed).
     const fert = Math.max(0.5, 1 + P.CO2_FERT * Math.log(this.co2 / P.CO2_0)), lift = this.econ.on ? softMin((this.econ.sup || 0) / Math.max(1, P.E_AG * this.people), 1, 4) : 0;
@@ -1779,34 +1783,32 @@ export class People {
     const s = this.suit(q, c), P = this.P;
     return s > 0 ? Math.pow(s, Math.max(P.A_ADAPT, Math.exp(-Math.max(0, this.t - this.pkgT[c]) / P.T_ADAPT))) : 0;
   }
-  reachL(gz) { const P = this.P; return softMin(P.L_C0 * Math.exp(Math.min(Math.max(0, gz) / P.Z_L, 300)), P.L_CMAX, 4); }
+  /** The species' contact length at the step's time (km, at z = 0): a logistic from L_S0 toward L_SMAX, e-fold per T_S at first. */
+  clockL(t = this.t) { const P = this.P; return P.L_SMAX / (1 + (P.L_SMAX / P.L_S0 - 1) * Math.exp(-t / P.T_S)); }
+  /** Contact length (km) at culture z: the species' clock × e^{z/Z_L}, at most L_CMAX. */
+  reachL(z) { const P = this.P; return softMin(this.clockL() * Math.exp(Math.min(Math.max(0, z) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
   seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * sig((z - P.Z_OCEAN) / P.W_OCEAN) : 0; }
 
   step(dtWanted) {
-    const P = this.P, nL = this.nL, live = this.lineages.filter(L => L.died === null);
+    const P = this.P, nL = this.nL;
     const Ntot = this.Ntot, prof = this.prof || (this.prof = {});
     let tq = performance.now();
     const lap = k => { const t1 = performance.now(); prof[k] = (prof[k] || 0) + t1 - tq; tq = t1; };
     this.compCache = new Map();
     this.co2 = this.env.co2();
-    // Capacity and the cells' totals.
-    Ntot.fill(0);
-    for (const L of live) { this.capacity(L); for (let c = 0; c < nL; c++) Ntot[c] += L.N[c]; }
+    // Capacity.
+    this.capacity();
     lap('capacity');
     const dt = dtWanted;
     // The cities' food along the routes (`feed`): their people are fed from their catchments.
-    this.feed(live, dt);
+    this.feed(dt);
     lap('feed');
-    // People: births and deaths (`demography`), the cell's total exact over the step; the lineages'
-    // shares by their crowding, d ln(N_k/N_l)/dt = c N_all (1/K_l − 1/K_k) with c the deaths'
-    // density coefficient, so the higher capacity excludes the lower (Lotka–Volterra in one niche,
-    // standard).
-    const lw = this.lw || (this.lw = new Float64Array(64));
-    this.gMax = live.reduce((g, L) => Math.max(g, L.g), 0); this.famine = 0;
+    // People: births and deaths (`demography`), the cell's total exact over the step.
+    this.famine = 0;
     const bf = this.ending && !this.ending.aligned && !this.ending.paused ? 1 - this.dis : 1;   // misaligned: births fall with humans' control (no floor)
-    const nl = live.length;
+    const K = this.K;
     // The planet's realized years: this step takes as many as it lasts (the rest wait for the next).
     this.yrTake = this.yrW > 1e-9 ? Math.min(this.yrW, dt) : 0; this.yrPhi = this.yrTake / dt;
     const ry = this.ry || (this.ry = { phi: 0, m: 0, s: 0 });
@@ -1823,41 +1825,29 @@ export class People {
     if (longStep) this.pyrStale = true;
     for (let c = 0; c < nL; c++) {
       const Nt = Ntot[c];
-      if (!(Nt > 1e-6)) { for (let k = 0; k < nl; k++) live[k].N[c] = 0; continue; }
-      let inv = 0, one = -1, many = 0;
-      for (let k = 0; k < nl; k++) { const L = live[k]; if (L.N[c] > 0) { inv += L.N[c] / Nt / Math.max(L.K[c], 1e-12); one = k; many++; } }
-      const Kh = 1 / inv;
+      if (!(Nt > 1e-6)) { Ntot[c] = 0; continue; }
+      const Kh = Math.max(K[c], 1e-12);
       // The harvests' spread here: rain-fed farmers bear it whole, foragers half (they move), trade
       // pools it over the market's supply basket; granaries hold up to a share of a year.
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = this.reserve(c, fc, z);
-      const { N: Nn, crowd, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, tp, ry), this.aging[c], this.cityShare ? this.cityShare[c] : 0);
+      const { N: Nn, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, tp, ry), this.aging[c], this.cityShare ? this.cityShare[c] : 0);
       this.famine += famine * Nt;
       // The pyramid over the step: births, the deaths past senescence (the total's, less the pyramid's
       // own senescence under medicine), the step's growth.
       if (this.pyrStale && !longStep) { stableLookup(bc, Nn > 0 ? Math.log(Nn / Nt) / dt : 0, this.pyr, COHORTS.K * c); this.pyrSum[c] = 1; }
       else if (!longStep) this.pyrSum[c] = stepPyramid(this.pyr, COHORTS.K * c, bc, dc - mc * this.sen[c], mc, Nn > 0 ? Math.log(Nn / Nt) / dt : 0, pyT, this.pyrTmp);
-      // One lineage here (the common case) takes the whole; several share by their crowding.
-      if (many === 1) { live[one].N[c] = Nn > 1e-6 ? Nn : 0; continue; }
-      const Nbar = 0.5 * (Nt + Nn);
-      let mx = -Infinity;
-      for (let k = 0; k < nl; k++) { const L = live[k]; lw[k] = L.N[c] > 0 ? Math.log(L.N[c]) - crowd * Nbar * dt / Math.max(L.K[c], 1e-12) : -Infinity; if (lw[k] > mx) mx = lw[k]; }
-      let sw = 0;
-      for (let k = 0; k < nl; k++) { lw[k] = lw[k] === -Infinity ? 0 : Math.exp(lw[k] - mx); sw += lw[k]; }
-      for (let k = 0; k < nl; k++) { const v = Nn * lw[k] / sw; live[k].N[c] = v > 1e-6 ? v : 0; }
+      Ntot[c] = Nn > 1e-6 ? Nn : 0;
     }
     this.herdYears();
     if (this.yrTake > 0) { const k = 1 - this.yrTake / this.yrW; for (const a of this.yr) for (let c = 0; c < nL; c++) a[c] *= k; this.yrW -= this.yrTake; if (this.yrW < 1e-9) this.yrW = 0; }
     lap('growth');
-    if (this.debug) this.check('growth', live);
+    if (this.debug) this.check('growth');
     // Spread: Fisher–KPP, culture carried with the migrants (upwind).
-    const Ng = this.Ng; Ng.fill(0);
-    for (const L of live) for (let c = 0; c < nL; c++) Ng[c] += L.N[c];
-    for (const L of live) { this.diffuse(L, dt); this.voyages(L, dt); }
-    if (this.debug) this.check('spread', live);
+    const Ng = this.Ng; Ng.set(Ntot);
+    this.diffuse(dt); this.voyages(dt);
+    if (this.debug) this.check('spread');
     lap('spread');
-    Ntot.fill(0);
-    for (const L of live) for (let c = 0; c < nL; c++) Ntot[c] += L.N[c];
     // The pyramids: migrants by their schedule, then each cell's aging and workers' share.
     const KC = COHORTS.K, ps = this.pyrSum, po = this.pyrOut;
     if (!longStep) this.pyrStale = false;
@@ -1868,13 +1858,12 @@ export class People {
       this.aging[c] = Math.max(0, po.sen - this.senRef);   // aging lifts the crude rate (× medicine); a young frontier's few old are already in D_LO
       this.lfp[c] = P.LFP * po.work / COHORTS.W_REF;
     }
-    this.stocks(dt, live);
+    this.stocks(dt);
     // Food, the industrial economy, goods; emissions and forcing.
-    this.economy(live, dt);
-    if (this.debug) this.check('economy', live);
+    this.economy(dt);
+    if (this.debug) this.check('economy');
     lap('economy');
-    // Minds within reach, and culture; research's intensity by the cell's output a person, the
-    // same for every lineage.
+    // Minds within reach, and culture; research's intensity by the cell's output a person.
     const sR = this.sR || (this.sR = new Float64Array(nL));
     for (let c = 0; c < nL; c++) sR[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0;
     // Cities' minds: where farming has made cities, a cell's city people's by their city's size,
@@ -1892,35 +1881,27 @@ export class People {
       for (let c = 0; c < nL; c++) if (Ntot[c] > 0) sR[c] *= this.uw[c] * k;
     }
     this.lucky();
-    let rate = 0;
-    for (const L of live) rate = Math.max(rate, this.culture(L, live, dt));
-    this.lastRate = rate;
-    if (this.debug) this.check('culture', live);
+    this.lastRate = this.culture(dt);
+    if (this.debug) this.check('culture');
     lap('culture');
-    // The trait, gene flow, farming and its soil, industry's spread, the books.
-    this.trait(live, dt); lap('trait');
-    this.farming(live, dt);
+    // Farming and its soil, industry's spread, the record.
+    this.farming(dt);
     this.soilStep(dt);
     lap('farming');
-    this.industry(live, dt);
+    this.industry(dt);
     this.t += dt;
-    // The books' cadence (and the merges' clock) shortens with the culture's pace: e^{−z/Z_V}.
-    const pace = Math.max(1, this.speed(this.lineages.reduce((z, L) => (L.died === null ? Math.max(z, L.zbar) : z), 0)) / P.V0);
-    this.sinceBooks = (this.sinceBooks || 0) + dt;
-    if (this.sinceBooks >= P.CHECK / pace) { this.sinceBooks = 0; this.books(pace); }
-    this.record(live, dt); lap('books');
+    this.record(dt); lap('record');
     return dt;
   }
 
-  check(phase, live) {
+  check(phase) {
     const bad = a => { for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) return i; return -1; };
-    for (const L of live) for (const k of ['N', 'Z', 'M', 'K']) { const i = bad(L[k]); if (i >= 0) throw new Error(`${phase}: lineage ${L.id} ${k}[${i}] = ${L[k][i]} (N ${L.N[i]}, Z ${L.Z[i]}, K ${L.K[i]}, M ${L.M[i]}, g ${L.g}) at t ${this.t}`); }
-    for (const L of live) if (!Number.isFinite(L.g)) throw new Error(`${phase}: g of ${L.id}`);
+    for (const k of ['Ntot', 'zc', 'M', 'K']) { const i = bad(this[k]); if (i >= 0) throw new Error(`${phase}: ${k}[${i}] = ${this[k][i]} (N ${this.Ntot[i]}, z ${this.zc[i]}, K ${this.K[i]}, M ${this.M[i]}) at t ${this.t}`); }
     for (const k of ['Kf', 'Kc', 'Y', 'S']) if (!Number.isFinite(this.econ[k])) throw new Error(`${phase}: econ.${k} = ${this.econ[k]} at t ${this.t}`);
   }
 
-  diffuse(L, dt) {
-    const H = this.H, F = this.F, nL = this.nL, N = L.N, Z = L.Z;
+  diffuse(dt) {
+    const H = this.H, F = this.F, nL = this.nL, N = this.Ntot, Z = this.zc, K2 = this.K2;
     let zmax = 0;
     for (let c = 0; c < nL; c++) if (N[c] > 0 && Z[c] > zmax) zmax = Z[c];
     const Dm = this.Dz(zmax), reach = this.seaReach(zmax);
@@ -1941,9 +1922,9 @@ export class People {
     // distribution: Fretwell and Lucas, from memory), across each edge at the harmonic mean of its
     // ends' capacity per km², so a cell that can hold no one takes no one, and a rich cell whose
     // births have fallen doesn't drain into poorer ones. With capacity even it is Fisher's diffusion.
-    // K here is the capacity at the lineage's best culture (K2: migrants carry it), for crowding and
-    // weights alike, so the explicit step's bound holds.
-    const u = this.dens || (this.dens = new Float64Array(nL)), kd = this.kden || (this.kden = new Float64Array(nL)), K = L.K;
+    // K here is the capacity at the best culture (K2: migrants carry it), for crowding and weights
+    // alike, so the explicit step's bound holds.
+    const u = this.dens || (this.dens = new Float64Array(nL)), kd = this.kden || (this.kden = new Float64Array(nL));
     const Dc = this.dcell || (this.dcell = new Float64Array(nL)), D0 = this.Dz(0);
     const nmin = this.nmin || (this.nmin = H.area.map(a => this.P.N_MIN * a));
     // Only what the step can reach moves: people cross one edge a substep, by land (across the sea
@@ -1951,13 +1932,13 @@ export class People {
     // were. The edges with an end within nsub − 1 rings are all that carry anyone, in their order
     // (the same sums as over every edge); their cells are within nsub rings.
     const { cells: act, nc: na, edges: ae, ne } = this.reach(N, nsub);
-    for (let q = 0; q < na; q++) { const c = act[q]; kd[c] = L.K2[c] / H.area[c]; }
+    for (let q = 0; q < na; q++) { const c = act[q]; kd[c] = K2[c] / H.area[c]; }
     for (let s = 0; s < nsub; s++) {
       for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; }
       // Each cell's dispersal at its own culture; an edge's is the geometric mean of its ends' (the
       // law at the ends' mean culture wherever it is exponential in z, below its cap: a root a
       // edge in place of the law's exponential and powers).
-      for (let q = 0; q < na; q++) { const c = act[q]; u[c] = L.K2[c] > 1e-12 ? N[c] / L.K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
+      for (let q = 0; q < na; q++) { const c = act[q]; u[c] = K2[c] > 1e-12 ? N[c] / K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
       for (let x = 0; x < ne; x++) {
         const e = ae[x], c = F.a[e], d = F.b[e], uc = u[c], ud = u[d];
         if (uc === ud) continue;
@@ -2017,8 +1998,8 @@ export class People {
   // per crossing. Spread across the sea (`diffuse`) is a flux only between settled coasts, so the
   // distance counts: a continuous flux, however faint, seeded every shore at once as soon as boats
   // reached it at all, and the people grow from a millionth of a person.
-  voyages(L, dt) {
-    const P = this.P, F = this.F, N = L.N, Z = L.Z, K = L.K2, nmin = this.nmin, r = this.seaRng;
+  voyages(dt) {
+    const P = this.P, F = this.F, N = this.Ntot, Z = this.zc, K = this.K2, nmin = this.nmin, r = this.seaRng;
     if (!nmin) return;
     const hops = this.hopList || (this.hopList = Int32Array.from({ length: F.m }, (_, e) => e).filter(e => F.hop[e]));
     for (const e of hops) {
@@ -2035,7 +2016,7 @@ export class People {
     }
   }
 
-  // Food (each cell's capacity, shared by its lineages), then the industrial economy over its
+  // Food (each cell's capacity), then the industrial economy over its
   // workers, its goods shared out by industry's share of each cell's workers; emissions to the air
   // and the people's forcing (heat and sulfate) for the planet.
   /**
@@ -2092,14 +2073,13 @@ export class People {
     return A > 0 ? a / A : 0;
   }
 
-  economy(live, dt) {
-    const P = this.P, nL = this.nL, Out = this.Out, Ntot = this.Ntot, ind = this.ind, zc = this.zcell();
+  economy(dt) {
+    const P = this.P, nL = this.nL, Out = this.Out, Ntot = this.Ntot, ind = this.ind, zc = this.zc, K = this.K;
     Out.fill(0);
     let food = 0, people = 0;
-    for (const L of live) for (let c = 0; c < nL; c++) {
-      if (!(L.N[c] > 0)) continue;
-      const o = L.K[c] * L.N[c] / Math.max(Ntot[c], 1e-12);
-      Out[c] += o; food += o; people += L.N[c];
+    for (let c = 0; c < nL; c++) {
+      if (!(Ntot[c] > 0)) continue;
+      Out[c] = K[c]; food += K[c]; people += Ntot[c];
     }
     const E = this.econ, end0 = this.ending, pause = end0 && end0.paused ? end0 : null, end = pause ? null : end0, sA = E.on ? E.sA : 0;
     this.goods.fill(0);
@@ -2116,9 +2096,7 @@ export class People {
       const aR = cost > 0 && yp > 0 ? sig(Math.log(P.F_ROOM * yp / cost) / P.W_INV) : 0;
       let want = 0, eat = 0;
       for (let c = 0; c < nL; c++) {
-        let Km = 0;
-        for (const L of live) if (L.K[c] > Km) Km = L.K[c];
-        const land = Math.max(0, Km - Ks[c] * open), unfed = (1 + P.H_NEED) * Math.max(0, Ntot[c] - land), room = Math.max(0, (1 + P.H_FOOD) * Ntot[c] - land);
+        const land = Math.max(0, K[c] - Ks[c] * open), unfed = (1 + P.H_NEED) * Math.max(0, Ntot[c] - land), room = Math.max(0, (1 + P.H_FOOD) * Ntot[c] - land);
         wantC[c] = syn * hs * ind[c] * (unfed + aR * Math.max(0, room - unfed));
         want += wantC[c]; eat += syn * hs * ind[c] * Math.max(0, Ntot[c] - land);
       }
@@ -2161,7 +2139,7 @@ export class People {
       // room (the people it had when the ending was drawn, × its habitability), so a whole Earth
       // keeps its numbers and the frontier is off-world. (Two states relaxing to a/(a + b) of
       // everyone sent half of a trillion off-world people back to Earth.) Earth's people grow too,
-      // where they live, toward an ecumenopolis (`earthRoom`); the trait rises where there's room
+      // where they live, toward an ecumenopolis (`earthRoom`); the growth rate rises where there's room
       // anywhere. (Earth held at the numbers it had when the ending was drawn stood at ~10 B while
       // Mars held 6 × 10¹¹.)
       if (end && end.aligned) {
@@ -2172,13 +2150,13 @@ export class People {
         if (this.space > 0 && room > 0 && this.fert > 0) this.space = room * this.space * e / (room + this.space * (e - 1));
         if (people > 0 && RE > people && this.fert > 0) {
           const g = RE * e / (RE + people * (e - 1));
-          for (const L of live) for (let c = 0; c < nL; c++) if (L.N[c] > 0) L.N[c] *= g;
+          for (let c = 0; c < nL; c++) Ntot[c] *= g;
           people *= g;
         }
         const moved = migration(people, this.space, room, RE, open, this.hE, dt, P);
         if (people > 0 && moved !== 0) {
           const g = Math.max(0, 1 - moved / people);
-          for (const L of live) for (let c = 0; c < nL; c++) if (L.N[c] > 0) L.N[c] *= g;
+          for (let c = 0; c < nL; c++) Ntot[c] *= g;
           this.space += people * (1 - g); people *= g;
         }
       }
@@ -2293,29 +2271,21 @@ export class People {
     return out;
   }
 
-  /** The culture each cell's people hold (the highest lineage's). */
-  zcell() {
-    const nL = this.nL, zc = this.zc || (this.zc = new Float64Array(nL));
-    zc.fill(0);
-    for (const L of this.lineages) if (L.died === null) for (let c = 0; c < nL; c++) if (L.N[c] > 0 && L.Z[c] > zc[c]) zc[c] = L.Z[c];
-    return zc;
-  }
-
-  culture(L, live, dt) {
-    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = L.N, Z = L.Z, M = L.M, Ntot = this.Ntot;
-    // People's minds in each cell: this lineage's × research intensity, the others' at η.
+  /** Culture over the step: ideas in, losses out, exact; copying from better neighbours and trade partners. */
+  culture(dt) {
+    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, Z = this.zc, M = this.M, Ntot = N;
+    // People's minds in each cell: its people × research intensity.
     const m = this.mbuf || (this.mbuf = new Float64Array(nL));
     const sR = this.sR;
     m.fill(0);
     let zmax = 0;
     for (let c = 0; c < nL; c++) {
-      if (!(Ntot[c] > 0)) continue;
-      m[c] = sR[c] * (N[c] + P.ETA * (Ntot[c] - N[c]));
-      if (N[c] > 0) zmax = Math.max(zmax, Z[c]);
+      if (!(N[c] > 0)) continue;
+      m[c] = sR[c] * N[c]; zmax = Math.max(zmax, Z[c]);
     }
     // Minds within reach: the body's total, or a disc of radius ℓ of the local density; AI's
     // research minds (one network, by then) join through the tasks they can do.
-    const reach = this.seaReach(zmax), ell = this.reachL(L.g + zmax);
+    const reach = this.seaReach(zmax), ell = this.reachL(zmax);
     // The body is the land its people keep in touch across: a share MIND_REL of the inhabited
     // world's mean density (synthesis): the sparse margins that carried the foragers' ideas (a
     // world of them before the tip) don't carry a farming world's, so the Arctic's foragers didn't
@@ -2332,7 +2302,7 @@ export class People {
     for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) tot[comp.id[c]] += m[c];
     const disc = Math.PI * ell * ell, ai = this.econ.on ? this.econ.AIr : 0, beta = this.econ.on ? this.econ.beta : 0;
     for (let c = 0; c < nL; c++) {
-      if (!(N[c] > 0)) continue;   // read only where this lineage lives (below)
+      if (!(N[c] > 0)) continue;
       let ring = m[c];
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
       const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];
@@ -2344,18 +2314,18 @@ export class People {
     // Culture: ideas in, losses out, exact over the step; copying better neighbours and others.
     const gain = P.A_INV, Wk = this.works, rt = this.routes && this.routes.active && this.routes.active.length ? this.routes : null;
     let rate = 0;
-    const others = live.filter(o => o !== L), zc = this.zc;
+    // Neighbours' culture as the step found it (each cell's copying reads the others' before theirs).
+    const zc = this.zOld || (this.zOld = new Float64Array(nL));
+    zc.set(Z);
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) continue;
       const z0 = Z[c];
       // Forgetting, less where works keep what's known (a person's share of the cell's works).
       const lam = Wk[c] > 0 ? P.LAMBDA / (1 + Wk[c] / Math.max(Ntot[c], 1e-9) / P.W_WORK) : P.LAMBDA;
       const eL = Math.exp(-lam * dt), fL = lam * dt > 1e-9 ? (1 - eL) / lam : dt;
-      // Copying the neighbours who know more, whoever they are (the best culture held there: ideas
-      // cross between peoples where they meet; copying one's own kind alone kept a lineage that had
-      // held East Asia since before the tip a thousand years behind into the farming era), as often
-      // as people meet: each side's density against RHO_COPY (synthesis; the Arctic's foragers had
-      // carried a farming Eurasia's ideas to the Americas as fast as a farming plain does).
+      // Copying the neighbours who know more, as often as people meet: each side's density against
+      // RHO_COPY (synthesis; the Arctic's foragers had carried a farming Eurasia's ideas to the
+      // Americas as fast as a farming plain does).
       const dens = d => { const r = Ntot[d] / H.area[d]; return r / (r + P.RHO_COPY); };
       let wsum = 0, up = 0;
       for (let o = E.off[c]; o < E.off[c + 1]; o++) {
@@ -2367,14 +2337,11 @@ export class People {
         up += e * dens(d) * (zd - z0); wsum += e;
       }
       const copy = P.COPY * this.speed(z0) / P.V0 * dens(c);
-      let accGap = 0;
-      for (const o of others) if (o.N[c] > 0 && o.Z[c] > z0) accGap += (o.Z[c] - z0) * o.N[c] / Ntot[c];
       const luck = this.luckC ? 1 + (this.luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
       let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL * luck;
       if (wsum > 0) z += (1 - Math.exp(-copy * dt)) * up / wsum;
       // And from the markets met by trade (src/engine/routes.js), as far as life goes through markets.
       if (rt) { const tu = rt.tau(c); if (tu > 0) { const g = rt.gap(rt.marketOf[c], z0); if (g > 0) z += (1 - Math.exp(-P.C_TRADE * tu * P.COPY * this.speed(z0) / P.V0 * dt)) * g; } }
-      z += (1 - Math.exp(-P.ACC * dt)) * accGap;
       Z[c] = z = Math.min(z, P.Z_SAT);
       rate = Math.max(rate, Math.abs(z - z0) / dt);
     }
@@ -2449,35 +2416,10 @@ export class People {
     return { id, count };
   }
 
-  trait(live, dt) {
-    const P = this.P, nL = this.nL, Ntot = this.Ntot;
-    for (const L of live) {
-      let tot = 0;
-      for (let c = 0; c < nL; c++) tot += L.N[c];
-      const Ne = Math.max(10, P.NE_SHARE * tot), gens = dt / P.T_GEN;
-      L.g += P.V_G * P.S_BG * gens * Math.max(0, 1 - Math.pow(Math.max(0, L.g) / P.G_MAX, 4)) + Math.sqrt(P.V_G * gens / Ne) * this.rng.normal();
-    }
-    // Gene flow where lineages meet: ancestry mixes by the contact (soft species), and each side's
-    // advantage in the trait introgresses into the other at the flow's rate (selection keeps the
-    // better alleles that cross; averaging the traits lost them), less the longer they've been apart.
-    for (let a = 0; a < live.length; a++) for (let b = a + 1; b < live.length; b++) {
-      const A = live[a], B = live[b];
-      let C = 0;
-      for (let c = 0; c < nL; c++) if (A.N[c] > 0 && B.N[c] > 0) C += A.N[c] * B.N[c] / Ntot[c];
-      if (C <= 0) continue;
-      const ta = A.total || 1, tb = B.total || 1, iso = Math.exp(-((this.divergence(A, B) / P.T_ISO) ** 2));
-      const pa = Math.min(0.5, P.GENE_FLOW * iso * C / ta * dt), pb = Math.min(0.5, P.GENE_FLOW * iso * C / tb * dt);
-      const ga = A.g, gb = B.g, aa = new Map(A.anc), ab = new Map(B.anc);
-      A.g = ga + pa * Math.max(0, gb - ga); B.g = gb + pb * Math.max(0, ga - gb);
-      const mix = (dst, src, p) => { for (const [k, v] of dst) dst.set(k, v * (1 - p)); for (const [k, v] of src) dst.set(k, (dst.get(k) || 0) + p * v); };
-      mix(A.anc, ab, pa); mix(B.anc, aa, pb);
-    }
-  }
-
-  farming(live, dt) {
+  farming(dt) {
     const P = this.P, H = this.H, E = this.E, nL = this.nL, f = this.f, pkg = this.pkg, Ntot = this.Ntot;
     const rt = this.routes && this.routes.active && this.routes.active.length ? this.routes : null;
-    const zc = this.zcell();
+    const zc = this.zc;
     // The best-suited package farmed here or next door.
     const bestNear = c => {
       let s = pkg[c] >= 0 ? this.suitHere(c) : 0;
@@ -2628,7 +2570,7 @@ export class People {
     this.env.soil(dt, Eo);
   }
 
-  industry(live, dt) {
+  industry(dt) {
     const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zc;
     if (!this.flags.industry) {
       // A hazard where culture, a dense farming people (its labour and markets: RHO_IND a km²) and
@@ -2665,69 +2607,7 @@ export class People {
   }
 
   // Merges, extinctions, splits (every CHECK years).
-  books(pace = 1) {
-    const P = this.P, H = this.H, nL = this.nL;
-    // Merges: two lineages living on in the same cells (neither excluding the other) for T_MERGE
-    // become one (soft species; as a stray piece of a plate joins the plate it borders). Its
-    // ancestry is weighted by their numbers (genealogy); each cell keeps the higher culture (ideas
-    // are non-rival: the better technique survives the meeting); its trait is the higher (selection
-    // spreads the better side's alleles through the merged people). The union of each side's gains
-    // since the split (beneficial mutations fixed apart, put together by recombination) would be
-    // principled only with the trait's clock scaled by each lineage's numbers: on a clock that runs
-    // alike in every lineage, splits and merges counted one people's gain several times, and the
-    // first tip came 0.4–1.2 Myr early.
-    this.mergeSince = this.mergeSince || new Map();
-    const alive = this.lineages.filter(L => L.died === null);
-    for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++) {
-      const A = alive[a], B = alive[b];
-      if (A.died !== null || B.died !== null) continue;
-      let shared = 0;
-      for (let c = 0; c < nL; c++) if (A.N[c] > 0 && B.N[c] > 0) shared += Math.min(A.N[c], B.N[c]);
-      const key = `${A.id}:${B.id}`;
-      if (shared < P.MERGE * Math.min(A.total, B.total)) { this.mergeSince.delete(key); continue; }
-      if (!this.mergeSince.has(key)) { this.mergeSince.set(key, this.t); continue; }
-      if (this.t - this.mergeSince.get(key) < P.T_MERGE / pace * Math.exp((this.divergence(A, B) / P.T_ISO) ** 2)) continue;
-      const [big, small] = A.total >= B.total ? [A, B] : [B, A];
-      const wb = big.total / (big.total + small.total), ws = 1 - wb;
-      for (let c = 0; c < nL; c++) {
-        const n = big.N[c] + small.N[c];
-        if (n > 0) big.Z[c] = big.N[c] > 0 && small.N[c] > 0 ? Math.max(big.Z[c], small.Z[c]) : big.N[c] > 0 ? big.Z[c] : small.Z[c];
-        big.N[c] = n; small.N[c] = 0;
-      }
-      big.g = Math.max(big.g, small.g);
-      const anc = new Map();
-      for (const [k, v] of big.anc) anc.set(k, wb * v);
-      for (const [k, v] of small.anc) anc.set(k, (anc.get(k) || 0) + ws * v);
-      big.anc = anc; big.total += small.total;
-      small.died = this.t; small.into = big.id; small.total = 0;
-      this.mergeSince.delete(key);
-      this.event('merge', `lineage ${small.id} merges into ${big.id} (${(100 * ws).toFixed(0)}% of the whole)`);
-    }
-    for (const L of this.lineages.filter(L => L.died === null)) {
-      if (L.total < P.P_EXT) { L.died = this.t; L.N.fill(0); this.event('extinct', `lineage ${L.id} dies out`); continue; }
-      const comp = this.components(c => L.N[c] >= P.N_MIN * H.area[c], this.seaReach(L.zmax));
-      const pops = new Float64Array(comp.count);
-      for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) pops[comp.id[c]] += L.N[c];
-      const big = [...pops.keys()].filter(k => pops[k] >= P.P_MIN).sort((a, b) => pops[b] - pops[a]);
-      if (big.length < 2) { L.multiSince = null; continue; }
-      if (L.multiSince === null) { L.multiSince = this.t; continue; }
-      if (this.t - L.multiSince < P.T_SPLIT) continue;
-      for (const k of big.slice(1)) {
-        if (this.lineages.filter(x => x.died === null).length >= P.L_MAX) break;
-        const C = this.newLineage(L, this.t, L.g);
-        let la = 0, lo = 0, w = 0;
-        for (let c = 0; c < nL; c++) if (comp.id[c] === k) {
-          C.N[c] = L.N[c]; C.Z[c] = L.Z[c]; L.N[c] = 0;
-          la += H.lat[c] * C.N[c]; lo += H.lon[c] * C.N[c]; w += C.N[c];
-        }
-        C.lat = la / w; C.lon = lo / w;
-        this.event('split', `lineage ${C.id} splits from ${L.id} at ${deg(C.lat).toFixed(0)}°, ${deg(C.lon).toFixed(0)}° (${pops[k].toFixed(0)} people; g ${L.g.toFixed(2)})`);
-      }
-      L.multiSince = null;
-    }
-  }
-
-  record(live, dt) {
+  record(dt) {
     const P = this.P, nL = this.nL, E = this.econ, H = this.H;
     for (let c = 0; c < nL; c++) if (!this.reached[c] && this.Ntot[c] >= P.N_MIN * H.area[c]) this.reached[c] = 1;
     let minds = 0, people = 0, farm = 0, indp = 0, zmax = 0, soilF = 0, farmA = 0;
@@ -2738,17 +2618,13 @@ export class People {
       if (this.f[c] > 0) { const a = H.area[c] * this.f[c]; soilF += a * this.fieldSoil(c); farmA += a; }
     }
     if (E.on) minds += E.AIr;
-    for (const L of live) {
-      let tot = 0, zs = 0, zm = 0;
-      for (let c = 0; c < nL; c++) if (L.N[c] > 0) { tot += L.N[c]; zs += L.N[c] * L.Z[c]; zm = Math.max(zm, L.Z[c]); }
-      L.total = tot; L.zbar = tot > 0 ? zs / tot : 0; L.zmax = zm; L.peak = Math.max(L.peak, tot);
-      (L.ht || (L.ht = [])).push(this.t); (L.hn || (L.hn = [])).push(tot);   // its numbers through time (Fig. 8's spindles)
-      zmax = Math.max(zmax, zm);
-      if (L.tipped === null && L.zbar > 1) {
-        L.tipped = this.t; this.flags.tipped = true;
-        let best = 0; for (let c = 0; c < nL; c++) if (L.N[c] > 0 && L.Z[c] > L.Z[best]) best = c;
-        this.event('tip', `lineage ${L.id} tips: mean culture past 1 (g ${L.g.toFixed(2)}, ${tot.toFixed(0)} people, frontier at ${deg(this.H.lat[best]).toFixed(0)}°, ${deg(this.H.lon[best]).toFixed(0)}°)`);
-      }
+    // The people tip where their mean culture passes 1 (the loop's low branch gone).
+    let zs = 0, best = 0;
+    for (let c = 0; c < nL; c++) if (this.Ntot[c] > 0) { zs += this.Ntot[c] * this.zc[c]; if (this.zc[c] > zmax) { zmax = this.zc[c]; best = c; } }
+    this.zbar = people > 0 ? zs / people : 0;
+    if (this.tTip === null && this.zbar > 1) {
+      this.tTip = this.t; this.flags.tipped = true;
+      this.event('tip', `the people tip: mean culture past 1 (${people.toFixed(0)} people, contact ${this.reachL(0).toFixed(0)} km at none, frontier at ${deg(this.H.lat[best]).toFixed(0)}°, ${deg(this.H.lon[best]).toFixed(0)}°)`);
     }
     const earth = people;
     people += this.space;
@@ -2789,7 +2665,7 @@ export class People {
     h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
       Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
       energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, fert: this.fert, room: this.room, hab: this.hab, mined: this.mined, flow: this.flow, ApE: E.ApE || 0, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
-      soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0, lineages: live.length });
+      soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0 });
     // The dial runs out where the minds double in under a day over the last few steps (one step's
     // blip isn't it); for T_FINE years after, a step is at most a year, so the ending resolves.
     const n = h.length;
@@ -2927,11 +2803,11 @@ export class People {
    * The cities fed (each step, after the capacities): each farming cell sends a share of its food
    * (its people's mean capacity) to its cities (`foodshed`), the share following its urban share u
    * over T_URB, so its own people keep the rest and every cell gains what arrives; the works' labour (S_WORK of a city's people, before
-   * industry) feeds no one. Each lineage's capacity (and its migrants', K2) moves alike: the food is
-   * the place's, whoever eats it. A cell's `cityShare` is the share of its food that came in as the
+   * industry) feeds no one. The capacity and its migrants' (K2) move alike: the food is the
+   * place's, whoever eats it. A cell's `cityShare` is the share of its food that came in as the
    * cities' (its people's share in its city).
    */
-  feed(live, dt) {
+  feed(dt) {
     const P = this.P, nL = this.nL, Ntot = this.Ntot, rt = this.routes;
     if (!rt || !this.dlv || !this.uShare) return;
     const u = this.uSent || (this.uSent = new Float64Array(nL)), a = 1 - Math.exp(-dt / P.T_URB);
@@ -2939,10 +2815,7 @@ export class People {
     const { off, idx } = rt.catch, dl = this.dlv, dn = this.dlvN, top = this.top, K = P.K_NATION, nt = top.length;
     const imp = this.imp, ex = this.exS || (this.exS = new Float64Array(nL)), own = this.ownK || (this.ownK = new Float64Array(nL));
     imp.fill(0); ex.fill(0); own.fill(0);
-    for (let c = 0; c < nL; c++) {
-      if (!(Ntot[c] > 0)) { for (const L of live) own[c] = Math.max(own[c], L.K[c]); continue; }
-      let Kb = 0; for (const L of live) if (L.N[c] > 0) Kb += L.K[c] * L.N[c]; own[c] = Kb / Ntot[c];
-    }
+    own.set(this.K);
     for (let d = 0; d < nL; d++) {
       if (!(u[d] > 0) || !(Ntot[d] > 0)) continue;
       const q = u[d] * own[d]; ex[d] = u[d];
@@ -2961,14 +2834,12 @@ export class People {
       for (let k = off[d]; k < off[d + 1]; k++) { const c = idx[k]; if (imp[c] > 0 && S[c] > 0) lab[d] += (1 - P.F_LEARN) * P.S_WORK * S[c] * q * dl[k] / imp[c]; }
       lab[d] *= 1 - this.ind[d];   // industry's own works (railways, dams, machines) are its capital's
     }
-    for (const L of live) {
-      const Kl = L.K, K2 = L.K2;
-      for (let c = 0; c < nL; c++) {
-        if (!(ex[c] > 0) && !(imp[c] > 0)) continue;
-        const w = 1 - wl * cs[c];
-        Kl[c] = (Kl[c] * (1 - ex[c]) + imp[c]) * w;
-        if (K2) K2[c] = (K2[c] * (1 - ex[c]) + imp[c]) * w;
-      }
+    const Kl = this.K, K2 = this.K2;
+    for (let c = 0; c < nL; c++) {
+      if (!(ex[c] > 0) && !(imp[c] > 0)) continue;
+      const w = 1 - wl * cs[c];
+      Kl[c] = (Kl[c] * (1 - ex[c]) + imp[c]) * w;
+      K2[c] = (K2[c] * (1 - ex[c]) + imp[c]) * w;
     }
   }
 

@@ -62,9 +62,9 @@ function thin(h, from, to, n) {
 }
 
 /**
- * Fig. 8's data from a People: the hyperbola's fits (minds and people, from the first tip to the
- * dial), its axis log₁₀(t* − t), the record on it (people, minds), the events, and each lineage's
- * numbers on the same axis (the spindles). Null before there is a record.
+ * Fig. 8's data from a People: the hyperbola's fits (minds and people, from the tip to the dial),
+ * its axis log₁₀(t* − t), the record on it (people, minds) and the events. Null before there is a
+ * record.
  */
 export function figureOf(p, n = 240) {
   const h = p.history;
@@ -89,15 +89,6 @@ export function figureOf(p, n = 240) {
   const firsts = {};
   for (const e of p.events) if (['origin', 'tip', 'farming', 'industry', 'present', 'dial'].includes(e.kind) && !(e.kind in firsts)) firsts[e.kind] = e.t;
   const events = Object.entries(firsts).filter(([, t]) => tStar - t >= near).map(([kind, t]) => ({ kind, x: Math.log10(tStar - t) }));
-  const lin = p.lineages.map(L => {
-    const pts = [];
-    if (L.ht) for (const s of series) {
-      const t = tStar - Math.pow(10, s.x), i = before(L.ht, t);
-      if (i >= 0 && t >= L.born && (L.died === null || t <= L.died)) pts.push([s.x, L.hn[i]]);
-    }
-    return { id: L.id, parent: L.parent, born: L.born, died: L.died, into: L.into ?? null, bornX: tStar - L.born > near ? Math.log10(tStar - L.born) : x1,
-      diedX: L.died === null ? null : tStar - L.died > near ? Math.log10(tStar - L.died) : x1, pts };
-  });
   const strip = f => f ? { tStar: f.tStar, p: f.p, r2: f.r2, r2exp: f.r2exp } : null;
-  return { tStar, now: tNow, to, x0, x1, fit: strip(fit), minds: strip(fm), people: strip(fp), which: fit === fm ? 'minds' : fit ? 'people' : null, series, events, lin };
+  return { tStar, now: tNow, to, x0, x1, fit: strip(fit), minds: strip(fm), people: strip(fp), which: fit === fm ? 'minds' : fit ? 'people' : null, series, events };
 }

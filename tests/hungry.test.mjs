@@ -58,7 +58,7 @@ function planet(T, Pm, level = 3) {
   for (let i = 0; i < n; i++) { f.zones[NZ * i + 2] = 1; for (let m = 0; m < 12; m++) { f.T12[12 * i + m] = T(m); f.P12[12 * i + m] = Pm(m); } }
   return f;
 }
-const quiet = { H_FARM: 0, S_BG: 0, V_G: 0, CHECK: 1e12, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
 const summer = m => 15 + 12 * Math.cos(2 * Math.PI * (m - 6) / 12);   // −9 °C in January's month, 27 °C in July's
 
 test('the hungry season: a single summer\'s crop keeps less of itself than the tropics\' roots, and bears more of its rain', () => {

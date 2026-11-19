@@ -1,6 +1,7 @@
-// The people prototype (tools/people/model.mjs) against its oracles, on uniform synthetic planets:
-// the Fisher front's speed, the spread's conservation, competitive exclusion, culture's
-// equilibrium, the saddle-node threshold, and the hyperbola's t*.
+// The people's model (src/engine/people.js) against its oracles, on uniform synthetic planets:
+// the Fisher front's speed, the spread's conservation, a people held at its capacity, the species'
+// clock, the home world-island, culture's equilibrium, the saddle-node threshold and the tip, and
+// the hyperbola's t*.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -18,7 +19,9 @@ function uniformPlanet(level) {
   for (let i = 0; i < n; i++) f.zones[NZ * i + 2] = 1;
   return f;
 }
-const quiet = { H_FARM: 0, S_BG: 0, V_G: 0, CHECK: 1e12, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, SIG_LUCK: 0 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, SIG_LUCK: 0 };
+/** The people's arrays under one name (each cell's numbers, culture, capacity and minds). */
+const pop = p => ({ N: p.Ntot, Z: p.zc, K: p.K, K2: p.K2, M: p.M });
 
 /** Run with a fixed step, calling `each` after every step. */
 function runFixed(p, dt, T, each = () => {}) { while (p.t < T - 1e-9) { p.step(Math.min(dt, T - p.t)); each(p); } }
@@ -26,14 +29,14 @@ function runFixed(p, dt, T, each = () => {}) { while (p.t < T - 1e-9) { p.step(M
 test('a Fisher front spreads at 2√(rD), resolved', () => {
   // Level 5 (~240 km): D 10,000 km²/yr and r 0.02 put the front's width √(D/r) at ~700 km.
   const p = new People(uniformPlanet(5), { ...quiet, A_INV: 0, D0: 1e4, D_Z: 0, D_MAX: 1e9, NSUB_MAX: 1000 });
-  const L = p.newLineage(null, 0, 0), g = p.planet.grid, i0 = p.cells[0];
+  const L = pop(p), g = p.planet.grid, i0 = p.cells[0];
   const dist = c => { const i = p.cells[c]; return R * Math.acos(Math.min(1, g.pos[3 * i] * g.pos[3 * i0] + g.pos[3 * i + 1] * g.pos[3 * i0 + 1] + g.pos[3 * i + 2] * g.pos[3 * i0 + 2])); };
   // Start from a settled disc (a front already formed: from one seeded cell the K/2 contour runs
   // ahead of 2√(rD) for centuries while the Gaussian's log correction shrinks).
-  p.capacity(L);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) if (dist(c) < 1500) L.N[c] = L.K[c];
   const front = () => {   // the mean distance of the cells between 0.3 and 0.7 of capacity
-    p.capacity(L); let s = 0, w = 0;
+    p.capacity(); let s = 0, w = 0;
     for (let c = 0; c < p.nL; c++) { const u = L.N[c] / L.K[c]; if (u > 0.3 && u < 0.7) { s += dist(c); w++; } }
     return s / w;
   };
@@ -50,32 +53,83 @@ test('a Fisher front spreads at 2√(rD), resolved', () => {
 
 test('the spread keeps people', () => {
   const p = new People(uniformPlanet(4), { ...quiet, A_INV: 0, D0: 3e3, D_Z: 0 });
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   L.N[7] = 1e4; L.N[100] = 3e3;
-  p.capacity(L);
-  for (let k = 0; k < 30; k++) p.diffuse(L, 50);
+  p.capacity();
+  for (let k = 0; k < 30; k++) p.diffuse(50);
   let s = 0; for (let c = 0; c < p.nL; c++) s += L.N[c];
   assert.ok(Math.abs(s / 1.3e4 - 1) < 1e-6, `people ${s} against 13,000`);   // the leading edge's floor (1e-6 a cell) drops a little
 });
 
-test('the lineage with the higher capacity excludes the other', () => {
-  const p = new People(uniformPlanet(3), { ...quiet, A_INV: 0, LAMBDA: 1e-12, D0: 0, ACC: 0 });
-  const A = p.newLineage(null, 0, 0), B = p.newLineage(null, 0, 0);
-  p.capacity(B);
-  for (let c = 0; c < p.nL; c++) { A.Z[c] = 1; A.N[c] = 0.25 * B.K[c]; B.N[c] = 0.5 * B.K[c]; }
-  runFixed(p, 20, 4000);
-  let a = 0, b = 0, KA = 0;
-  p.capacity(A);
-  for (let c = 0; c < p.nL; c++) { a += A.N[c]; b += B.N[c]; KA += A.K[c]; }
-  assert.ok(b / (a + b) < 0.01, `the weaker keeps ${(100 * b / (a + b)).toFixed(2)}%`);
-  assert.ok(Math.abs(a / KA - 1) < 0.01, `the stronger at ${(a / KA).toFixed(3)} of its capacity`);
+test('a people at its capacity holds there before industry', () => {
+  const p = new People(uniformPlanet(3), { ...quiet, A_INV: 0, LAMBDA: 1e-12, D0: 0 });
+  p.capacity();
+  for (let c = 0; c < p.nL; c++) p.Ntot[c] = p.K[c];
+  runFixed(p, 20, 2000);
+  p.capacity();
+  let N = 0, K = 0; for (let c = 0; c < p.nL; c++) { N += p.Ntot[c]; K += p.K[c]; }
+  assert.ok(Math.abs(N / K - 1) < 1e-6, `people at ${(N / K).toFixed(8)} of the capacity`);
+});
+
+test('the species\' clock: contact rises from L_S0 toward L_SMAX, e-fold per T_S at first, and culture lengthens it', () => {
+  const p = new People(uniformPlanet(3), quiet), P = p.P;
+  assert.ok(Math.abs(p.clockL(0) - P.L_S0) < 1e-9);
+  const logi = t => P.L_SMAX / (1 + (P.L_SMAX / P.L_S0 - 1) * Math.exp(-t / P.T_S));
+  for (const t of [1e3, P.T_S, 3 * P.T_S, 1e6]) assert.ok(Math.abs(p.clockL(t) / logi(t) - 1) < 1e-12);
+  const g0 = (1 - P.L_S0 / P.L_SMAX) / P.T_S;
+  assert.ok(Math.abs(Math.log(p.clockL(1) / p.clockL(0)) / g0 - 1) < 1e-4, 'its first growth');
+  assert.ok(P.L_SMAX - p.clockL(20 * P.T_S) < 1e-3 * P.L_SMAX, 'capped');
+  p.t = P.T_S;
+  const l0 = p.reachL(0), l1 = p.reachL(P.Z_L);
+  assert.ok(Math.abs(l1 / l0 - Math.E) < 0.05 * Math.E, `a Z_L of culture: ×${(l1 / l0).toFixed(3)} (the cap's softness)`);
+  assert.ok(p.reachL(30) <= P.L_CMAX, 'at most L_CMAX');
+});
+
+test('the home world-island: the origin\'s land and its short crossings, as cold as the archaic peoples went; its game wary, the rest naive', () => {
+  // Level 4: a band of sea (two cells wide) at the equator parts the north from the south; a strait
+  // (one cell) cuts the north's eastern end off; the north's far pole is too cold.
+  const f = uniformPlanet(4), g = f.grid, deg = Math.PI / 180;
+  const lat = i => Math.asin(g.pos[3 * i + 2]), lon = i => Math.atan2(g.pos[3 * i + 1], g.pos[3 * i]);
+  for (let i = 0; i < f.n; i++) {
+    if (Math.abs(lat(i)) < 12 * deg) f.elev[i] = -3;
+    if (lat(i) > 12 * deg && Math.abs(lon(i) - 90 * deg) < 4 * deg) f.elev[i] = -3;
+    if (lat(i) > 70 * deg) for (let m = 0; m < 12; m++) f.T12[12 * i + m] = -30;
+  }
+  const q = { ...quiet, T_COLD0: PEOPLE.T_COLD0 }, p0 = new People(f, q), E = p0.E;
+  // The crossings' lengths: the strait's (a hop between north cells across 90° E) and the band's.
+  let strait = Infinity, band = Infinity;
+  for (let c = 0; c < p0.nL; c++) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
+    if (!E.hop[o]) continue;
+    const a = p0.cells[c], b = p0.cells[E.nb[o]];
+    if (lat(a) > 0 && lat(b) > 0) strait = Math.min(strait, E.km[o]); else if (lat(a) * lat(b) < 0) band = Math.min(band, E.km[o]);
+  }
+  assert.ok(strait < band, `the strait ${strait.toFixed(0)} km, the band ${band.toFixed(0)} km`);
+  const p = new People(f, { ...q, D_ARCH: 0.5 * (strait + band) });
+  let from = -1;
+  for (let c = 0; c < p.nL; c++) { const i = p.cells[c]; if (lat(i) > 30 * deg && lat(i) < 50 * deg && Math.abs(lon(i)) < 20 * deg) { from = c; break; } }
+  const isle = p.home(from);
+  let east = 0, eastIn = 0, south = 0, cold = 0, warmN = 0, warmIn = 0;
+  for (let c = 0; c < p.nL; c++) {
+    const i = p.cells[c];
+    if (lat(i) < 0) south += isle[c];
+    else if (lat(i) > 72 * deg) cold += isle[c];
+    else if (lat(i) < 65 * deg) { warmN++; warmIn += isle[c]; if (lon(i) > 95 * deg && lon(i) < 150 * deg) { east++; eastIn += isle[c]; } }
+  }
+  assert.equal(south, 0, 'the far shore past D_ARCH is naive');
+  assert.equal(cold, 0, 'land too cold for the archaic peoples is naive');
+  assert.ok(warmIn === warmN && east > 0 && eastIn === east, `the north's warm land, across the strait too (${warmIn} of ${warmN})`);
+  // seed() sets the game's wariness from it.
+  p.seed();
+  const home = p.home(p.origin);
+  for (let c = 0; c < p.nL; c++) assert.equal(p.naive[c], home[c] ? p.P.NAIVE_CO : 1);
+  assert.ok(Math.abs(p.zc[p.origin] - p.P.Z0) < 1e-12 && p.Ntot[p.origin] > 0, 'the first people begin with Z0');
 });
 
 /** A uniform world held at its capacity, culture alone moving: the minds within reach at z = 0. */
 function heldWorld(params) {
-  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_C0: 1e9, ACC: 0, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
-  const L = p.newLineage(null, 0, 0);
-  p.capacity(L);
+  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_S0: 1e9, L_SMAX: 1e9, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
+  const L = pop(p);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
   const a = p.P.A_INV; p.P.A_INV = 0; p.step(1e-6); p.P.A_INV = a;   // one empty step fills M
   let M0 = 0, N0 = 0; for (let c = 0; c < p.nL; c++) { M0 += L.M[c] * L.N[c]; N0 += L.N[c]; }
@@ -97,6 +151,7 @@ test('the loop tips past A θ e M₀ = λ, and holds below it', () => {
     w.p.P.A_INV = k * lam / (Math.E * w.M0);
     runFixed(w.p, 20, 3e4);
     const z = zMean(w.L);
+    assert.equal(w.p.tTip !== null, tips, 'the tip is the people\'s event: their mean culture past 1');
     if (tips) assert.ok(z > 5, `above the threshold z reached only ${z.toFixed(2)}`);
     else {
       // The lower root of k e^{x−1} = x.
@@ -243,9 +298,9 @@ test('a sea wider than HOPS is crossed by the long crossings, and a voyage settl
   assert.equal(p.components(() => true, 1e9).count, 1, 'one body across it at any reach');
   // The north settled at capacity with boats far beyond the gap: the south is reached only by a
   // voyage (the flux runs only between settled coasts), and then fills.
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   for (let c = 0; c < p.nL; c++) L.Z[c] = 20;
-  p.capacity(L);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) if (north(c)) L.N[c] = L.K[c];
   const south = () => { let s = 0; for (let c = 0; c < p.nL; c++) if (!north(c)) s += L.N[c]; return s; };
   assert.equal(south(), 0);
@@ -255,14 +310,14 @@ test('a sea wider than HOPS is crossed by the long crossings, and a voyage settl
 
 test('cities are fed along the routes: each cell keeps 1 − u of its food, and the rest arrives less the carriers\' share', () => {
   const p = new People(uniformPlanet(4), { ...quiet, S_WORK: 0 });
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   p.packages.push({ c: 0, t: 0, clim: Float32Array.from(p.H.clim.subarray(0, 4)) });
   for (let c = 0; c < p.nL; c++) { p.f[c] = 0.3; p.pkg[c] = 0; L.Z[c] = 5; }
-  p.capacity(L);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; p.Out[c] = L.K[c]; }
-  p.zcell(); p.trading(); p.places();
+  p.trading(); p.places();
   const K0 = Float64Array.from(L.K);
-  p.feed([L], 1e9);   // long enough that the sent share is the urban share
+  p.feed(1e9);   // long enough that the sent share is the urban share
   let before = 0, after = 0, sent = 0;
   for (let c = 0; c < p.nL; c++) { before += K0[c]; after += L.K[c]; sent += p.uShare[c] * K0[c]; }
   const arrived = after - (before - sent);
@@ -399,19 +454,6 @@ test('the probes: their reach, what\'s seen of it, and (aligned) the people at o
   assert.ok(Math.abs(st.people / (P.N_STAR * n0 * I) - 1) < 1e-3, `${st.people.toExponential(4)} against ${(P.N_STAR * n0 * I).toExponential(4)}`);
 });
 
-test('lineages part: the divergence is from when the later of them left their last common ancestor', () => {
-  const p = new People(uniformPlanet(3), quiet);
-  const A = p.newLineage(null, 0, 1); p.t = 100e3;
-  const B = p.newLineage(A, 100e3, 1); p.t = 300e3;
-  const C = p.newLineage(A, 300e3, 1); p.t = 500e3;
-  const D = p.newLineage(B, 450e3, 1);
-  assert.equal(p.divergence(A, B), 400e3);
-  assert.equal(p.divergence(B, A), 400e3);
-  assert.equal(p.divergence(B, C), 400e3, 'siblings: from the earlier split');
-  assert.equal(p.divergence(B, D), 50e3);
-  assert.equal(p.divergence(C, D), 400e3);
-});
-
 test('Earth\'s room, aligned and past scarcity: an ecumenopolis on its living land', () => {
   const P = PEOPLE, p = new People(uniformPlanet(3), quiet);
   let A = 0;
@@ -466,8 +508,8 @@ test("the harvest's years: the planet's realized years stand in for the closure'
   f.sigP = new Float32Array(f.n).fill(0.2); f.sigTy = new Float32Array(f.n).fill(0.4);
   const run = years => {
     const p = new People(f, { ...quiet, A_INV: 0, D0: 0, D_Z: 0 });
-    const L = p.newLineage(null, 0, 0);
-    p.capacity(L); for (let k = 0; k < p.nL; k++) L.N[k] = 1.05 * L.K[k];
+    const L = pop(p);
+    p.capacity(); for (let k = 0; k < p.nL; k++) L.N[k] = 1.05 * L.K[k];
     if (years) p.addYears(years, 4);
     p.step(10);
     return p.famine;
@@ -478,20 +520,18 @@ test("the harvest's years: the planet's realized years stand in for the closure'
   assert.ok(drought > 2 * base, `famine ${drought.toExponential(2)} in a drought's decade against ${base.toExponential(2)} without`);
 });
 
-test("the stocks: game hunted out where it never met hominins, held where it did; fish taken past their regrowth by industry's fleets", () => {
+test("the stocks: game hunted out where it never knew hominins, held where it did; fish taken past their regrowth by industry's fleets", () => {
   const f = uniformPlanet(3);
   const p = new People(f, { ...quiet, A_INV: 0, D0: 0, D_Z: 0 });
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   for (let c = 0; c < p.nL; c++) L.Z[c] = 5;   // foragers at full culture, as dense as it lets them be
-  p.capacity(L);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
-  p.zc = Float64Array.from(L.Z);
-  p.Ntot.set(L.N);
   const half = Math.floor(p.nL / 2);
-  for (let c = 0; c < p.nL; c++) { p.met[c] = 1; p.naive[c] = c < half ? p.P.NAIVE_CO : 1; }
+  for (let c = 0; c < p.nL; c++) p.naive[c] = c < half ? p.P.NAIVE_CO : 1;
   // Without people the game's share is its own: logistic, exact over any step.
   const P = p.P, ez = Math.exp(5), PF = ez / (1 + (ez - 1) / P.CAP_F);
-  for (let k = 0; k < 40; k++) p.stocks(100, [L]);
+  for (let k = 0; k < 40; k++) p.stocks(100);
   for (const c of [0, half - 1]) {
     const rho = p.Ntot[c] / p.H.area[c], h = P.H_MEGA * P.NAIVE_CO * Math.min(3, rho / P.B0) * PF / P.CAP_F;
     assert.ok(h < P.R_MEGA && Math.abs(p.mega[c] - (1 - h / P.R_MEGA)) < 1e-3, `wary game holds at 1 − h/R: ${p.mega[c].toFixed(3)} against ${(1 - h / P.R_MEGA).toFixed(3)}`);
@@ -499,15 +539,15 @@ test("the stocks: game hunted out where it never met hominins, held where it did
   for (const c of [half, p.nL - 1]) assert.equal(p.mega[c], 0, 'naive game hunted out, and gone for good');
   // The coast's fish: the cells have no sea here, so give one a coast's and run industry's fleets over it.
   p.H.bS[0] = 0.02; p.fish[0] = 1; p.ind[0] = 0;
-  for (let k = 0; k < 100; k++) p.stocks(10, [L]);
+  for (let k = 0; k < 100; k++) p.stocks(10);
   const pre = p.fish[0];
   assert.ok(pre > 0.85 && pre < 1, `before industry the fish hold near their own (${pre.toFixed(3)})`);
   p.ind[0] = 1; p.zc[0] = P.Z_IND;
-  for (let k = 0; k < 10; k++) p.stocks(5, [L]);
+  for (let k = 0; k < 10; k++) p.stocks(5);
   assert.ok(p.fish[0] < 0.5 * pre, `fifty years of industry's fleets: ${p.fish[0].toFixed(3)}`);
   const low = p.fish[0];
   p.zc[0] = P.Z_IND + 1 + 4 * P.Z_CONS;   // culture's care eases the take: they come back
-  for (let k = 0; k < 20; k++) p.stocks(5, [L]);
+  for (let k = 0; k < 20; k++) p.stocks(5);
   assert.ok(p.fish[0] > low, `and recover as the take eases (${p.fish[0].toFixed(3)})`);
 });
 
@@ -525,11 +565,11 @@ test("the sea feeds a desert coast, and herders hold the grass the plough can't,
   assert.ok(p.H.bS[coast] > 0.5 * p.P.B_SEA && p.H.bS[inland] === 0, `the coast's sea feeds ${p.H.bS[coast].toFixed(4)} a km²`);
   assert.ok(p.H.bS[coast] > p.H.bL[coast], 'more than its dry land does');
   // Herding, once known and with animals (their herds full), holds more than foraging there.
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   for (let c = 0; c < p.nL; c++) L.Z[c] = p.P.Z_HERD + 1;
-  p.capacity(L); const Kf = L.K[inland];
+  p.capacity(); const Kf = L.K[inland];
   p.anim.fill(1); p.herdM.fill(1);
-  p.capacity(L); const Kh = L.K[inland];
+  p.capacity(); const Kh = L.K[inland];
   assert.ok(Kh > 2 * Kf, `herders ${Kh.toFixed(0)} against foragers' ${Kf.toFixed(0)}`);
   // Deep snow in winter and nowhere milder within reach: the herds have no winter.
   for (let i = 0; i < n; i++) for (let m = 0; m < 12; m++) { f.T12[12 * i + m] -= 14; f.P12[12 * i + m] = 40; }
@@ -558,7 +598,7 @@ test('a pause: a third of the draws, the frontier held where it stands, none of 
 
 test('a region\'s luck: a smooth field of multipliers on ideas, mean one, renewed as the frontier advances', () => {
   const p = new People(uniformPlanet(5), { H_FARM: 0 });
-  p.zc = new Float64Array(p.nL).fill(1); p.Ntot.fill(1);
+  p.zc.fill(1); p.Ntot.fill(1);
   p.lucky();
   const m0 = Float64Array.from(p.luckC);
   // The multiplier's log has the spread SIG_LUCK and the multiplier a mean near one over the world.

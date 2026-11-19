@@ -17,16 +17,18 @@ function steppe(level) {
   for (let i = 0; i < n; i++) { f.zones[NZ * i + 5] = 1; for (let m = 0; m < 12; m++) f.T12[12 * i + m] = 8 + 14 * Math.cos(2 * Math.PI * (m - 6) / 12); }
   return f;
 }
-const quiet = { H_FARM: 0, S_BG: 0, V_G: 0, CHECK: 1e12, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+/** The people's arrays under one name (each cell's numbers, culture, capacity and minds). */
+const pop = p => ({ N: p.Ntot, Z: p.zc, K: p.K, K2: p.K2, M: p.M });
 
 /** Herders known everywhere, the people at `occ` of the capacity; the pasture's mean share of a cell. */
 function pastureAt(occ, rewild = 0) {
   const p = new People(steppe(4), { ...quiet });
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   p.packages.push({ id: 0 }); p.rewild = rewild;
   p.anim.fill(1); p.herdM.fill(1);   // a full set of domesticates, their herds full
   for (let c = 0; c < p.nL; c++) L.Z[c] = p.P.Z_HERD + 1;
-  p.capacity(L);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) { L.N[c] = occ * L.K[c]; p.Ntot[c] = L.N[c]; }
   p.reached.fill(1);
   p.drawn();
@@ -53,17 +55,17 @@ test('the Culture map: the culture known, its lag behind the frontier, held wher
   const f = steppe(4);
   for (let i = 0; i < f.n; i++) if (f.grid.pos[3 * i + 2] > 0.6) f.elev[i] = -2;   // a sea in the north
   const p = new People(f, { ...quiet });
-  const L = p.newLineage(null, 0, 0);
-  p.capacity(L);
+  const L = pop(p);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; L.Z[c] = 2 + p.H.lat[c]; }
-  p.zcell(); p.drawn();
+  p.drawn();
   const zf = Math.max(...Array.from(p.zc)), c0 = 7, i0 = p.cells[c0];
   p.works[c0] = 5e4;
   let l = p.drawnB();
   assert.ok(Math.abs(l[4 * i0 + 1] - p.zc[c0]) < 1e-5 && Math.abs(l[4 * i0 + 2] - (zf - p.zc[c0])) < 1e-5);
   assert.ok(Math.abs(l[4 * i0 + 3] - 5e4 / p.H.area[c0]) < 1e-3 * 5e4 / p.H.area[c0], 'the works a km²');
   // Its people gone, a place keeps the culture its ruins knew.
-  const z0 = p.zc[c0]; p.Ntot[c0] = 0; L.N[c0] = 0; p.zcell();
+  const z0 = p.zc[c0]; p.Ntot[c0] = 0; L.N[c0] = 0;
   l = p.drawnB();
   assert.ok(Math.abs(l[4 * i0 + 1] - z0) < 1e-5);
   // A sea cell beside the land carries its land neighbours' mean, so the coast isn't a cliff of culture.

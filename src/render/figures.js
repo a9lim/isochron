@@ -426,7 +426,7 @@ export function drawModel(canvas, s, pal) {
 // ── Fig. 8: the people on the hyperbola's clock (the People scenario) ──
 const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
 const pow10 = n => `10${String(n).split('').map(c => SUP[c]).join('')}`;
-const EVENT_NAMES = { origin: 'hominins', tip: 'tip', farming: 'farming', industry: 'industry', present: 'takeoff', dial: 'dial' };
+const EVENT_NAMES = { origin: 'first people', tip: 'tip', farming: 'farming', industry: 'industry', present: 'takeoff', dial: 'dial' };
 /** A span before t* on the axis, for its ticks: "1 Myr", "100 yr", "1 day". */
 function before(d) {
   const y = Math.pow(10, d);
@@ -437,16 +437,14 @@ function before(d) {
 }
 
 /**
- * Fig. 8 (src/engine/peoplefit.js `figureOf`): above, people and minds on a log scale against
+ * Fig. 8 (src/engine/peoplefit.js `figureOf`): people and minds on a log scale against
  * log(t* − t), where the hyperbola is a straight line (its fit dotted over the window it was
- * fitted on), the first of each era's events ruled through both panels; below, the lineages as
- * spindles on the same axis, each as thick as its numbers (log), a split ruled from its parent,
- * a merge into the lineage it joined.
+ * fitted on), the first of each era's events ruled through.
  */
 export function drawPeople(canvas, fig, pal) {
   const { ctx, w, h } = setup(canvas);
   if (!fig || fig.series.length < 2) return;
-  const left = 30, right = w - 8, top = 26, aBot = Math.round(h * 0.56), bTop = aBot + 18, bBot = h - 20;
+  const left = 30, right = w - 8, top = 26, bBot = h - 20, aBot = bBot;
   const X = x => left + (fig.x0 - x) / Math.max(1e-9, fig.x0 - fig.x1) * (right - left);
   // The axis: decades before t*.
   ctx.strokeStyle = alpha(pal.text, 0.4); ctx.lineWidth = 1;
@@ -456,7 +454,7 @@ export function drawPeople(canvas, fig, pal) {
     ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, bBot); ctx.lineTo(Math.round(x) + 0.5, bBot + 3); ctx.stroke();
     if (x - lastLab > 34 && (d % 3 === 0 || fig.x0 - fig.x1 < 7)) { label(ctx, before(d), x, bBot + 11, pal.muted, 'center', 10.5); lastLab = x; }
   }
-  // The events, ruled through both panels, their names staggered where they crowd.
+  // The events, ruled through, their names staggered where they crowd.
   let prev = -1e9, row = 0;
   for (const e of [...fig.events].sort((a, b) => b.x - a.x)) {
     const x = X(e.x);
@@ -465,7 +463,7 @@ export function drawPeople(canvas, fig, pal) {
     row = x - prev < 46 ? 1 - row : 0; prev = x;
     label(ctx, EVENT_NAMES[e.kind] || e.kind, x, 6 + 11 * row, pal.muted, x > right - 24 ? 'right' : x < left + 24 ? 'left' : 'center', 10.5, true);
   }
-  // Above: people (solid) and minds (dashed), log₁₀.
+  // People (solid) and minds (dashed), log₁₀.
   let lo = Infinity, hi = -Infinity;
   for (const s of fig.series) for (const v of [s.people, s.minds]) if (v > 0) { const l = Math.log10(v); if (l < lo) lo = l; if (l > hi) hi = l; }
   if (!(hi >= lo)) return;
@@ -504,36 +502,6 @@ export function drawPeople(canvas, fig, pal) {
   const end = fig.series.at(-1);
   if (end.minds > 0) label(ctx, 'minds', X(end.x) - 3, Y(end.minds) - 8, pal.inks.indigo, 'right', 10.5, true);
   if (end.people > 0) label(ctx, 'people', X(end.x) - 3, Y(end.people) + 9, pal.text, 'right', 10.5, true);
-  // Below: the lineages, lanes in the tree's order (each child after its parent, by birth).
-  const L = fig.lin.filter(l => l.pts.length > 0 || l.parent < 0);
-  if (!L.length) return;
-  const kids = new Map();
-  for (const l of L) { if (!kids.has(l.parent)) kids.set(l.parent, []); kids.get(l.parent).push(l); }
-  for (const v of kids.values()) v.sort((a, b) => a.born - b.born);
-  const order = [];
-  const walk = id => { for (const l of kids.get(id) || []) { order.push(l); walk(l.id); } };
-  walk(-1);
-  for (const l of L) if (!order.includes(l)) order.push(l);   // a parent not drawn: its children at the end
-  const lane = (bBot - bTop) / order.length, laneOf = new Map(order.map((l, k) => [l.id, bTop + (k + 0.5) * lane]));
-  let nMax = 1;
-  for (const l of order) for (const [, n] of l.pts) if (n > nMax) nMax = n;
-  const lmax = Math.log10(nMax / 100);
-  const half = n => Math.max(0.6, Math.min(lane / 2 - 0.8, 7) * Math.max(0.08, Math.log10(Math.max(n, 100) / 100) / Math.max(1, lmax)));
-  ctx.strokeStyle = alpha(pal.inks.umber, 0.8); ctx.lineWidth = 1;
-  for (const l of order) {
-    const yc = laneOf.get(l.id);
-    if (l.pts.length >= 1) {
-      ctx.fillStyle = alpha(pal.inks.umber, 0.55);
-      ctx.beginPath();
-      l.pts.forEach(([x, n], k) => { const px = X(x), py = yc - half(n); if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
-      for (let k = l.pts.length - 1; k >= 0; k--) { const [x, n] = l.pts[k]; ctx.lineTo(X(x), yc + half(n)); }
-      ctx.closePath(); ctx.fill();
-    }
-    // Its split from its parent, and its merge into another.
-    if (l.parent >= 0 && laneOf.has(l.parent)) { const x = Math.round(X(l.bornX)) + 0.5; ctx.beginPath(); ctx.moveTo(x, laneOf.get(l.parent)); ctx.lineTo(x, yc); ctx.stroke(); }
-    if (l.into !== null && laneOf.has(l.into) && l.diedX !== null) { const x = Math.round(X(l.diedX)) + 0.5; ctx.beginPath(); ctx.moveTo(x, yc); ctx.lineTo(x, laneOf.get(l.into)); ctx.stroke(); }
-  }
-  label(ctx, 'lineages', left, bTop - 8, pal.muted, 'left', 10.5, true);
 }
 
 /**

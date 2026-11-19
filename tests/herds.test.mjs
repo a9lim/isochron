@@ -19,18 +19,20 @@ function planet(T, Pm, level = 3, zone = 5) {
   for (let i = 0; i < n; i++) { f.zones[NZ * i + zone] = 1; for (let m = 0; m < 12; m++) { f.T12[12 * i + m] = T(m); f.P12[12 * i + m] = Pm(m); } }
   return f;
 }
-const quiet = { H_FARM: 0, S_BG: 0, V_G: 0, CHECK: 1e12, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+/** The people's arrays under one name (each cell's numbers, culture, capacity and minds). */
+const pop = p => ({ N: p.Ntot, Z: p.zc, K: p.K, K2: p.K2, M: p.M });
 const steppe = m => 8 + 14 * Math.cos(2 * Math.PI * (m - 6) / 12);    // −6 °C winters
 const dzudland = m => 0 + 14 * Math.cos(2 * Math.PI * (m - 6) / 12);  // −14 °C winters
 
 test('a farming origin domesticates the large game still standing about it: none where it was hunted out', () => {
   const p = new People(planet(() => 24, m => (m >= 5 && m <= 9 ? 160 : 5), 4, 3), { ...quiet, H_FARM: 1e3 });
-  const L = p.newLineage(null, 0, 0), g = p.planet.grid;
+  const L = pop(p), g = p.planet.grid;
   for (let c = 0; c < p.nL; c++) { L.Z[c] = P.Z_FARM + 1; p.mega[c] = g.pos[3 * p.cells[c] + 2] > 0 ? 1 : 0; }   // the game stands in the north, gone in the south
-  p.capacity(L);
+  p.capacity();
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
   p.Ntot.set(L.N);
-  p.farming([L], 1);
+  p.farming(1);
   assert.ok(p.packages.length > 5, `${p.packages.length} origins`);
   let wild = 0, gone = 0;
   for (const q of p.packages) {
@@ -46,15 +48,15 @@ test('a farming origin domesticates the large game still standing about it: none
 test('animals pass by contact among people who know farming, onto empty land beside them, as far as the herds are kept', () => {
   const spread = (bare = false) => {
     const p = new People(planet(steppe, () => 30, 4), quiet);
-    const L = p.newLineage(null, 0, 0);
+    const L = pop(p);
     for (let c = 0; c < p.nL; c++) L.Z[c] = P.Z_FARM + 1;
-    p.capacity(L);
+    p.capacity();
     const c0 = 0, nb = [];
     for (let o = p.E.off[c0]; o < p.E.off[c0 + 1]; o++) if (!p.E.hop[o]) nb.push(p.E.nb[o]);
     L.N[c0] = L.K[c0]; L.N[nb[0]] = L.K[nb[0]]; p.Ntot.set(L.N);
     p.tame(c0, 1);
     if (bare) p.H.herd[c0] = 0;   // a land that keeps no herds: no pasture, no fields
-    p.farming([L], 10);
+    p.farming(10);
     return { p, L, c0, nb };
   };
   const { p, L, c0, nb } = spread(), H = p.H;
@@ -80,7 +82,7 @@ test('the herd: logistic to 1 − loss/R under the closure; a dzud year takes a 
   p.herdYears();
   const s = p.spreadOf(c, P.E_RAIN, P.B_DZUD * H.snowy[c]), loss = P.F_DIE * s * partialG(-P.TH_DIE / s);
   assert.ok(Math.abs(p.hLoss[c] - loss) < 1e-12 && loss > 0 && loss < P.R_HERD, `the closure's die-offs ${loss.toFixed(4)} a year`);
-  for (let k = 0; k < 40; k++) p.stocks(25, []);
+  for (let k = 0; k < 40; k++) p.stocks(25);
   assert.ok(Math.abs(p.herdM[c] - (1 - loss / P.R_HERD)) < 1e-6, `settled at ${p.herdM[c].toFixed(4)} against ${(1 - loss / P.R_HERD).toFixed(4)}`);
   // A dzud: a year 4 K cold in its mean, realized (the dial resolving the year), on a full herd.
   p.herdM.fill(1);
@@ -91,25 +93,25 @@ test('the herd: logistic to 1 − loss/R under the closure; a dzud year takes a 
   p.herdYears();
   const h = P.F_DIE * Math.max(0, 4 * P.B_DZUD * H.snowy[c] - P.TH_DIE), r = P.R_HERD - h, e = Math.exp(r);
   assert.ok(Math.abs(p.hLoss[c] - h) < 1e-12, `the year's toll ${h.toFixed(3)}`);
-  p.stocks(1, []);
+  p.stocks(1);
   const after = p.herdM[c];
   assert.ok(Math.abs(after - r * e / (r + P.R_HERD * (e - 1))) < 1e-12 && after < 0.8 && after > 0.6, `a dzud leaves ${after.toFixed(3)} of the herd`);
   p.yrW = 0; p.yrTake = 0; p.yrPhi = 0;
-  for (let k = 0; k < 10; k++) { p.herdYears(); p.stocks(1, []); }
+  for (let k = 0; k < 10; k++) { p.herdYears(); p.stocks(1); }
   assert.ok(p.herdM[c] > after && p.herdM[c] < 1 - loss / P.R_HERD, `rebuilt over a decade toward its own: ${p.herdM[c].toFixed(3)}`);
 });
 
 test('herders need animals; mixed farming\'s animals manure the fields and pull the plough', () => {
   // The steppe: herding holds more than foraging only where the animals are.
   const p = new People(planet(steppe, () => 15, 4), quiet);
-  const L = p.newLineage(null, 0, 0);
+  const L = pop(p);
   for (let c = 0; c < p.nL; c++) L.Z[c] = P.Z_HERD + 1;
   p.packages.push({ id: 0, anim: 1 });
-  p.capacity(L); const Kf = L.K[0];
+  p.capacity(); const Kf = L.K[0];
   p.anim.fill(1); p.herdM.fill(1);
-  p.capacity(L); const Kh = L.K[0];
+  p.capacity(); const Kh = L.K[0];
   p.herdM.fill(0.5);
-  p.capacity(L); const Kh2 = L.K[0];
+  p.capacity(); const Kh2 = L.K[0];
   assert.ok(Kh > 2 * Kf, `herders ${Kh.toFixed(0)} with a full herd against foragers' ${Kf.toFixed(0)} without animals`);
   assert.ok(Kh2 < Kh && Kh2 > Kf, `half the herd, ${Kh2.toFixed(0)}`);
   // Fields on a leached tropical soil (nothing to forage): manure cuts the fallow, traction lifts the yield.
@@ -119,10 +121,10 @@ test('herders need animals; mixed farming\'s animals manure the fields and pull 
   const M = new People(f, quiet);
   assert.ok(H.phi[c] < 0.5, `leached: ${H.phi[c].toFixed(2)} cropped`);
   for (const r of [q, M]) { r.f[c] = 0.5; r.pkg[c] = 0; r.packages.push({ id: 0, clim: Float32Array.from(r.H.clim.subarray(0, 4)), anim: 1 }); r.pkgT[c] = -1e9; }
-  const Lq = q.newLineage(null, 0, 0); Lq.Z[c] = P.Z_FARM + 2;
-  q.capacity(Lq); const K0 = Lq.K[c];
+  const Lq = pop(q); Lq.Z[c] = P.Z_FARM + 2;
+  q.capacity(); const K0 = Lq.K[c];
   q.anim[c] = 1; q.herdM[c] = 1;
-  q.capacity(Lq); const K1 = Lq.K[c];
+  q.capacity(); const K1 = Lq.K[c];
   assert.ok(Math.abs(K1 / K0 - (1 + P.TRACT * H.habA[c])) < 1e-3, `traction (the little foraging aside): ${(K1 / K0).toFixed(3)} against 1 + TRACT × ${H.habA[c].toFixed(2)} (the trypanosomes' share left)`);
   const crop0 = M.cropped(c);
   M.anim[c] = 1; M.herdM[c] = 1;

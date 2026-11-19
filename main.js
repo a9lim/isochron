@@ -701,7 +701,7 @@ for (const b of els.maps) b.addEventListener('click', () => { viewChosen = true;
 // Two, each from the planet's opening (choosing one reloads, keeping the seed; ?scenario=people for
 // the second): the planet alone, and people on it. The People scenario holds its planet at the
 // opening while it loads and its climate settles (the climate, the cover, the lakes and the sea come
-// to their balance, the climate's cycles back to back), then the first hominins come, the clock runs,
+// to their balance, the climate's cycles back to back), then the first people come, the clock runs,
 // the dial follows them, and their view, Fig. 8's tab and the follow dial's switch appear.
 const scenario = query.get('scenario') === 'people' ? 'people' : 'world';
 const peopleOn = () => scenario === 'people';
@@ -747,7 +747,7 @@ function startPeople() {
   w.onmessage = e => {
     const m = e.data;
     if (m.type === 'people') {
-      // The first hominins: the People view opens, unless the reader has picked one in the dry run.
+      // The first people: the People view opens, unless the reader has picked one in the dry run.
       if (!people.msg && !viewChosen && GROUP[view] !== 'weather') setView('people');
       people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true;
     }
@@ -769,9 +769,9 @@ function followAim() {
   const m = people.msg;
   if (!m) return null;
   const top = Math.min(+els.dial.max, Math.log10(Math.max(1e-3, m.cap)));
-  // Before the first tip, at least 5 kyr/s: the first hominins' spread over their continent doubles
+  // Before the tip, at least 5 kyr/s: the first people's spread over their continent doubles
   // every few decades, and at the control's seconds a doubling it took most of the run's first minute.
-  const floor = m.era === 'hominins' ? Math.log10(5e3) : -Infinity;
+  const floor = m.era === 'first people' ? Math.log10(5e3) : -Infinity;
   const want = Math.max(floor, m.pace > 0 ? Math.log10(Math.LN2 / (m.pace * follow.secs)) : top);
   return Math.max(+els.dial.min, Math.min(top, want));
 }
@@ -802,7 +802,7 @@ function caption(force) {
   const now = performance.now();
   if (!force && now - lastCaption < 250) return;
   lastCaption = now;
-  // The year (the planet's, or with people their own, from the first hominins), the date where the
+  // The year (the planet's, or with people their own, from the first people), the date where the
   // globe shows the season, and with people how many and the largest city. The view names itself;
   // the margin's figures carry the rest. Nothing while the People scenario's planet settles.
   if (!shown || (peopleOn() && !(people.msg && people.msg.last))) { setCaption('', true); return; }
@@ -1005,10 +1005,10 @@ function figures(force) {
   if (visible(els.figPeople)) {
     const fg = people.fig;
     drawPeople(els.figPeople, fg, pal);
-    const fit = fg && fg.fit, n = people.msg ? people.msg.lineages : 0;
+    const fit = fg && fg.fit;
     const left = fg ? fg.tStar - fg.now : 0;
     els.capPeople.textContent = !fg ? 'The people' : `The people · t* ${left > 0 ? `in ${span(left)}` : `${span(-left)} ago`}` +
-      (fit ? ` · ${fg.which === 'minds' ? "minds'" : "people's"} exponent ${fit.p.toFixed(2)}, R² ${fit.r2.toFixed(2)} (an exponential's ${fit.r2exp.toFixed(2)})` : '') + ` · ${n} ${n === 1 ? 'lineage' : 'lineages'}`;
+      (fit ? ` · ${fg.which === 'minds' ? "minds'" : "people's"} exponent ${fit.p.toFixed(2)}, R² ${fit.r2.toFixed(2)} (an exponential's ${fit.r2exp.toFixed(2)})` : '');
   }
   if (visible(els.figAges)) {
     drawAges(els.figAges, people.pyr, people.pyrRef, pal);
@@ -1116,7 +1116,7 @@ window.addEventListener('DOMContentLoaded', () => {
         'seafloor is made at the ridges and recorded in magnetic stripes, sinks at the trenches, and continents collide and rift. ' +
         'Rivers cut the mountains and carry them to the sea. The climate follows the geography and the orbit: seasons, winds, rain, ice sheets, ' +
         'and a carbon cycle in which volcanoes supply CO₂ and the weathering of rock takes it back. ' +
-        'In the People scenario, people spread over it from the first hominins, farm, industrialize and build minds of their own, and the planet answers.',
+        'In the People scenario, people spread over it from the first of them, farm, industrialize and build minds of their own, and the planet answers.',
       controls: [
         { label: 'Turn the globe', value: 'Drag' },
         { label: 'Zoom', value: 'Scroll, pinch, or = - 0' },
@@ -1169,7 +1169,7 @@ function tick(now) {
     const keep = rate() * engineMsPerStep / 1000 * 1.3;
     scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10, keep));
     // The People scenario holds the planet at its opening while its climate settles (the climate's
-    // cycles run back to back on the engine's thread meanwhile), then runs from the first hominins.
+    // cycles run back to back on the engine's thread meanwhile), then runs from the first people.
     const heldBy = stepsSent - stepsDone >= 2 ? 'engine' : people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4) ? 'people' : peopleOn() && !people.msg ? 'opening' : null;
     const behind = heldBy !== null;
     if (heldBy) held[heldBy] = (held[heldBy] || 0) + 1; else held.free = (held.free || 0) + 1;

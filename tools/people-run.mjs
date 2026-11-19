@@ -1,5 +1,5 @@
 // The people prototype, headless (docs/people.md; the model is src/engine/people.js):
-// the first hominins placed on a settled planet, run until AFTER years past the dial (the ending,
+// the first people placed on a settled planet, run until AFTER years past the dial (the ending,
 // drawn at early takeoff, playing out), or tMax. "The dial runs out" (the minds doubling
 // in under a day) is the model's event (src/engine/people.js). It prints the events as they happen and a line at each doubling of
 // the people, then the hyperbola's fit and the follow dial's wall-clock.
@@ -45,17 +45,16 @@ pp.run({
     if (live) live.advance(h.dt);
     if (!process.env.QUIET && (h.people > 2 * lastPeople || p.t - lastT > 250e3 || (h.Y > 4 * lastY && h.Y > 0))) {
       lastPeople = h.people; lastT = p.t; lastY = h.Y;
-      const L = p.lineages.filter(L => L.died === null).sort((a, b) => b.total - a.total);
       const pl = live ? live.sample() : null;
       console.log(`${fmtYears(p.t).padStart(12)}  ${g3(h.people / 1e6).padStart(8)} M people · minds ${g3(h.minds)} · z ${h.zmax.toFixed(2)} · farm ${(100 * h.farm).toFixed(0)}% (soil ${h.soil.toFixed(2)} m) · ind ${(100 * h.ind).toFixed(0)}% · ` +
         (h.Y > 0 ? `Y ${g3(h.Y)} sy/yr · K ${g3(h.Kf)} · compute ${g3(h.Kc)} (AI ${g3(h.AI)}, β ${h.beta.toFixed(2)}) · energy ${g3(h.energy / 1e12)} TW (fossil ${g3(h.Ef / 1e12)}, sun ${g3(h.Er / 1e12)}, fusion ${g3(h.Eu / 1e12)}; output at ${(100 * h.avail).toPrecision(2)}% of what the factors could make) · fossil left ${h.fossil.toFixed(0)} Pg C · heat ${h.heat.toFixed(2)} W/m² · ` : '') +
         `CO₂ ${h.co2.toFixed(0)}` + (pl ? ` · planet ${pl.T.toFixed(1)} °C, sea ${pl.sea.toFixed(1)} m, ice ${pl.ice.toFixed(2)} M km³, trees ${(100 * pl.trees).toFixed(0)}% of land, land C ${pl.landC.toFixed(0)} Pg, regolith ${pl.soil.toFixed(2)} m` : '') +
-        ` · ${L.length} lineages · dt ${fmtYears(h.dt)}`);
+        ` · dt ${fmtYears(h.dt)}`);
     }
   },
   stop(p) {
     const h = p.history, n = h.length;
-    if (!p.lineages.some(L => L.died === null) && !(p.space >= 1)) { p.event('end', 'no one is left'); return true; }
+    if (!(h.length && h.at(-1).people >= 1) && !(p.space >= 1)) { p.event('end', 'no one is left'); return true; }
     if (n < 3) return false;
     // The ending plays out over AFTER years past the dial (the model finds the dial, People.record).
     if (p.flags.dial && p.t - p.dialAt > AFTER) {
@@ -83,13 +82,12 @@ if (live) { const s = live.sample(); console.log(`the planet at the end: ${s.T.t
 const tip = pp.events.find(e => e.kind === 'tip');
 if (tip) {
   const fit = fitHyperbola(h, tip.t, 'people'), fitM = fitHyperbola(h, tip.t, 'minds');
-  for (const [name, f] of [['people', fit], ['minds', fitM]]) if (f) console.log(`hyperbola (${name}, from the first tip): t* = ${fmtYears(f.tStar)} (${fmtYears(f.tStar - pp.t)} after the end), exponent ${f.p.toFixed(2)}, R² ${f.r2.toFixed(3)} (an exponential: R² ${f.r2exp.toFixed(3)})`);
-  if (fitM) for (const e of pp.events) if (!['split', 'merge', 'extinct'].includes(e.kind) && !(e.kind === 'tip' && e !== tip)) console.log(`  t* − t ${fmtYears(fitM.tStar - e.t).padStart(12)}  ${e.kind}`);
+  for (const [name, f] of [['people', fit], ['minds', fitM]]) if (f) console.log(`hyperbola (${name}, from the tip): t* = ${fmtYears(f.tStar)} (${fmtYears(f.tStar - pp.t)} after the end), exponent ${f.p.toFixed(2)}, R² ${f.r2.toFixed(3)} (an exponential: R² ${f.r2exp.toFixed(3)})`);
+  if (fitM) for (const e of pp.events) console.log(`  t* − t ${fmtYears(fitM.tStar - e.t).padStart(12)}  ${e.kind}`);
 }
 const dial = followDial(h, 10);   // the page's 10 s a doubling
 console.log(`the follow dial (10 s a doubling, clamped to the dial's 2.8 h/s and the page's ~80 kyr/s): ${dial.wall.toFixed(0)} s in all · ${dial.eras.map(([k, s]) => `${k} ${s.toFixed(0)} s`).join(' · ')}`);
 const out = process.env.OUT || new URL(`./people/.cache/run-${seed}${LIVE ? '-live' : ''}.json`, import.meta.url).pathname;
 writeFileSync(out, JSON.stringify({ seed, live: LIVE, params: pp.P, events: pp.events, packages: pp.packages.map(({ clim, ...p }) => p),
-  lineages: pp.lineages.map(({ N, Z, M, K, anc, ...L }) => ({ ...L, anc: Object.fromEntries(anc) })),
   history: h.filter((_, k) => k % Math.max(1, Math.floor(h.length / 4000)) === 0 || k === h.length - 1) }));
 console.log(`history in ${out}`);

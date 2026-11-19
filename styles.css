@@ -153,7 +153,7 @@ body.sim-body { background: var(--bg-canvas); }
 .fig-record { height: 330px; }
 .fig-orbit { height: 230px; }
 .fig-model { height: 600px; }
-.fig-people { height: 400px; }
+.fig-people { height: 280px; }
 .fig-ages { height: 250px; }
 .fig-system { height: 340px; }
 

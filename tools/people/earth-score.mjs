@@ -1,5 +1,5 @@
 // The people on today's Earth against where people live now (docs/people.md, "On Earth"): runs
-// the people from the first hominins to early takeoff on the cached opening, several draws of their
+// the people from the first of them to early takeoff on the cached opening, several draws of their
 // chances in parallel, and scores each run's population by region against the regions' shares now
 // (rough, from memory: national totals of ~2023 split onto the boxes below): Σ share × |ln(model /
 // observed)|, a model share floored at 0.1%. Prints each region's mean share against the observed, the

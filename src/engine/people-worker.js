@@ -12,7 +12,7 @@
 //                     robots per km² and the land's uses, eight a cell: People.drawn; the herders'
 //                     pasture, four a cell: People.pasture), `figure` once a second
 //                     (Fig. 8: src/engine/peoplefit.js; Fig. 9: the world's ages)
-// The first hominins are placed on the first fields that come (the climate's first cycle). The
+// The first people are placed on the first fields that come (the climate's first cycle). The
 // page's ticks owe the people years; the people step toward them at their own pace (People.nextDt)
 // and, behind, say so, so the page holds its clock.
 import { buildGrid } from '../grid/icosphere.js';
@@ -121,10 +121,10 @@ function post(force) {
     // The most years a second the people keep up with: a step's years over its cost, on most of this thread.
     const cap = 0.8 * 1000 * dtLast / Math.max(0.05, msPerStep), F = people.flags;
     const era = F.dial ? 'after the dial' : F.present ? 'takeoff' : F.industry ? 'industry' : people.packages.length ? 'farmers'
-      : people.lineages.some(L => L.tipped !== null) ? 'foragers' : 'hominins';
+      : people.tTip !== null ? 'foragers' : 'first people';
     self.postMessage({
       type: 'people', t: people.t, owed, cap, pace: people.pace(), events: ev, last, era,
-      lineages: people.lineages.filter(L => L.died === null).length, packages: people.packages.length,
+      packages: people.packages.length,
       ending: people.ending, flags: { ...people.flags }, dialAt: people.dialAt ?? null,
       forcing: { ...people.forcing }, space: people.space, boiled: people.boiled, hE: people.hE, dis: people.dis,
       Es: E.Es || 0, sA: E.sA || 0, sun: people.P.L_SUN, msPerStep, emitted: people.emitted, removed: people.removed,
@@ -140,7 +140,7 @@ function post(force) {
       off: { worlds: people.offworld(), ...people.minedShares(), flow: people.flow, src: people.src, mined: people.mined, room: people.room, roomE: people.roomE || 0, fert: people.fert, stars: people.stars() },
     });
   }
-  // Fig. 8 (the hyperbola and the lineages), once a second: ~5 ms of fitting on a thinned record.
+  // Fig. 8 (the hyperbola), once a second: ~5 ms of fitting on a thinned record.
   if (force || now - lastFig > 1000) {
     lastFig = now;
     const fig = figureOf(people);
