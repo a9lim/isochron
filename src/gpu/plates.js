@@ -963,6 +963,10 @@ export class GpuPlates {
       const ls = this.lsBuf || (this.lsBuf = new Float32Array(2 * n)), fc = tec.flexc, tr = tec.trench, dy = tec.dyn;
       for (let i = 0; i < n; i++) { ls[2 * i] = (tec.load ? tec.load[i] : 0) + (fc ? fc[i] : 0) + tr[i] + dy[i]; ls[2 * i + 1] = tec.swell ? tec.swell[i] : 0; }
       q.writeBuffer(b.ls, 0, ls);
+      // The load as uploaded: the ice may publish a new one while the step is awaited (Ice.publish moves
+      // the elevation by its change), so the elevation brought down takes that change too.
+      this.loadUp = !!tec.load;
+      if (tec.load) (this.loadAt || (this.loadAt = new Float32Array(n))).set(tec.load);
     }
     q.writeBuffer(b.cnt, 0, this.zeros || (this.zeros = new Uint32Array(NCNT)));
     this.uniforms(dt, t1);
@@ -1015,6 +1019,7 @@ export class GpuPlates {
       tec.h.set(new Float32Array(map, L.wh, n)); tec.phi.set(new Float32Array(map, L.wphi, n));
       tec.tf.set(new Float32Array(map, L.wtf, n)); tec.sut.set(new Float32Array(map, L.wsut, n));
       tec.elev.set(new Float32Array(map, L.elev, n));
+      if (tec.load) { const e = tec.elev, l = tec.load, l0 = this.loadUp ? this.loadAt : null; for (let i = 0; i < n; i++) e[i] += l[i] - (l0 ? l0[i] : 0); }
       // The frames' edits, into the CPU's plates, and their extras: a frame cell newly held, or
       // holding crust made this step (its formation time says so: a frame cell consumed and made
       // again within the step was held throughout), is new crust (the extras' defaults) unless

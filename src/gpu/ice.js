@@ -16,7 +16,9 @@
 // once an advance toward the load's response: with a GpuFlexure attached
 // (src/gpu/flexure.js, on this device) the plate's w, read where the flexure
 // keeps it (X[off + i].y) with no readback and re-solved by a warm V-cycle in
-// the same pass; without one, local isostasy. The state comes back every
+// the same pass, after the steps (the load as they left it); without one, local isostasy. The bed the steps read moves
+// with it on the device (uploaded without the ice's load, which is added
+// there), so it never waits for the crust's re-solve. The state comes back every
 // ~100 ms to `Ice`'s arrays (the bed's fields and the glacial integrals every
 // ~400 ms), from which the crust takes its load and the sea its water.
 import { kernel, storage, uniform } from './device.js';
@@ -227,12 +229,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   a.y += dep;
   acc[i] = a;
 }`;
-// Once an advance: the bed toward the plate's response (or local isostasy) over the years done.
+// Once an advance: the bed toward the plate's response (or local isostasy) over the years done, and the
+// bed the steps read moved with it (the crust's elevation takes the load when the ice is read back,
+// Ice.publish; the bed here can't wait for that).
 const BED = HEAD + /* wgsl */`
 @group(0) @binding(1) var<storage, read> H: array<f32>;
 @group(0) @binding(2) var<storage, read> X: array<vec2f>;
 @group(0) @binding(3) var<storage, read> ctl: CtlR;
 @group(0) @binding(4) var<storage, read_write> w: array<f32>;
+@group(0) @binding(5) var<storage, read_write> ba: array<vec4f>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -241,7 +246,20 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let k = select(1.0 - exp(-x), x * (1.0 - 0.5 * x), x < 1e-3);
   var eq = -U.rhoI / U.rhoM * H[i];
   if (U.useFlex != 0u) { eq = -X[U.flexOff + i].y; }
-  w[i] = w[i] + (eq - w[i]) * k;
+  let w0 = w[i];
+  let w1 = w0 + (eq - w0) * k;
+  w[i] = w1;
+  ba[i].x = ba[i].x + (w1 - w0);
+}`;
+// The bed as uploaded is the crust's without the ice's load; the load as it stands here is added.
+const ADDW = HEAD + /* wgsl */`
+@group(0) @binding(1) var<storage, read> w: array<f32>;
+@group(0) @binding(2) var<storage, read_write> ba: array<vec4f>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= U.n) { return; }
+  ba[i].x = ba[i].x + w[i];
 }`;
 // Snow where the month is below freezing at the ice's surface, melt by positive degree days.
 const MB = HEAD + /* wgsl */`
@@ -330,7 +348,7 @@ export class GpuIce {
     });
     mq.set([ICE.LAPSE, ICE.SIGMA, ICE.DDF_SNOW, ICE.DDF_ICE], 48);
     this.Q = uniform(device, mq);
-    const K = this.K = { diff: kernel(device, DIFF, 'ice-diff'), dt: kernel(device, DT, 'ice-dt'), flux: kernel(device, FLUX, 'ice-flux'), apply: kernel(device, APPLY, 'ice-apply'), bed: kernel(device, BED, 'ice-bed'), mb: kernel(device, MB, 'ice-mb') };
+    const K = this.K = { diff: kernel(device, DIFF, 'ice-diff'), dt: kernel(device, DT, 'ice-dt'), flux: kernel(device, FLUX, 'ice-flux'), apply: kernel(device, APPLY, 'ice-apply'), bed: kernel(device, BED, 'ice-bed'), addw: kernel(device, ADDW, 'ice-addw'), mb: kernel(device, MB, 'ice-mb') };
     const U = this.U, x = wg(n);
     this.stepList = [
       [K.diff, K.diff.bind({ U, nb: this.nb, ew: this.ew, ba: this.ba, H: this.H, Mx: this.Mx, D: this.D, vel: this.vel, ctl: this.ctl }), x],
@@ -339,9 +357,10 @@ export class GpuIce {
       [K.apply, K.apply.bind({ U, Mx: this.Mx, dHb: this.dHb, ctl: this.ctl, M: this.M, D: this.D, H: this.H, b: this.b, acc: this.acc }), x],
     ];
     this.bindBed(this.noFlex);
+    this.addList = [[K.addw, K.addw.bind({ U, w: this.w, ba: this.ba }), x]];
     this.mbList = [[K.mb, K.mb.bind({ U, Q: this.Q, clim: this.clim, ba: this.ba, H: this.H, M: this.M, Mx: this.Mx }), x]];
     this.readBuf = device.createBuffer({ size: 80 * n + 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    this.reading = false; this.lastRead = -Infinity; this.lastBed = -Infinity; this.reads = 0;
+    this.reading = false; this.lastRead = -Infinity; this.lastBed = -Infinity; this.reads = 0; this.left = 0;
     this.dt = ICE.MAX_STEP;          // the step's limit at the last read, to plan how many to encode
     this.mbVersion = -1;
     this.flex = null; this.flexYears = Infinity; this.flexCycles = 0;
@@ -359,7 +378,7 @@ export class GpuIce {
   }
   setParams() { this.device.queue.writeBuffer(this.U, 0, this.params()); }
 
-  bindBed(X) { this.bedList = [[this.K.bed, this.K.bed.bind({ U: this.U, H: this.H, X, ctl: this.ctl, w: this.w }), wg(this.n)]]; }
+  bindBed(X) { this.bedList = [[this.K.bed, this.K.bed.bind({ U: this.U, H: this.H, X, ctl: this.ctl, w: this.w, ba: this.ba }), wg(this.n)]]; }
 
   /**
    * Bend the bed by flexure: `flex` a GpuFlexure (src/gpu/flexure.js) on this
@@ -387,13 +406,15 @@ export class GpuIce {
   advance(years, maxSteps = 48) {
     const ice = this.ice, tec = ice.tec, c = ice.climate, n = this.n, now = performance.now();
     if (ice.refreshPlates() && this.flex) { this.flex.setRigidity(ice.Te); this.flexCycles = Math.max(this.flexCycles, 3); }
-    // The bed, when the crust or the sea has moved (or every 100 ms: the load moves the crust).
+    // The bed, when the crust or the sea has moved (or every 100 ms): the crust's without the ice's load
+    // (as last read back), then the load as it stands on the device added.
     if (now - this.lastBed > 100) {
       this.lastBed = now;
       const a = this.bedArr;
-      const sea = tec.sea;
-      for (let i = 0; i < n; i++) { const o = 4 * i; a[o] = (tec.elev[i] - tec.seaLevel) * 1000; a[o + 1] = ice.areaM[i]; a[o + 2] = ice.Cb[i]; a[o + 3] = !sea || sea[i] ? ice.geo[i] : -Math.max(ice.geo[i], 1e-6); }
+      const sea = tec.sea, load = tec.load;
+      for (let i = 0; i < n; i++) { const o = 4 * i; a[o] = (tec.elev[i] - (load ? load[i] : 0) - tec.seaLevel) * 1000; a[o + 1] = ice.areaM[i]; a[o + 2] = ice.Cb[i]; a[o + 3] = !sea || sea[i] ? ice.geo[i] : -Math.max(ice.geo[i], 1e-6); }
       this.device.queue.writeBuffer(this.ba, 0, a);
+      this.run(this.addList);
       const dz = tec.airDatum ? (tec.seaLevel - tec.airDatum()) * 1000 : 0;
       if (dz !== this.dz) { this.dz = dz; this.device.queue.writeBuffer(this.Q, 52 * 4, new Float32Array([dz])); }
     }
@@ -416,12 +437,15 @@ export class GpuIce {
       const steps = Math.max(1, Math.min(maxSteps, Math.ceil(1.05 * years / Math.max(0.01, this.dt)) + 1));
       this.device.queue.writeBuffer(this.ctl, 4, new Float32Array([years, 0, 0]));   // remaining, done, dt (p0 runs on)
       const enc = this.device.createCommandEncoder(), pass = enc.beginComputePass();
-      // The plate's response to the load as it stands, warm-started, before the steps' bed reads it.
+      for (let r = 0; r < steps; r++) for (const [K, bg, x] of this.stepList) { pass.setPipeline(K.pipeline); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x); }
+      // The plate's response to the load as the steps left it, warm-started, for the bed to relax toward (as
+      // the CPU's rebound): solved before the steps, it answered the load an advance ago, which at a frame's
+      // advance was nothing, but in the opening's 5 kyr chunks left the bed a chunk behind a growing sheet
+      // (too high, the sheet overgrew, then fell back as the bed caught up, and the opening never settled).
       if (this.flex) {
         this.flexYears += years;
         if (this.flexYears >= FLEX_YEARS || this.flexCycles > 0) { this.flex.encode(pass, Math.max(1, this.flexCycles)); this.flexYears = 0; this.flexCycles = 0; }
       }
-      for (let r = 0; r < steps; r++) for (const [K, bg, x] of this.stepList) { pass.setPipeline(K.pipeline); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x); }
       for (const [K, bg, x] of this.bedList) { pass.setPipeline(K.pipeline); pass.setBindGroup(0, bg); pass.dispatchWorkgroups(x); }
       pass.end();
       this.device.queue.submit([enc.finish()]);
@@ -459,6 +483,7 @@ export class GpuIce {
       ice.H.set(a.subarray(0, n)); ice.w.set(a.subarray(n, 2 * n)); ice.vel.set(a.subarray(2 * n, 6 * n));
       const lim = a[6 * n + 4];
       if (lim > 0) this.dt = lim;
+      this.left = a[6 * n + 1];      // the last advance's years not stepped (its steps, planned from the last limit, ran out)
       if (slow) {
         const m = new Float32Array(buf, 24 * n + 32, 14 * n);
         let calved = 0;

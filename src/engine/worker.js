@@ -402,7 +402,13 @@ async function openingStep() {
     // back so the regolith takes the chunk's glacial erosion and till within the opening.
     const H0 = Float32Array.from(P.ice.H), g = P.iceGpu;
     P.fast(PLANET.ICE_CHUNK, Infinity, PLANET.OPEN_RATE, 1e5);
-    if (g) { while (g.reading) await nextTask(); await g.read(true); }
+    if (g) {
+      while (g.reading) await nextTask();
+      await g.read(true);
+      // The steps are planned from the last read's limit; where it tightened in the chunk they ran out
+      // short of it (1.4–4 kyr of the 5 on claude), so the ice steps the rest.
+      for (let k = 0; g.left > 1 && k < 8; k++) { g.advance(g.left, 1e5); while (g.reading) await nextTask(); await g.read(true); }
+    }
     P.openingIceDone(H0);
   }
   opened = P.opened();

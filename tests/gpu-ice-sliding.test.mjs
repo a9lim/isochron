@@ -17,8 +17,10 @@ const grid = L => { for (let l = 1; l <= L; l++) grids[l] ||= buildGrid(l); retu
 
 /** A cap on a flat bed: soft where x > 0, warm (Ts0 0 °C, 80 mW/m²) where y > 0 and cold (−40 °C, 20 mW/m²) where not. */
 function scene(g) {
-  const n = g.n, tec = { grid: g, elev: new Float32Array(n).fill(0.5), seaLevel: 0, updateElevation() {} };
+  const n = g.n;
   const make = () => {
+    // Each its own crust: the elevation takes the ice's load (Ice.publish), and a shared one would stand each on the other's.
+    const tec = { grid: g, elev: new Float32Array(n).fill(0.5), seaLevel: 0, updateElevation() {} };
     const ice = new Ice(tec, { version: 0, tAt: () => 0, pAt: () => 0 });
     ice.mbVersion = 0;                                   // the mass balance is set by hand
     for (let i = 0; i < n; i++) {
@@ -30,7 +32,7 @@ function scene(g) {
     ice.setSoftness(ice.soft);
     return ice;
   };
-  return { tec, make };
+  return { make };
 }
 const sum = (a, w) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * (w ? w[i] : 1); return s; };
 const settle = async gi => { while (gi.reading) await new Promise(r => setTimeout(r, 5)); await gi.read(true); };
@@ -75,6 +77,36 @@ test('sliding ice on the GPU: the CPU reference, with erosion, till, outwash and
   assert.ok(rel(ero[1], ero[0]) < 0.01 && rel(till[1], till[0]) < 0.01 && rel(out[1], out[0]) < 0.01, 'the integrals');
   assert.ok(Math.abs(ero[1] - till[1] - deb1[1] + deb0[1]) < 1e-4 * ero[1], "the GPU's rock kept");
   assert.ok(sum(a.eroded, A) > 0 && sum(b.eroded, A) > 0);
+});
+
+test("the opening's long advances on the GPU: the bed relaxes toward the load the steps left, as the CPU's", { skip }, async () => {
+  // The opening steps the ice 5 kyr an advance (src/engine/worker.js, openingStep): a cap grown from bare
+  // ground in such advances, its flexed bed against the CPU's mid-growth, where a bed answering the load an
+  // advance old lags most. Each advance stepped in full (the opening steps what the planned steps left).
+  const { gpuDevice } = await import('../src/gpu/device.js');
+  const { GpuIce } = await import('../src/gpu/ice.js');
+  const { GpuFlexure } = await import('../src/gpu/flexure.js');
+  const device = await gpuDevice();
+  const g = grid(6), n = g.n, { make } = scene(g), Te = new Float32Array(n).fill(60);
+  const cpu = make(), gpuIce = make();
+  cpu.attachFlexure(new Flexure(g, { have: grids.filter(Boolean) }), { Te });
+  const gi = new GpuIce(device, gpuIce);
+  gi.mbVersion = 0;
+  device.queue.writeBuffer(gi.M, 0, Float32Array.from(gpuIce.M));
+  device.queue.writeBuffer(gi.Mx, 0, Float32Array.from({ length: 4 * n }, (_, k) => [gpuIce.melt, gpuIce.Ts0, gpuIce.M, null][k & 3]?.[k >> 2] ?? 0));
+  gi.attachFlexure(new GpuFlexure(device, g, { have: grids.filter(Boolean) }), { Te });
+  let rounds = 0;
+  for (let k = 0; k < 4; k++) {
+    cpu.advance(5000, 1e9);
+    gi.advance(5000, 1e5); await settle(gi);
+    for (let r = 0; gi.left > 1 && r < 8; r++, rounds++) { gi.advance(gi.left, 1e5); await settle(gi); }
+  }
+  const H0 = cpu.H.reduce((m, v) => Math.max(m, v), 0), G0 = gpuIce.H.reduce((m, v) => Math.max(m, v), 0);
+  let dw = 0, wm = 0;
+  for (let i = 0; i < n; i++) { dw = Math.max(dw, Math.abs(gpuIce.w[i] - cpu.w[i])); wm = Math.max(wm, Math.abs(cpu.w[i])); }
+  say(`after 20 kyr in 5 kyr advances (${rounds} short ones finished): dome ${G0.toFixed(0)} m against ${H0.toFixed(0)}; bed off by ${(100 * dw / wm).toFixed(2)}% of its ${wm.toFixed(0)} m`);
+  assert.ok(Math.abs(G0 - H0) < 0.02 * H0, 'thickness');
+  assert.ok(dw < 0.03 * wm, 'the bed');
 });
 
 test('sliding ice on the GPU: the step at level 7, and its cost', { skip }, async () => {

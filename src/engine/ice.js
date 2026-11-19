@@ -616,13 +616,22 @@ export class Ice {
     return { eroded: take('eroded'), till: take('till'), outwash: take('outwash') };
   }
 
-  /** Push the ice's load and volume to the crust and the sea (also after the GPU's steps, src/gpu/ice.js). */
+  /**
+   * Push the ice's load and volume to the crust and the sea (also after the GPU's steps, src/gpu/ice.js).
+   * The crust's elevation moves by the load's change now, as every elevation sums it (src/engine/plates.js):
+   * the sea's re-solve waits for the water to have moved (src/engine/planet.js, fast), and the bed under
+   * the ice had waited with it (at 1 Myr/s for 50 kyr, against the bed's τ of 3 kyr: a sheet grew on a
+   * bed that hadn't sunk, then fell back when it did, and could cross to another balance).
+   */
   publish() {
     const tec = this.tec, n = this.grid.n, H = this.H, RI = ICE.RHO_I, RW = ICE.RHO_W;
     let vol = 0, vaf = 0, area = 0, slide = 0, thawed = 0, stream = 0, ero = 0, snow = 0, melt = 0, basal = 0, marine = 0;
     if (!tec.load) tec.load = new Float32Array(n);
+    const load = tec.load, elev = tec.elev;
     for (let i = 0; i < n; i++) {
-      tec.load[i] = this.w[i] / 1000;
+      const was = load[i];
+      load[i] = this.w[i] / 1000;
+      elev[i] += load[i] - was;
       if (H[i] > 0) {
         const a = this.areaM[i], d = this.wet(i) ? Math.max(0, -this.bed(i)) : 0;
         vol += H[i] * a; area += a;

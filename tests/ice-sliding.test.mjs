@@ -59,8 +59,9 @@ function steady1D(gamma, Cp, M, Lm) {
 }
 const withIce = (o, f) => { const keep = {}; for (const k in o) { keep[k] = ICE[k]; ICE[k] = o[k]; } try { return f(); } finally { Object.assign(ICE, keep); } };
 
+// The profiles' oracles stand on a rigid bed: the bed holds (no load's response, TAU_BED infinite).
 test("sliding alone, the plug-flow limit: Vialov's profile with the exponent 3/7", () => {
-  withIce({ LATENT: Infinity }, () => {
+  withIce({ LATENT: Infinity, TAU_BED: Infinity }, () => {
     const c = cap(6, { soft: 1, gamma: 0 });
     run(c.ice, 300);
     const { H0, worst } = profileError(c, x => Math.pow(1 - Math.pow(x, 4 / 3), 3 / 7));
@@ -74,7 +75,7 @@ test("sliding alone, the plug-flow limit: Vialov's profile with the exponent 3/7
 });
 
 test('deformation and sliding together: the steady profile of a fine 1-D solve', () => {
-  withIce({ LATENT: Infinity }, () => {
+  withIce({ LATENT: Infinity, TAU_BED: Infinity }, () => {
     const g0 = new Ice({ grid: grid(6), elev: new Float32Array(grid(6).n) }, {}).Gamma;
     for (const ratio of [0.5, 2]) {
       // Sliding's flux against deformation's at 2 km: C (ρg)³ H⁴ against Γ H⁵.
@@ -161,6 +162,21 @@ test('glacial erosion: its integral is its rate, rock is kept (eroded = till + d
   assert.ok(rim > 0.95 * till, 'till at the margin');
   assert.ok(Math.abs(out / snow - 1) < 0.02, 'meltwater');
 });
+
+test("the bed sinks with its load between the crust's re-solves", () => withIce({ LATENT: Infinity }, () => {
+  // The cap's crust never re-solves its elevation (updateElevation does nothing), as the planet's waits
+  // for the sea to have moved: the elevation, and so the bed the ice steps on, takes the load all the same.
+  const c = cap(5), RM = ICE.RHO_I / ICE.RHO_M;
+  run(c.ice, 30);
+  let worst = 0, Hd = 0, bedD = 0;
+  for (let i = 0; i < c.n; i++) {
+    worst = Math.max(worst, Math.abs(c.tec.elev[i] - 0.5 - c.ice.w[i] / 1000));
+    if (c.ice.H[i] > Hd) { Hd = c.ice.H[i]; bedD = c.ice.bed(i); }
+  }
+  say(`after 30 kyr: the elevation off the load by ${(1e6 * worst).toFixed(2)} mm at worst; under the ${Hd.toFixed(0)} m dome the bed at ${bedD.toFixed(0)} m (local isostasy ${(500 - RM * Hd).toFixed(0)})`);
+  assert.ok(worst < 1e-5, 'the elevation carries the load');
+  assert.ok(Math.abs(bedD - (500 - RM * Hd)) < 0.05 * RM * Hd, 'the bed under the dome near its isostatic depth');
+}));
 
 test('the ELRA bed by flexure: relaxes over 3 kyr to the plate, a forebulge beyond the margin, and its collapse', () => withIce({ LATENT: Infinity }, () => {
   const L = 7, te = 90, H0 = 3000, Lc = 1.2e6, alpha = flexuralLength(rigidity(te));
