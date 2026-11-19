@@ -535,3 +535,55 @@ export function drawPeople(canvas, fig, pal) {
   }
   label(ctx, 'lineages', left, bTop - 8, pal.muted, 'left', 10.5, true);
 }
+
+/**
+ * Fig. 9, the people's ages (docs/people.md, age cohorts): the world's people in five-year groups
+ * (src/engine/people.js `pyramid`, each a share of everyone on Earth), ages up the side, as bars in
+ * the accent; the pre-industrial reference (births B_PRE, no growth) a graphite step outline behind
+ * them, so the transition reads as the shape moving off it; the working ages (15–64) bracketed.
+ */
+export function drawAges(canvas, pyr, ref, pal) {
+  const { ctx, w, h } = setup(canvas);
+  if (!pyr || !pyr.length) return;
+  const G = pyr.length, left = 34, right = w - 46, top = 10, bot = h - 22, bh = (bot - top) / G;
+  let mx = 0.1;
+  for (let k = 0; k < G; k++) mx = Math.max(mx, pyr[k], ref ? ref[k] : 0);
+  mx = Math.ceil(mx * 20) / 20;
+  const X = v => left + v / mx * (right - left), Y = k => bot - (k + 1) * bh;
+  // The axis: shares along the foot, ages up the side every twenty years.
+  ctx.strokeStyle = alpha(pal.text, 0.4); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(left + 0.5, top); ctx.lineTo(left + 0.5, bot + 0.5); ctx.lineTo(right, bot + 0.5); ctx.stroke();
+  for (let v = 0; v <= mx + 1e-9; v += 0.05) {
+    const x = Math.round(X(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, bot); ctx.lineTo(x, bot + 3); ctx.stroke();
+    label(ctx, `${Math.round(100 * v)}%`, x, bot + 12, pal.muted, 'center', 10);
+  }
+  for (let a = 0; a <= 100; a += 20) label(ctx, a === 100 ? '100+' : String(a), left - 5, bot - a / 5 * bh, pal.muted, 'right', 10);
+  // The bars, then the reference's outline over them.
+  ctx.fillStyle = alpha(pal.accent, 0.42);
+  for (let k = 0; k < G; k++) ctx.fillRect(left + 1, Y(k) + 1, Math.max(0, X(pyr[k]) - left - 1), bh - 2);
+  if (ref) {
+    ctx.strokeStyle = alpha(pal.text, 0.55); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(left, bot);
+    for (let k = 0; k < G; k++) { ctx.lineTo(X(ref[k]), Y(k) + bh); ctx.lineTo(X(ref[k]), Y(k)); }
+    ctx.lineTo(left, Y(G - 1)); ctx.stroke();
+  }
+  // The working ages: a bracket on the right with its name.
+  const y0 = bot - 3 * bh, y1 = bot - 13 * bh, xb = right + 8;
+  ctx.strokeStyle = alpha(pal.text, 0.4);
+  ctx.beginPath(); ctx.moveTo(xb - 3, y0 - 0.5); ctx.lineTo(xb, y0 - 0.5); ctx.lineTo(xb, y1 + 0.5); ctx.lineTo(xb - 3, y1 + 0.5); ctx.stroke();
+  label(ctx, '15–64', xb + 4, (y0 + y1) / 2, pal.muted, 'left', 10, true);
+}
+
+/** Fig. 9's caption: the median age, the share 65 and over, and the working ages'. */
+export function agesCaption(pyr) {
+  if (!pyr || !pyr.length) return 'Ages';
+  let acc = 0, med = 0, old = 0, work = 0;
+  for (let k = 0; k < pyr.length; k++) {
+    if (acc < 0.5 && acc + pyr[k] >= 0.5) med = 5 * k + 5 * (0.5 - acc) / Math.max(pyr[k], 1e-9);
+    acc += pyr[k];
+    if (k >= 13) old += pyr[k];
+    if (k >= 3 && k < 13) work += pyr[k];
+  }
+  return `Ages · median ${Math.round(med)} · ${Math.round(100 * old)}% 65 and over · ${Math.round(100 * work)}% of working age`;
+}

@@ -1,4 +1,4 @@
-// Fig. 9 with people: the planet's solar system as the ending leaves it (docs/people.md, the endings;
+// Fig. 10 with people: the planet's solar system as the ending leaves it (docs/people.md, the endings;
 // today's on the `earth` seed, else seeded: src/engine/solar.js). A plan view, the Sun at the centre and
 // distance on a log scale (0.3 to 11 AU, or as far as the system reaches), each planet on its orbit at a
 // fixed angle (where it is in its year isn't a quantity here). Every mark reads the model's:
@@ -45,7 +45,7 @@ export function systemOf(m) {
     stars: o.stars, aligned: !!(m.ending && m.ending.aligned), fert: o.fert || 0 };
 }
 
-/** Fig. 9's caption: the people off-world, the swarm's share of the Sun, what's left of the inner planet (Mercury) and the belt, the stars reached. */
+/** Fig. 10's caption: the people off-world, the swarm's share of the Sun, what's left of the inner planet (Mercury) and the belt, the stars reached. */
 export function systemCaption(s, sys = OUR_SYSTEM) {
   if (!s) return 'The system';
   const pc = v => `${v < 0.095 ? (100 * v).toFixed(1) : Math.round(100 * v)}%`, parts = ['The system'];

@@ -194,10 +194,10 @@ export const PEOPLE = {
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.0123, Y_B: 6, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~81, its deaths M_MIN × all hazards), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
+  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 6, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
-  M_MIN: 0.25, Y_D: 3.2,           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
-  AGE: 0.00855, Y_AGE: 30,         // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
+  M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
+  AGE: 0.0087, Y_AGE: 30,          // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   D_IND: 1e4,                      // … and industry's (railways and steamships, a logistic about Z_IND: the American and Siberian frontiers moved ~30–50 km a year in the nineteenth century, from memory), on top, past D_MAX
   // Ideas
@@ -395,7 +395,7 @@ export function taskLabor(Lh, A, beta, sigma) {
  *   deaths d = m(y_g) [D_LO + (B_PRE − D_LO)/y_f] + age(y_g) while fed (disease and density: zero
  *     growth at the food capacity before medicine), plus famine F_FAM (1/y_f − 1) below it; medicine
  *     m = M_MIN + (1 − M_MIN) e^{−y_g/Y_D} comes first, so mortality falls before fertility, and aging
- *     lifts the crude rate once fertility has fallen: m × `aging`, the cell's pyramid's senescence past
+ *     lifts the crude rate once fertility has fallen: m^{M_SEN} × `aging`, the cell's pyramid's senescence past
  *     the pre-industrial reference's (src/engine/cohorts.js), or without a pyramid its closure AGE
  *     (1 − e^{−y_g/Y_AGE}).
  * The harvest varies from year to year (σ, its relative spread) and a store covers shortfalls up to
@@ -412,8 +412,8 @@ export function taskLabor(Lh, A, beta, sigma) {
 export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
-  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), age = aging !== null ? m * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE));
-  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0, b, d: 0.05, famine: 0, m };
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE));
+  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0, b, d: 0.05, famine: 0, m: ms };
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
   else { r = b - m * P.B_PRE - age + P.F_FAM; a = P.F_FAM / K; }
@@ -427,7 +427,7 @@ export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real =
   }
   const e = Math.exp(Math.max(-50, Math.min(50, r * dt)));
   const Nn = Math.abs(r) > 1e-12 ? r * N * e / (r + a * N * (e - 1)) : N / (1 + a * N * dt);
-  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, crowd: a * K, b, d: b - (r - a * N), famine: dv, m };
+  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, crowd: a * K, b, d: b - (r - a * N), famine: dv, m: ms };   // m: senescence's medicine
 }
 
 /**
@@ -778,6 +778,7 @@ export class People {
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
     // The stocks people draw on (`stocks`): large game and the coast's fish (shares of their own
     // without people), and how wary each cell's game is of people (set when people first come).
+    this.herdS = new Float64Array(nL); this.past = new Float64Array(nL);   // herders' hold on the unfarmed land, and their pasture's share of the cell (drawn)
     this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1); this.met = new Uint8Array(nL);
     // Each cell's pyramid (src/engine/cohorts.js), at the pre-industrial reference until people come;
     // the aging it adds to the crude death rate, and its workers' share.
@@ -835,7 +836,7 @@ export class People {
       area: new Float64Array(nL), b: new Float64Array(nL), a: new Float64Array(nL), Tc: new Float64Array(nL),
       D: new Float64Array(nL), coast: new Uint8Array(nL), lat: new Float64Array(nL), lon: new Float64Array(nL),
       elev: new Float64Array(nL), zv: new Float32Array(14 * nL), deg: new Uint8Array(nL), mosaic: new Float64Array(nL),
-      alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), sigP: new Float64Array(nL), sigT: new Float64Array(nL), sigTy: new Float64Array(nL), sR: new Float64Array(nL), irr: new Float64Array(nL), bF: new Float64Array(nL), bW: new Float64Array(nL), bL: new Float64Array(nL), bS: new Float64Array(nL), herd: new Float64Array(nL), sumH: new Float64Array(nL), winH: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
+      alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), sigP: new Float64Array(nL), sigT: new Float64Array(nL), sigTy: new Float64Array(nL), sR: new Float64Array(nL), irr: new Float64Array(nL), bF: new Float64Array(nL), bW: new Float64Array(nL), bL: new Float64Array(nL), bS: new Float64Array(nL), herd: new Float64Array(nL), fg: new Float64Array(nL), sumH: new Float64Array(nL), winH: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
       hot: new Float64Array(nL), sun: new Float64Array(nL), arable: new Float64Array(nL),
       sfp: new Float64Array(nL), phi: new Float64Array(nL), sod: new Float64Array(nL), phiFP: new Float64Array(nL), path: new Float64Array(nL), afp: new Float64Array(nL), aup: new Float64Array(nL), clim: new Float32Array(4 * nL),
     };
@@ -882,7 +883,7 @@ export class People {
       // Herders' pastures: summer's the grass's production, winter's what of it stands to be grazed.
       let Pw = 0; { const o = Array.from({ length: 12 }, (_, m) => m).sort((x, y) => f.T12[12 * i + x] - f.T12[12 * i + y]); for (let k = 0; k < 4; k++) Pw += f.P12[12 * i + o[k]]; }
       const graze = H.alive[c] ? fg * f.npp[i] * (1 - H.hot[c]) : 0, snowy = (1 - sig((Tc + P.T_SNOW) / P.W_SNOW)) * sig((Pw - P.P_SNOW) / 20);
-      H.sumH[c] = graze; H.winH[c] = graze * (1 - snowy) * sig((fg - P.G_HERD) / 0.1);
+      H.sumH[c] = graze; H.winH[c] = graze * (1 - snowy) * sig((fg - P.G_HERD) / 0.1); H.fg[c] = fg;
       // Crops (synthesis): on a river's floodplain watered (the climate's warmth alone limits them)
       // and renewed by its floods; on the uplands rain-fed, on soil the rain leaches.
       const sfp = Math.min(P.FP_MAX, P.W_FP * Math.sqrt(Math.max(0, f.discharge[i])) / Math.sqrt(H.area[c]));
@@ -1456,6 +1457,7 @@ export class People {
       // Works' labour (S_WORK of the urban share) feeds no one.
       const wk = this.uShare && !this.econ.on ? 1 - P.S_WORK * this.uShare[c] : 1;
       K[c] = this.hE * H.area[c] * this.coldOK(c, z) * wk * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
+      if (Zs) this.herdS[c] = herd > 0 ? sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) : 0;   // herders' hold on the unfarmed land (drawn: the pasture)
     }
   }
   /**
@@ -2616,6 +2618,7 @@ export class People {
       const wc = (S[c] + Math.max(0, (1 - u[c]) * this.Ntot[c] - P.D_RUR * A[c])) / (A[c] * P.D_URB), dc = take(pd / P.D_DC), wf = pf / P.D_FAC, k = wc + wf > room ? room / (wc + wf) : 1;
       const city = take(wc * k), fac = take(wf * k);
       const farm = take(this.cropped(c));
+      this.past[c] = this.Ntot[c] > 0 ? take((1 - this.f[c]) * this.herdS[c] * H.fg[c]) : 0;   // herders' pasture: the grass they hold, past the fields
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
       out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
       out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been
@@ -2632,7 +2635,8 @@ export class People {
    * and people who lose their share of output lose its light. Four values a cell of the people's
    * grid, from `drawn`'s output `d` (its people and their cities' land): the light on the
    * countryside (lm a km² of the land outside cities), on the cities (lm a km² of city), and the
-   * light a person (lm); `lightTotal` the whole Earth's (lm).
+   * light a person (lm); `lightTotal` the whole Earth's (lm). The fourth is the herders' pasture
+   * (a share of the cell, from `drawn`), carried with the light for want of a slot.
    */
   lights(d, out = null) {
     const n = this.planet.grid.n, H = this.H, E = this.econ, P = this.P, nL = this.nL, A = H.area;
@@ -2653,6 +2657,8 @@ export class People {
       out[o + 2] = lam;
       total += lam * people;
     }
+    // The fourth value isn't light: the herders' pasture, a share of the cell (`drawn`), carried here for want of a slot.
+    for (let c = 0; c < nL; c++) out[4 * this.cells[c] + 3] = this.past[c];
     this.lightTotal = total;
     return out;
   }

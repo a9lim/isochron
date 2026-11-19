@@ -11,7 +11,7 @@
 //                     the last of the record, new events), `drawn` ~4 times a second (people and
 //                     robots per km² and the land's uses, eight a cell: People.drawn; the light
 //                     made, four a cell, and Earth's: People.lights), `figure` once a second
-//                     (Fig. 8: src/engine/peoplefit.js)
+//                     (Fig. 8: src/engine/peoplefit.js; Fig. 9: the world's ages)
 // The first hominins are placed on the first fields that come (the climate's first cycle). The
 // page's ticks owe the people years; the people step toward them at their own pace (People.nextDt)
 // and, behind, say so, so the page holds its clock.
@@ -19,6 +19,8 @@ import { buildGrid } from '../grid/icosphere.js';
 import { People } from './people.js';
 import { solarSystem } from './solar.js';
 import { figureOf } from './peoplefit.js';
+import { stable } from './cohorts.js';
+let pyrRef = null;
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
@@ -142,7 +144,9 @@ function post(force) {
   if (force || now - lastFig > 1000) {
     lastFig = now;
     const fig = figureOf(people);
-    if (fig) self.postMessage({ type: 'figure', fig });
+    // Fig. 9: the world's ages, and the pre-industrial reference's (src/engine/cohorts.js).
+    if (!pyrRef) { const r = stable(people.P.B_PRE, 0); pyrRef = Array.from({ length: Math.ceil(r.length / 5) }, (_, g) => { let s = 0; for (let k = 5 * g; k < Math.min(r.length, 5 * g + 5); k++) s += r[k]; return s; }); }
+    if (fig) self.postMessage({ type: 'figure', fig, pyr: people.pyramid(), pyrRef });
   }
   if (force || now - lastDrawn > 250) {
     lastDrawn = now;

@@ -148,6 +148,12 @@ const GLYPHS = {
   },
   // Farms: parcels, each furrowed its own way, in sap.
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
+  // Pasture: open grass under a sparse viridian stipple (the herds), as the shader's.
+  pasture: (c, x, y, P) => {
+    c.fillStyle = rgba(P.inks.viridian, 0.08); c.fillRect(x, y, 26, 12);
+    c.fillStyle = rgba(P.inks.viridian, 0.75);
+    for (let b = 0, row = 0; b < 12; b += 4.5, row++) for (let a = 2.6 + (row % 2) * 2.6; a < 26; a += 5.2) { c.beginPath(); c.arc(x + a, y + b + 1.8, 0.85, 0, 7); c.fill(); }
+  },
   // Night: the night side's three steps, the Sun 0°, 6° and 12° below the horizon (the shader's NIGHT_K).
   night: (c, x, y, P) => {
     for (let k = 0; k < 3; k++) { c.fillStyle = nightGround(P, (k + 1) / 3); c.fillRect(x + k * 26 / 3, y, 26 / 3 + 0.3, 12); }
@@ -231,8 +237,8 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['solar', 'Solar farms']],
   'people-lights': [['light', 'Light, 0.1–10⁷ lm/km²']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };

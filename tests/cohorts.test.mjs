@@ -42,13 +42,13 @@ test("the rich end's life table is replacement: B_MIN is its stationary birth ra
   const ref = reference(PEOPLE).sen, rb = replacement(PEOPLE);
   assert.ok(Math.abs(PEOPLE.B_MIN / rb - 1) < 0.01, `B_MIN ${PEOPLE.B_MIN} against the life table's ${rb.toFixed(5)}`);
   // A cell's pyramid stepped at the rich end's rates (births B_MIN, medicine M_MIN, the demography's
-  // deaths with its aging) holds its numbers: the total's growth b − m (D_LO + max(0, sen − ref)).
-  const m = PEOPLE.M_MIN, c = stable(PEOPLE.B_PRE, 0), tmp = new Float64Array(K + 1), out = {};
+  // deaths with its aging) holds its numbers: the total's growth b − m D_LO − m_s max(0, sen − ref).
+  const m = PEOPLE.M_MIN, ms = Math.pow(m, PEOPLE.M_SEN), c = stable(PEOPLE.B_PRE, 0), tmp = new Float64Array(K + 1), out = {};
   let clk = 0, Tb = {}, r = 0;
   for (let t = 0; t < 1500; t++) {
-    const sen = senescent(c), d = m * (PEOPLE.D_LO + Math.max(0, sen - ref)); r = PEOPLE.B_MIN - d;
+    const sen = senescent(c), d = m * PEOPLE.D_LO + ms * Math.max(0, sen - ref); r = PEOPLE.B_MIN - d;
     const [sh, cn] = ageClock(clk, 1); clk = cn; Tb = stepTables(1, sh, Tb);
-    settle(c, 0, stepPyramid(c, 0, PEOPLE.B_MIN, d - m * sen, m, r, Tb, tmp), 1, 0, out);
+    settle(c, 0, stepPyramid(c, 0, PEOPLE.B_MIN, d - ms * sen, ms, r, Tb, tmp), 1, 0, out);
   }
   assert.ok(Math.abs(r) < 5e-4, `a rich world settles at ${(100 * r).toFixed(3)}%/yr`);
   let o65 = 0; for (let k = 65; k < K; k++) o65 += c[k];
@@ -77,5 +77,5 @@ test("migrants come young and leave the old behind", () => {
   for (const x of [inn, outC]) { let s = 0; for (let k = 0; k < K; k++) { assert.ok(x[k] >= 0); s += x[k]; } assert.ok(Math.abs(s - 1) < 1e-12); }
   // Founders of an empty cell are the migrants' schedule.
   const e = new Float64Array(K); settle(e, 0, 1, 0, 50, out);
-  for (let k = 0; k < K; k++) assert.equal(e[k], MIG[k]);
+  for (let k = 0; k < K; k++) assert.ok(Math.abs(e[k] - MIG[k]) < 1e-12);
 });

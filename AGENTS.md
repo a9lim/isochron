@@ -57,7 +57,7 @@ src/engine/       the model, no DOM: one file per layer (plates, crust, genesis,
 src/gpu/          device.js, hierarchy.js (nested grids for multigrid), and each layer's GPU path (ebm, moisture, dust,
                   ice, flexure, tides, soil, plates, surface, weather, season, refine)
 src/render/       camera, globe (and its shader), surface, lines, along, overlay, rivers, streamlines, chart (+ chart-worker),
-                  figures, economy, system (Fig. 9), key, sky
+                  figures (with Fig. 9's ages), economy, system (Fig. 10), key, sky
 tests/            node:test files, one per layer or coupling, GPU parity tests on Dawn (webgpu-node.mjs), gpu.html
 tools/            headless runs, surveys and fits; tools/earth/ (Earth's data and scoring), tools/people/
 docs/             the docs above

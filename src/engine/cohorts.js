@@ -7,11 +7,12 @@
 // Mortality by age (synthesis on Siler's three-part form, standard; its numbers from memory): the
 // demography's crude deaths past senescence, d_ns (hunger, disease and density, famine), fall on all
 // ages as μ₀ (1 + J e^{−a/T_JUV}), children most, with μ₀ set so the cell's crude rate is d_ns; and
-// senescence, m S₀ e^{G (a − A_S)} (Gompertz's doubling every ~8 years), m the demography's medicine
-// (1 before industry, M_MIN rich), which lowers every hazard alike. A cell's aging, in its crude
-// deaths, is m × its crude senescent rate past the pre-industrial reference's (births B_PRE, no
-// growth: `reference`), so the pyramid's deaths are the total's. The rich end's life table (m =
-// M_MIN, e₀ ~81 years, 28% over 65) sets replacement, the demography's B_MIN (`replacement`).
+// senescence, m_s S₀ e^{G (a − A_S)} (Gompertz's doubling every ~7 years), m_s = m^{M_SEN} medicine's
+// reach into it (m the demography's medicine: 1 before industry, M_MIN rich; senescence falls by its
+// square root, ~2× at the rich end, as old-age mortality has, from memory). A cell's aging, in its
+// crude deaths, is m_s × its crude senescent rate past the pre-industrial reference's (births B_PRE,
+// no growth: `reference`), so the pyramid's deaths are the total's. The rich end's life table sets
+// replacement, the demography's B_MIN (`replacement`).
 //
 // Stepping: a step longer than T_STABLE (most of a lifetime) leaves only the stable population of
 // its rates (Lotka's, standard: c(a) ∝ e^{−ra} l(a), the births and the growth the step's own),
@@ -23,7 +24,7 @@
 export const COHORTS = {
   W: 1, K: 101,                    // years a cohort; cohorts (the last is 100 and over)
   J: 8, T_JUV: 3,                  // children's excess over adults' in d₀'s share, and its e-folding in age (yr): ~40% dead by five in the pre-industrial reference
-  S0: 0.012, G: 0.09, A_S: 60,     // senescence: 1.2%/yr at sixty, doubling every ln 2/G ≈ 7.7 years
+  S0: 0.012, G: 0.1, A_S: 60,      // senescence: 1.2%/yr at sixty before medicine, doubling every ln 2/G ≈ 7 years
   T_STABLE: 60,                    // yr: a step this long or longer leaves the stable population
   WORK: [15, 65],                  // the working ages' cohorts, [15, 65)
   W_REF: 0.65,                     // the working-age share at which the economy's workers' share is its LFP (Earth's now, ~65%; from memory)
@@ -75,14 +76,15 @@ export const working = c => { let s = 0; for (let k = COHORTS.WORK[0]; k < COHOR
 export function reference(P) { return { sen: senescent(stable(P.B_PRE, 0)) }; }
 
 /**
- * Replacement: the crude birth rate of the rich end's stationary population, its deaths M_MIN × (D_LO
- * past the reference's senescence) on all ages and M_MIN × senescence by age (μ₀ by bisection).
+ * Replacement: the crude birth rate of the rich end's stationary population: its deaths past
+ * senescence M_MIN D_LO less the reference's senescence (× m_s) on all ages, and m_s × senescence by
+ * age (μ₀ by bisection).
  */
 export function replacement(P) {
-  const ref = reference(P).sen, dns = P.M_MIN * (P.D_LO - ref), c = new Float64Array(K);
+  const ref = reference(P).sen, ms = Math.pow(P.M_MIN, P.M_SEN), dns = P.M_MIN * P.D_LO - ms * ref, c = new Float64Array(K);
   let lo = 0, hi = 0.5, b = 0;
   for (let it = 0; it < 60; it++) {
-    const x = 0.5 * (lo + hi); b = stableAt(x, 0, c, P.M_MIN);
+    const x = 0.5 * (lo + hi); b = stableAt(x, 0, c, ms);
     let ns = 0; for (let k = 0; k < K; k++) ns += c[k] * x * SHAPE[k];
     if (ns < dns) lo = x; else hi = x;
   }
@@ -192,26 +194,14 @@ export function stepPyramid(c, o, b, dns, m, r, T, tmp) {
  * crude senescent rate and working-age share read, into `out` ({ sen, work }).
  */
 export function settle(c, o, sum, N, dN, out) {
-  const inv = 1 / sum, mix = Math.abs(dN) > 1e-12 && N + dN > 1e-12, w0 = COHORTS.WORK[0], w1 = COHORTS.WORK[1];
+  const inv = sum > 0 && Number.isFinite(sum) ? 1 / sum : 1, w0 = COHORTS.WORK[0], w1 = COHORTS.WORK[1];
   let sen = 0, work = 0, tot = 0;
-  if (mix && !(N > 1e-12)) { for (let k = 0; k < K; k++) c[o + k] = MIG[k]; }
-  else {
-    const a = mix ? N / (N + dN) : 1, m = mix ? dN / (N + dN) : 0;
-    for (let k = 0; k < K; k++) { const v = Math.max(0, a * c[o + k] * inv + m * MIG[k]); c[o + k] = v; tot += v; }
-    if (Math.abs(tot - 1) > 1e-9 && tot > 0) { const r = 1 / tot; for (let k = 0; k < K; k++) c[o + k] *= r; }
-  }
+  // By mass: the stayers' cohorts and the migrants' (out where dN < 0), renormalized; none left, the migrants'.
+  const Ns = N > 0 ? N : 0, mv = Math.abs(dN) > 1e-12 ? dN : 0;
+  for (let k = 0; k < K; k++) { const v = Math.max(0, Ns * c[o + k] * inv + mv * MIG[k]); c[o + k] = v; tot += v; }
+  if (tot > 0 && Number.isFinite(tot)) { const r = 1 / tot; for (let k = 0; k < K; k++) c[o + k] *= r; }
+  else for (let k = 0; k < K; k++) c[o + k] = MIG[k];
   for (let k = 0; k < K; k++) { const v = c[o + k]; sen += v * SEN[k]; if (k >= w0 && k < w1) work += v; }
   out.sen = sen; out.work = work;
   return out;
-}
-
-/** Net migration into a cell's pyramid: N people before, dN moving (in when positive), by the migrants' schedule. */
-export function migrate(c, o, N, dN) {
-  if (!(Math.abs(dN) > 1e-12)) return;
-  const n1 = N + dN;
-  if (!(n1 > 1e-12)) return;
-  if (!(N > 1e-12)) { for (let k = 0; k < K; k++) c[o + k] = MIG[k]; return; }
-  let s = 0;
-  for (let k = 0; k < K; k++) { const v = Math.max(0, N * c[o + k] + dN * MIG[k]); c[o + k] = v; s += v; }
-  if (s > 0) for (let k = 0; k < K; k++) c[o + k] /= s;
 }

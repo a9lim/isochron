@@ -34,7 +34,7 @@ import { stream } from './src/rng.js';
 import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
-import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
+import { drawPeople, drawAges, agesCaption, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
 import { ECONOMY, economyOf, economyCaption, count, sci } from './src/render/economy.js';
 import { systemOf, systemCaption, drawSystem } from './src/render/system.js';
 import { solarSystem } from './src/engine/solar.js';
@@ -75,6 +75,7 @@ const els = {
   figZonal: $('fig-zonal'), capZonal: $('cap-zonal'), zoneKey: $('zone-key'),
   figHyps: $('fig-hyps'), capHyps: $('cap-hyps'), figPol: $('fig-pol'), capPol: $('cap-pol'),
   figModel: $('fig-model'), capModel: $('cap-model'), figPeople: $('fig-people'), capPeople: $('cap-people'),
+  figAges: $('fig-ages'), capAges: $('cap-ages'),
   figSystem: $('fig-system'), capSystem: $('cap-system'), figSystemWrap: $('fig-system-wrap'),
 };
 
@@ -111,7 +112,7 @@ let tide = null;
 // planet's clock; the tide's phases follow from them (its bulge sits under the Moon).
 const skyClock = { years: null, theta: 0, lamM: 0, thetaShown: 0 };
 const stars = makeStars(seed), starDist = starDistances(seed, stars);
-const solar = solarSystem(seed, isEarth(seed));   // the planet's solar system: today's on `earth`, else seeded (Fig. 9, the people off-world)
+const solar = solarSystem(seed, isEarth(seed));   // the planet's solar system: today's on `earth`, else seeded (Fig. 10, the people off-world)
 // The Moon's face (today's Earth's near side, or basins seeded with the planet) and the Sun's cycle's
 // phase at year 0 (today's Earth's: cycle 25 just past its maximum in 2025, from memory; else seeded).
 const moonFaceOf = moonFace(seed, isEarth(seed)), solarPhase = isEarth(seed) ? 0.5 : stream(seed, 'sun').uniform();
@@ -750,7 +751,7 @@ function startPeople() {
       if (!people.msg && !viewChosen && GROUP[view] !== 'weather') setView('people');
       people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true;
     }
-    else if (m.type === 'figure') { people.fig = m.fig; figuresDirty = true; }
+    else if (m.type === 'figure') { people.fig = m.fig; people.pyr = m.pyr; people.pyrRef = m.pyrRef; figuresDirty = true; }
     else if (m.type === 'drawn') {
       people.drawn = m.d; people.lit = m.l; people.lm = m.lm;
       if (globe) { globe.setPeople(m.d, people.grid); globe.setLights(m.l, people.grid); }
@@ -1009,7 +1010,11 @@ function figures(force) {
     els.capPeople.textContent = !fg ? 'The people' : `The people · t* ${left > 0 ? `in ${span(left)}` : `${span(-left)} ago`}` +
       (fit ? ` · ${fg.which === 'minds' ? "minds'" : "people's"} exponent ${fit.p.toFixed(2)}, R² ${fit.r2.toFixed(2)} (an exponential's ${fit.r2exp.toFixed(2)})` : '') + ` · ${n} ${n === 1 ? 'lineage' : 'lineages'}`;
   }
-  // Fig. 9 once anything is off-world.
+  if (visible(els.figAges)) {
+    drawAges(els.figAges, people.pyr, people.pyrRef, pal);
+    els.capAges.textContent = agesCaption(people.pyr);
+  }
+  // Fig. 10 once anything is off-world.
   const sys = peopleModel() ? systemOf(people.msg) : null;
   if (els.figSystemWrap.hidden !== !sys) els.figSystemWrap.hidden = !sys;
   if (sys && visible(els.figSystem)) {

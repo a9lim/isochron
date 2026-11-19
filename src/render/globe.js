@@ -119,7 +119,7 @@ struct VOut {
   @location(0) f: vec4f,
   @location(1) nrm: vec4f,   // w the countryside's light (lm a km²)
   @location(2) vp: vec4f,    // w the cities' light (lm a km²)
-  @location(3) wp: vec3f,
+  @location(3) wp: vec4f,    // w the herders' pasture (a share of the cell)
   @location(4) c: vec4f,
   @location(5) z0: vec4f,
   @location(6) z1: vec4f,
@@ -155,7 +155,7 @@ fn toView(p: vec3f) -> vec3f {
   let lm = lit[vi];
   o.nrm = vec4f(toView(n), lm.x);
   o.vp = vec4f(v, lm.y);
-  o.wp = p;
+  o.wp = vec4f(p, lm.w);
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
@@ -407,7 +407,7 @@ fn hair(d: f32, w: f32) -> f32 {
   let dark = u.inkA.w > 0.5;
 
   // The globe's own coordinates for patterns (triplanar), and their change per pixel.
-  let wpn = normalize(i.wp);
+  let wpn = normalize(i.wp.xyz);
   var tw = pow(abs(wpn), vec3f(12.0));
   tw = tw / (tw.x + tw.y + tw.z);
   let T = Tri(wpn.yz, wpn.zx, wpn.xy, tw, vec3f(length(fwidth(wpn.yz)), length(fwidth(wpn.zx)), length(fwidth(wpn.xy))));
@@ -519,7 +519,7 @@ fn hair(d: f32, w: f32) -> f32 {
   // Permafrost (Relief): a violet hatch on the Climate view's mosaic of tesserae, each tessera frozen
   // with the share's probability, so the soft share reads as patchiness. Over snow (the ground stays
   // frozen under it), under a lake's water, frozen over or not, and under the ice sheets (their fill, below).
-  let ts = tessera(i.wp * u.mode.y);
+  let ts = tessera(i.wp.xyz * u.mode.y);
   let tess = ts.w;
   let pf = i.td.w * select(0.0, 1.0, u.mode.x < 0.5);
   if (pf > 0.002) {
@@ -673,12 +673,13 @@ fn hair(d: f32, w: f32) -> f32 {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
     }
     // The land's uses by the rank at the tessera's site: cities at its lows, then datacenters,
-    // factories, farms and solar farms outward.
+    // factories, farms, solar farms and the herders' pasture outward.
     let c1 = i.pp.z;
     let c2 = c1 + i.pq.x;
     let c3 = c2 + i.pp.w;
     let c4 = c3 + i.pp.y;
     let c5 = c4 + i.pq.y;
+    let c6 = c5 + i.wp.w;
     let blocks = max(hatch(T, vec2f(1.0, 0.0), 3.4 * u.mode.z, 0.7 * u.mode.z), hatch(T, vec2f(0.0, 1.0), 3.4 * u.mode.z, 0.7 * u.mode.z));
     let furrowA = 3.14159265 * fract(tess * 97.31);
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
@@ -692,6 +693,9 @@ fn hair(d: f32, w: f32) -> f32 {
       pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
     } else if (rank < c5) {
       pland = mix(pland, u.inkE.rgb, 0.12 + 0.6 * furrows);
+    } else if (rank < c6) {
+      // Herders' pasture: open grass under a sparse viridian stipple (the herds), no furrows.
+      pland = mix(pland, u.inkA.rgb, 0.08 + 0.7 * stipple(T, 5.2 * u.mode.z, 0.85 * u.mode.z));
     }
   }
   // Nothing stands on a lake, open or frozen: the lakes over the uses, as the Relief view draws them
