@@ -1639,7 +1639,7 @@ export class People {
     for (let c = 0; c < nL; c++) reach[c] /= rm;
   }
 
-  // ---- Lineages ---------------------------------------------------------------------------
+  // ---- The first people -----------------------------------------------------------------
   // The first people: the heart of the broadest tree–grass mosaic (the mosaic summed within
   // R_ORIGIN) on the landmass that can hold the most of them. People arise across an ecotone on a
   // continent, not in one cell or on an islet: the best single cell is a near tie among tropical
@@ -3012,11 +3012,14 @@ export class People {
       const farm = take(this.cropped(c));
       // Herders' pasture, past the fields: their hold as far as the herders are there (the people
       // against the capacity, so a frontier's few graze little and food from elsewhere none), on the grass.
-      this.past[c] = this.Kown[c] > 0 ? take(this.herdS[c] * Math.min(1, this.Ntot[c] / this.Kown[c]) * Math.min(1, H.fg[c] / 0.5)) : 0;
+      // Both only on land people have reached (the Settlement map's frontier): a coast's few fishers
+      // ahead of it had drawn their parcels on terra incognita.
+      const known = this.reached[c] ? 1 : 0;
+      this.past[c] = this.Kown[c] > 0 ? take(known * this.herdS[c] * Math.min(1, this.Ntot[c] / this.Kown[c]) * Math.min(1, H.fg[c] / 0.5)) : 0;
       // Fishers' parcels, past the pasture: the sea's share of the food the unfarmed land's people forage
       // (`capAt`, by way of life) on that land, as far as the people are there (drawn only).
       const wf5 = 5 * c, fs = this.wol[wf5] + this.wol[wf5 + 1] + this.wol[wf5 + 2];
-      (this.fishU || (this.fishU = new Float32Array(nL)))[c] = this.Kown[c] > 0 && fs > 0 ? take((1 - this.f[c]) * this.wol[wf5 + 2] / fs * Math.min(1, this.Ntot[c] / this.Kown[c])) : 0;
+      (this.fishU || (this.fishU = new Float32Array(nL)))[c] = this.Kown[c] > 0 && fs > 0 ? take(known * (1 - this.f[c]) * this.wol[wf5 + 2] / fs * Math.min(1, this.Ntot[c] / this.Kown[c])) : 0;
       out[o] = people / A[c]; out[o + 1] = farm; out[o + 2] = city; out[o + 3] = fac;
       out[o + 4] = dc; out[o + 5] = sol; out[o + 6] = sr > 0 ? Rb * (wr[c] / sr + fl * floor) / (1 + fl) / A[c] : 0;
       out[o + 7] = this.reached[c] || fac + dc + sol > 1e-3 ? 1 : 0;   // where people or their machines have been
