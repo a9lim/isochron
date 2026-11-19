@@ -99,10 +99,12 @@ export function coverClimate(veg, climate, co2, scratch = {}) {
 }
 
 export class Life {
-  /** On the planet's layers: { grid, tec, land, climate, ocean, carbon }. */
-  constructor({ grid, tec, land, climate, ocean, carbon }) {
+  /** On the planet's layers: { grid, tec, land, climate, ocean, carbon } (the planet itself, whose `opened` ends the opening's closure; else the climate's settling). */
+  constructor(p) {
+    const { grid, tec, land, climate, ocean, carbon } = p;
     Object.assign(this, { grid, tec, landscape: land, climate, ocean, carbon });
-    this.closed = false;                   // the opening's closure is done (the climate has settled)
+    this.opened = typeof p.opened === 'function' ? () => p.opened() : () => !!climate.stats.settled;
+    this.closed = false;                   // the opening's closure is done (the climate settled and a seeded planet's ice grown: Planet.opened)
     if (carbon) carbon.holdOpening = true;   // the air held at the opening's CO₂ until the sea settles
     const n = grid.n;
     this.veg = new Vegetation(n, grid.area);
@@ -137,7 +139,7 @@ export class Life {
     yield;
     // The opening's closure, through the cycle the climate settles in (the sea settles after it,
     // so nothing it moves is lost).
-    if (!this.closed) { this.veg.equilibrate(); this.closed = !!c.stats.settled; }
+    if (!this.closed) { this.veg.equilibrate(); this.closed = this.opened(); }
     c.cover = { ft: this.veg.ft, fg: this.veg.fg };
     this.version++;
     this.seaInputs();
