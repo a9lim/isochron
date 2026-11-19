@@ -8,9 +8,10 @@
 //   from the engine   also the sea's boiled share and the planet's mean temperature (`air`): past the
 //                     limit the runaway is the planet's (src/engine/runaway.js)
 //   to the page       `people` ~10 times a second (the clock, what's owed, the follow dial's pace,
-//                     the last of the record, new events), `drawn` ~4 times a second (people per
-//                     km², the farmed share, energy used, industry's share, a cell each), `figure`
-//                     once a second (Fig. 8: src/engine/peoplefit.js)
+//                     the last of the record, new events), `drawn` ~4 times a second (people and
+//                     robots per km² and the land's uses, eight a cell: People.drawn; the light
+//                     made, four a cell, and Earth's: People.lights), `figure` once a second
+//                     (Fig. 8: src/engine/peoplefit.js)
 // The first hominins are placed on the first fields that come (the climate's first cycle). The
 // page's ticks owe the people years; the people step toward them at their own pace (People.nextDt)
 // and, behind, say so, so the page holds its clock.
@@ -145,7 +146,7 @@ function post(force) {
   }
   if (force || now - lastDrawn > 250) {
     lastDrawn = now;
-    const d = people.drawn();
-    self.postMessage({ type: 'drawn', d }, [d.buffer]);
+    const d = people.drawn(), l = people.lights(d);
+    self.postMessage({ type: 'drawn', d, l, lm: people.lightTotal }, [d.buffer, l.buffer]);
   }
 }

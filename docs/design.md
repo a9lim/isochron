@@ -18,14 +18,14 @@ Vanilla ES modules, no dependencies. `src/engine/` and `src/grid/` hold no DOM. 
 
 ## Scenarios
 
-Two, each from the planet's opening, picked beside Fig. 1's caption (choosing one reloads, keeping the seed): **World**, the planet alone at 1 Myr/s in the Relief view; **People** (`?scenario=people`, `&ending=1a`…`3b` forces the ending), the planet held at its opening while it loads and its climate settles, then the first hominins, run to an ending at the follow dial in the People view (`people.md`). There are no controls beyond the dial (and with people its Follow switch) and New planet. The seed is in the link (`?seed=`; a new one is drawn and written back by default). The caption is the year (with people, theirs), the date where the globe shows the season, and with people their number and the largest city.
+Two, each from the planet's opening, picked beside Fig. 1's caption (choosing one reloads, keeping the seed): **World**, the planet alone at 1 Myr/s in the Relief view; **People** (`?scenario=people`, `&ending=1a`…`3b` forces the ending), the planet held at its opening while it loads and its climate settles, then the first hominins, run to an ending at the follow dial in the People view (`people.md`). There are no controls beyond the dial (and with people its Follow switch) and New planet. The seed is in the link (`?seed=`; a new one is drawn and written back by default). The caption is the year (with people, theirs), the date where the globe shows the season, and with people their number and the largest city (and in the Lights map, their light).
 
 ## Views
 
 Three groups by timescale (`GROUP`, `MAPS`, `setGroup`, `setMap` in `main.js`; keys 1–3 the groups, M the next map, F the follow dial):
 - **Relief**: Surface (the plants' cover, relief, rivers, plate boundaries, ice), Zones (the soft Köppen mosaic), Air (the winds as streamlines, dust, the veil).
 - **Weather**: Pressure, Temperature, Humidity (synoptic charts) and Tides. Usable at `WX_TOP` (~2.9 days a second) or slower; in it the dial stops there.
-- **People** (once there are people): Settlement and Density.
+- **People** (once there are people): Settlement, Density and Lights (the globe at night). Where the dial resolves the day, every map shows its night side (`scene.md`).
 
 Drawing: `scene.md`.
 

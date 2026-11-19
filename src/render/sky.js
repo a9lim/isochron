@@ -37,6 +37,10 @@
 //           verdigris's blocks) and factories (a sienna hatch) as far as
 //           off-world compute's and the rest of off-world power have (log, from
 //           10 GW and 100 GW to 10²⁰ and 10²¹ W)
+//   lights  the People view's Lights map is the night: the Moon unlit, its city's
+//           residences as ochre lights (its machines work unlit, as Earth's do), the
+//           L4 and L5 habitats ochre, and the swarm's collectors ochre, the light
+//           they take from the Sun
 // Each shows only where the dial resolves its motion: the sky turns at the
 // slowest dials and holds still above; the Moon and the Sun fade out when a
 // month or a year would pass in under a few seconds.
@@ -219,7 +223,7 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       const nSw = sw > 1e-9 ? Math.min(900, Math.round(900 * Math.sqrt(sw))) : 0;
       if (nSw) {
         ctx.globalAlpha = sky.sunAlpha;
-        ctx.fillStyle = rgba(ink, pal.dark ? 0.7 : 0.6);
+        ctx.fillStyle = sky.lights ? pal.inks.ochre : rgba(ink, pal.dark ? 0.7 : 0.6);
         for (let k = 0; k < nSw; k++) {
           const rr = SWARM[3 * k] * R, a = SWARM[3 * k + 1];
           ctx.beginPath(); ctx.arc(p[0] + rr * Math.cos(a), p[1] + rr * SWARM[3 * k + 2] * Math.sin(a), 0.6, 0, 2 * Math.PI); ctx.fill();
@@ -241,15 +245,17 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       ctx.globalAlpha = sky.moonAlpha;
       ctx.fillStyle = rgba(ink, pal.dark ? 0.22 : 0.16);
       ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 2 * Math.PI); ctx.fill();
-      ctx.save();
-      ctx.translate(p[0], p[1]); ctx.rotate(ang);
-      ctx.fillStyle = pal.dark ? rgba(ink, 0.85) : pal.canvas;
-      ctx.beginPath();
-      ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2, false);
-      if (cosA > 0) ctx.ellipse(0, 0, R * cosA, R, 0, Math.PI / 2, 3 * Math.PI / 2, false);
-      else ctx.ellipse(0, 0, -R * cosA, R, 0, Math.PI / 2, -Math.PI / 2, true);
-      ctx.fill();
-      ctx.restore();
+      if (!sky.lights) {   // its phase (in the Lights map it is night there too)
+        ctx.save();
+        ctx.translate(p[0], p[1]); ctx.rotate(ang);
+        ctx.fillStyle = pal.dark ? rgba(ink, 0.85) : pal.canvas;
+        ctx.beginPath();
+        ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2, false);
+        if (cosA > 0) ctx.ellipse(0, 0, R * cosA, R, 0, Math.PI / 2, 3 * Math.PI / 2, false);
+        else ctx.ellipse(0, 0, -R * cosA, R, 0, Math.PI / 2, -Math.PI / 2, true);
+        ctx.fill();
+        ctx.restore();
+      }
       // Its face: maria darker than the highlands, lit or in earthshine, and the bright young craters
       // (Tycho's rays), turned with its north along the planet's pole on screen.
       const up = project(m[0], m[1], m[2] + 0.02), ua = up ? Math.atan2(up[1] - p[1], up[0] - p[0]) : -Math.PI / 2;
@@ -265,7 +271,7 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
           ctx.beginPath(); ctx.ellipse(sx, sy, Math.max(0.4, k * rx * R), Math.max(0.4, k * ry * R), rot - t, 0, 2 * Math.PI); ctx.fill();
         }
         ctx.fillStyle = pal.dark ? rgba(ink, 0.95) : pal.canvas; ctx.strokeStyle = pal.dark ? rgba(ink, 0.35) : rgba(pal.canvas, 0.7); ctx.lineWidth = 0.5;
-        for (const [x, y, cr, rays] of face.craters) {
+        for (const [x, y, cr, rays] of sky.lights ? [] : face.craters) {   // the bright craters only where sunlit
           const [sx, sy] = toS(x, y);
           if (rays) { ctx.beginPath(); for (let k = 0; k < 9; k++) { const a = 2 * Math.PI * k / 9 + 0.3; ctx.moveTo(sx, sy); ctx.lineTo(sx + 0.55 * R * Math.cos(a), sy + 0.55 * R * Math.sin(a)); } ctx.stroke(); }
           ctx.beginPath(); ctx.arc(sx, sy, Math.max(0.6, cr * R), 0, 2 * Math.PI); ctx.fill();
@@ -278,7 +284,18 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
       // (north up, along the pole's direction on screen), washed and patterned as the globe draws it
       // (residences and datacenters as blocks, factories as a heavy hatch); clipped to the disc.
       const base = sky.moonbase || [0, 0, 0];
-      if (base.some(v => v > 0)) {
+      if (sky.lights && base[0] > 0) {
+        // At night, the residences' sites as lights, as far as its people have grown.
+        const nB = Math.round(BASE[0].length * Math.min(1, base[0]) ** 1.3);
+        ctx.save();
+        ctx.beginPath(); ctx.arc(p[0], p[1], R - 0.4, 0, 2 * Math.PI); ctx.clip();
+        ctx.globalAlpha = sky.moonAlpha; ctx.fillStyle = pal.inks.ochre;
+        for (let k = 0; k < nB; k++) {
+          const [bx, by] = BASE[0][k];
+          ctx.beginPath(); ctx.arc(p[0] + R * (bx * nx[0] + by * ny[0]), p[1] + R * (bx * nx[1] + by * ny[1]), Math.max(0.6, 0.035 * R), 0, 2 * Math.PI); ctx.fill();
+        }
+        ctx.restore();
+      } else if (!sky.lights && base.some(v => v > 0)) {
         const inks = [pal.accent, pal.inks.verdigris, pal.inks.sienna], step = Math.max(1.3, 0.07 * R);
         for (let u = 0; u < 3; u++) {
           const nB = Math.round(BASE[u].length * Math.min(1, Math.max(0, base[u])) ** 1.3);
@@ -315,7 +332,7 @@ export function drawSky(ctx, cx, cy, r, r0, w, h, camera, sky, pal) {
   const l45 = sky.l45;
   if (l45 && l45.n > 0 && sky.moonAlpha > 0.01) {
     const Rm = Math.max(4, BIG * f * MOON_R / sky.moonDist), nP = Math.round(L45.length * Math.min(1, l45.n) ** 1.3);
-    ctx.globalAlpha = sky.moonAlpha; ctx.fillStyle = pal.accent;
+    ctx.globalAlpha = sky.moonAlpha; ctx.fillStyle = sky.lights ? pal.inks.ochre : pal.accent;
     for (const d of l45.dirs) {
       const p = project(...d);
       if (!p) continue;

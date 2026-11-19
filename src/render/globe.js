@@ -62,7 +62,7 @@
 // wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
 // at the amphidromic points, at the slowest dials the line of high water
 // sweeping round them, and a stipple where the tide loses its energy.
-// The People view (the People scenario, src/engine/people.js) has two maps.
+// The People view (the People scenario, src/engine/people.js) has three maps.
 // Settlement: the Relief view's land and sea where people have ever lived and
 // grey terra incognita where they haven't, a hairline at the frontier. Density:
 // a chart's base with the ice sheets under people as a tint in the accent by log
@@ -73,7 +73,13 @@
 // two patterns of two colours each: blocks for residences (cities in the accent,
 // datacenters in the robots' verdigris), parcels for fields (farms in sap, solar
 // farms in indigo), and factories a heavy sienna hatch; the sulfate veil as in
-// the Air map.
+// the Air map. Lights: the globe at night, a chart's base under the night's
+// graphite, and the light people make (lm a km², People.lights) as an ochre
+// stipple whose dots close with log light, solid at industry's cities (on the
+// cities' tesserae at the cities' light, elsewhere the countryside's).
+// Night: where the dial resolves the day (u.sun.w), every map darkens the side
+// away from the Sun in three steps (the Sun 0°, 6° and 12° below the horizon:
+// civil, nautical and astronomical twilight) and shows the lights there.
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
@@ -81,6 +87,8 @@ import { storage } from '../gpu/device.js';
 const SHADER = /* wgsl */ `
 const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal (verdigris) where the sea blooms most
 const PLANKTON_WASH = 0.3;    // and a pale, milky turquoise laid over it there (blooms scatter light: so shelves, lightly tinted, show it too)
+const NIGHT_K = 0.24;         // how far night takes a map toward graphite (light theme)
+const NIGHT_K_DARK = 0.55;    // and toward black (dark theme)
 struct U {
   view0: vec4f, view1: vec4f, view2: vec4f,
   frame: vec4f,      // sx, sy, tNow (rel. to the polarity origin), polarity dT
@@ -96,18 +104,21 @@ struct U {
   tide2: vec4f,      // the equilibrium tide's amplitude (m), its square, how much the tide shown is now; w the lakes' ease (0 last, 1 new)
   veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
   steam: vec4f,      // the runaway's steam (src/engine/runaway.js): x its wash's opacity, from the column's pressure; y coal's sulfate's optical depth where its pattern is 1
+  sun: vec4f,        // xyz toward the Sun in the globe's frame; w how much the night side is shown (where the dial resolves the day)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
 @group(0) @binding(2) var<storage, read> cover: array<vec4f>;   // the cover's eight colour weights a vertex
 @group(0) @binding(3) var<storage, read> folk: array<vec4f>;
-@group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)    // the people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, and robots at work per km²
+// The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
+@group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)
+@group(0) @binding(5) var<storage, read> lit: array<vec4f>;     // the light people make (People.lights): lm a km² of countryside, of city
 
 struct VOut {
   @builtin(position) clip: vec4f,
   @location(0) f: vec4f,
-  @location(1) nrm: vec3f,
-  @location(2) vp: vec3f,
+  @location(1) nrm: vec4f,   // w the countryside's light (lm a km²)
+  @location(2) vp: vec4f,    // w the cities' light (lm a km²)
   @location(3) wp: vec3f,
   @location(4) c: vec4f,
   @location(5) z0: vec4f,
@@ -141,8 +152,9 @@ fn toView(p: vec3f) -> vec3f {
   let v = toView(p);
   o.clip = vec4f(v.x * u.frame.x, v.y * u.frame.y, 0.5 - 0.5 * v.z, 1.0);
   o.f = f;
-  o.nrm = toView(n);
-  o.vp = v;
+  let lm = lit[vi];
+  o.nrm = vec4f(toView(n), lm.x);
+  o.vp = vec4f(v, lm.y);
   o.wp = p;
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
@@ -401,8 +413,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let T = Tri(wpn.yz, wpn.zx, wpn.xy, tw, vec3f(length(fwidth(wpn.yz)), length(fwidth(wpn.zx)), length(fwidth(wpn.xy))));
 
   // Relief: the surface normal against the sphere's own, so only slope shades.
-  let N = normalize(i.nrm);
-  let S = normalize(i.vp);
+  let N = normalize(i.nrm.xyz);
+  let S = normalize(i.vp.xyz);
   let L = normalize(u.light.xyz);
   let relief = clamp(1.0 + 1.1 * (dot(N, L) - dot(S, L)), 0.8, 1.12);
 
@@ -427,6 +439,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let freach = max(fwidth(i.pq.w), 1e-3);   // the Settlement map's frontier (where people have reached)
   let lat = asin(clamp(wpn.z, -1.0, 1.0));
   let dlat = fwidth(lat);
+  let sunUp = dot(wpn, u.sun.xyz);   // the sine of the Sun's elevation
+  let fsun = max(fwidth(sunUp), 1e-5);
   let iceSurf = max(e, 0.0) + iceH / 1000.0;
   let fsurf = fwidth(iceSurf);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
@@ -436,8 +450,10 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7) or its Density map (8)
-  let folkD = u.mode.x > 7.5;
+  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8) or Lights map (9)
+  let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
+  let folkL = u.mode.x > 8.5;
+  let folkC = folkD || folkL;       // the People maps on a chart's base
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
   let tA = length(tz);
@@ -636,8 +652,12 @@ fn hair(d: f32, w: f32) -> f32 {
   // verdigris), parcels for fields (farms in sap, solar farms in indigo), and factories a heavy hatch.
   let explored = clamp(0.5 + (i.pq.w - 0.5) / freach, 0.0, 1.0);
   let unknown = mix(mix(u.canvas.rgb, u.text.rgb, select(0.13, 0.12, dark)), iceC, sheet);
-  var pland = select(mix(unknown, land, explored), mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), iceC, sheet), folkD);
-  if (folkV) {
+  var pland = select(mix(unknown, land, explored), mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), iceC, sheet), folkC);
+  // The land's uses by a rank fixed to the globe at the tessera's site (the People view's, and the
+  // night's lights: on the cities' tesserae at the cities' light).
+  var rank = 1.0;
+  if (folkV || u.sun.w > 0.0) { rank = landRank(ts.xyz / u.mode.y); }
+  if (folkV && !folkL) {
     if (folkD) {
       // People: the accent by log density, a faint wash wherever anyone lives deepening to the farms'
       // densities (~0.003 to ~300 a km²), then a step for the cities (~200 to ~4,000 a km²).
@@ -654,7 +674,6 @@ fn hair(d: f32, w: f32) -> f32 {
     }
     // The land's uses by the rank at the tessera's site: cities at its lows, then datacenters,
     // factories, farms and solar farms outward.
-    let rank = landRank(ts.xyz / u.mode.y);
     let c1 = i.pp.z;
     let c2 = c1 + i.pq.x;
     let c3 = c2 + i.pp.w;
@@ -679,12 +698,12 @@ fn hair(d: f32, w: f32) -> f32 {
   // where people have reached (Settlement) and in the chart's water everywhere (Density), with their
   // shore; and under the ice sheets, as in the Relief view (the base holds the sheets already, so the
   // lakes give way to them here).
-  let pwet = lk * select(explored, 1.0, folkD) * (1.0 - sheet);
-  pland = mix(pland, select(lakeInk, mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkD), pwet);
-  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkD) * hair(abs(lake), flake) * (1.0 - sheet) * select(explored, 1.0, folkD));
+  let pwet = lk * select(explored, 1.0, folkC) * (1.0 - sheet);
+  pland = mix(pland, select(lakeInk, mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkC), pwet);
+  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkC) * hair(abs(lake), flake) * (1.0 - sheet) * select(explored, 1.0, folkC));
   land = select(land, pland, folkV);
-  sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkD);
-  let chart = weather || tides || air || folkD;
+  sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceC, sheet), folkC);
+  let chart = weather || tides || air || folkC;
 
   // A lake's surface, open or frozen, takes the sea's hillshade, its bed's relief at a third (the
   // normals are the land's, at full exaggeration, so a third of their shading).
@@ -701,6 +720,26 @@ fn hair(d: f32, w: f32) -> f32 {
     let va = smoothstep(-1.7, 0.0, log(max(aod, 1e-4)) / 2.302585);
     let vh = hatch1(vec2f(lat, 0.0), dlat, vec2f(1.0, 0.0), octave(mix(16.0, 4.0, va) * u.mode.z), 0.55 * u.mode.z);
     c = mix(c, mix(u.text.rgb, u.canvas.rgb, 0.3), select(0.5, 0.28, folkV) * vh * smoothstep(0.01, 0.04, aod));   // lighter over the people
+  }
+  // Night. The Lights map is the globe at night; on the other maps, where the dial resolves the day
+  // (u.sun.w), the side away from the Sun darkens in three steps, at the Sun 0°, 6° and 12° below
+  // the horizon (civil, nautical and astronomical twilight's: standard), toward graphite (black in
+  // the dark theme). Over it, the light people make (lm a km², People.lights) as an ochre stipple,
+  // its dots 24 px apart at 0.1 lm a km² (foragers' fires) and 2.4 px at 10⁷, a tenfold of light
+  // closing them by 10^⅛ (farmers' ~10³ at 7.6 px; their cities' and industry's countryside
+  // ~10⁵–10⁶ at 4.3–3.2), then merging to solid by ~6 × 10⁷ (industry's cities). On the cities'
+  // tesserae it is the cities' light, elsewhere the countryside's; none on the sea, a lake or an
+  // ice sheet.
+  let dusk = clamp(0.5 - sunUp / fsun, 0.0, 1.0) + clamp(0.5 - (sunUp + 0.104528) / fsun, 0.0, 1.0) + clamp(0.5 - (sunUp + 0.207912) / fsun, 0.0, 1.0);
+  let night = select(u.sun.w * dusk / 3.0, 1.0, folkL);
+  if (night > 0.0) {
+    c = mix(c, select(u.text.rgb, vec3f(0.0), dark), select(NIGHT_K, NIGHT_K_DARK, dark) * night);
+    let lum = select(i.nrm.w, i.vp.w, rank < i.pp.z) * step(0.0, cst) * (1.0 - lk) * (1.0 - sheet);
+    let lq = log(max(lum, 1e-9)) / 2.302585;
+    let lx = clamp((lq + 1.0) / 8.0, 0.0, 1.0);
+    let ldot = stipple(T, 24.0 * pow(0.1, lx) * u.mode.z, (0.75 + 0.2 * lx) * u.mode.z) * smoothstep(-1.5, -0.8, lq);
+    let lmark = max(ldot, smoothstep(7.0, 7.8, lq));
+    c = mix(c, u.inkB.rgb, lmark * night);
   }
   // The runaway's steam: a pale wash over everything, as thick as the column (Venus's surface is
   // hidden under 92 bar; this one keeps a little of the ground showing).
@@ -744,6 +783,9 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const coverBuf = storage(device, nm * 32);
   // The people's eight values a vertex (the People scenario), refined from their grid (src/engine/people-worker.js).
   const folkBuf = storage(device, nm * 32);
+  // The light they make, one vec4 a vertex (People.lights), refined from their grid as the folk are.
+  const litBuf = storage(device, nm * 16);
+  let litS = null;
   // Coal's sulfate's pattern a vertex (the People scenario: src/engine/peoplelink.js), one vec4 for the refiner.
   const sulfBuf = storage(device, nm * 16), sulfS = refining ? storage(device, n * 16) : sulfBuf;
   let folkS = null, folkRef = null;
@@ -754,7 +796,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
   const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, mesh.tris);
-  const uniBuf = device.createBuffer({ size: 31 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 32 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -778,7 +820,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(124);
+  const uni = new Float32Array(128);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -791,7 +833,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   function rebind() {
     bind = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }, { binding: 3, resource: { buffer: folkBuf } }, { binding: 4, resource: { buffer: sulfBuf } }],
+      entries: [{ binding: 0, resource: { buffer: uniBuf } }, { binding: 1, resource: { buffer: polBuf } }, { binding: 2, resource: { buffer: coverBuf } }, { binding: 3, resource: { buffer: folkBuf } }, { binding: 4, resource: { buffer: sulfBuf } }, { binding: 5, resource: { buffer: litBuf } }],
     });
   }
 
@@ -880,11 +922,19 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     get lakesEasing() { return performance.now() - lakeAt < LAKE_EASE; },
     /** Per cell: the plants' cover as eight colour weights (src/engine/vegetation.js, COLOURS; zero off its land). */
     setCover(w) { device.queue.writeBuffer(coverS, 0, w); refine(coverS, coverBuf, 2); },
-    /** Per cell of the people's grid `pg`: people per km², the farmed share, energy used (W/m²), industry's share. */
+    /** Per cell of the people's grid `pg`, eight values (People.drawn): people per km², the shares of farms, cities and factories; of datacenters and solar farms, robots at work per km², reached. */
     setPeople(d, pg) {
       if (pg === mesh) { device.queue.writeBuffer(folkBuf, 0, d); return; }
-      if (!folkS) { folkS = storage(device, pg.n * 32); folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg); }
+      if (!folkS) folkS = storage(device, pg.n * 32);
+      if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
       device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 2);
+    },
+    /** Per cell of the people's grid `pg`, four values (People.lights): the light made, lm a km² of countryside and of city. */
+    setLights(l, pg) {
+      if (pg === mesh) { device.queue.writeBuffer(litBuf, 0, l); return; }
+      if (!litS) litS = storage(device, pg.n * 16);
+      if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
+      device.queue.writeBuffer(litS, 0, l); folkRef.run(litS, litBuf, 1);
     },
     /** Per cell of the engine's grid: coal's sulfate's burden, its pattern (mean 1), or null for none. */
     setSulfate(p) {
@@ -920,7 +970,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : 7) : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'lights' ? 9 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);
@@ -929,6 +979,9 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       uni.set([td.m[0], td.m[1], td.hw[0], td.hw[1], td.amp, td.amp * td.amp, td.now, lakeMix()], 76);
       if (mode.veil) uni.set(mode.veil, 84); else uni.fill(0, 84, 120);
       uni[120] = mode.steam || 0; uni[121] = mode.sulf || 0;
+      // The Sun's direction in the globe's frame and how much of the night side shows (main.js, dayShown).
+      const sun = mode.sun || { dir: [1, 0, 0], w: 0 };
+      uni.set([sun.dir[0], sun.dir[1], sun.dir[2], sun.w], 124);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();
