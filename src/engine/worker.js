@@ -59,7 +59,7 @@ import { GpuPlates } from '../gpu/plates.js';
 import { GpuSurface } from '../gpu/surface.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
-import { PeopleLink, fieldsOf, soilOf, peopleLevel } from './peoplelink.js';
+import { PeopleLink, HarvestYears, fieldsOf, soilOf, peopleLevel } from './peoplelink.js';
 
 // The climate's slice (ms), and while it hasn't settled (the opening's ~10 cycles) the gap between its
 // slices while the plates pump, in slices: 10 after (a tenth of a busy thread), 3 before (a quarter).
@@ -384,7 +384,7 @@ function drawnFlow(ice) {
 let people = null;
 function startPeople(port) {
   const level = peopleLevel(P.grid.level), T = level < P.grid.level ? makeTransfer(P.grid, buildGrid(level)) : null;
-  people = { port, T, link: new PeopleLink(P, T), sentVersion: -1, lastAir: 0, soil: new Float32Array(T ? T.coarse.n : P.grid.n) };
+  people = { port, T, link: new PeopleLink(P, T), years: new HarvestYears(P.year), sentVersion: -1, lastAir: 0, soil: new Float32Array(T ? T.coarse.n : P.grid.n) };
   port.onmessage = e => { if (e.data.type === 'writeback') people.link.receive(e.data); };
   sendPeopleFields();
 }
@@ -411,7 +411,10 @@ function sendPeopleAir() {
   if (!people || performance.now() - people.lastAir < 250) return;
   people.lastAir = performance.now();
   const soil = soilOf(P, new Float32Array(people.soil.length), people.T);
-  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil, boiled: P.runaway.b, meanT: P.climate.stats.meanT, years: P.years }, [soil.buffer]);
+  // The year's whole years since the last (the people's harvests), while the dial resolves them.
+  const harvest = people.years.take(), tr = [soil.buffer];
+  if (harvest) tr.push(harvest.buffer);
+  people.port.postMessage({ type: 'air', co2: P.carbon.pco2, soil, boiled: P.runaway.b, meanT: P.climate.stats.meanT, years: P.years, harvest, harvestLevel: P.year.grid.level }, tr);
 }
 
 function sendFast(first) {

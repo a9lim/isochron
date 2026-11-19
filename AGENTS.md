@@ -22,7 +22,7 @@ An Earth-like planet on one globe, from plate tectonics down to weather and peop
 
 ## Running and checking
 
-Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent's `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet (without one the page draws six letters and writes them into the link); `?seed=earth` is today's Earth; `?scenario=people` the People scenario (`&ending=1a`, `1b`, `2a`, `2b` forces its ending); `?level=` the engine's level. `/isochron/tests/gpu.html` runs the weather's GPU tests in the browser (results in `window.__results`).
+Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent's `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet (without one the page draws six letters and writes them into the link); `?seed=earth` is today's Earth; `?scenario=people` the People scenario (`&ending=1a`, `1b`, `2a`, `2b`, `3a`, `3b` forces its ending); `?level=` the engine's level. `/isochron/tests/gpu.html` runs the weather's GPU tests in the browser (results in `window.__results`).
 
 ```bash
 (cd tests && npm install)              # once: WebGPU in node (Dawn) for the GPU parity tests

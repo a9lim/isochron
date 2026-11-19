@@ -18,7 +18,7 @@ Vanilla ES modules, no dependencies. `src/engine/` and `src/grid/` hold no DOM. 
 
 ## Scenarios
 
-Two, each from the planet's opening, picked beside Fig. 1's caption (choosing one reloads, keeping the seed): **World**, the planet alone at 1 Myr/s in the Relief view; **People** (`?scenario=people`, `&ending=1a`…`2b` forces the ending), the planet held at its opening while it loads and its climate settles, then the first hominins, run to an ending at the follow dial in the People view (`people.md`). There are no controls beyond the dial (and with people its Follow switch) and New planet. The seed is in the link (`?seed=`; a new one is drawn and written back by default). The caption is the year (with people, theirs), the date where the globe shows the season, and with people their number and the largest city.
+Two, each from the planet's opening, picked beside Fig. 1's caption (choosing one reloads, keeping the seed): **World**, the planet alone at 1 Myr/s in the Relief view; **People** (`?scenario=people`, `&ending=1a`…`3b` forces the ending), the planet held at its opening while it loads and its climate settles, then the first hominins, run to an ending at the follow dial in the People view (`people.md`). There are no controls beyond the dial (and with people its Follow switch) and New planet. The seed is in the link (`?seed=`; a new one is drawn and written back by default). The caption is the year (with people, theirs), the date where the globe shows the season, and with people their number and the largest city.
 
 ## Views
 

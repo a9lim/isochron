@@ -100,6 +100,7 @@ export const VEG = {
   T_DRY: 5, W_TDRY: 2,              // °C above which a dry month burns (a frozen one doesn't)
   D_FIRE: 4, W_DFIRE: 0.75,         // warm dry months about which a year burns
   B_MAX: 0.2, G_GRAZE: 0.4, W_GRAZE: 0.1,  // browsing's most, and the grass about which the herds live
+  FUEL_MEGA: 0.5,                   // fire's rise where the large herbivores are gone (their uneaten grass is fuel; synthesis)
   P_BROWSE: 1000, W_BROWSE: 200,    // mm/yr above which the herds thin
 };
 
@@ -167,12 +168,14 @@ export function dryMonths(p12, t12, o = 0) {
 
 /**
  * Disturbance D (0–1): the share of their climate's room fire and browsing keep trees out of, in
- * a cell with grass share g (of the cell), dry months dry and P mm of rain a year.
+ * a cell with grass share g (of the cell), dry months dry and P mm of rain a year, and the large
+ * herbivores' share left (`mega`: people hunt them, src/engine/people.js): fewer browse, and the
+ * grass they'd have eaten burns (after Gill and others 2009's pollen and dung-fungus records, from memory).
  */
-export function disturbance(g, dry, P) {
+export function disturbance(g, dry, P, mega = 1) {
   const V = VEG;
-  const F = V.FIRE_MAX * sigmoid((g - V.G_FUEL) / V.W_FUEL) * sigmoid((dry - V.D_FIRE) / V.W_DFIRE);
-  const B = V.B_MAX * sigmoid((g - V.G_GRAZE) / V.W_GRAZE) * sigmoid((V.P_BROWSE - P) / V.W_BROWSE);
+  const F = Math.min(0.95, V.FIRE_MAX * sigmoid((g - V.G_FUEL) / V.W_FUEL) * sigmoid((dry - V.D_FIRE) / V.W_DFIRE) * (1 + V.FUEL_MEGA * (1 - mega)));
+  const B = V.B_MAX * mega * sigmoid((g - V.G_GRAZE) / V.W_GRAZE) * sigmoid((V.P_BROWSE - P) / V.W_BROWSE);
   return 1 - (1 - F) * (1 - B);
 }
 
@@ -264,7 +267,7 @@ export class Vegetation {
       equilibrium(gdd[i], precip[i], soil ? soil[i] : -1, eq);
       const u = Math.min(1, Math.max(0, (T - V.T_HOT[0]) / (V.T_HOT[1] - V.T_HOT[0]))), hot = 1 - u * u * (3 - 2 * u);
       // Fire and browsing on the grass there now (a bare cell, new land, has none to burn).
-      const D = dry ? disturbance(this.fg[i], dry[i], precip[i]) : 0;
+      const D = dry ? disturbance(this.fg[i], dry[i], precip[i], this.mega ? this.mega[i] : 1) : 0;
       this.dist[i] = D;
       this.vEq[i] = hot * eq[1]; this.sEq[i] = eq[1] > 0 ? (1 - D) * eq[0] / eq[1] : 0;
       this.pi[i] = hot * npp(T, precip[i], co2);

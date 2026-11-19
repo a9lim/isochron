@@ -1,8 +1,9 @@
 // The people's thread (docs/people.md; the model is src/engine/people.js), beside the
 // engine's. The People scenario starts it with a port to the engine's thread:
 //   from the engine   `fields` after each climate cycle (the planet's fields on the people's grid,
-//                     src/engine/peoplelink.js), `air` a few times a second (CO₂, the regolith)
-//   to the engine     `writeback` ~10 times a second: farmed shares and tillage a cell, the carbon
+//                     src/engine/peoplelink.js), `air` a few times a second (CO₂, the regolith, and
+//                     while the dial resolves the year its whole years for the harvests)
+//   to the engine     `writeback` ~10 times a second: farmed shares, tillage and large game's share a cell, the carbon
 //                     burned less what capture took back, the forcing (heat and sulfate)
 //   from the engine   also the sea's boiled share and the planet's mean temperature (`air`): past the
 //                     limit the runaway is the planet's (src/engine/runaway.js)
@@ -62,6 +63,7 @@ function onEngine(e) {
     if (m.boiled !== undefined) env.boiled = m.boiled;
     if (m.meanT !== undefined && env.T0 !== null) env.meanT = m.meanT;
     if (people && m.soil) for (let c = 0; c < people.nL; c++) people.soil[c] = m.soil[people.cells[c]];
+    if (people && m.harvest) people.addYears(m.harvest, m.harvestLevel);
   }
 }
 
@@ -102,7 +104,7 @@ function post(force) {
     // The forcing: waste heat, a preserving AI's sprayed sulfate and a sacrificing swarm's shade
     // global (F), coal's sulfate (aerC, its global mean) carried by the planet's winds from where it's lifted (x).
     const wb = people.writeBack(), Fo = people.forcing, F = Fo.heat + Fo.geo + (Fo.shade || 0), aerC = Fo.aer - Fo.geo;
-    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, x: wb.x, carbon: env.bank, F, aerC }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer, wb.x.buffer]);
+    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, x: wb.x, m: wb.m, carbon: env.bank, F, aerC }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer, wb.x.buffer, wb.m.buffer]);
     env.bank = 0;
   }
   // To the page: the clock, the record's last row, the events; one skipped is sent once its 100 ms

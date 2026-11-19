@@ -64,8 +64,14 @@ pp.run({
         (() => { const m = p.minedShares(), s = p.stars(); return `the swarm ${(100 * b.Es / p.P.L_SUN).toPrecision(2)}% of the Sun, the belt ${(100 * m.belt).toFixed(0)}% and Mercury ${(100 * m.merc).toFixed(0)}% mined, growth off-world ${(100 * b.fert).toFixed(2)}%/yr past replacement, ${s ? `${g3(s.n)} stars reached${s.people > 0 ? `, ${g3(s.people)} people at them` : ''}` : 'no probes'}`; })());
       return true;
     }
+    // A pause plays out over AFTER years past the draw (no dial to run out).
+    if (p.ending && p.ending.paused && p.t - p.endAt > AFTER) {
+      const b = h[n - 1];
+      p.event('end', `${AFTER} years past the pause (ending ${p.ending.code}): ${g3(b.earth / 1e9)} billion people; minds ${g3(b.minds)}; energy ${g3(b.energy / 1e12)} TW (fossil ${g3(b.Ef / 1e12)}); fossil left ${b.fossil.toFixed(0)} Pg C; CO₂ ${b.co2.toFixed(0)} ppm, forcing ${b.Ft.toFixed(1)} W/m², habitability ${b.hE.toFixed(2)}, the oceans ${(100 * b.boiled).toFixed(0)}% boiled; AI's share of the work ${(100 * b.sA).toFixed(0)}%`);
+      return true;
+    }
     const tInd = (p.events.find(e => e.kind === 'industry') || {}).t;
-    if (p.econ.on && !p.flags.dial && p.t - tInd > 3000) { p.event('end', 'no takeoff within 3 kyr of industry'); return true; }
+    if (p.econ.on && !p.flags.dial && !(p.ending && p.ending.paused) && p.t - tInd > 3000) { p.event('end', 'no takeoff within 3 kyr of industry'); return true; }
     return false;
   },
 });

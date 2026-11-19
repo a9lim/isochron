@@ -4,11 +4,16 @@
 //   emissions   fossil carbon burned (less what capture takes back) goes to `carbon.pulse` before
 //               the next fast step: the sea's chemistry takes it from there (the Pulse's physics),
 //               drawn down never below 100 ppm
+//   game        large game's share left a cell (`mega`) scales the cover's browsing, and its fuel's
+//               burning (src/engine/vegetation.js, `disturbance`)
 //   land use    each farmed share scales the cover's tree balance (as the last climate cycle set it,
 //               `Life.onCover`) and clips its trees at once; the cover's own carbon (wood to
 //               litter to soil to the air), albedo and evaporation do the rest
 //   soil        tillage's erosion (mm/yr) is added to the landscape's erosion field around each
 //               fast step, so the regolith's exact step strips it; the people read the regolith back
+//   the years   while the dial resolves the year, each whole year's anomaly (`HarvestYears`) for
+//               the people's harvests: the year's log-rain unit and its mean T′, as moments a few
+//               times a second (src/engine/people.js, `addYears`)
 //   forcing     waste heat and a preserving AI's sprayed sulfate (W/m²) as CLIMATE.F_PEOPLE in the
 //               energy balance, whatever it is: past the limit the planet's own runaway boils the sea
 //               (src/engine/runaway.js), and the people read back how much has boiled and how warm
@@ -31,7 +36,7 @@ import { Dust, NP } from './dust.js';
 export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigP: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1 };
 /** The people's grid's level on an engine of `level`. */
 export const peopleLevel = level => Math.min(6, level);
 
@@ -46,20 +51,22 @@ export const peopleLevel = level => Math.min(6, level);
  * surface temperature (°C) and rain (mm), the cover's trees and grass, the vegetation's NPP (kg C
  * per m² of vegetation a year), the zones' probabilities (NZ a cell), the ground's runoff (m/yr),
  * the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K), a
- * year's spread of log rain, the regolith (m), its production at bare rock (m/yr) and the rivers'
- * erosion (mm/yr).
+ * year's mean T′'s spread (K: the month's × √ of its memory, src/engine/year.js), a year's spread of log rain, the regolith (m), its production at bare rock (m/yr) and the rivers'
+ * erosion (mm/yr); and on land the coast's sea's export production (g C m⁻² yr⁻¹, the most of its
+ * sea neighbours': src/engine/life.js), which feeds the sea's foragers.
  */
 export function fieldsOf(P, f = null, T = null) {
   const g = T ? T.coarse : P.grid, n = g.n, N = P.grid.n, c = P.climate, tec = P.tec, s = tec.seaLevel;
   if (!f) { f = { seed: P.seed, grid: g, n }; for (const [name, w] of Object.entries(FIELDS)) f[name] = new Float32Array(w * n); }
   const map = new Float64Array(N);
   for (let i = 0; i < N; i++) { let t = 0; for (let m = 0; m < 12; m++) t += c.P12[12 * i + m]; map[i] = t; }
-  const sigT = P.year.spreadFine().T;
+  const sp = P.year.spreadFine(), sigT = sp.T, ex = P.life.export, G = P.grid;
+  const coastSea = i => { if (tec.sea[i] || !ex) return 0; let m = 0; for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) { const j = G.nbr[t]; if (tec.sea[j]) m = Math.max(m, ex[j] || 0); } return m; };
   const src = {
     elev: i => tec.sea[i] ? Math.min(-1e-3, tec.elev[i] - s) : Math.max(1e-3, tec.elev[i] - s), ice: i => P.ice.H[i], ft: i => P.life.veg.ft[i], fg: i => P.life.veg.fg[i], npp: i => P.life.veg.pi[i],
     runoff: i => c.runoff[i], discharge: i => P.land.discharge[i], lake: i => c.lakeWet[i], perma: i => c.soil.permafrost[i],
-    sigT: i => sigT[i], sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
-    reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
+    sigT: i => sigT[i], sigTy: i => sigT[i] * Math.sqrt(sp.mem[i]), sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
+    sea: coastSea, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
     arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
   };
   const wide = { T12: [c.T12, 12], P12: [c.P12, 12], zones: [c.zones, NZ] };
@@ -68,7 +75,7 @@ export function fieldsOf(P, f = null, T = null) {
     for (const [k, [a]] of Object.entries(wide)) f[k].set(a);
   } else {
     const x = new Float64Array(N), y = new Float64Array(n);
-    const most = new Set(['discharge', 'lake']), { nc, par } = T;
+    const most = new Set(['discharge', 'lake', 'sea']), { nc, par } = T;
     for (const [k, get] of Object.entries(src)) {
       const a = f[k];
       for (let i = 0; i < N; i++) x[i] = get(i);
@@ -88,6 +95,45 @@ export function fieldsOf(P, f = null, T = null) {
   }
   f.co2 = P.carbon.pco2; f.meanT = c.stats.meanT; f.settled = c.stats.settled; f.version = c.version;
   return f;
+}
+
+/**
+ * The planet's years for the people's harvests (synthesis; docs/people.md). After each of the
+ * year's steps (src/engine/year.js, `hooks`), on the year's own grid, its months of the log-rain
+ * anomaly's unit z and of T′ go into a running year; each whole year adds its means to moments the
+ * people take a few times a second: a cell each, [years, Σz, Σz², ΣT′, ΣT′², ΣzT′], the years
+ * weighted by the year's `live` (the closure fills the rest). A step of a year or more is that
+ * many years at once. Outrun, the running year is dropped.
+ */
+export class HarvestYears {
+  constructor(Y) {
+    this.Y = Y; const n = this.n = Y.n;
+    this.z = new Float64Array(n); this.T = new Float64Array(n); this.months = 0;
+    this.mom = new Float64Array(6 * n); this.w = 0;
+    Y.hooks.push(this);
+  }
+  yearStep(Y, months) {
+    const w = Y.live, n = this.n;
+    if (!(w > 0) || !Y.anom) { this.months = 0; this.z.fill(0); this.T.fill(0); return; }
+    const zc = Y.anom.zc, Ta = Y.Ta;
+    for (let i = 0; i < n; i++) { this.z[i] += months * zc[i]; this.T[i] += months * Ta[i]; }
+    this.months += months;
+    if (this.months < 12) return;
+    const k = 1 / this.months, yrs = w * this.months / 12, m = this.mom;
+    for (let i = 0; i < n; i++) {
+      const z = this.z[i] * k, T = this.T[i] * k, o = 6 * i;
+      m[o] += yrs; m[o + 1] += yrs * z; m[o + 2] += yrs * z * z; m[o + 3] += yrs * T; m[o + 4] += yrs * T * T; m[o + 5] += yrs * z * T;
+    }
+    this.w += yrs; this.months = 0; this.z.fill(0); this.T.fill(0);
+  }
+  /** The moments since the last take (Float32Array, 6 a cell), or null when no year has passed. */
+  take() {
+    if (!(this.w > 0)) return null;
+    const out = Float32Array.from(this.mom);
+    this.mom.fill(0); this.w = 0;
+    return out;
+  }
+  detach() { const h = this.Y.hooks, k = h.indexOf(this); if (k >= 0) h.splice(k, 1); }
 }
 
 /** The regolith on the people's grid (m), into `out`. */
@@ -122,7 +168,7 @@ export class PeopleLink {
   }
 
   /** The people's write-back on their grid: farmed share, tillage (mm/yr) and solar farms' share a cell, carbon (Pg C) since the last, forcing (W/m²). */
-  receive({ f, Ef, s, x, carbon = 0, F = 0, aerC = 0 }) {
+  receive({ f, Ef, s, x, m, carbon = 0, F = 0, aerC = 0 }) {
     const put = (a, out) => {
       if (!this.T) { out.set(a.subarray(0, out.length)); return; }
       prolong(this.T, a, this.tmp); out.set(this.tmp);
@@ -131,6 +177,7 @@ export class PeopleLink {
     if (f) { put(f, this.u); this.landUse(); }
     if (Ef) put(Ef, this.ef);
     if (x) put(x, this.x);
+    if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = new Float32Array(this.P.grid.n).fill(1); put(m, veg.mega); }
     this.carbon += carbon;
     this.F = F; CLIMATE.F_PEOPLE = F;
     this.aerC = aerC; this.applySulfate();
@@ -203,7 +250,7 @@ export class PeopleLink {
   /** Off: the cover's balance restored, no forcing, nothing banked. */
   detach() {
     const veg = this.P.life.veg;
-    veg.sEq.set(this.sEq0);
+    veg.sEq.set(this.sEq0); veg.mega = null;
     this.P.life.onCover = null;
     CLIMATE.F_PEOPLE = 0;
     this.P.climate.peopleForcing = null;

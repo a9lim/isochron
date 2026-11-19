@@ -399,3 +399,139 @@ test('Earth\'s room, aligned and past scarcity: an ecumenopolis on its living la
   p.hE = 0.5;
   assert.ok(Math.abs(p.earthRoom(1) / (0.5 * P.D_ECU * A) - 1) < 1e-12 && p.earthRoom(0) === 0);
 });
+
+test("the harvest's years: the planet's realized years stand in for the closure's spread", async () => {
+  // The famine's form: realized years with the closure's own distribution are the closure.
+  const P = { ...PEOPLE };
+  const K = 1, N = 1.02, sigma = 0.25, st = 0.1;
+  const c0 = demography(N, K, 0, 10, P, sigma, st);
+  const c1 = demography(N, K, 0, 10, P, sigma, st, 1, { phi: 1, m: 0, s: sigma });
+  const ch = demography(N, K, 0, 10, P, sigma, st, 1, { phi: 0.5, m: 0, s: sigma });
+  assert.ok(Math.abs(c1.famine / c0.famine - 1) < 1e-12 && Math.abs(ch.famine / c0.famine - 1) < 1e-12, 'the closure, whatever share');
+  const dry = demography(N, K, 0, 10, P, sigma, st, 1, { phi: 1, m: -0.2, s: 0.1 });
+  const wet = demography(N, K, 0, 10, P, sigma, st, 1, { phi: 1, m: 0.2, s: 0.1 });
+  assert.ok(dry.famine > 1.5 * c0.famine && wet.famine < c0.famine, `a dry decade ${dry.famine.toFixed(4)} against the closure's ${c0.famine.toFixed(4)} and a wet one's ${wet.famine.toFixed(4)}`);
+
+  // The year's live statistics against the closure the people read: over land, a year's mean T′
+  // spreads as σ√mem, its log-rain unit as √(ρ² mem + (1 − ρ²)/12), correlated ρ√(mem/(ρ² mem + (1 − ρ²)/12)).
+  const { Year, YEAR } = await import('../src/engine/year.js');
+  const { HarvestYears } = await import('../src/engine/peoplelink.js');
+  const g = buildGrid(4), n = g.n;
+  const landMask = Uint8Array.from({ length: n }, (_, i) => g.pos[3 * i + 2] > 0.3 ? 1 : 0);
+  const c = { grid: g, landMask, snowAnn: new Float32Array(n), stats: { cycles: 3 },
+    Pf: [new Float32Array(n).fill(2), ...Array.from({ length: 4 }, () => new Float32Array(n))] };
+  const y = new Year(c, null, 'harvest'), h = new HarvestYears(y);
+  for (let t = 0; t <= 40; t += 1 / 24) y.advance(t, 1);   // spun up
+  h.take();
+  for (let t = 40; t <= 640; t += 1 / 24) y.advance(t, 1);
+  const m = h.take();
+  let eT = 0, eZ = 0, eC = 0, w = 0, yrs = 0;
+  for (let i = 0; i < n; i++) {
+    if (!y.land[i] || y.land[i] < 0.99) continue;
+    const W = m[6 * i]; yrs = W;
+    const mz = m[6 * i + 1] / W, vz = m[6 * i + 2] / W - mz * mz, mt = m[6 * i + 3] / W, vt = m[6 * i + 4] / W - mt * mt, cz = m[6 * i + 5] / W - mz * mt;
+    const rho = YEAR.RHO_LAND, mem = y.mem[i], sT = y.sigma[i] * Math.sqrt(mem), sZ = Math.sqrt(rho * rho * mem + (1 - rho * rho) / 12);
+    eT += Math.log(Math.sqrt(vt) / sT) ** 2; eZ += Math.log(Math.sqrt(vz) / sZ) ** 2; eC += (cz / Math.sqrt(vz * vt) - rho * Math.sqrt(mem) / sZ) ** 2; w++;
+  }
+  assert.ok(w > 50 && yrs > 590, `${w} land cells, ${yrs.toFixed(0)} years`);
+  const rT = Math.sqrt(eT / w), rZ = Math.sqrt(eZ / w), rC = Math.sqrt(eC / w);
+  assert.ok(rT < 0.2 && rZ < 0.15 && rC < 0.12, `a year's T′ spread off the closure by ${(100 * rT).toFixed(0)}% rms, its rain's by ${(100 * rZ).toFixed(0)}%, their correlation by ${rC.toFixed(3)}`);
+  // Outrun: no years.
+  for (let t = 640; t <= 2e4; t += 100) y.advance(t, 3e3);
+  assert.equal(h.take(), null, 'outrun: nothing to take');
+  h.detach(); assert.equal(y.hooks.length, 0);
+
+  // The people take them: a dry run of years where farmers are crowded is a famine there.
+  const f = uniformPlanet(4);
+  f.sigP = new Float32Array(f.n).fill(0.2); f.sigTy = new Float32Array(f.n).fill(0.4);
+  const run = years => {
+    const p = new People(f, { ...quiet, A_INV: 0, D0: 0, D_Z: 0 });
+    const L = p.newLineage(null, 0, 0);
+    p.capacity(L); for (let k = 0; k < p.nL; k++) L.N[k] = 1.05 * L.K[k];
+    if (years) p.addYears(years, 4);
+    p.step(10);
+    return p.famine;
+  };
+  const dryYears = new Float32Array(6 * n);
+  for (let i = 0; i < n; i++) { dryYears[6 * i] = 10; dryYears[6 * i + 1] = -10 * 1.5; dryYears[6 * i + 2] = 10 * 2.5; }   // a decade a 1.5σ drought in the rain's unit
+  const base = run(null), drought = run(dryYears);
+  assert.ok(drought > 2 * base, `famine ${drought.toExponential(2)} in a drought's decade against ${base.toExponential(2)} without`);
+});
+
+test("the stocks: game hunted out where it never met hominins, held where it did; fish taken past their regrowth by industry's fleets", () => {
+  const f = uniformPlanet(3);
+  const p = new People(f, { ...quiet, A_INV: 0, D0: 0, D_Z: 0 });
+  const L = p.newLineage(null, 0, 0);
+  for (let c = 0; c < p.nL; c++) L.Z[c] = 5;   // foragers at full culture, as dense as it lets them be
+  p.capacity(L);
+  for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
+  p.zc = Float64Array.from(L.Z);
+  p.Ntot.set(L.N);
+  const half = Math.floor(p.nL / 2);
+  for (let c = 0; c < p.nL; c++) { p.met[c] = 1; p.naive[c] = c < half ? p.P.NAIVE_CO : 1; }
+  // Without people the game's share is its own: logistic, exact over any step.
+  const P = p.P, ez = Math.exp(5), PF = ez / (1 + (ez - 1) / P.CAP_F);
+  for (let k = 0; k < 40; k++) p.stocks(100, [L]);
+  for (const c of [0, half - 1]) {
+    const rho = p.Ntot[c] / p.H.area[c], h = P.H_MEGA * P.NAIVE_CO * Math.min(3, rho / P.B0) * PF / P.CAP_F;
+    assert.ok(h < P.R_MEGA && Math.abs(p.mega[c] - (1 - h / P.R_MEGA)) < 1e-3, `wary game holds at 1 − h/R: ${p.mega[c].toFixed(3)} against ${(1 - h / P.R_MEGA).toFixed(3)}`);
+  }
+  for (const c of [half, p.nL - 1]) assert.equal(p.mega[c], 0, 'naive game hunted out, and gone for good');
+  // The coast's fish: the cells have no sea here, so give one a coast's and run industry's fleets over it.
+  p.H.bS[0] = 0.02; p.fish[0] = 1; p.ind[0] = 0;
+  for (let k = 0; k < 100; k++) p.stocks(10, [L]);
+  const pre = p.fish[0];
+  assert.ok(pre > 0.85 && pre < 1, `before industry the fish hold near their own (${pre.toFixed(3)})`);
+  p.ind[0] = 1; p.zc[0] = P.Z_IND;
+  for (let k = 0; k < 10; k++) p.stocks(5, [L]);
+  assert.ok(p.fish[0] < 0.5 * pre, `fifty years of industry's fleets: ${p.fish[0].toFixed(3)}`);
+  const low = p.fish[0];
+  p.zc[0] = P.Z_IND + 1 + 4 * P.Z_CONS;   // culture's care eases the take: they come back
+  for (let k = 0; k < 20; k++) p.stocks(5, [L]);
+  assert.ok(p.fish[0] > low, `and recover as the take eases (${p.fish[0].toFixed(3)})`);
+});
+
+test("the sea feeds a desert coast, and herders hold the grass the plough can't, where winter allows", () => {
+  const f = uniformPlanet(4), n = f.n, g = f.grid;
+  // A dry, cold-wintered grassland: no farming, little to forage; one band of it on a productive coast.
+  f.P12.fill(15); f.ft.fill(0.02); f.fg.fill(0.6); f.npp.fill(0.3);
+  for (let i = 0; i < n; i++) for (let m = 0; m < 12; m++) f.T12[12 * i + m] = 8 + 14 * Math.cos(2 * Math.PI * (m - 6) / 12);   // −6 °C winters
+  f.sea = new Float32Array(n);
+  const coastal = new Set();
+  for (let i = 0; i < n; i++) if (g.pos[3 * i + 2] < -0.9) f.elev[i] = -1;   // a polar sea
+  for (let i = 0; i < n; i++) if (f.elev[i] > 0) for (let o = g.nbrOff[i]; o < g.nbrOff[i + 1]; o++) if (f.elev[g.nbr[o]] <= 0) { coastal.add(i); f.sea[i] = 30; }
+  const p = new People(f, { ...quiet });
+  const inland = p.cells.findIndex(i => !coastal.has(i)), coast = p.cells.findIndex(i => coastal.has(i));
+  assert.ok(p.H.bS[coast] > 0.5 * p.P.B_SEA && p.H.bS[inland] === 0, `the coast's sea feeds ${p.H.bS[coast].toFixed(4)} a km²`);
+  assert.ok(p.H.bS[coast] > p.H.bL[coast], 'more than its dry land does');
+  // Herding, once known (and a farming package exists somewhere), holds more than foraging there.
+  const L = p.newLineage(null, 0, 0);
+  for (let c = 0; c < p.nL; c++) L.Z[c] = p.P.Z_HERD + 1;
+  p.capacity(L); const Kf = L.K[inland];
+  p.packages.push({ id: 0 });
+  p.capacity(L); const Kh = L.K[inland];
+  assert.ok(Kh > 2 * Kf, `herders ${Kh.toFixed(0)} against foragers' ${Kf.toFixed(0)}`);
+  // Deep snow in winter and nowhere milder within reach: the herds have no winter.
+  for (let i = 0; i < n; i++) for (let m = 0; m < 12; m++) { f.T12[12 * i + m] -= 14; f.P12[12 * i + m] = 40; }
+  const q = new People(f, { ...quiet });
+  assert.ok(q.H.herd[inland] < 0.2 * p.H.herd[inland], `a snowbound winter keeps ${(100 * q.H.herd[inland] / p.H.herd[inland]).toFixed(0)}% of the herds`);
+});
+
+test('a pause: a third of the draws, the frontier held where it stands, none of the misaligned or aligned branches', async () => {
+  const { capability } = await import('../src/engine/people.js');
+  const f = uniformPlanet(3);
+  let n = { 1: 0, 2: 0, 3: 0 };
+  for (let k = 0; k < 600; k++) {
+    const p = new People({ ...f, seed: `pause-${k}` }, { ...quiet });
+    p.econ.x = 0.5; p.drawEnding(); n[p.ending.code[0]]++;
+    if (p.ending.paused) assert.equal(p.P.X_CAP, 0.5); else assert.equal(p.P.X_CAP, undefined);
+  }
+  for (const k of [1, 2, 3]) assert.ok(Math.abs(n[k] / 600 - 1 / 3) < 0.07, `ending ${k}: ${n[k]} of 600`);
+  const p = new People(f, { ...quiet, ENDING: '3b' });
+  p.econ.x = 1.2; p.drawEnding();
+  assert.deepEqual([p.ending.code, p.ending.paused, p.ending.aligned, p.ending.preserve], ['3b', true, false, true]);
+  // Capability past the cap is the cap's: compute and culture keep growing, the frontier doesn't.
+  const held = { ...PEOPLE, X_CAP: p.P.X_CAP };
+  const a = capability(1e12, PEOPLE.Z_AI + 0.5, held), b = capability(1e15, PEOPLE.Z_AI + 2, held), free = capability(1e15, PEOPLE.Z_AI + 2, PEOPLE);
+  assert.ok(a.x <= 1.2 + 1e-12 && Math.abs(b.x - 1.2) < 1e-12 && free.x > 1.2 && b.bc === capability(1e20, PEOPLE.Z_AI + 3, held).bc);
+});

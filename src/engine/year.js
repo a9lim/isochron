@@ -15,6 +15,9 @@
 //                  the step's months and its anomaly on the engine's grid (see
 //                  `stepInputs` for the exact shape). The lakes are slower and
 //                  are stepped by the planet each frame (src/engine/planet.js).
+//   hooks          readers of each step's anomaly on the year's own grid
+//                  (`hooks`, each `yearStep(year, months)`: the people's
+//                  harvests, src/engine/peoplelink.js).
 // Above the live range each part is replaced by its closure, and the change is
 // soft over half a decade of the dial (`live`, 1 below ~56 yr/s, 0 above
 // ~180): consumers weigh the live state by it. A jump of the clock past
@@ -172,6 +175,7 @@ export class Year {
     this.live = 1;
     this.steps = 0; this.months = 0;
     this.soil = null;      // the ground, optional (see stepInputs)
+    this.hooks = [];       // each step's readers on this grid: yearStep(year, months), after the anomaly's step
     this.stats = { meanT: 0, meanPrev: 0, F: 0, aod: 0, sigma: 0, cg: 0 };
     this.tagInfo = null;
   }
@@ -402,6 +406,7 @@ export class Year {
     // The anomaly on the engine's grid over the step (the lakes read it), and the ground's step.
     this.fineAnomaly(months);
     if (this.soil) this.soil.step(this.stepInputs(t0, months));
+    for (const h of this.hooks) h.yearStep(this, months);
     this.months += months;
   }
 

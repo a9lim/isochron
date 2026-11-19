@@ -67,7 +67,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       robots: bots ? (work ? (ApE < 0.99 * h.Ap ? `${count(h.Ap)}, ${count(ApE)} on Earth` : count(h.Ap)) : `${count(E.bodies)} idle`) : null,
     },
     // Misaligned, AI's nodes are drawn in the red.
-    red: m.ending && !m.ending.aligned ? { compute: true, robots: true } : {},
+    red: m.ending && !m.ending.aligned && !m.ending.paused ? { compute: true, robots: true } : {},
     edges: [
       // Kremer's loop: the land feeds people, people make minds, minds ideas, and culture raises what the land carries.
       { from: 'climate', to: 'land', w: rain / la / 1.5, label: `${Math.round(1000 * rain / la)} mm/yr`, bend: 0 },
