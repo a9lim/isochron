@@ -223,7 +223,7 @@ async function climateLoop() {
         c.it = null; cycleMs = performance.now() - cycleStart; pending = Math.max(0, pending - 1);
         cycleEnd = performance.now(); cycleEndYears = P.years;
         const ts = performance.now();
-        if (c.stats.settled && !P.iceSpun && !P.earth) spinIce();
+        if (!opened) await openingStep();
         sendClimate();
         sendPeopleFields();
         sendSulfate();
@@ -346,7 +346,7 @@ function riverAnomaly() {
 function sendClimate() {
   const c = P.climate, o = P.ocean, f32 = a => Float32Array.from(a);
   const m = {
-    type: 'climate', version: c.version, stats: { ...c.stats, cycleMs }, zonal: c.zonal,
+    type: 'climate', version: c.version, stats: { ...c.stats, cycleMs }, opened, zonal: c.zonal,
     Tf: c.Tf.map(f32), Pf: c.Pf.map(f32), presPhase: c.presPhase.map(f32), W: c.W.map(f32),
     snowAnn: f32(c.snowAnn), landMask: Uint8Array.from(c.landMask), elevPos: f32(c.elevPos), zones: f32(c.zones),
     sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats }, prod: f32(P.life.export),
@@ -390,32 +390,23 @@ function startPeople(port) {
   sendPeopleFields();
 }
 /** The planet's fields on the people's grid, once a climate cycle has run and after each. */
-// The opening's ice (a seeded planet's; today's Earth opens on its measured ice): grown off the clock
-// on the GPU, in chunks, to its balance with the settled climate (PLANET.ICE_*; Planet.spinIce is
-// the headless path), then two more cycles so the climate sees it. The people wait for both.
-let iceSpunAt = null;
-async function spinIce() {
-  P.iceSpun = true;
-  const g = P.iceGpu;
-  if (!g) { P.iceSpun = false; P.spinIce(); iceSpunAt = P.climate.stats.cycles; return; }
-  let done = 0, v0 = P.iceVolume();
-  while (done < PLANET.ICE_MAX) {
-    g.advance(PLANET.ICE_CHUNK, 1e5);
-    while (g.reading) await nextTask();
-    await g.read(true);
-    P.tec.updateElevation();
-    done += PLANET.ICE_CHUNK;
-    const v = P.iceVolume();
-    if (done >= PLANET.ICE_MIN && Math.abs(v - v0) <= PLANET.ICE_TOL * Math.max(v, 1e-12)) break;
-    v0 = v;
+// The opening (PLANET.ICE_*; Planet.settleClimate headless): climate cycles back to back, and after
+// each a seeded planet's ice a chunk further off the clock on the GPU, the two together, until the
+// climate has settled and the ice is at its balance, seen by a cycle since (Planet.opened). The page
+// holds its clock until then (the `opened` of the climate message), the people wait for it, and the
+// grown ice goes to the page as the opening ends.
+let opened = false;
+async function openingStep() {
+  if (!P.earth && !P.iceGrown) {
+    const v0 = P.iceVolume(), g = P.iceGpu;
+    if (g) { g.advance(PLANET.ICE_CHUNK, 1e5); while (g.reading) await nextTask(); await g.read(true); } else P.ice.advance(PLANET.ICE_CHUNK, Infinity);
+    P.openingIceDone(v0);
   }
-  P.iceGrown = true; iceSpunAt = P.climate.stats.cycles; pending = Math.max(pending, 2);
-  sendFast(false);   // the page holds its clock through the opening and hears nothing meanwhile: the grown ice now
+  opened = P.opened();
+  if (opened) sendFast(false); else pending = Math.max(pending, 1);
 }
-/** The opening over: the climate settled and, on a seeded planet, its ice grown and seen by two cycles since. */
-const openingDone = () => P.climate.stats.settled && (P.earth || (iceSpunAt !== null && P.climate.stats.cycles >= iceSpunAt + 2));
 function sendPeopleFields() {
-  if (!people || !openingDone() || P.climate.version === people.sentVersion) return;
+  if (!people || !opened || P.climate.version === people.sentVersion) return;
   people.sentVersion = P.climate.version;
   const t0 = performance.now(), f = fieldsOf(P, null, people.T), tr = [];
   people.fieldsMs = performance.now() - t0;

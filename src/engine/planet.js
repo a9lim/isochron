@@ -54,11 +54,12 @@ export const PLANET = {
   LAKES_SEASON: 1.4,     // yr/s: below this (where the globe shows the season) lakes step by the month, above it by the year
   LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
   LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
-  // The opening's ice (a seeded planet's; today's Earth opens on its measured ice): grown off the
-  // clock to its balance with the settled climate, in chunks of ICE_CHUNK years, a climate cycle
-  // after each, until a chunk moves its volume less than ICE_TOL, at least ICE_MIN and at most
-  // ICE_MAX years (from none, a seeded planet's sheets take ~15–40 kyr to their balance).
-  ICE_CHUNK: 5e3, ICE_TOL: 0.02, ICE_MIN: 1e4, ICE_MAX: 6e4,
+  // The opening (`settleClimate`; the page's worker alike): climate cycles back to back, and after
+  // each a seeded planet's ice ICE_CHUNK years further off the clock (today's Earth opens on its
+  // measured ice), the two together, until the climate has settled, a chunk moves the ice less than
+  // ICE_TOL (at least ICE_MIN years, at most ICE_MAX) and a cycle has seen it since (from none, a
+  // seeded planet's sheets take ~20–60 kyr to their balance with the climate they cool).
+  ICE_CHUNK: 5e3, ICE_TOL: 0.01, ICE_MIN: 2e4, ICE_MAX: 1.2e5,
 };
 
 export { Record, SERIES } from './record.js';
@@ -357,32 +358,27 @@ export class Planet {
    */
   settleClimate() {
     const c = this.climate;
-    while (!c.stats.settled) { c.solve(1); this.afterClimate(); }
-    this.spinIce();
+    while (!this.opened()) { c.solve(1); this.afterClimate(); this.openingIce(); }
     return c.stats.settled;
   }
   /** The ice's volume (m × km² of the unit sphere: comparable with itself). */
   iceVolume() { const H = this.ice.H, A = this.grid.area; let v = 0; for (let i = 0; i < this.grid.n; i++) v += H[i] * A[i]; return v; }
-  /**
-   * Headless: the opening's ice grown to its balance off the clock (PLANET.ICE_*), a climate cycle
-   * after each chunk so the climate sees it; the page's worker does it on the GPU (src/engine/worker.js).
-   * Returns the years grown (0 for today's Earth, or once done).
-   */
-  spinIce() {
-    if (this.earth || this.iceSpun) return 0;
-    this.iceSpun = true;
-    let done = 0, v0 = this.iceVolume();
-    while (done < PLANET.ICE_MAX) {
-      done += this.ice.advance(PLANET.ICE_CHUNK, Infinity);
-      this.tec.updateElevation();
-      this.climate.solve(1); this.afterClimate();
-      const v = this.iceVolume();
-      if (done >= PLANET.ICE_MIN && Math.abs(v - v0) <= PLANET.ICE_TOL * Math.max(v, 1e-12)) break;
-      v0 = v;
-    }
-    this.iceGrown = true;
-    return done;
+  /** The opening's ice after a climate cycle (PLANET.ICE_*): ICE_CHUNK years further off the clock (headless; the page's worker steps it on the GPU and calls `openingIceDone`). Nothing for today's Earth, or once grown. */
+  openingIce() {
+    if (this.earth || this.iceGrown) return;
+    const v0 = this.iceVolume();
+    this.ice.advance(PLANET.ICE_CHUNK, Infinity);
+    this.openingIceDone(v0);
   }
+  /** A chunk of the opening's ice stepped (its volume v0 before): the sea re-solved, the years counted, and grown once the chunk moved it less than ICE_TOL. */
+  openingIceDone(v0) {
+    this.tec.updateElevation();
+    this.iceYears = (this.iceYears || 0) + PLANET.ICE_CHUNK;
+    const v = this.iceVolume();
+    if ((this.iceYears >= PLANET.ICE_MIN && Math.abs(v - v0) <= PLANET.ICE_TOL * Math.max(v, 1e-12)) || this.iceYears >= PLANET.ICE_MAX) { this.iceGrown = true; this.iceGrownAt = this.climate.stats.cycles; }
+  }
+  /** The opening over: the climate settled and (a seeded planet's) its ice at its balance, seen by a cycle since. */
+  opened() { const cs = this.climate.stats; return cs.settled > 0 && (!!this.earth || (!!this.iceGrown && cs.cycles > this.iceGrownAt)); }
   afterClimate() { const it = this.afterClimateSteps(); while (!it.next().done); }
   /** What follows a climate cycle (the cover, the sea's inputs, weathering's map), in pieces the engine's worker yields between (Life.afterClimateSteps). */
   *afterClimateSteps() {

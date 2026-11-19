@@ -75,8 +75,8 @@
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
 // hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, production
 // as an accent wash and learning as a verdigris one by how near each is to its
-// frontier, lines of equal production in the accent (heavier at farming's and
-// industry's) and of equal learning in verdigris, a stipple by the works a km², and of the land's
+// frontier, production's lines at farming's and industry's in the accent and
+// learning's at the same in verdigris, a stipple by the works a km², and of the land's
 // uses only the cities (People.drawnB). The ice is plain on the People charts.
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
 // away from the Sun in three steps (the Sun 0°, 6° and 12° below the horizon:
@@ -681,29 +681,22 @@ fn hair(d: f32, w: f32) -> f32 {
     } else if (folkK) {
       // Knowledge in its two domains, where people have been: production as an accent wash and learning
       // as a verdigris one, each by how near the place is to its frontier (full at it, a third half a
-      // unit behind; where both are near they mix to a grey); lines of equal production in the accent (heavier at farming's and industry's, Z_FARM and
-      // Z_IND: the fronts by which they spread) and of equal learning in verdigris, each line at
-      // the coarsest of a quarter, a half, one or two units it falls on where such lines stand ≥ ~6 px
-      // apart (a steep front keeps every fourth or eighth); and a stipple, denser by the works a km²
-      // (from ~30 person-years to ~10⁴).
+      // unit behind; where both are near they mix to a grey); the major boundaries (below); and a
+      // stipple, denser by the works a km² (from ~30 person-years to ~10⁴).
       let zp = i.wx.y;
       let zl = i.wx.z;
       let had = explored * (1.0 - sheet);   // where people have been, never over an ice sheet
       let a = select(0.4, 0.45, dark);
       pland = mix(pland, u.accent.rgb, a * exp(-2.0 * max(u.steam.z - zp, 0.0)) * had);
       pland = mix(pland, u.inkD.rgb, a * exp(-2.0 * max(u.steam.w - zl, 0.0)) * had);
+      // Only the major boundaries: farming's and industry's (Z_FARM, Z_IND) in production, heavy in the
+      // accent, and where learning stands at the same in verdigris (lines of every interval had stacked
+      // where knowledge falls steeply, as at the polar herders' edge).
       let fzp = max(fwidth(zp), 1e-5);
       let fzl = max(fwidth(zl), 1e-5);
-      var isoP = 0.0;
-      var isoL = 0.0;
-      for (var L = 0u; L < 4u; L++) {
-        let iv = 0.25 * f32(1u << L);
-        isoP = max(isoP, hair(abs(zp / iv - round(zp / iv)), fzp / iv) * smoothstep(4.0, 7.0, iv / fzp));
-        isoL = max(isoL, hair(abs(zl / iv - round(zl / iv)), fzl / iv) * smoothstep(4.0, 7.0, iv / fzl));
-      }
-      pland = mix(pland, u.accent.rgb, 0.55 * isoP * had);
-      pland = mix(pland, u.inkD.rgb, 0.65 * isoL * had);
       let era = max(hair(abs(zp - Z_FARM), 2.2 * fzp), hair(abs(zp - Z_IND), 2.2 * fzp));
+      let eraL = max(hair(abs(zl - Z_FARM), 1.4 * fzl), hair(abs(zl - Z_IND), 1.4 * fzl));
+      pland = mix(pland, u.inkD.rgb, 0.75 * eraL * had);
       pland = mix(pland, u.accent.rgb, 0.8 * era * had);
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);

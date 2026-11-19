@@ -141,6 +141,7 @@ function palette() {
 // surfaces either side of τ the globe blends, and the lines turn with their
 // plates and morph to τ.
 let stepsSent = 0, stepsDone = 0, engineMsPerStep = 50, engineProf = {};
+let engineOpened = false;           // the engine's opening over (its climate settled, a seeded planet's ice at its balance): the clock waits for it
 const queue = [];                   // surfaces waiting to be shown, oldest first
 let shown = null, shownFrom = 0;    // the surface blended to, and the time of the one blended from (Myr)
 let tau = null, engineRate = 0, pace = 0, lastArrive = -1;
@@ -1170,7 +1171,7 @@ function tick(now) {
     scheduler.layers[0].step = Math.min(PLATE_STEP, Math.max(5e4, rate() / 10, keep));
     // The People scenario holds the planet at its opening while its climate settles (the climate's
     // cycles run back to back on the engine's thread meanwhile), then runs from the first people.
-    const heldBy = stepsSent - stepsDone >= 2 ? 'engine' : people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4) ? 'people' : peopleOn() && !people.msg ? 'opening' : null;
+    const heldBy = stepsSent - stepsDone >= 2 ? 'engine' : !engineOpened || (peopleOn() && !people.msg) ? 'opening' : people.msg && peopleOwed() > Math.max(0.25 * rate(), 1e-4) ? 'people' : null;
     const behind = heldBy !== null;
     if (heldBy) held[heldBy] = (held[heldBy] || 0) + 1; else held.free = (held.free || 0) + 1;
     const { dt: adv, plan } = scheduler.advance(behind ? 0 : rate() * dt);
@@ -1251,7 +1252,7 @@ engine.onmessage = e => {
     P.seaLevel0 = m.seaLevel0; P.years += m.years; carbon.pco2 = m.pco2;
   } else if (m.type === 'surface') onSurface(m);
   else if (m.type === 'climate') {
-    climate.update(m); climateDirty = true; figuresDirty = true; caption(false);
+    climate.update(m); engineOpened = !!m.opened; climateDirty = true; figuresDirty = true; caption(false);
     if (peopleOn() && !people.worker && climate.stats.settled > 0) startPeople();   // the dry run over
   }
   else if (m.type === 'fast') onFast(m);
