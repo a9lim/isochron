@@ -428,20 +428,22 @@ export const PEOPLE = {
   TOR: 8, ID_SIG2: 2e-4, ID_KICK: 0.05, R_CONT: 0.01, D_CONT: 0.5, G_FLOOR: 0.05, X_WAY: 0.05, D_MIX: 0.3, F_CONV: 0.25, R_ATT: 1e-5,
   ID_L0: 100, Z_ID0: 4, Z_IDL: 1, ID_LMAX: 2e4, R_MEDIA: 0.02, L_WORLD: 1e4, DT_ID: 10,
   D_SIM: 2, ID_COPY: 1, CL_TRADE: 0.5, ID_EPS: 1e-2, D_HILL: 0.5,
-  // States (batch 2a; src/engine/polities.js, docs/people.md "States"; synthesis, the values speculation): power
-  // projected from the capital, e-fold over C_POL0 + K_POL × the trade's reach of route cost (~160 km by road at
-  // farming's start, ~700 by the Iron Age's), softly at most L_POLMAX (~2,000 km by road; an ocean by sea); arms e-fold per Z_MIL of production, a herder's × (1 + M_HERD) (the horse); allegiance toward
-  // d π^γ/(Σπ^γ + π₀^γ) (POL_G) over T_WAR; those who deliver: herders
-  // DL_HERD, fishers DL_FISH, foragers none; the stateless resistance B_LOC × the region's arms × (1 + K_RUG slope/0.01) ×
-  // (1 + K_EXIT exit); strangers resist (× (1 + K_KIN sim)/(1 + K_KIN)); cohesion Turchin's asabiya by place, R_ASA × the
-  // frontier's weight, D_ASA × the rest (a family apart, D_META, or another way of life), from COH0, at least
-  // A_MIN; founded at R_FORM × x²/(1 + x²), x a stateless city's people over N_STATE; a lost capital's cohesion
-  // × CAP_LOSS; gone under N_DIE people; capitals marked past N_MARK; identity pulled toward the capital's at
-  // R_STATE × the share held (a9: softly); stepped every DT_POL years at least; candidates past EPS_POL of a
-  // shares past S_MIN.
-  DT_POL: 10, T_WAR: 20, POL_G: 3, B_LOC: 0.05, K_RUG: 1, K_EXIT: 2, Z_MIL: 1.5, M_HERD: 2, DL_HERD: 0.5, DL_FISH: 0.5,
-  C_POL0: 3000, K_POL: 6, L_POLMAX: 6e4, K_KIN: 1, S_MIN: 1e-3, D_META: 2, R_ASA: 0.07, D_ASA: 0.002, COH0: 0.5, A_MIN: 0.12, A_NAT: 0.6, Z_NAT: 6.5, W_NAT: 0.3,
-  R_FORM: 2e-3, N_STATE: 2000, N_DIE: 1000, CAP_LOSS: 0.7, N_MARK: 1e6, R_STATE: 0.002, W_RIVAL: 0.3,
+  // States (batch 2a; src/engine/polities.js, docs/people.md "States"; synthesis, the values speculation; tuned to
+  // Earth's history of states on the earth seed, its geography allowed for). A state's reach e-fold over C_POL0 +
+  // K_POL × the trade's reach of route cost (~260 km by road at farming's start, ~1,000 by the Iron Age's), softly
+  // at most L_POLMAX (~3,300 km by road; an ocean by sea); arms e-fold per Z_MIL of production, a herder's × (1 +
+  // M_HERD) (the horse); allegiance toward d π^γ/(Σπ^γ + π₀^γ) (POL_G) over T_WAR; those who deliver: herders
+  // DL_HERD, fishers DL_FISH, foragers none; the stateless resistance B_LOC × the region's arms × (1 + K_RUG
+  // slope/0.01) × (1 + K_EXIT exit); strangers resist (× (1 + K_KIN sim)/(1 + K_KIN)); cohesion Turchin's asabiya
+  // by place, R_ASA × the frontier's weight, D_ASA × the rest (a family apart, D_META; another way of life; another
+  // state's at W_RIVAL), at least A_MIN, rising to the nation's A_NAT as learning passes Z_NAT (Gellner), a
+  // founding's places lifted toward its founders' COH0 (Ibn Khaldun); founded at R_FORM × x²/(1 + x²), x a stateless
+  // city's people over N_STATE; a lost capital's cohesion × CAP_LOSS; gone under N_DIE people; capitals marked past
+  // N_MARK; identity pulled toward the capital's at R_STATE × the share held (a9: softly); stepped every DT_POL
+  // years at least; shares past S_MIN.
+  DT_POL: 10, T_WAR: 20, POL_G: 3, B_LOC: 0.012, K_RUG: 1, K_EXIT: 2, Z_MIL: 1.5, M_HERD: 2, DL_HERD: 0.5, DL_FISH: 0.5,
+  C_POL0: 1000, K_POL: 25, L_POLMAX: 1e5, K_KIN: 1, S_MIN: 1e-3, D_META: 2, R_ASA: 0.07, D_ASA: 0.005, COH0: 0.7, A_MIN: 0.03, A_NAT: 0.6, Z_NAT: 6.5, W_NAT: 0.3,
+  R_FORM: 5e-3, N_STATE: 2e4, N_DIE: 1000, CAP_LOSS: 0.7, N_MARK: 1e6, R_STATE: 0.002, W_RIVAL: 0.1,
   // What states do (speculation): war's toll where allegiance moves, W_DEATH of those changing hands and W_WORKS
   // of the works by the share moved; the state's granaries widen a place's store × (1 + G_STATE × the share held);
   // trade across a border at B_TRADE (McCallum's border effect, ~2–20× by era and estimate, from memory); rivalry

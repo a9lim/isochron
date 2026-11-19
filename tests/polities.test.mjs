@@ -18,7 +18,7 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
   for (let c = 0; c < n; c++) off[c + 1] = off[c] + lists[c].length;
   const m = off[n], E = { off, nb: new Int32Array(m), hop: new Uint8Array(m), slope: new Float64Array(m).fill(1), km: new Float64Array(m).fill(100) };
   for (let c = 0; c < n; c++) lists[c].forEach((d, k) => { E.nb[off[c] + k] = d; });
-  const P = { ...PEOPLE, R_FORM: 0, R_ASA: 0, D_ASA: 0, C_POL0: L, K_POL: 0, L_POLMAX: Infinity, K_EXIT: 0, K_RUG: 0, W_DEATH: 0, ...params };   // no frontier, no war's toll: the geometry alone
+  const P = { ...PEOPLE, R_FORM: 0, R_ASA: 0, D_ASA: 0, C_POL0: L, K_POL: 0, L_POLMAX: Infinity, K_EXIT: 0, K_RUG: 0, W_DEATH: 0, B_LOC: 0.05, COH0: 0.5, ...params };   // no frontier, no war's toll, cohesion ten times the resistance: the geometry alone
   const wol = new Float32Array(5 * n);
   for (let c = 0; c < n; c++) wol[5 * c + 3] = 1;
   const pp = {
@@ -76,12 +76,12 @@ test("a lone state's edge is where its power meets the region's (Boulding's radi
   // half the region, so the edge is at x = L ln(cohesion/2B_LOC), whatever the state's size (in the sharp
   // limit, γ large: at γ 3 the edge is soft over ~L/γ, and a little nearer). On the line's places the half
   // a sharp edge holds is q/(1 + q), q = e^{−c₀/L}.
-  const n = 200, c0 = 100, L = 1000, coh = PEOPLE.COH0;   // every place's cohesion, held (no frontier acts: R_ASA, D_ASA none)
+  const n = 200, c0 = 100, L = 1000, coh = 0.5, B = 0.05;   // every place's cohesion, held (no frontier acts: R_ASA, D_ASA none), and the resistance (line's)
   for (const r of [5, 25]) {
     const pp = line({ n, c0, L, params: { POL_G: 12 } }), pol = pp.pol;
     seat(pol, 100, r);
     for (let k = 0; k < 600; k++) { pol.advance(10); pp.t += 10; }
-    const q = Math.exp(-c0 / L), s = held(pol, 0, n), right = half(s, 100, 1) - 100, left = 100 - half(s, 100, -1), want = L * Math.log(coh * q / ((1 + q) * PEOPLE.B_LOC)) / c0;
+    const q = Math.exp(-c0 / L), s = held(pol, 0, n), right = half(s, 100, 1) - 100, left = 100 - half(s, 100, -1), want = L * Math.log(coh * q / ((1 + q) * B)) / c0;
     say(`seated over ${r} places either side: the edge ${right.toFixed(2)} and ${left.toFixed(2)} places out, L ln(A q/(1 + q)B) ${want.toFixed(2)}`);
     assert.ok(Math.abs(right - want) < 0.15 && Math.abs(left - want) < 0.15, `${right}, ${left} against ${want}`);
   }
@@ -164,4 +164,21 @@ test("a place changing hands loses W_DEATH of its people", () => {
   const s = held(pol, 1, n)[30], f = pp.Ntot[30] / N0;
   say(`the place's new state holds ${s.toFixed(4)} of it; its people × ${f.toFixed(4)}, e^{−W_DEATH} ${Math.exp(-0.05).toFixed(4)}`);
   assert.ok(s > 0.99 && Math.abs(f - Math.exp(-0.05)) < 2e-3, `${s}, ${f}`);
+});
+
+test("the media pull a nation's places toward its capital, whatever the distance", () => {
+  // Learning past the world's reach: the media's pull, R_MEDIA × (1 − e^{−(ℓ/L_WORLD)²}), is toward the
+  // holders' capitals where a state holds a place (a9), so a place three apart (more than a family) closes
+  // e-fold at that rate, not the contact's falloff; the world's mean would be the two points' midpoint.
+  const pp = line({ n: 2, params: { R_CONT: 0, R_ATT: 0, R_STATE: 0, ID_SIG2: 0, ID_L0: 1e9, ID_LMAX: 1e9 } }), ids = pp.ids, pol = pp.pol, P = pp.P;
+  pp.zl.fill(20);
+  pol.found(0, 1);
+  pol.id[KP * 1] = 0; pol.s[KP * 1] = 1; pol.d[0] = pol.d[1] = 1;
+  ids.X[2 * (5 + 3)] = 3;
+  ids.lead[0] = 3; ids.lead[1] = 5 + 3;
+  const dt = 50, l = ids.idL(20), gam = P.R_MEDIA * (1 - Math.exp(-((l / P.L_WORLD) ** 2)));
+  ids.advance(dt);
+  const d1 = Math.abs(wrap(ids.X[2 * 8] - ids.X[2 * 3], P.TOR)), want = 3 * Math.exp(-gam * dt);
+  say(`three apart → ${d1.toFixed(4)} over ${dt} yr, e^{−R_MEDIA t} ${want.toFixed(4)}`);
+  assert.ok(Math.abs(d1 - want) < 1e-6, `${d1} against ${want}`);
 });

@@ -26,9 +26,11 @@
 //               marriages and a village's) until learning passes writing's (Z_ID0), then e-fold per
 //               Z_IDL (writing's, print's, broadcast's reach: speculation); past it the media pull every
 //               point toward the world's mean, R_MEDIA × 1 − e^{−(ℓ_id/L_WORLD)²}, whatever the
-//               distance: the world blends once learning spans it (a9). States pull the places they
-//               hold toward their capitals' identity, R_STATE × the share held × the falloff
-//               (src/engine/polities.js; a9: softly). With drift, the
+//               distance: the world blends once learning spans it (a9), or where a state holds the
+//               place, its nation does: the media's pull is toward the holders' capitals' identity by
+//               their shares (a9: national broadcasting), the world's mean for the rest. States also
+//               pull the places they hold toward their capitals' identity, R_STATE × the share held ×
+//               the falloff (src/engine/polities.js; a9: softly). With drift, the
 //               nearest-neighbour pull is a stepping-stone field, whose identity distance grows as the
 //               log of the distance between places in two dimensions (Séguy's curve for dialects,
 //               1971; Nerbonne; from memory).
@@ -230,22 +232,29 @@ export class Peoples {
         }
         // The states holding the place pull it toward their capitals' identity (src/engine/polities.js;
         // a9: softly), R_STATE × the share held × contact's falloff.
-        let rs = 0, sx = 0, sy = 0;
+        // The media's pull is the nation's where a state holds the place (a9: national broadcasting, its
+        // schools and press), each holder's capital by its share of those who deliver, and the world's mean
+        // for the rest: whatever the distance.
+        let rs = 0, sx = 0, sy = 0, hm = 0, mx = 0, my = 0;
         if (pol) for (let j = 0; j < KPOL; j++) {
           const q = pol.id[KPOL * c + j];
           if (q < 0) break;
           const b = pol.capSlot(q);
-          if (b < 0 || b === a) continue;
-          const ddx = wrap(X[2 * b] - xa, S), ddy = wrap(X[2 * b + 1] - ya, S), w = P.R_STATE * pol.s[KPOL * c + j] * pull(ddx * ddx + ddy * ddy, Dc, g0);
+          if (b < 0) continue;
+          const ddx = wrap(X[2 * b] - xa, S), ddy = wrap(X[2 * b + 1] - ya, S), sh = pol.s[KPOL * c + j];
+          if (gam > 0 && pol.d[c] > 0) { const f = Math.min(1 - hm, sh / pol.d[c]); hm += f; mx += f * ddx; my += f * ddy; }
+          if (b === a) continue;
+          const w = P.R_STATE * sh * pull(ddx * ddx + ddy * ddy, Dc, g0);
           rs += w; sx += w * ddx; sy += w * ddy;
         }
+        mx += (1 - hm) * wrap(mu[0] - xa, S); my += (1 - hm) * wrap(mu[1] - ya, S);
         // Contact at R_CONT × its weight, the way's customs at R_ATT, the media at their rate, the states.
         const ra = k === CITY ? 0 : P.R_ATT, rt = P.R_CONT * r + ra + gam + rs;
         let ox = 0, oy = 0;
         if (rt > 0) {
           const kk = 1 - Math.exp(-rt * dt);
-          ox = kk * (P.R_CONT * tx + (ra > 0 ? ra * wrap(att[2 * k] - xa, S) : 0) + gam * wrap(mu[0] - xa, S) + sx) / rt;
-          oy = kk * (P.R_CONT * ty + (ra > 0 ? ra * wrap(att[2 * k + 1] - ya, S) : 0) + gam * wrap(mu[1] - ya, S) + sy) / rt;
+          ox = kk * (P.R_CONT * tx + (ra > 0 ? ra * wrap(att[2 * k] - xa, S) : 0) + gam * mx + sx) / rt;
+          oy = kk * (P.R_CONT * ty + (ra > 0 ? ra * wrap(att[2 * k + 1] - ya, S) : 0) + gam * my + sy) / rt;
         }
         const z = 2 * rt * dt, sd = Math.sqrt(P.ID_SIG2 * (z > 1e-6 ? (1 - Math.exp(-z)) / (2 * rt) : dt));
         Xn[2 * a] = xa + ox + sd * rng.normal(); Xn[2 * a + 1] = ya + oy + sd * rng.normal();

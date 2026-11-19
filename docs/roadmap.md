@@ -60,13 +60,20 @@ Built 2026-11-19 on the branch `batch-2a` (`people.md`, "States"; `src/engine/po
 - **The stateless resistance:** it is the region's, over the local routes only (across the markets' sea routes, a coast's region took in a whole sea's people and no coastal state stood).
 - **Cohesion:** it is kept by place, as Turchin's model keeps it, so states rise and fall; it is floored by the nation's as learning comes (Gellner), so the industrial world fills with states.
 
-The holders' defence went (it barely moved a border; the cost's jumps hold them). Earth ~1.08 ± 0.05 over eight draws (1.08 ± 0.03 before), the timeline within its spread (early takeoff ~255–305 years after industry, ~7.6–8.3 billion: war's toll). Decentralization's terms off, ~1.09 ± 0.04 and industry as soon after farming: on Earth they move where industry begins (on, Australia in five draws of eight; off, India and Africa) more than when.
+The holders' defence went (it barely moved a border; the cost's jumps hold them). Then tuned to Earth's history on the earth seed, its geography allowed for (a9; `people.md`, "States", the table):
+- **The resistance:** a quarter.
+- **The reach:** ×4, so the largest states' areas are history's.
+- **Cohesion:** a floor near twice the resistance (history's turnover), and its decay ×2.5.
+- **Founding:** later (cities of ~20,000), with founders bringing their own cohesion (Ibn Khaldun: successor states had died young).
+- **The media's pull:** the nation's (a9).
+
+The largest state then holds ~11–19% of everyone against history's ~¼–⅓ (no dense India or China on this Earth). Earth ~1.05 ± 0.07 over eight draws, the timeline within its spread. Decentralization's terms off (before the tuning), ~1.09 ± 0.04, and industry as soon after farming: they moved where industry begins more than when.
 
 Open from it:
-- The farming era's states are smaller and more fragmented than history's (the largest ~9% of those held against the Han's or Rome's ~¼).
 - Turchin's secular cycles (hunger lowering cohesion) aren't in.
 - Overseas empires wait for 2b (a state's power reaches only over its places' local routes).
-- The largest city at takeoff is ~190 million (~70–150 before: capitals take a state's whole share).
+- The largest city at takeoff is ~170 million (~70–150 before: capitals take a state's whole share).
+- The Americas stay stateless longer than history's (their late, sparse farmers).
 
 **Batch 2b: the industrial states.**
 

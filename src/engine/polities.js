@@ -35,7 +35,8 @@
 //               goes stateless, and successor states found themselves at its cities.
 //   founding    a place mostly stateless with a fed city founds a polity, at R_FORM × x²/(1 + x²) a
 //               year, x its city's people over N_STATE (Carneiro's circumscription is in π₀'s exit),
-//               uniting its region: the free share of its catchment, e-fold over its reach.
+//               uniting its region: the free share of its catchment, e-fold over its reach, its
+//               founders' cohesion COH0 brought to the places it takes (Ibn Khaldun's dynasty).
 //               A polity that loses its capital moves it to its largest city held, its cohesion ×
 //               CAP_LOSS; one holding fewer than N_DIE people is gone.
 // What states do (landing 2): each place's national share of its cities' food goes to its states'
@@ -81,7 +82,7 @@ export class Polities {
     this.list = [];                               // every polity yet: { cap, coh, born, died, hue, ang, N, A, P, L, f }
     this.live = [];
     this.rng = stream(pp.planet.seed, 'people:polities');
-    this.owed = 0; this.nStates = 0; this.topShare = 0; this.heldN = 0;
+    this.owed = 0; this.nStates = 0; this.topShare = 0; this.heldN = 0; this.topN = 0; this.topArea = 0; this.first = null;
     this.ver = 0;                                 // bumped each step (for drawing)
   }
 
@@ -257,11 +258,15 @@ export class Polities {
       const floor = P.A_MIN + (P.A_NAT - P.A_MIN) / (1 + Math.exp(-(pp.zl[c] - P.Z_NAT) / P.W_NAT));
       Sc[c] = Math.max(floor, asabiya(Sc[c], P.R_ASA * fr[c], P.D_ASA * (1 - fr[c]), dt));
     }
-    for (let c = 0; c < nL; c++) for (let j = 0; j < KP; j++) {
-      const k = id[KP * c + j];
-      if (k < 0) break;
-      const q = list[k], w = s[KP * c + j] * N[c];
-      q.N += w; q.A += w * arm[c]; q.coh += w * Sc[c]; q.f += w * fr[c];
+    for (const k of live) list[k].area = 0;
+    for (let c = 0; c < nL; c++) {
+      if (own2[c] >= 0) list[own2[c]].area += H.area[c];
+      for (let j = 0; j < KP; j++) {
+        const k = id[KP * c + j];
+        if (k < 0) break;
+        const q = list[k], w = s[KP * c + j] * N[c];
+        q.N += w; q.A += w * arm[c]; q.coh += w * Sc[c]; q.f += w * fr[c];
+      }
     }
     for (const k of live) {
       const q = list[k];
@@ -349,11 +354,17 @@ export class Polities {
       if (v > bv + 1e-9) { bv = v; best = h * ANGS + an; }
       if (v === Infinity) break;
     }
-    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue: Math.floor(best / ANGS), ang: best % ANGS, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0 });
+    if (this.first === null) this.first = pp.t;
+    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue: Math.floor(best / ANGS), ang: best % ANGS, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0 });
     this.live.push(k);
     // It unites its region: the free share of each place in its catchment, e-fold over its reach (a
-    // chiefdom's confederation; from one place, the region's resistance stopped every founding).
+    // chiefdom's confederation; from one place, the region's resistance stopped every founding). Its
+    // founders bring their own cohesion, COH0, to the places they take by the share taken (Ibn Khaldun's
+    // dynasty, its asabiya spent over a few generations; founded at a decayed core's, successor states
+    // died young, and a collapse's gaps stood stateless for centuries).
+    const S = this.S, d0 = this.d[c];
     this.claim(c, k, free);
+    if (d0 > 0) S[c] += Math.max(0, P.COH0 - S[c]) * Math.min(1, free / d0);
     if (rt) {
       const L = this.reachAt(pp.zc[c]), si = pp.ind[c], { off, idx, cS, cI } = rt.catch;
       for (let e = off[c] + 1; e < off[c + 1]; e++) {
@@ -362,7 +373,7 @@ export class Polities {
         let h = 0;
         for (let j = 0; j < KP; j++) { if (id[KP * b + j] < 0) break; h += s[KP * b + j]; }
         const f = (d - h) * Math.exp(-((1 - si) * cS[e] + si * cI[e]) / L);
-        if (f > 0.05 * d) this.claim(b, k, f);
+        if (f > 0.05 * d) { this.claim(b, k, f); S[b] += Math.max(0, P.COH0 - S[b]) * Math.min(1, f / d); }
       }
     }
   }
@@ -379,13 +390,13 @@ export class Polities {
     }
   }
 
-  /** The effective number of states (Hill's order 2 over the people each holds), the largest's share of them, and the people held. */
+  /** The effective number of states (Hill's order 2 over the people each holds), the largest's share of them, the people held, and the largest's people and area (km², the places it owns). */
   count() {
-    let all = 0, sq = 0, top = 0;
-    for (const k of this.live) { const n = this.list[k].N; all += n; sq += n * n; if (n > top) top = n; }
+    let all = 0, sq = 0, top = 0, area = 0;
+    for (const k of this.live) { const q = this.list[k], n = q.N; all += n; sq += n * n; if (n > top) top = n; if (q.area > area) area = q.area; }
     this.nStates = all > 0 ? all * all / sq : 0;
     this.topShare = all > 0 ? top / all : 0;
-    this.heldN = all;
+    this.heldN = all; this.topN = top; this.topArea = area;
     return this.nStates;
   }
 
