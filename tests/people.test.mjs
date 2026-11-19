@@ -262,7 +262,7 @@ test('cities are fed along the routes: each cell keeps 1 − u of its food, and 
   for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; p.Out[c] = L.K[c]; }
   p.zcell(); p.trading(); p.places();
   const K0 = Float64Array.from(L.K);
-  p.feed([L]);
+  p.feed([L], 1e9);   // long enough that the sent share is the urban share
   let before = 0, after = 0, sent = 0;
   for (let c = 0; c < p.nL; c++) { before += K0[c]; after += L.K[c]; sent += p.uShare[c] * K0[c]; }
   const arrived = after - (before - sent);
@@ -281,6 +281,8 @@ test('a city\'s people die past its countryside\'s by D_CITY, less with medicine
   assert.ok(Math.abs(r(0, 0)) < 1e-6);
   assert.ok(Math.abs(r(1, 0) + P.D_CITY) < 1e-5, `a whole city at capacity shrinks at D_CITY (${r(1, 0).toExponential(3)})`);
   assert.ok(Math.abs(r(0.5, 0) + 0.5 * P.D_CITY) < 1e-5);
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-3 / P.Y_D), k = ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2;
+  assert.ok(Math.abs(r(1, 3) - r(0, 3) + k * P.D_CITY) < 1e-5, 'sanitation: the excess falls as the square of medicine still to come');
   assert.ok(Math.abs(r(1, 1e3) - r(0, 1e3)) < 1e-5, 'and none once medicine is whole');
 });
 

@@ -260,8 +260,8 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
 }
 
 // The routes: each line's segments in buckets of weight by the food they carry (×3 a bucket, the
-// heaviest at the top), roads and rivers solid, sea lanes dashed.
-const ROUTE_BUCKETS = 6;
+// heaviest at the top; lighter than the fourth isn't drawn), roads and rivers solid, sea lanes dashed.
+const ROUTE_BUCKETS = 4;
 function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
   const { P, W, sea, off, max } = routes;
   if (!P || !P.length || !(max > 0)) return;
@@ -283,8 +283,8 @@ function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
   }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (let b = 0; b < ROUTE_BUCKETS; b++) {
-    const w = (0.45 + 0.4 * b) * lw;
-    ctx.strokeStyle = withAlpha(color, 0.35 + 0.08 * b); ctx.lineWidth = w;
+    const w = (0.5 + 0.5 * b) * lw;
+    ctx.strokeStyle = withAlpha(color, 0.4 + 0.1 * b); ctx.lineWidth = w;
     ctx.setLineDash([]); ctx.stroke(paths[2 * b]);
     ctx.setLineDash([2.2 * w + 1.5 * lw, 1.6 * w + 2 * lw]); ctx.stroke(paths[2 * b + 1]);
   }

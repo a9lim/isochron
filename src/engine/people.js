@@ -69,8 +69,8 @@
 //             synthesis), stepped exactly (`regolithStep`): held here on the cached planet, the
 //             planet's own regolith when live.
 //   stores    working capital's one distinct role: a harvest spread (a year's rain and warmth
-//             spread on the planet, `harvestSigma`: less by rivers, pooled by trade once industry
-//             comes) against granaries of up to S_MAX years' food, famine's expected deaths in the
+//             spread on the planet, `harvestSigma`: less by rivers, pooled by trade over each
+//             market's supply basket along the routes, src/engine/routes.js) against granaries of up to S_MAX years' food, famine's expected deaths in the
 //             demography; where the dial resolves the year, the planet's own years in place of
 //             the spread (`addYears`: a drought or a volcanic winter is a famine where it fell);
 //             and the seed kept for the next sowing (1/R of the harvest, R rising with culture).
@@ -130,9 +130,11 @@
 //             forcing at none and farms return. Misaligned, humans' control and their births follow
 //             AI's share of the work down; aligned, people leave for space as Earth fails or by
 //             choice. Food is bought with energy for those the land can't feed (speculation all).
-//   places    `places`: farmers' and industry's urban shares in cities that grow by their sites
-//             and their size, and industry's machines on its workers' footprint; drawn, and the
-//             cities' sizes weigh their dwellers' minds (urban scaling, the world's minds kept).
+//   cities    `places`, `foodshed`, `feed`: farmers' and industry's urban shares of their food
+//             sent along the routes to cities that grow by their sites and their size, less what
+//             the carriers eat; the people follow the food, and die faster in cities until
+//             sanitation; the cities' sizes weigh their dwellers' minds (urban scaling, the world's
+//             minds kept). Industry's machines on its workers' footprint (drawn).
 //   lineages  a lineage whose range stays broken into isolated pieces for T_SPLIT splits; gene flow
 //             where lineages meet mixes their traits and ancestry, and two that keep sharing most of
 //             the smaller's range for T_MERGE become one (soft species, synthesis). The first
@@ -225,7 +227,7 @@ export const PEOPLE = {
   // growing months' (white at the month: its spread × √(M_CROP/months), a single crop's as the year's
   // was), so several crops a year pool it and a season too short for one bears more.
   L_KEEP: 0.3, Z_KEEP: 2, L_KEEP_MIN: 0.02, Q_ROT: 2, M_CROP: 4, M_SEASON: 2, M_ROOT: 2, T_ROOT: 18,   // …; the losses × Q_ROT per 10 K of the year's mean past 15 °C (insects and moulds: grain keeps worst in the warm, damp tropics, from memory)
-  C_TRADE: 1, C_TRADE_PKG: 1,      // culture and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets)
+  C_TRADE: 0.3, C_TRADE_PKG: 1,    // culture and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets; culture at a whole neighbour's had carried ideas down the Americas, a quarter of the world at takeoff on Earth, against ~19% without)
   B_TMAX: 0.5,                     // a harvest's most sensitivity to a year's warmth (per K: a crop near its degree-days' floor, where a cold summer takes half of it a degree; synthesis)
   SIG_REF: 0.3,                    // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory; at 0.15 the wet tropics' steady rain outweighed the dry lands' domesticates, and Earth's first fields were in the Congo)
   // Soil (a renewable stock)
@@ -245,7 +247,7 @@ export const PEOPLE = {
   // Ideas
   THETA: 1, A_INV: 6e-12, PSI: 1, LAMBDA: 1e-5, ETA: 0.3,   // A: von Foerster's C = 1/(θA) ≈ 1.7e11 person-years; λ: Tasmania's loss (~10% in 10 kyr)
   // Works (speculation): what a surplus builds besides people (monuments, writing, schools), in
-  // person-years a cell: S_WORK of its urban share's labour, decaying over T_WORK without upkeep.
+  // person-years a cell: S_WORK of its city people's labour, decaying over T_WORK without upkeep.
   // Forgetting falls as λ/(1 + w/W_WORK), w the works a person, so a people with works keeps its
   // culture through a crash; the labour is the Malthusian choice, fewer children fed (capacity × 1 − S_WORK u).
   S_WORK: 0.25, T_WORK: 500, W_WORK: 10,
@@ -362,7 +364,8 @@ export const PEOPLE = {
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
   K_CITY: 1.5, K_LOSS: 10,         // a city's pull on a cell's food falls e-fold over K_CITY × the trade's reach of route cost (src/engine/routes.js: ~90 km by road, ~2,800 by sea at the Iron Age's culture), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
-  D_CITY: 0.01,                    // deaths a year past the countryside's in a city's people, × medicine (the crowd diseases: pre-industrial cities' deaths outran their births, kept up by migrants; standard, the size from memory)
+  T_URB: 40,                       // years the cities' share of a cell's food takes to follow its urban share (people move to the towns as fast as the work does, over about a generation: the nineteenth century's urbanization ran at ~0.5–1 point a year, from memory); moved at once, the countryside starved faster than it could walk to the cities
+  D_CITY: 0.01,                    // deaths a year past the countryside's in a city's people (the crowd diseases: pre-industrial cities' deaths outran their births, kept up by migrants; standard, the size from memory), × the square of medicine's share still to come (sewers and clean water made the rich world's cities as healthy as its countryside by ~1900, ahead of most of medicine: from memory)
   SITE_COAST: 1.5, SITE_RIVER: 1,  // a port's and a river's pull on a city, against an inland site's
   N_CITY: 0.2, K_NATION: 48, K_NAT: 4, G_NATION: 1.3,   // the country's scale: a share of each place's cities' food drawn to the K largest cities over the markets' routes, e-fold per K_NAT × the trade's reach, by their density^G_NATION (capitals and primate cities, Rome's grain from Egypt; 35% at 1.6 ran away to one city of ~680 M)
   D_URB: 4000, D_RUR: 500, D_FAC: 30, D_DC: 500, D_SOL: 10,     // land each use takes: residents per km² of city; W/m² of factories, of datacenters, of solar farms at a sunny, dry site (from memory: dense cities 2,000–10,000 a km², heavy industry tens of W/m², datacenters hundreds to thousands, solar farms 5–10 W/m²); D_RUR the most a km² that live as countryside (the densest farmland's ~1,000, from memory): past it they live in towns, drawn as city
@@ -494,7 +497,7 @@ export function taskLabor(Lh, A, beta, sigma) {
 export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
-  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * (m - P.M_MIN) / (1 - P.M_MIN) : 0);
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0);
   if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0, b, d: 0.05, famine: 0, m: ms };
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
@@ -1086,7 +1089,7 @@ export class People {
   }
 
   /**
-   * The stocks over a step (synthesis): works (built by the urban share's labour, S_WORK of it a
+   * The stocks over a step (synthesis): works (built by the city people's labour, S_WORK of it a
    * year, decaying over T_WORK); large game and the coast's fish, each logistic in its own
    * share with a take h, dM/dt = R M (1 − M) − h M, solved exactly. Game: h = H_MEGA × wariness ×
    * the foragers' density against B0 (at most 3) × their foraging's culture (P_F/CAP_F); gone below
@@ -1110,7 +1113,7 @@ export class People {
       // Herds: the stock's share of what its grass and fodder could keep, logistic at R_HERD less the
       // die-offs (`herdYears`), exact; with people or without (the domesticates gone feral on empty grass).
       if (this.anim[c] > 0) this.herdM[c] = logi(this.herdM[c], P.R_HERD, this.hLoss[c]);
-      // Works: built by the urban share's labour, decaying over T_WORK (exact).
+      // Works: built by the city people's labour, decaying over T_WORK (exact).
       const build = this.city ? P.S_WORK * this.city[c] : 0, ew = Math.exp(-dt / P.T_WORK);
       if (build > 0 || this.works[c] > 0) this.works[c] = this.works[c] * ew + build * P.T_WORK * (1 - ew);
       if (H.bS[c] > 0) {
@@ -1696,10 +1699,10 @@ export class People {
     Ntot.fill(0);
     for (const L of live) { this.capacity(L); for (let c = 0; c < nL; c++) Ntot[c] += L.N[c]; }
     lap('capacity');
-    // The cities' food along the routes (`feed`): their people are fed from their catchments.
-    this.feed(live);
-    lap('feed');
     const dt = dtWanted;
+    // The cities' food along the routes (`feed`): their people are fed from their catchments.
+    this.feed(live, dt);
+    lap('feed');
     // People: births and deaths (`demography`), the cell's total exact over the step; the lineages'
     // shares by their crowding, d ln(N_k/N_l)/dt = c N_all (1/K_l − 1/K_k) with c the deaths'
     // density coefficient, so the higher capacity excludes the lower (Lotka–Volterra in one niche,
@@ -2776,16 +2779,18 @@ export class People {
   }
 
   /**
-   * The cities fed (each step, after the capacities): each farming cell sends its urban share u of
-   * its food (its people's mean capacity) to its cities (`foodshed`), so its own people keep 1 − u
-   * of it and every cell gains what arrives; the works' labour (S_WORK of a city's people, before
+   * The cities fed (each step, after the capacities): each farming cell sends a share of its food
+   * (its people's mean capacity) to its cities (`foodshed`), the share following its urban share u
+   * over T_URB, so its own people keep the rest and every cell gains what arrives; the works' labour (S_WORK of a city's people, before
    * industry) feeds no one. Each lineage's capacity (and its migrants', K2) moves alike: the food is
    * the place's, whoever eats it. A cell's `cityShare` is the share of its food that came in as the
    * cities' (its people's share in its city).
    */
-  feed(live) {
-    const P = this.P, nL = this.nL, u = this.uShare, Ntot = this.Ntot, rt = this.routes;
-    if (!rt || !this.dlv || !u) return;
+  feed(live, dt) {
+    const P = this.P, nL = this.nL, Ntot = this.Ntot, rt = this.routes;
+    if (!rt || !this.dlv || !this.uShare) return;
+    const u = this.uSent || (this.uSent = new Float64Array(nL)), a = 1 - Math.exp(-dt / P.T_URB);
+    for (let c = 0; c < nL; c++) u[c] += (this.uShare[c] - u[c]) * a;
     const { off, idx } = rt.catch, dl = this.dlv, dn = this.dlvN, top = this.top, K = P.K_NATION, nt = top.length;
     const imp = this.imp, ex = this.exS || (this.exS = new Float64Array(nL)), own = this.ownK || (this.ownK = new Float64Array(nL));
     imp.fill(0); ex.fill(0); own.fill(0);

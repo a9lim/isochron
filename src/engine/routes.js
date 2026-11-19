@@ -36,7 +36,7 @@
 // a one-factor model of the weather's correlation ρ = e^{−d/L_CORR} (each market's anomaly its
 // correlation with the buyer's, plus its own): the basket's variance Σ w²(1 − ρ²) + (Σ w ρ)², its
 // covariance with the cell's own Σ w ρ (synthesis). Culture and crops are copied from the markets
-// met by trade (contact ∝ kernel × their people), and the long-distance flows (τ × food × w,
+// met by trade (contact the kernel × N/(N + N_MEET), at most a whole one), and the long-distance flows (τ × food × w,
 // between markets over D_DRAW apart) are drawn along the routes as lines as heavy as their flux.
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer } from '../grid/transfer.js';
@@ -54,7 +54,7 @@ export const ROUTES = {
   TAU_AG: 0.15, TAU_IND: 0.9,      // the share of a farming people's food that goes through markets (rents, taxes, the towns' food), and an industrial people's
   L_CORR: 1500,                    // km: the weather's correlation length (a year's harvest anomalies, ρ = e^{−d/L_CORR}; rough, from memory)
   DT_TRADE: 10,                    // years between the trade's kernels (the masses move slowly)
-  K_PART: 12,                      // the markets met by trade each keeps for copying culture and crops
+  K_PART: 12, N_MEET: 1e5,         // the markets met by trade each keeps for copying culture and crops; the people a market needs to be met at half its kernel (a town's)
   M_CATCH: 48, C_CATCH: 3e4,       // a cell's catchment for its cities' food (`catchments`): its nearest cells by the local routes, at most this many and this cost
   N_FLOW: 600, D_DRAW: 1000,       // the largest flows drawn, between markets at least D_DRAW km apart (the long-distance trade: a neighbour's exchange drew the grid)
 };
@@ -121,7 +121,9 @@ export function sailSpeed(h, w, cu, open, C = ROUTES) {
 export class Routes {
   /** For a People (its grid, land cells and fields `f`, the people's grid's arrays), with ROUTES overrides. */
   constructor(people, f, params = {}) {
-    this.C = { ...ROUTES, ...params };
+    // ROUTES' keys may come with the people's overrides (the tools pass one object).
+    const own = Object.fromEntries(Object.keys(ROUTES).filter(k => people.P[k] !== undefined).map(k => [k, people.P[k]]));
+    this.C = { ...ROUTES, ...own, ...params };
     this.pp = people;
     this.build(f);
   }
@@ -206,6 +208,9 @@ export class Routes {
         for (let b = 0; b < nm; b++) D[a * nm + b] = dist[mk[b]];
       }
     }
+    // The round trips' mean costs, both layers (`cost`).
+    this.R = { S: new Float32Array(nm * nm), I: new Float32Array(nm * nm) };
+    for (const L of ['S', 'I']) { const D = this.D[L], Rm = this.R[L]; for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]); }
     // The weather's correlation between markets.
     const rho = this.rho = new Float32Array(nm * nm), P = this.mpos;
     for (let a = 0; a < nm; a++) for (let b = a; b < nm; b++) {
@@ -276,7 +281,7 @@ export class Routes {
   }
 
   /** The round trip's mean cost between markets a and b on a layer ('S' sail, 'I' steam). */
-  cost(a, b, L = 'S') { const D = this.D[L], nm = this.nm; return 0.5 * (D[a * nm + b] + D[b * nm + a]); }
+  cost(a, b, L = 'S') { return this.R[L][a * this.nm + b]; }
 
   /** The nodes from market a's node to node `to` along a layer's path, `to` first. */
   path(a, to, L = 'S') {
@@ -326,35 +331,50 @@ export class Routes {
     const W = this.W || (this.W = new Float32Array(nm * nm));
     this.flows = [];
     if (!na) return;
-    const reach = act.map(k => this.reach(Z[k])), kern = new Float64Array(na);
+    const reach = act.map(k => this.reach(Z[k]));
     const part = this.part || (this.part = { k: new Int32Array(nm * C.K_PART).fill(-1), w: new Float32Array(nm * C.K_PART) });
     part.k.fill(-1); part.w.fill(0);
-    const flows = [];
+    // The kernel, symmetric, once a pair.
+    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, RI = this.R.I;
     for (let x = 0; x < na; x++) {
-      const i = act[x];
-      let sF = 0, sN = 0;
-      for (let y = 0; y < na; y++) {
-        const j = act[y];
-        if (j === i) { kern[y] = 1; } else {
-          const r = Math.max(reach[x], reach[y]), s = Math.max(S[i], S[j]);
-          kern[y] = r > 0 ? (1 - s) * Math.exp(-this.cost(i, j, 'S') / r) + s * Math.exp(-this.cost(i, j, 'I') / r) : 0;
-        }
-        sF += kern[y] * F[j]; sN += kern[y] * N[j];
+      const i = act[x], ri = reach[x], si = S[i];
+      KM[x * na + x] = 1;
+      for (let y = x + 1; y < na; y++) {
+        const j = act[y], r = ri > reach[y] ? ri : reach[y], s = si > S[j] ? si : S[j], o = i * nm + j;
+        const k = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-RS[o] / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-RS[o] / r) + s * Math.exp(-RI[o] / r);
+        KM[x * na + y] = KM[y * na + x] = k;
       }
+    }
+    // The largest N_FLOW flows, kept in a min-heap (q, i, j) as they come.
+    const nf = C.N_FLOW, fq = new Float64Array(nf), fi = new Int32Array(nf), fj = new Int32Array(nf);
+    let fn = 0;
+    const keep = (q, i, j) => {
+      if (fn < nf) { let k = fn++; while (k > 0) { const p = (k - 1) >> 1; if (fq[p] <= q) break; fq[k] = fq[p]; fi[k] = fi[p]; fj[k] = fj[p]; k = p; } fq[k] = q; fi[k] = i; fj[k] = j; return; }
+      if (q <= fq[0]) return;
+      let k = 0;
+      for (;;) { let c = 2 * k + 1; if (c >= nf) break; if (c + 1 < nf && fq[c + 1] < fq[c]) c++; if (fq[c] >= q) break; fq[k] = fq[c]; fi[k] = fi[c]; fj[k] = fj[c]; k = c; }
+      fq[k] = q; fi[k] = i; fj[k] = j;
+    };
+    for (let x = 0; x < na; x++) {
+      const i = act[x], kern = KM.subarray(x * na, (x + 1) * na);
+      let sF = 0, sN = 0;
+      for (let y = 0; y < na; y++) { const j = act[y]; sF += kern[y] * F[j]; sN += kern[y] * N[j]; }
       let v2 = 0, cw = 0;
       const row = i * nm;
       for (let y = 0; y < na; y++) {
         const j = act[y], wj = sF > 0 ? kern[y] * F[j] / sF : (j === i ? 1 : 0), r = this.rho[row + j];
         W[row + j] = wj; v2 += wj * wj * (1 - r * r); cw += wj * r;
-        if (j !== i && wj > 1e-4 && r < this.rhoDraw) flows.push([i, j, (C.TAU_AG + (C.TAU_IND - C.TAU_AG) * S[i]) * wj * F[i]]);
+        if (j !== i && wj > 1e-4 && r < this.rhoDraw) keep((C.TAU_AG + (C.TAU_IND - C.TAU_AG) * S[i]) * wj * F[i], i, j);
       }
       V[i] = v2 + cw * cw; Cv[i] = cw;
-      // The markets met most by trade (contact ∝ kernel × people), for culture and crops.
+      // The markets met most by trade, for culture and crops: each by its kernel × N/(N + N_MEET),
+      // as much as a neighbour at most (an isolated market's few dear routes meet it little: shared
+      // out among its partners, they had carried Eurasia's ideas to the Americas by the Aleutians).
       const o = i * C.K_PART;
       for (let y = 0; y < na; y++) {
         const j = act[y];
-        if (j === i || !(sN > 0)) continue;
-        const cj = kern[y] * N[j] / sN;
+        if (j === i) continue;
+        const cj = kern[y] * N[j] / (N[j] + C.N_MEET);
         if (!(cj > 1e-5)) continue;
         if (cj <= part.w[o + C.K_PART - 1]) continue;
         let q = C.K_PART - 1;
@@ -362,16 +382,15 @@ export class Routes {
         part.w[o + q] = cj; part.k[o + q] = j;
       }
     }
-    flows.sort((a, b) => b[2] - a[2]);
-    this.flows = flows.slice(0, C.N_FLOW);
+    this.flows = Array.from({ length: fn }, (_, k) => [fi[k], fj[k], fq[k]]).sort((a, b) => b[2] - a[2]);
   }
 
-  /** The culture to copy from market k's trade partners against z: Σ contact × the gap where they know more. */
+  /** The culture to copy from market k's trade partners against z: Σ contact × the gap where they know more, over at least all of it. */
   gap(k, z) {
     const K = this.C.K_PART, pk = this.part.k, pw = this.part.w, Z = this.mZ;
-    let g = 0;
-    for (let q = 0; q < K; q++) { const j = pk[k * K + q]; if (j < 0) break; if (Z[j] > z) g += pw[k * K + q] * (Z[j] - z); }
-    return g;
+    let g = 0, w = 0;
+    for (let q = 0; q < K; q++) { const j = pk[k * K + q]; if (j < 0) break; w += pw[k * K + q]; if (Z[j] > z) g += pw[k * K + q] * (Z[j] - z); }
+    return w > 1 ? g / w : g;
   }
 
   /** The trade's reach (sea-km) at culture z. */
