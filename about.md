@@ -89,7 +89,7 @@ The Weather view's pressure map is a synoptic chart: isobars every 4 hPa, rain a
 
 ## Scenarios
 
-Two scenarios start from the opening planet, picked beside the caption: World, the planet on its own, and People, which settles the climate as it loads and starts when the first people appear. A planet is drawn from a seed the link carries, so a link opens the same planet; New planet draws another. The caption gives the year, the date when slowed to the seasons, and with people how many there are and the largest city. The views come in three groups by timescale: Relief (the surface, the zones and the air), Weather (its charts and the tides, open only at a few days a second or slower) and People. The key at the globe's corner names each view's symbols. Drag to turn the globe, scroll to zoom, and set the rate with the dial.
+Two scenarios start from the opening planet, picked beside the caption: World, the planet on its own, and People, which settles the climate and grows its ice sheets as it loads and starts when the first people appear. A planet is drawn from a seed the link carries, so a link opens the same planet; New planet draws another. The caption gives the year, the date when slowed to the seasons, and with people how many there are and the largest city. The views come in three groups by timescale: Relief (the surface, the zones and the air), Weather (its charts and the tides, open only at a few days a second or slower) and People. The key at the globe's corner names each view's symbols. Drag to turn the globe, scroll to zoom, and set the rate with the dial.
 
 ## Today's Earth
 

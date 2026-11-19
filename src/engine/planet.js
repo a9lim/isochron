@@ -54,6 +54,11 @@ export const PLANET = {
   LAKES_SEASON: 1.4,     // yr/s: below this (where the globe shows the season) lakes step by the month, above it by the year
   LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
   LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
+  // The opening's ice (a seeded planet's; today's Earth opens on its measured ice): grown off the
+  // clock to its balance with the settled climate, in chunks of ICE_CHUNK years, a climate cycle
+  // after each, until a chunk moves its volume less than ICE_TOL, at least ICE_MIN and at most
+  // ICE_MAX years (from none, a seeded planet's sheets take ~15–40 kyr to their balance).
+  ICE_CHUNK: 5e3, ICE_TOL: 0.02, ICE_MIN: 1e4, ICE_MAX: 6e4,
 };
 
 export { Record, SERIES } from './record.js';
@@ -281,7 +286,7 @@ export class Planet {
     // settled, whatever the dial (the first, from a cold start, holds about half the lakes the
     // third does).
     const cs = this.climate.stats, open = this.climate.soilWarm && !(cs.settled && cs.cycles > cs.settled) && this.climate.version !== this.lakesClimate;
-    if (!this.seaZeroed && cs.settled && cs.cycles > cs.settled) this.zeroSea();
+    if (!this.seaZeroed && cs.settled && cs.cycles > cs.settled && (this.earth || this.iceGrown)) this.zeroSea();
     const live = rate < PLANET.LAKES_LIVE && !open, due = Math.max(rate < PLANET.LAKES_SEASON ? 1 / 12 : 1, rate / 20);
     if (!open && (live ? this.lakesBank < due : this.lakesBank < due && this.climate.version === this.lakesClimate)) return;
     const { runoff, pe } = this.lakeForcing(live ? this.lakesBank : 0);
@@ -292,7 +297,7 @@ export class Planet {
   }
 
   /**
-   * The opening over (the climate settled and the lakes at their balance with it, holding ~10 m
+   * The opening over (the climate settled, a seeded planet's ice grown, and the lakes at their balance with it, holding ~10 m
    * of the sea): the sea re-solved, and sea level measured from here (`seaLevel0`; the record's
    * and Fig. 2's), so it doesn't start at the lakes' filling.
    */
@@ -353,7 +358,30 @@ export class Planet {
   settleClimate() {
     const c = this.climate;
     while (!c.stats.settled) { c.solve(1); this.afterClimate(); }
+    this.spinIce();
     return c.stats.settled;
+  }
+  /** The ice's volume (m × km² of the unit sphere: comparable with itself). */
+  iceVolume() { const H = this.ice.H, A = this.grid.area; let v = 0; for (let i = 0; i < this.grid.n; i++) v += H[i] * A[i]; return v; }
+  /**
+   * Headless: the opening's ice grown to its balance off the clock (PLANET.ICE_*), a climate cycle
+   * after each chunk so the climate sees it; the page's worker does it on the GPU (src/engine/worker.js).
+   * Returns the years grown (0 for today's Earth, or once done).
+   */
+  spinIce() {
+    if (this.earth || this.iceSpun) return 0;
+    this.iceSpun = true;
+    let done = 0, v0 = this.iceVolume();
+    while (done < PLANET.ICE_MAX) {
+      done += this.ice.advance(PLANET.ICE_CHUNK, Infinity);
+      this.tec.updateElevation();
+      this.climate.solve(1); this.afterClimate();
+      const v = this.iceVolume();
+      if (done >= PLANET.ICE_MIN && Math.abs(v - v0) <= PLANET.ICE_TOL * Math.max(v, 1e-12)) break;
+      v0 = v;
+    }
+    this.iceGrown = true;
+    return done;
   }
   afterClimate() { const it = this.afterClimateSteps(); while (!it.next().done); }
   /** What follows a climate cycle (the cover, the sea's inputs, weathering's map), in pieces the engine's worker yields between (Life.afterClimateSteps). */

@@ -154,10 +154,9 @@ const GLYPHS = {
   // frontier's a place's is, far behind (left) to at the frontier (right).
   production: (c, x, y, P) => lag(c, x, y, P, P.accent),
   learning: (c, x, y, P) => lag(c, x, y, P, P.inks.verdigris),
-  isoproduction: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.32); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
-  // Equal learning: dashed in verdigris, as the shader breaks its lines.
-  isolearning: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.verdigris, 0.75); c.lineWidth = 1; c.setLineDash([4, 2.5]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
-  era: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.55); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
+  isoproduction: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.accent, 0.55); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  isolearning: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.inks.verdigris, 0.65); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  era: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.accent, 0.8); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
   // Works: dots on a staggered lattice in the rules' colour, as the shader's `stipple`.
   works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
   // The routes (src/render/overlay.js, drawRoutes): roads and rivers solid, sea lanes dashed, in the rules' colour.

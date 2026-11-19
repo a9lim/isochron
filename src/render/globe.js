@@ -75,8 +75,8 @@
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
 // hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, production
 // as an accent wash and learning as a verdigris one by how near each is to its
-// frontier, lines of equal production solid (heavier at farming's and industry's)
-// and of equal learning dashed, a stipple by the works a km², and of the land's
+// frontier, lines of equal production in the accent (heavier at farming's and
+// industry's) and of equal learning in verdigris, a stipple by the works a km², and of the land's
 // uses only the cities (People.drawnB). The ice is plain on the People charts.
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
 // away from the Sun in three steps (the Sun 0°, 6° and 12° below the horizon:
@@ -681,8 +681,8 @@ fn hair(d: f32, w: f32) -> f32 {
     } else if (folkK) {
       // Knowledge in its two domains, where people have been: production as an accent wash and learning
       // as a verdigris one, each by how near the place is to its frontier (full at it, a third half a
-      // unit behind; where both are near they mix to a grey); lines of equal production solid (heavier at farming's and industry's, Z_FARM and
-      // Z_IND: the fronts by which they spread) and of equal learning dashed in verdigris, each line at
+      // unit behind; where both are near they mix to a grey); lines of equal production in the accent (heavier at farming's and industry's, Z_FARM and
+      // Z_IND: the fronts by which they spread) and of equal learning in verdigris, each line at
       // the coarsest of a quarter, a half, one or two units it falls on where such lines stand ≥ ~6 px
       // apart (a steep front keeps every fourth or eighth); and a stipple, denser by the works a km²
       // (from ~30 person-years to ~10⁴).
@@ -701,11 +701,10 @@ fn hair(d: f32, w: f32) -> f32 {
         isoP = max(isoP, hair(abs(zp / iv - round(zp / iv)), fzp / iv) * smoothstep(4.0, 7.0, iv / fzp));
         isoL = max(isoL, hair(abs(zl / iv - round(zl / iv)), fzl / iv) * smoothstep(4.0, 7.0, iv / fzl));
       }
-      let dash = 1.0 - hatch(T, vec2f(0.7071, -0.7071), 6.0 * u.mode.z, 2.6 * u.mode.z);   // learning's lines broken across
-      pland = mix(pland, u.text.rgb, 0.32 * isoP * had);
-      pland = mix(pland, mix(u.inkD.rgb, u.text.rgb, 0.25), 0.6 * isoL * dash * had);
+      pland = mix(pland, u.accent.rgb, 0.55 * isoP * had);
+      pland = mix(pland, u.inkD.rgb, 0.65 * isoL * had);
       let era = max(hair(abs(zp - Z_FARM), 2.2 * fzp), hair(abs(zp - Z_IND), 2.2 * fzp));
-      pland = mix(pland, u.text.rgb, 0.55 * era * had);
+      pland = mix(pland, u.accent.rgb, 0.8 * era * had);
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
@@ -740,20 +739,22 @@ fn hair(d: f32, w: f32) -> f32 {
       pland = mix(pland, u.inkB.rgb, 0.1 + 0.55 * furrows);
     }
   }
-  // Nothing stands on a lake, open or frozen: the lakes over the uses, as the Relief view draws them
-  // where people have reached (Settlement) and in the chart's water everywhere (Density), with their
-  // shore; and under the ice sheets, as in the Relief view (the base holds the sheets already, so the
-  // lakes give way to them here).
-  let pwet = lk * select(explored, 1.0, folkC) * (1.0 - sheet);
+  // Nothing stands on a lake or an ice sheet: the lakes over the uses, as the Relief view draws them
+  // (Settlement, known land or not, as the rivers and the ice) and in the chart's water (Density,
+  // Knowledge), with their shore; the ice sheets over them in turn, the Relief view's on Settlement and
+  // plain on the charts, with their edge (the uses, the frontier's hairline and the knowledge stop there).
+  let pwet = lk * (1.0 - sheet);
   pland = mix(pland, select(lakeInk, mix(u.canvas.rgb, u.ocean.rgb, 0.12), folkC), pwet);
-  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkC) * hair(abs(lake), flake) * (1.0 - sheet) * select(explored, 1.0, folkC));
+  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkC) * hair(abs(lake), flake) * (1.0 - sheet));
+  pland = mix(pland, select(iceC, snowInk, folkC), sheet);
+  pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkC) * sheetEdge);
   land = select(land, pland, folkV);
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), snowInk, sheet), folkC);
   let chart = weather || tides || air || folkC;
 
   // A lake's surface, open or frozen, takes the sea's hillshade, its bed's relief at a third (the
   // normals are the land's, at full exaggeration, so a third of their shading).
-  let lakeFlat = lk * (1.0 - sheet) * select(1.0, explored, folkV);
+  let lakeFlat = lk * (1.0 - sheet);
   var c = select(land * select(mix(shade, 1.0 + (shade - 1.0) / 3.0, lakeFlat), 1.0, chart), sea * select(seaShade, 1.0, chart), cst < 0.0);
 
   // The coastline.

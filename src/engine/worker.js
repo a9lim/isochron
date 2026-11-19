@@ -37,7 +37,7 @@
 //
 // The page sends a tick each frame it plays (the years to advance and the
 // plate steps its scheduler planned).
-import { Planet, CLIMATE, CARBON } from './planet.js';
+import { Planet, PLANET, CLIMATE, CARBON } from './planet.js';
 import { isEarth, loadEarth } from './earth.js';
 import { PLUMES } from './plumes.js';
 import { Year, YEAR } from './year.js';
@@ -223,6 +223,7 @@ async function climateLoop() {
         c.it = null; cycleMs = performance.now() - cycleStart; pending = Math.max(0, pending - 1);
         cycleEnd = performance.now(); cycleEndYears = P.years;
         const ts = performance.now();
+        if (c.stats.settled && !P.iceSpun && !P.earth) spinIce();
         sendClimate();
         sendPeopleFields();
         sendSulfate();
@@ -389,8 +390,32 @@ function startPeople(port) {
   sendPeopleFields();
 }
 /** The planet's fields on the people's grid, once a climate cycle has run and after each. */
+// The opening's ice (a seeded planet's; today's Earth opens on its measured ice): grown off the clock
+// on the GPU, in chunks, to its balance with the settled climate (PLANET.ICE_*; Planet.spinIce is
+// the headless path), then two more cycles so the climate sees it. The people wait for both.
+let iceSpunAt = null;
+async function spinIce() {
+  P.iceSpun = true;
+  const g = P.iceGpu;
+  if (!g) { P.iceSpun = false; P.spinIce(); iceSpunAt = P.climate.stats.cycles; return; }
+  let done = 0, v0 = P.iceVolume();
+  while (done < PLANET.ICE_MAX) {
+    g.advance(PLANET.ICE_CHUNK, 1e5);
+    while (g.reading) await nextTask();
+    await g.read(true);
+    P.tec.updateElevation();
+    done += PLANET.ICE_CHUNK;
+    const v = P.iceVolume();
+    if (done >= PLANET.ICE_MIN && Math.abs(v - v0) <= PLANET.ICE_TOL * Math.max(v, 1e-12)) break;
+    v0 = v;
+  }
+  P.iceGrown = true; iceSpunAt = P.climate.stats.cycles; pending = Math.max(pending, 2);
+  sendFast(false);   // the page holds its clock through the opening and hears nothing meanwhile: the grown ice now
+}
+/** The opening over: the climate settled and, on a seeded planet, its ice grown and seen by two cycles since. */
+const openingDone = () => P.climate.stats.settled && (P.earth || (iceSpunAt !== null && P.climate.stats.cycles >= iceSpunAt + 2));
 function sendPeopleFields() {
-  if (!people || P.climate.stats.cycles < 1 || P.climate.version === people.sentVersion) return;
+  if (!people || !openingDone() || P.climate.version === people.sentVersion) return;
   people.sentVersion = P.climate.version;
   const t0 = performance.now(), f = fieldsOf(P, null, people.T), tr = [];
   people.fieldsMs = performance.now() - t0;
