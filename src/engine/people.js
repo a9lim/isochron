@@ -241,7 +241,7 @@ export const PEOPLE = {
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 6.5, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (6.5: today's Earth at ~8 B at early takeoff, with the pyramids' aging and a region's luck hastening the industrial era; 4.5 left ~6.5 B with luck; steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
+  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 5.5, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (5.5: today's Earth at ~9–9.5 B at early takeoff, with the pyramids' aging, a region's luck hastening the industrial era and the fields' work slowing it (6.5 before it); 4.5 left ~6.5 B with luck; steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   AGE: 0.0087, Y_AGE: 30,          // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
@@ -406,7 +406,13 @@ export const PEOPLE = {
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
-  BETA_CITY: 1.15, BETA_CITY_P: 1, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large: learning's (BETA_CITY), not production's (BETA_CITY_P 1: everyone at work makes techniques; the domains, batch 1c); the cities placed again in the step every DT_PLACES years
+  BETA_CITY: 1.15, BETA_CITY_P: 1, S_CITY_REF: 2e4, DT_PLACES: 25,
+  // The fields' work (synthesis; the size speculation): a farmer has R_FARM of a forager's time for
+  // learning (farmers work longer than foragers, the more as farming intensifies: Boserup, and Dyble
+  // and others 2019's Agta, ~10 hours a week less leisure among those who farm; from memory), lifted
+  // by industry's machines; herders, fishers, foragers and city dwellers (fed by others) keep theirs.
+  // Not normalized away: farming slows the world's learning until cities and machines free people.
+  R_FARM: 0.5,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large: learning's (BETA_CITY), not production's (BETA_CITY_P 1: everyone at work makes techniques; the domains, batch 1c); the cities placed again in the step every DT_PLACES years
   G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
   K_CITY: 1.5, K_LOSS: 10, C_CITY0: 3000, C_NAT0: 15000,   // a city's pull on a cell's food falls e-fold over C_CITY0 + K_CITY × the trade's reach of route cost (src/engine/routes.js: ~100 km by road at farming's start, ~200 km and ~6,000 by sea at the Iron Age's culture; the country's scale over C_NAT0 + K_NAT × it, ~500 km by road: at the trade's reach alone, farming's largest city was a tenth of history's, ~25,000 at 65 million people), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
   T_URB: 40,                       // years the cities' share of a cell's food takes to follow its urban share (people move to the towns as fast as the work does, over about a generation: the nineteenth century's urbanization ran at ~0.5–1 point a year, from memory); moved at once, the countryside starved faster than it could walk to the cities
@@ -914,6 +920,7 @@ export class People {
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
     // The stocks people draw on (`stocks`): large game and the coast's fish (shares of their own
     // without people), and how wary each cell's game is of people (the home world-island's, `seed`).
+    this.fieldS = new Float64Array(nL);   // the fields' share of each cell's food (its farmers' share of its countryside: `capAt`)
     this.herdS = new Float64Array(nL); this.past = new Float64Array(nL); this.Kown = new Float64Array(nL);   // herders' hold on the unfarmed land, their pasture's share of the cell (drawn), and the capacity it was found at
     this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1);
     // Herds (`stocks`, `farming`): the domesticates people have here (0–1 of a full set), the herd's
@@ -924,7 +931,6 @@ export class People {
     const KC = COHORTS.K, ref = stable(this.P.B_PRE, 0);
     this.pyr = new Float64Array(KC * nL); for (let c = 0; c < nL; c++) this.pyr.set(ref, KC * c);
     this.senRef = reference(this.P).sen; this.sen = new Float64Array(nL).fill(this.senRef); this.aging = new Float64Array(nL); this.lfp = new Float64Array(nL).fill(this.P.LFP);
-    this.uw = new Float64Array(nL);   // cities' minds: each cell's weight (`places`)
     this.works = new Float64Array(nL);   // learning's works a cell (person-years, `stocks`)
     this.wk = { T: new Float64Array(nL), C: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) };   // the land's works by kind (terraces, canals, granaries, roads; person-years)
     this.landLab = new Float64Array(nL); this.salt = new Float64Array(nL);   // the cities' labour on the land that feeds them (person-years a year), the canals' salt
@@ -1715,10 +1721,11 @@ export class People {
         const zh = z - P.Z_HERD, xh = ex(P.THETA * Math.max(0, zh));
         herd = sig(zh / P.W_HERD) * H.herd[c] * an * xh / (1 + (xh - 1) / P.CAP_H) * (1 - this.rewild);
       }
-      K[c] = this.hE * H.area[c] * this.coldOK(c, z) * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
+      const wild = (1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg, fed = farm / sick;
+      K[c] = this.hE * H.area[c] * this.coldOK(c, z) * (wild + fed) + this.Ksyn[c] * (1 - this.boiled);
       // Herders' hold on the unfarmed land, as a share of the cell they'd graze at the food capacity
       // (drawn: the pasture, by how near the capacity the people are).
-      if (Zs) { this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) : 0; this.Kown[c] = K[c]; }
+      if (Zs) { this.fieldS[c] = wild + fed > 0 ? fed / (wild + fed) : 0; this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) : 0; this.Kown[c] = K[c]; }
     }
   }
   /**
@@ -1885,16 +1892,23 @@ export class People {
     if (this.packages.length) {
       if (this.tPlaces == null || this.t - this.tPlaces >= P.DT_PLACES) this.places();
       const u = this.cityShare, S = this.city;
-      for (const [s, beta] of [[sR, P.BETA_CITY], [sRP, P.BETA_CITY_P]]) {
-        if (beta === 1) continue;
+      for (const [s, beta, learn] of [[sR, P.BETA_CITY, true], [sRP, P.BETA_CITY_P, false]]) {
+        if (beta === 1 && !learn) continue;
         let wN = 0, nN = 0;
+        const sc = this.uScale || (this.uScale = new Float64Array(nL));
         for (let c = 0; c < nL; c++) {
           if (!(Ntot[c] > 0)) continue;
-          const w = (1 - u[c]) + u[c] * Math.pow(Math.max(S[c], 1) / P.S_CITY_REF, beta - 1);
-          this.uw[c] = w; wN += w * s[c] * Ntot[c]; nN += s[c] * Ntot[c];
+          sc[c] = u[c] * Math.pow(Math.max(S[c], 1) / P.S_CITY_REF, beta - 1);
+          const w = (1 - u[c]) + sc[c];
+          wN += w * s[c] * Ntot[c]; nN += s[c] * Ntot[c];
         }
         const k = wN > 0 ? nN / wN : 1;
-        for (let c = 0; c < nL; c++) if (Ntot[c] > 0) s[c] *= this.uw[c] * k;
+        for (let c = 0; c < nL; c++) {
+          if (!(Ntot[c] > 0)) continue;
+          // Learning's: the countryside's farmers have R_FARM of the time (the fields' work), not normalized away.
+          const rural = learn ? 1 - (1 - P.R_FARM) * this.fieldS[c] * (1 - this.ind[c]) : 1;
+          s[c] *= k * ((1 - u[c]) * rural + sc[c]);
+        }
       }
     }
     this.lucky();

@@ -127,7 +127,7 @@ test('the home world-island: the origin\'s land and its short crossings, as cold
 
 test('two domains held equal stay equal: production and learning step for step (ideas, copying, migrants, trade)', () => {
   // Their sources and rates set alike (the luck fields are each their own: none here).
-  const same = { BETA_CITY_P: PEOPLE.BETA_CITY, W_WORK_P: PEOPLE.W_WORK, C_TRADE_L: PEOPLE.C_TRADE, D_BASE: Infinity, SIG_LUCK: 0 };
+  const same = { BETA_CITY_P: PEOPLE.BETA_CITY, W_WORK_P: PEOPLE.W_WORK, C_TRADE_L: PEOPLE.C_TRADE, D_BASE: Infinity, R_FARM: 1, SIG_LUCK: 0 };
   const p = new People(uniformPlanet(4), { Z_IND: 1e9, Z_AI: 1e9, H_FARM: 1e-3, ...same }), g = p.planet.grid;
   p.capacity();
   for (let c = 0; c < p.nL; c++) { p.Ntot[c] = 0.8 * p.K[c]; p.zc[c] = p.zl[c] = 2.6 + 0.6 * g.pos[3 * p.cells[c] + 2]; }
