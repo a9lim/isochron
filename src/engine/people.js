@@ -9,10 +9,11 @@
 // dynamics and lands on a layer the planet has, each switched on by era:
 //
 //   culture   z, in e-folds of productivity, per cell, in two domains (batch 1c, docs/roadmap.md):
-//             production (techniques: every yield and its thresholds, cold, boats, trade's reach;
-//             `zc`) and learning (writing, numeracy, science: contact, copying's pace, research's
-//             yield; `zl`); readers of both (ocean crossing, industry, the economy) take their softer
-//             minimum (`zj`, `softerMin`), exact where the two agree. Ideas come from the minds a cell
+//             production (`zc`, techniques: every yield and its thresholds, cold, boats, trade's
+//             reach, industry and the economy) and learning (`zl`, writing, numeracy, science:
+//             contact, copying's pace, research's yield), bound together only by production's
+//             epistemic base: its ideas fall away once it runs D_BASE ahead of learning (Mokyr's
+//             argument). Ideas come from the minds a cell
 //             can learn from, M (the collective brain: Henrich 2004, from memory), at A M^ψ a year,
 //             and are lost at λ z (imperfect copying; Tasmania's loss over ~10 kyr sets λ), less
 //             where a cell's works keep them (`works`: monuments, writing, schools; the land's
@@ -229,7 +230,7 @@ export const PEOPLE = {
   // growing months' (white at the month: its spread × √(M_CROP/months), a single crop's as the year's
   // was), so several crops a year pool it and a season too short for one bears more.
   L_KEEP: 0.3, Z_KEEP: 2, L_KEEP_MIN: 0.02, Q_ROT: 2, M_CROP: 4, M_SEASON: 2, M_ROOT: 2, T_ROOT: 18,   // …; the losses × Q_ROT per 10 K of the year's mean past 15 °C (insects and moulds: grain keeps worst in the warm, damp tropics, from memory)
-  C_TRADE: 0.3, C_TRADE_PKG: 1,    // culture and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets; culture at a whole neighbour's had carried ideas down the Americas, a quarter of the world at takeoff on Earth, against ~19% without)
+  C_TRADE: 0.1, C_TRADE_L: 1, C_TRADE_PKG: 1,   // culture and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets): production's techniques little (tacit: learned at someone's elbow; synthesis), learning's as a neighbour's (texts travel), crops as a neighbour's. (Both at a whole neighbour's had carried ideas down the Americas, a quarter of the world at takeoff on Earth, against ~19% without; both at 0.3, ~21%.)
   B_TMAX: 0.5,                     // a harvest's most sensitivity to a year's warmth (per K: a crop near its degree-days' floor, where a cold summer takes half of it a degree; synthesis)
   SIG_REF: 0.3,                    // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory; at 0.15 the wet tropics' steady rain outweighed the dry lands' domesticates, and Earth's first fields were in the Congo)
   // Soil (a renewable stock)
@@ -252,7 +253,7 @@ export const PEOPLE = {
   // person-years a cell: S_WORK of its city people's labour, decaying over T_WORK without upkeep.
   // Forgetting falls as λ/(1 + w/W_WORK), w the works a person, so a people with works keeps its
   // culture through a crash; the labour is the Malthusian choice, fewer children fed (capacity × 1 − S_WORK u).
-  S_WORK: 0.25, T_WORK: 500, W_WORK: 10,
+  S_WORK: 0.25, T_WORK: 500, W_WORK: 10, W_WORK_P: Infinity,   // works keep learning (W_WORK person-years a person halves its forgetting); production's, practised every day, by none (W_WORK_P)
   // Works by kind (synthesis; the labour's sizes from memory, rough): F_LEARN of a city's works labour
   // builds its learning (the works above); the rest goes back to the land that feeds it, in proportion
   // to the food each place sends, and fills each kind as far as the place could use it (its room,
@@ -300,7 +301,11 @@ export const PEOPLE = {
   OCEAN_HOPS: 80, M_ROUTE: 6, D_ROUTE: 1500,   // ocean routes: each landmass to every other within OCEAN_HOPS cells of sea, at up to M_ROUTE landings at least D_ROUTE km apart (the Atlantic beside Bering: a crossing between landmasses that the short ones already join, but by the long way round)
   S_SEA: 1e-3, FOUNDERS: 50,       // a voyage that founds a people across the sea: a year per crossing at full crowding and reach, ×e per Z_V of culture, × e^{−km/reach}; the founders (synthesis)
   F_SAP: 1.8,                      // the first people's foraging over the base density's (cooking, projectiles, nets; speculation): what the hominins' evolving reach had come to by their tip
-  W_J: 0.25,                        // the softness of the domains' joint (`softerMin`: within W_J ln 2 of the lower when far apart)
+  // Production's epistemic base (speculation, after Mokyr's Gifts of Athena, 2002, from memory:
+  // techniques plateau unless the knowledge beneath them widens): production's ideas × sig((D_BASE −
+  // (z_P − z_L))/W_BASE), so they fall away once techniques run D_BASE ahead of learning. Copying
+  // isn't bounded (a technique can be taken up without its why).
+  D_BASE: 1, W_BASE: 0.25,
   Z0: 0.5,                         // the culture the first people begin with (the Middle Stone Age's, the archaic peoples' before them; speculation)
   N_MIN: 0.003,                    // per km²: land counted as peopled (reached, the minds' bodies, the spread's crossings)
   R_ORIGIN: 1000,                  // km: the first people at the heart of the broadest tree–grass mosaic, summed this far (speculation)
@@ -332,7 +337,7 @@ export const PEOPLE = {
   E_SUB: 200, Z_EFF: 5.5, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~100 at the takeoff, as Earth's ~19 TW over ~8 B × ~22 sy now), falling toward E_MIN_Y e-fold per Z_EFF
   SIGMA_E: 0.3, W_E: 0.07,                          // energy against the capital–labour bundle: elasticity (standard estimates ~0.1–0.6) and energy's cost share (~6–8% of world output); both from memory
   R_EF0: 1000, R_ER0: 1500, R_EU0: 1000,            // W per sy of energy capital: fossil (full stock, × √ of what's left), renewables and fusion when mature (solar near parity with fossil at Earth's present, from memory)
-  Z_REN: 11.5, W_REN: 0.5, Z_FUS: 12.5, W_FUS: 0.5, // where renewables and fusion come of age: fossil carbon is still the cheaper delivered energy at the takeoff's start (Z_AI), as on Earth now (a9)
+  Z_REN: 10.2, W_REN: 0.5, Z_FUS: 12.5, W_FUS: 0.5, // where renewables and fusion come of age: renewables near parity at the takeoff's start (Z_AI) but fossil carbon still a little the cheaper delivered energy, as on Earth now (a9), so renewables grow through the takeoff ahead of space (at 11.5 they came of age with it)
   MARGIN: 0.05, T_BUILD: 5, F_IE: 0.6,              // energy capacity's margin; years to close a shortfall; energy's most of investment
   // Building power takes physical work (a9: "humans also seem able to tile the earth in factories and solar panels before
   // there's even 10 million robots"): power plants on Earth are built at most at S_BUILD of the physical work (people's and
@@ -401,7 +406,7 @@ export const PEOPLE = {
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
-  BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
+  BETA_CITY: 1.15, BETA_CITY_P: 1, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large: learning's (BETA_CITY), not production's (BETA_CITY_P 1: everyone at work makes techniques; the domains, batch 1c); the cities placed again in the step every DT_PLACES years
   G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
   K_CITY: 1.5, K_LOSS: 10, C_CITY0: 3000, C_NAT0: 15000,   // a city's pull on a cell's food falls e-fold over C_CITY0 + K_CITY × the trade's reach of route cost (src/engine/routes.js: ~100 km by road at farming's start, ~200 km and ~6,000 by sea at the Iron Age's culture; the country's scale over C_NAT0 + K_NAT × it, ~500 km by road: at the trade's reach alone, farming's largest city was a tenth of history's, ~25,000 at 65 million people), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
   T_URB: 40,                       // years the cities' share of a cell's food takes to follow its urban share (people move to the towns as fast as the work does, over about a generation: the nineteenth century's urbanization ran at ~0.5–1 point a year, from memory); moved at once, the countryside starved faster than it could walk to the cities
@@ -431,11 +436,6 @@ const sig = x => 1 / (1 + Math.exp(-x));
  * p = 1 is the harmonic form, 1/y = 1/x + 1/c (two limits in series; what many uneven units with
  * their own limits sum to: the best sites first); larger p is a sharper bound.
  */
-/**
- * The softer minimum of a and b: −w ln((e^{−a/w} + e^{−b/w})/2), written so it is exactly a where
- * a = b; it falls toward the lower plus w ln 2 as they part (synthesis: a need for both, soft).
- */
-export function softerMin(a, b, w) { const m = a < b ? a : b; return m - w * Math.log(0.5 * (1 + Math.exp(-Math.abs(a - b) / w))); }
 export const softMin = (x, c, p = 1) => (x > 0 ? x / Math.pow(1 + Math.pow(x / c, p), 1 / p) : 0);
 /** The normal distribution's partial expectation: E[(v − X)_+] for X ~ N(0, 1) is G(v) = vΦ(v) + φ(v). */
 export function partialG(v) {
@@ -907,8 +907,8 @@ export class People {
     this.ind = new Float32Array(nL);
     // The people: each cell's numbers, culture, minds, and capacity at its own production (K) and at
     // the best anywhere (K2: what migrants could make of it, the spread's weights).
-    // Culture is production's (zc), learning's (zl) and their joint (zj).
-    this.Ntot = new Float64Array(nL); this.zc = new Float64Array(nL); this.zl = new Float64Array(nL); this.zj = new Float64Array(nL);
+    // Culture is production's (zc) and learning's (zl).
+    this.Ntot = new Float64Array(nL); this.zc = new Float64Array(nL); this.zl = new Float64Array(nL);
     this.M = new Float64Array(nL); this.K = new Float64Array(nL); this.K2 = new Float64Array(nL);
     this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
@@ -1632,7 +1632,7 @@ export class People {
     this.origin = best;
     const E = this.E, seedCells = [best];
     for (let o = E.off[best]; o < E.off[best + 1]; o++) if (!E.hop[o]) seedCells.push(E.nb[o]);
-    for (const c of seedCells) { this.Ntot[c] = 0.5 * H.area[c] * H.b[c]; this.zc[c] = this.zl[c] = this.zj[c] = P.Z0; }
+    for (const c of seedCells) { this.Ntot[c] = 0.5 * H.area[c] * H.b[c]; this.zc[c] = this.zl[c] = P.Z0; }
     const isle = this.home(best);
     for (let c = 0; c < nL; c++) this.naive[c] = isle[c] ? P.NAIVE_CO : 1;
     this.event('origin', `the first people at ${deg(H.lat[best]).toFixed(0)}°, ${deg(H.lon[best]).toFixed(0)}° (b ${H.b[best].toFixed(3)}/km²)`);
@@ -1801,10 +1801,8 @@ export class People {
   reachL(z) { const P = this.P; return softMin(this.clockL() * Math.exp(Math.min(Math.max(0, z) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
-  /** The sea's reach (km): boats and rafts by production zp, the open ocean by the joint zj (a hull and a way to find the island). */
-  seaReach(zp, zj = zp) { const P = this.P; return zp >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, zp) / P.Z_SEA)) + P.L_OCEAN * sig((zj - P.Z_OCEAN) / P.W_OCEAN) : 0; }
-  /** Each cell's joint culture: the softer minimum of production and learning. */
-  joint() { const zc = this.zc, zl = this.zl, zj = this.zj, w = this.P.W_J; for (let c = 0; c < this.nL; c++) zj[c] = softerMin(zc[c], zl[c], w); }
+  /** The sea's reach (km) at production z: rafts and boats along coasts, then the open ocean. */
+  seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * sig((z - P.Z_OCEAN) / P.W_OCEAN) : 0; }
 
   step(dtWanted) {
     const P = this.P, nL = this.nL;
@@ -1813,8 +1811,7 @@ export class People {
     const lap = k => { const t1 = performance.now(); prof[k] = (prof[k] || 0) + t1 - tq; tq = t1; };
     this.compCache = new Map();
     this.co2 = this.env.co2();
-    // The domains' joint, and capacity.
-    this.joint();
+    // Capacity.
     this.capacity();
     lap('capacity');
     const dt = dtWanted;
@@ -1861,7 +1858,7 @@ export class People {
     if (this.debug) this.check('growth');
     // Spread: Fisher–KPP, culture carried with the migrants (upwind).
     const Ng = this.Ng; Ng.set(Ntot);
-    this.diffuse(dt); this.voyages(dt); this.joint();
+    this.diffuse(dt); this.voyages(dt);
     if (this.debug) this.check('spread');
     lap('spread');
     // The pyramids: migrants by their schedule, then each cell's aging and workers' share.
@@ -1880,24 +1877,28 @@ export class People {
     if (this.debug) this.check('economy');
     lap('economy');
     // Minds within reach, and culture; research's intensity by the cell's output a person.
-    const sR = this.sR || (this.sR = new Float64Array(nL));
-    for (let c = 0; c < nL; c++) sR[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0;
+    const sR = this.sR || (this.sR = new Float64Array(nL)), sRP = this.sRP || (this.sRP = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) sR[c] = sRP[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0;
     // Cities' minds: where farming has made cities, a cell's city people's by their city's size,
-    // normalized so the world's are kept (`places`, every DT_PLACES years).
+    // normalized so the world's are kept (`places`, every DT_PLACES years); learning's by BETA_CITY,
+    // production's by BETA_CITY_P.
     if (this.packages.length) {
       if (this.tPlaces == null || this.t - this.tPlaces >= P.DT_PLACES) this.places();
-      const u = this.cityShare, S = this.city, e = P.BETA_CITY - 1;
-      let wN = 0, nN = 0;
-      for (let c = 0; c < nL; c++) {
-        if (!(Ntot[c] > 0)) continue;
-        const w = (1 - u[c]) + u[c] * Math.pow(Math.max(S[c], 1) / P.S_CITY_REF, e);
-        this.uw[c] = w; wN += w * sR[c] * Ntot[c]; nN += sR[c] * Ntot[c];
+      const u = this.cityShare, S = this.city;
+      for (const [s, beta] of [[sR, P.BETA_CITY], [sRP, P.BETA_CITY_P]]) {
+        if (beta === 1) continue;
+        let wN = 0, nN = 0;
+        for (let c = 0; c < nL; c++) {
+          if (!(Ntot[c] > 0)) continue;
+          const w = (1 - u[c]) + u[c] * Math.pow(Math.max(S[c], 1) / P.S_CITY_REF, beta - 1);
+          this.uw[c] = w; wN += w * s[c] * Ntot[c]; nN += s[c] * Ntot[c];
+        }
+        const k = wN > 0 ? nN / wN : 1;
+        for (let c = 0; c < nL; c++) if (Ntot[c] > 0) s[c] *= this.uw[c] * k;
       }
-      const k = wN > 0 ? nN / wN : 1;
-      for (let c = 0; c < nL; c++) if (Ntot[c] > 0) sR[c] *= this.uw[c] * k;
     }
     this.lucky();
-    this.lastRate = this.culture(dt); this.joint();
+    this.lastRate = this.culture(dt);
     if (this.debug) this.check('culture');
     lap('culture');
     // Farming and its soil, industry's spread, the record.
@@ -1917,10 +1918,10 @@ export class People {
   }
 
   diffuse(dt) {
-    const H = this.H, F = this.F, nL = this.nL, N = this.Ntot, Z = this.zc, ZL = this.zl, K2 = this.K2, wJ = this.P.W_J;
-    let zmax = 0, zmaxJ = 0;
-    for (let c = 0; c < nL; c++) if (N[c] > 0) { if (Z[c] > zmax) zmax = Z[c]; const j = softerMin(Z[c], ZL[c], wJ); if (j > zmaxJ) zmaxJ = j; }
-    const Dm = this.Dz(zmax), reach = this.seaReach(zmax, zmaxJ);
+    const H = this.H, F = this.F, nL = this.nL, N = this.Ntot, Z = this.zc, ZL = this.zl, K2 = this.K2;
+    let zmax = 0;
+    for (let c = 0; c < nL; c++) if (N[c] > 0 && Z[c] > zmax) zmax = Z[c];
+    const Dm = this.Dz(zmax), reach = this.seaReach(zmax);
     const row = this.row || (this.row = new Float64Array(nL));
     row.fill(0);
     for (let e = 0; e < F.m; e++) {
@@ -1964,7 +1965,7 @@ export class People {
         // Across the sea, only between coasts both settled: a crossing to an empty shore is a voyage (`voyages`).
         if (F.hop[e]) {
           if (!(N[c] >= nmin[c] && N[d] >= nmin[d])) continue;
-          const zm = 0.5 * (Z[c] + Z[d]), r = this.seaReach(zm, softerMin(zm, 0.5 * (ZL[c] + ZL[d]), wJ)); if (!(r > 0)) continue;
+          const r = this.seaReach(0.5 * (Z[c] + Z[d])); if (!(r > 0)) continue;
           k = Math.sqrt(Dc[c] * Dc[d]) * Math.exp(-F.k[e] / r);
         }
         else k = Math.sqrt(Dc[c] * Dc[d]) * F.k[e];
@@ -2023,7 +2024,7 @@ export class People {
       if (sa === sb) continue;
       const c = sa ? a : b, d = sa ? b : a;
       if (!(K[d] > P.FOUNDERS)) continue;
-      const reach = this.seaReach(Z[c], softerMin(Z[c], ZL[c], P.W_J));
+      const reach = this.seaReach(Z[c]);
       if (!(reach > 0)) continue;
       const h = P.S_SEA * this.speed(ZL[c]) / P.V0 * Math.min(1, N[c] / Math.max(K[c], 1e-9)) * Math.exp(-F.k[e] / reach);
       if (r.uniform() > 1 - Math.exp(-h * dt)) continue;
@@ -2090,7 +2091,7 @@ export class People {
   }
 
   economy(dt) {
-    const P = this.P, nL = this.nL, Out = this.Out, Ntot = this.Ntot, ind = this.ind, zc = this.zj, K = this.K;
+    const P = this.P, nL = this.nL, Out = this.Out, Ntot = this.Ntot, ind = this.ind, zc = this.zc, K = this.K;
     Out.fill(0);
     let food = 0, people = 0;
     for (let c = 0; c < nL; c++) {
@@ -2289,19 +2290,16 @@ export class People {
 
   /** Culture over the step, each domain alike: ideas in, losses out, exact; copying from better neighbours and trade partners. */
   culture(dt) {
-    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, ZP = this.zc, ZL = this.zl, M = this.M, Ntot = N;
-    // People's minds in each cell: its people × research intensity.
-    const m = this.mbuf || (this.mbuf = new Float64Array(nL));
-    const sR = this.sR;
-    m.fill(0);
-    let zmax = 0, zmaxL = 0, zmaxJ = 0;
+    const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, ZP = this.zc, ZL = this.zl, Ntot = N;
+    const MP = this.MP || (this.MP = new Float64Array(nL));
+    let zmax = 0, zmaxL = 0;
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) continue;
-      m[c] = sR[c] * N[c]; zmax = Math.max(zmax, ZP[c]); zmaxL = Math.max(zmaxL, ZL[c]); zmaxJ = Math.max(zmaxJ, this.zj[c]);
+      zmax = Math.max(zmax, ZP[c]); zmaxL = Math.max(zmaxL, ZL[c]);
     }
     // Minds within reach: the body's total, or a disc of radius ℓ (learning's) of the local
     // density; AI's research minds (one network, by then) join through the tasks they can do.
-    const reach = this.seaReach(zmax, zmaxJ), ell = this.reachL(zmaxL);
+    const reach = this.seaReach(zmax), ell = this.reachL(zmaxL);
     // The body is the land its people keep in touch across: a share MIND_REL of the inhabited
     // world's mean density (synthesis): the sparse margins that carried the foragers' ideas (a
     // world of them before the tip) don't carry a farming world's, so the Arctic's foragers didn't
@@ -2314,18 +2312,24 @@ export class People {
     const key = reach.toPrecision(2);
     let comp = this.compCache.get(key);
     if (!comp) this.compCache.set(key, comp = this.components(c => Ntot[c] >= this.rhoMind * H.area[c], reach));
-    const tot = new Float64Array(comp.count);
-    for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) tot[comp.id[c]] += m[c];
     const disc = Math.PI * ell * ell, ai = this.econ.on ? this.econ.AIr : 0, beta = this.econ.on ? this.econ.beta : 0;
-    for (let c = 0; c < nL; c++) {
-      if (!(N[c] > 0)) continue;
-      let ring = m[c];
-      for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
-      const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];
-      // People's research yields less past industry's culture (ideas get harder to find); AI's
-      // own progress is its measured pace (THETA_C), so its minds join at full yield.
-      const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-P.BETA_R * Math.max(0, ZL[c] - P.Z_IND));
-      M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
+    // People's minds in each cell (its people × research intensity: learning's by the cities' sizes,
+    // production's not), within reach, for each domain.
+    const m = this.mbuf || (this.mbuf = new Float64Array(nL)), tot = new Float64Array(comp.count);
+    for (const [sR, M] of [[this.sR, this.M], [this.sRP, MP]]) {
+      m.fill(0); tot.fill(0);
+      for (let c = 0; c < nL; c++) if (N[c] > 0) m[c] = sR[c] * N[c];
+      for (let c = 0; c < nL; c++) if (comp.id[c] >= 0) tot[comp.id[c]] += m[c];
+      for (let c = 0; c < nL; c++) {
+        if (!(N[c] > 0)) continue;
+        let ring = m[c];
+        for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
+        const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];
+        // People's research yields less past industry's culture (ideas get harder to find); AI's
+        // own progress is its measured pace (THETA_C), so its minds join at full yield.
+        const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-P.BETA_R * Math.max(0, ZL[c] - P.Z_IND));
+        M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
+      }
     }
     // Culture, each domain: ideas in, losses out, exact over the step; copying better neighbours and
     // trade partners, at learning's pace (people who read copy faster).
@@ -2335,12 +2339,12 @@ export class People {
     oP.set(ZP); oL.set(ZL);
     const dens = d => { const r = Ntot[d] / H.area[d]; return r / (r + P.RHO_COPY); };
     let rate = 0;
-    for (const [Z, zo, mZ, luckC] of [[ZP, oP, rt && rt.mZ, this.luckC], [ZL, oL, rt && rt.mZL, this.luckC]]) {
+    for (const [Z, zo, mZ, luckC, M, wW, cT, base] of [[ZP, oP, rt && rt.mZ, this.luckC, MP, P.W_WORK_P, P.C_TRADE, true], [ZL, oL, rt && rt.mZL, this.luckL, this.M, P.W_WORK, P.C_TRADE_L, false]]) {
       for (let c = 0; c < nL; c++) {
         if (!(N[c] > 0)) continue;
         const z0 = zo[c];
         // Forgetting, less where works keep what's known (a person's share of the cell's works).
-        const lam = Wk[c] > 0 ? P.LAMBDA / (1 + Wk[c] / Math.max(Ntot[c], 1e-9) / P.W_WORK) : P.LAMBDA;
+        const lam = Wk[c] > 0 ? P.LAMBDA / (1 + Wk[c] / Math.max(Ntot[c], 1e-9) / wW) : P.LAMBDA;
         const eL = Math.exp(-lam * dt), fL = lam * dt > 1e-9 ? (1 - eL) / lam : dt;
         // Copying the neighbours who know more, as often as people meet: each side's density against
         // RHO_COPY (synthesis; the Arctic's foragers had carried a farming Eurasia's ideas to the
@@ -2356,10 +2360,11 @@ export class People {
         }
         const pace = this.speed(oL[c]) / P.V0, copy = P.COPY * pace * dens(c);
         const luck = luckC ? 1 + (luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
-        let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL * luck;
+        const bound = base ? sig((P.D_BASE - (z0 - oL[c])) / P.W_BASE) : 1;   // production's epistemic base
+        let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL * luck * bound;
         if (wsum > 0) z += (1 - Math.exp(-copy * dt)) * up / wsum;
         // And from the markets met by trade (src/engine/routes.js), as far as life goes through markets.
-        if (rt) { const tu = rt.tau(c); if (tu > 0) { const g = rt.gap(rt.marketOf[c], z0, mZ); if (g > 0) z += (1 - Math.exp(-P.C_TRADE * tu * P.COPY * pace * dt)) * g; } }
+        if (rt) { const tu = rt.tau(c); if (tu > 0) { const g = rt.gap(rt.marketOf[c], z0, mZ); if (g > 0) z += (1 - Math.exp(-cT * tu * P.COPY * pace * dt)) * g; } }
         Z[c] = z = Math.min(z, P.Z_SAT);
         rate = Math.max(rate, Math.abs(z - z0) / dt);
       }
@@ -2368,18 +2373,21 @@ export class People {
   }
 
   /**
-   * A region's luck (PEOPLE.SIG_LUCK): each cell's multiplier on its ideas, e^{σξ − σ²/2}, ξ = Σ a_k w_k
-   * over its six nearest of K_LUCK bumps (seeded sites; weights Gaussian in distance over L_LUCK,
-   * normalized so ξ has unit variance), the amplitudes a_k Ornstein–Uhlenbeck in the frontier's
-   * advance (renewed e-fold per Z_LUCK of it).
+   * A region's luck (PEOPLE.SIG_LUCK), one field each for production and learning (`luckC`, `luckL`):
+   * each cell's multiplier on its ideas, e^{σξ − σ²/2}, ξ = Σ a_k w_k over its six nearest of K_LUCK
+   * bumps (seeded sites, shared; weights Gaussian in distance over L_LUCK, normalized so ξ has unit
+   * variance), each field's amplitudes a_k its own, Ornstein–Uhlenbeck in its domain's frontier's
+   * advance (renewed e-fold per Z_LUCK of it): writing here, iron there.
    */
   lucky() {
-    const P = this.P, nL = this.nL, H = this.H;
+    const P = this.P, nL = this.nL;
     if (!this.luckW) {
       const r = stream(this.planet.seed, 'people:luck'), K = P.K_LUCK, site = new Float64Array(3 * K);
       for (let k = 0; k < K; k++) { const z = 2 * r.uniform() - 1, a = 2 * Math.PI * r.uniform(), s = Math.sqrt(1 - z * z); site[3 * k] = s * Math.cos(a); site[3 * k + 1] = s * Math.sin(a); site[3 * k + 2] = z; }
-      this.luckA = Float64Array.from({ length: K }, () => r.normal()); this.luckR = r;
-      this.luckI = new Int16Array(6 * nL); this.luckW = new Float32Array(6 * nL); this.luckC = new Float64Array(nL).fill(1);
+      const rL = stream(this.planet.seed, 'people:luck:L');
+      this.luckF = [{ A: Float64Array.from({ length: K }, () => r.normal()), r, z: this.zc, zf: null, out: (this.luckC = new Float64Array(nL).fill(1)) },
+        { A: Float64Array.from({ length: K }, () => rL.normal()), r: rL, z: this.zl, zf: null, out: (this.luckL = new Float64Array(nL).fill(1)) }];
+      this.luckI = new Int16Array(6 * nL); this.luckW = new Float32Array(6 * nL);
       const g = this.planet.grid, d = new Float64Array(K), o = Array.from({ length: K }, (_, k) => k);
       for (let c = 0; c < nL; c++) {
         const i = this.cells[c], x = g.pos[3 * i], y = g.pos[3 * i + 1], z = g.pos[3 * i + 2];
@@ -2389,28 +2397,29 @@ export class People {
         for (let j = 0; j < 6; j++) { const w = Math.exp(-0.5 * (d[o[j]] / P.L_LUCK) ** 2) + 1e-6; this.luckI[6 * c + j] = o[j]; this.luckW[6 * c + j] = w; s2 += w * w; }
         for (let j = 0; j < 6; j++) this.luckW[6 * c + j] /= Math.sqrt(s2);
       }
-      this.luckZ = null;
     }
-    // The frontier's advance since the last step renews the amplitudes.
-    let zf = 0;
-    if (this.zc) for (let c = 0; c < nL; c++) if (this.Ntot[c] > 0 && this.zc[c] > zf) zf = this.zc[c];
-    const dz = this.luckZ === null ? 0 : Math.max(0, zf - this.luckZ);
-    this.luckZ = this.luckZ === null ? zf : Math.max(this.luckZ, zf);
-    if (dz > 0) {
-      const e = Math.exp(-dz / P.Z_LUCK), q = Math.sqrt(1 - e * e), A = this.luckA;
-      for (let k = 0; k < A.length; k++) A[k] = A[k] * e + q * this.luckR.normal();
+    const s = P.SIG_LUCK, I = this.luckI, W = this.luckW;
+    for (const F of this.luckF) {
+      // The domain's frontier's advance since the last step renews its amplitudes.
+      let zf = 0;
+      for (let c = 0; c < nL; c++) if (this.Ntot[c] > 0 && F.z[c] > zf) zf = F.z[c];
+      const dz = F.zf === null ? 0 : Math.max(0, zf - F.zf);
+      F.zf = F.zf === null ? zf : Math.max(F.zf, zf);
+      if (dz > 0) {
+        const e = Math.exp(-dz / P.Z_LUCK), q = Math.sqrt(1 - e * e), A = F.A;
+        for (let k = 0; k < A.length; k++) A[k] = A[k] * e + q * F.r.normal();
+      }
+      const A = F.A, out = F.out;
+      let sw = 0, sn = 0;
+      for (let c = 0; c < nL; c++) {
+        let xi = 0;
+        for (let j = 0; j < 6; j++) xi += A[I[6 * c + j]] * W[6 * c + j];
+        out[c] = Math.exp(s * xi - 0.5 * s * s);
+        if (this.Ntot[c] > 0) { sw += this.Ntot[c] * out[c]; sn += this.Ntot[c]; }
+      }
+      // Its mean over the world's people one at every step, so luck moves the ideas about and adds none.
+      if (sw > 0) { const k = sn / sw; for (let c = 0; c < nL; c++) out[c] *= k; }
     }
-    const A = this.luckA, s = P.SIG_LUCK, I = this.luckI, W = this.luckW, out = this.luckC;
-    let sw = 0, sn = 0;
-    for (let c = 0; c < nL; c++) {
-      let xi = 0;
-      for (let j = 0; j < 6; j++) xi += A[I[6 * c + j]] * W[6 * c + j];
-      out[c] = Math.exp(s * xi - 0.5 * s * s);
-      if (this.Ntot[c] > 0) { sw += this.Ntot[c] * out[c]; sn += this.Ntot[c]; }
-    }
-    // Its mean over the world's people one at every step, so luck moves the ideas about and adds none.
-    if (sw > 0) { const k = sn / sw; for (let c = 0; c < nL; c++) out[c] *= k; }
-    void H;
   }
 
   // Connected bodies of cells that pass `ok`, by land and by crossings within `reach`.
@@ -2438,7 +2447,7 @@ export class People {
   farming(dt) {
     const P = this.P, H = this.H, E = this.E, nL = this.nL, f = this.f, pkg = this.pkg, Ntot = this.Ntot;
     const rt = this.routes && this.routes.active && this.routes.active.length ? this.routes : null;
-    const zc = this.zc, zj = this.zj;
+    const zc = this.zc;
     // The best-suited package farmed here or next door.
     const bestNear = c => {
       let s = pkg[c] >= 0 ? this.suitHere(c) : 0;
@@ -2475,10 +2484,10 @@ export class People {
     for (let c = 0; c < nL; c++) {
       // Farmers clear land next to their own, an empty cell's too (the Nile's valley had no foragers to
       // take crops up); fields no one works and no one next door brings go back to the wild.
-      let zk = zc[c], zkJ = zj[c];
+      let zk = zc[c];
       if (!(Ntot[c] > 0)) {
-        zk = 0; zkJ = 0;
-        for (let o = E.off[c]; o < E.off[c + 1]; o++) { const d = E.nb[o]; if (!E.hop[o] && f0[d] > 0 && Ntot[d] > 0) { zk = Math.max(zk, zc[d]); zkJ = Math.max(zkJ, zj[d]); } }
+        zk = 0;
+        for (let o = E.off[c]; o < E.off[c + 1]; o++) { const d = E.nb[o]; if (!E.hop[o] && f0[d] > 0 && Ntot[d] > 0) zk = Math.max(zk, zc[d]); }
         if (!(zk > 0)) { if (f[c] > 0) f[c] *= wild; continue; }
       }
       const know = sig((zk - (P.Z_FARM - 0.5)) / 0.25);
@@ -2490,7 +2499,7 @@ export class People {
         if (p0[d] < 0 || !(f0[d] > 0) || p0[d] === p0[c]) continue;
         const s = this.suit(p0[d], c);
         if (!(s > s0)) continue;
-        const w = (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d], zj[d]), 1e-9)) : E.slope[o]) * f0[d] * (s - s0);
+        const w = (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * f0[d] * (s - s0);
         rate += w; if (w > bestIn) { bestIn = w; bestQ = p0[d]; }
       }
       // And a better crop farmed by a market met by trade (src/engine/routes.js: the routes carried
@@ -2508,7 +2517,7 @@ export class People {
       }
       // Past industry, crops travel with its pace (the colonists' wheat and cattle reached the
       // pampas and the prairies within decades; synthesis): the uptake and the clearing × `pace`.
-      const pace = 1 + (softMin(this.speed(zkJ) / P.V0, P.IND_PACE, 4) - 1) * sig((zkJ - P.Z_IND) / 0.5);
+      const pace = 1 + (softMin(this.speed(zk) / P.V0, P.IND_PACE, 4) - 1) * sig((zk - P.Z_IND) / 0.5);
       if (bestQ >= 0 && this.rng.uniform() < 1 - Math.exp(-P.C_PKG * know * rate * pace * dt)) { pkg[c] = bestQ; this.pkgT[c] = this.t; s0 = this.suit(bestQ, c); this.tame(c, this.packages[bestQ].anim || 0); }
       if (pkg[c] < 0) continue;
       // Logistic toward the arable land the crop is worth farming on, exactly (the live planet's
@@ -2524,7 +2533,7 @@ export class People {
       if (f0[c] < tgt && know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
         if (pkg[d] !== pkg[c] || !(f0[d] > f0[c])) continue;
-        seedIn += (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d], zj[d]), 1e-9)) : E.slope[o]) * (f0[d] - f0[c]);
+        seedIn += (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * (f0[d] - f0[c]);
       }
       const fs = Math.max(f0[c], Math.min(tgt, f0[c] + P.C_FARM * know * s0 * seedIn * pace * dt));
       const e = Math.exp(Math.min(50, P.R_ADOPT * Math.min(pace, P.CLEAR_PACE) * dt));
@@ -2540,20 +2549,20 @@ export class People {
     a0.set(this.anim);
     for (let c = 0; c < nL; c++) {
       if (!H.alive[c]) continue;
-      let zk = Ntot[c] > 0 ? zc[c] : 0, zkJ = Ntot[c] > 0 ? zj[c] : 0, gap = 0, W = 0;
+      let zk = Ntot[c] > 0 ? zc[c] : 0, gap = 0, W = 0;
       for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
         if (!(a0[d] > a0[c]) || !(Ntot[d] > 0)) continue;
         const kd = this.herdM[d] * H.habA[d] * Math.min(1, (f0[d] + H.herd[d] / P.D_HERD) / P.K_KEEP);
-        const e = kd * (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d], zj[d]), 1e-9)) : E.slope[o]);
+        const e = kd * (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]);
         if (!(e > 0)) continue;
         gap += e * (a0[d] - a0[c]); W += e;
-        if (!(Ntot[c] > 0)) { zk = Math.max(zk, zc[d]); zkJ = Math.max(zkJ, zj[d]); }
+        if (!(Ntot[c] > 0)) zk = Math.max(zk, zc[d]);
       }
       if (!(W > 0)) continue;
       const know = sig((zk - (P.Z_FARM - 0.5)) / 0.25);
       if (know < 1e-3) continue;
-      const pace = 1 + (softMin(this.speed(zkJ) / P.V0, P.IND_PACE, 4) - 1) * sig((zkJ - P.Z_IND) / 0.5);
+      const pace = 1 + (softMin(this.speed(zk) / P.V0, P.IND_PACE, 4) - 1) * sig((zk - P.Z_IND) / 0.5);
       this.tame(c, a0[c] + (1 - Math.exp(-P.C_ANIM * know * pace * W * dt)) * gap / W);
     }
   }
@@ -2590,8 +2599,7 @@ export class People {
   }
 
   industry(dt) {
-    // Industry needs both domains: the joint (zj) throughout; boats across the sea by production.
-    const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zj, zp = this.zc;
+    const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zc;
     if (!this.flags.industry) {
       // A hazard where culture, a dense farming people (its labour and markets: RHO_IND a km²) and
       // coal and ore all suffice (each a logistic, not a gate; by the farmed share alone, it had
@@ -2620,7 +2628,7 @@ export class People {
       const know = sig((zc[c] - (P.Z_IND - 1)) / 0.25);
       if (know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zp[d], zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * softMin(this.speed(zc[c]) / P.V0, P.IND_PACE, 4);
+        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * softMin(this.speed(zc[c]) / P.V0, P.IND_PACE, 4);
       }
       ind[c] = Math.min(1, i0[c] + v * dt);
     }

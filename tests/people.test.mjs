@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, WORLDS, softerMin, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES, earthBots, fertility, migration } from '../src/engine/people.js';
+import { People, PEOPLE, WORLDS, taskLabor, industrialStep, newEconomy, demography, softMin, partialG, energyCES, earthBots, fertility, migration } from '../src/engine/people.js';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -125,31 +125,22 @@ test('the home world-island: the origin\'s land and its short crossings, as cold
   assert.ok(Math.abs(p.zc[p.origin] - p.P.Z0) < 1e-12 && p.Ntot[p.origin] > 0, 'the first people begin with Z0');
 });
 
-test('the softer minimum: exact where the two agree, symmetric, between the lower and the lower plus w ln 2', () => {
-  for (const [a, b, w] of [[3, 3, 0.25], [0, 0, 1], [7.123456789, 7.123456789, 0.1]]) assert.equal(softerMin(a, b, w), a);
-  for (const [a, b] of [[2, 5], [5, 2], [3, 3.1], [-1, 4]]) {
-    const v = softerMin(a, b, 0.25), lo = Math.min(a, b);
-    assert.equal(v, softerMin(b, a, 0.25));
-    assert.ok(v >= lo - 1e-12 && v <= lo + 0.25 * Math.LN2 + 1e-12, `${v} for ${a}, ${b}`);
-    assert.ok(Math.abs(v - -0.25 * Math.log((Math.exp(-a / 0.25) + Math.exp(-b / 0.25)) / 2)) < 1e-12, 'its closed form');
-  }
-});
-
-test('two domains held equal stay equal: production and learning step for step (ideas, luck, copying, migrants, trade), their joint either', () => {
-  const p = new People(uniformPlanet(4), { Z_IND: 1e9, Z_AI: 1e9, H_FARM: 1e-3 }), g = p.planet.grid;
+test('two domains held equal stay equal: production and learning step for step (ideas, copying, migrants, trade)', () => {
+  // Their sources and rates set alike (the luck fields are each their own: none here).
+  const same = { BETA_CITY_P: PEOPLE.BETA_CITY, W_WORK_P: PEOPLE.W_WORK, C_TRADE_L: PEOPLE.C_TRADE, D_BASE: Infinity, SIG_LUCK: 0 };
+  const p = new People(uniformPlanet(4), { Z_IND: 1e9, Z_AI: 1e9, H_FARM: 1e-3, ...same }), g = p.planet.grid;
   p.capacity();
   for (let c = 0; c < p.nL; c++) { p.Ntot[c] = 0.8 * p.K[c]; p.zc[c] = p.zl[c] = 2.6 + 0.6 * g.pos[3 * p.cells[c] + 2]; }
-  p.joint();
   for (let k = 0; k < 60; k++) {
     p.step(40);
-    for (let c = 0; c < p.nL; c++) if (p.zc[c] !== p.zl[c] || p.zj[c] !== p.zc[c]) assert.fail(`step ${k}, cell ${c}: production ${p.zc[c]}, learning ${p.zl[c]}, joint ${p.zj[c]}`);
+    for (let c = 0; c < p.nL; c++) if (p.zc[c] !== p.zl[c]) assert.fail(`step ${k}, cell ${c}: production ${p.zc[c]}, learning ${p.zl[c]}`);
   }
   assert.ok(p.packages.length > 0 && p.routes && p.routes.active.length > 1, 'farming and trade ran');
 });
 
 /** A uniform world held at its capacity, culture alone moving: the minds within reach at z = 0. */
 function heldWorld(params) {
-  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_S0: 1e9, L_SMAX: 1e9, COPY: 0, RHO_R: 0, CAP_F: 1e12, ...params });
+  const p = new People(uniformPlanet(4), { ...quiet, D0: 0, B_PRE: 1, D_LO: 0, L_S0: 1e9, L_SMAX: 1e9, COPY: 0, RHO_R: 0, CAP_F: 1e12, D_BASE: Infinity, ...params });
   const L = pop(p);
   p.capacity();
   for (let c = 0; c < p.nL; c++) L.N[c] = L.K[c];
@@ -180,6 +171,17 @@ test('the loop tips past A θ e M₀ = λ, and holds below it', () => {
       let x = 0; for (let it = 0; it < 200; it++) x = k * Math.exp(x - 1);
       assert.ok(Math.abs(z - x) < 0.03, `below the threshold z ${z.toFixed(3)} against the fixed point ${x.toFixed(3)}`);
     }
+  }
+});
+
+test('production\'s epistemic base: its ideas fall away once it runs D_BASE ahead of learning; learning\'s don\'t', () => {
+  const sg = x => 1 / (1 + Math.exp(-x));
+  for (const x of [-1, 0, 1, 2]) {
+    const { p } = heldWorld({ THETA: 0, LAMBDA: 1e-12, A_INV: 1e-12, D_BASE: PEOPLE.D_BASE });
+    for (let c = 0; c < p.nL; c++) { p.zc[c] = 3; p.zl[c] = 3 - x; }
+    p.culture(10);
+    const gP = p.zc[0] - 3, gL = p.zl[0] - (3 - x), want = sg((PEOPLE.D_BASE - x) / PEOPLE.W_BASE);
+    assert.ok(gL > 0 && Math.abs(gP / gL - want) < 1e-6, `${x} ahead: production's ideas ×${(gP / gL).toFixed(4)} against ${want.toFixed(4)}`);
   }
 });
 
@@ -322,7 +324,7 @@ test('a sea wider than HOPS is crossed by the long crossings, and a voyage settl
   // voyage (the flux runs only between settled coasts), and then fills.
   const L = pop(p);
   for (let c = 0; c < p.nL; c++) L.Z[c] = p.zl[c] = 20;
-  p.joint(); p.capacity();
+  p.capacity();
   for (let c = 0; c < p.nL; c++) if (north(c)) L.N[c] = L.K[c];
   const south = () => { let s = 0; for (let c = 0; c < p.nL; c++) if (!north(c)) s += L.N[c]; return s; };
   assert.equal(south(), 0);
