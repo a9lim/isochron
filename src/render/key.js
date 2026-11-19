@@ -3,7 +3,8 @@
 // surface). Only marks a reader needs named are keyed: the land's natural
 // colours, lakes, rivers, snow, sea ice and the ice sheets, the highs' and
 // lows' letters and the temperature chart's warm and cold speak for
-// themselves, and the People view's veil is the Air map's to name. The
+// themselves, and the People view's veil is the Air map's to name. Where the
+// globe shows its night side, each map's key adds the night and the light. The
 // climate's fourteen zones are keyed in full in the margin; here, their five
 // groups.
 import { zonePattern } from './figures.js';
@@ -147,6 +148,23 @@ const GLYPHS = {
   },
   // Farms: parcels, each furrowed its own way, in sap.
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
+  // Night: the night side's three steps, the Sun 0°, 6° and 12° below the horizon (the shader's NIGHT_K).
+  night: (c, x, y, P) => {
+    for (let k = 0; k < 3; k++) { c.fillStyle = nightGround(P, (k + 1) / 3); c.fillRect(x + k * 26 / 3, y, 26 / 3 + 0.3, 12); }
+    c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+  },
+  // Light: ochre dots on the night, denser where brighter, merging to solid (the shader's stipple, by log lm a km²).
+  light: (c, x, y, P) => {
+    c.fillStyle = nightGround(P, 1); c.fillRect(x, y, 26, 12);
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.fillStyle = P.inks.ochre;
+    for (const [x0, x1, d] of [[0, 9, 5.2], [9, 16, 3.4], [16, 21, 2.5]]) {
+      for (let b = 0, row = 0; b < 12; b += 0.866 * d, row++) for (let a = x0 + (row % 2) * d / 2 + d / 2; a < x1; a += d) { c.beginPath(); c.arc(x + a, y + b + 0.6, 0.8, 0, 7); c.fill(); }
+    }
+    c.fillRect(x + 21, y, 5, 12);
+    c.restore();
+    c.strokeStyle = rgba(P.text, 0.25); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
+  },
 
   // Dust: ochre dots on a staggered lattice, as the shader's `stipple`.
   dust: (c, x, y, P) => { c.fillStyle = rgba(P.inks.ochre, 0.8); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
@@ -191,6 +209,12 @@ function front(c, x, y, ink, kind) {
   }
 }
 
+/** The night's ground as the globe darkens a chart's (src/render/globe.js, NIGHT_K): `k` of the way. */
+function nightGround(P, k) {
+  const p = x => [1, 3, 5].map(j => parseInt(x.slice(j, j + 2), 16)), C = p(P.canvas), L = p(P.land), N = P.dark ? [0, 0, 0] : p(P.text), t = (P.dark ? 0.55 : 0.24) * k;
+  return `rgb(${C.map((v, i) => Math.round((v + (L[i] - v) * 0.16) * (1 - t) + N[i] * t)).join(', ')})`;
+}
+
 /** A wash between the paper and an ink, as the charts tint. */
 function wash(c, x, y, P, ink, a) {
   c.fillStyle = mixHex(P.canvas, ink, a); c.fillRect(x, y, 26, 12);
@@ -209,12 +233,13 @@ const ITEMS = {
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
   'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms']],
   'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['solar', 'Solar farms']],
+  'people-lights': [['light', 'Light, 0.1–10⁷ lm/km²']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 
-/** Two columns, each as wide as its longest name (measured, so nothing is clipped). */
-export function drawKey(canvas, view, P) {
-  const items = ITEMS[view] || ITEMS.relief;
+/** Two columns, each as wide as its longest name (measured, so nothing is clipped); `extra` items after the view's (the night's). */
+export function drawKey(canvas, view, P, extra = []) {
+  const items = [...(ITEMS[view] || ITEMS.relief), ...extra];
   const cols = items.length > 4 ? 2 : 1, rows = Math.ceil(items.length / cols), rowH = 18, SW = 32, GAP = 16;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const c = canvas.getContext('2d');

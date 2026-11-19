@@ -35,7 +35,7 @@ import { shownU } from './src/render/along.js';
 import { traceBoundaries } from './src/render/lines.js';
 import { succeedRivers } from './src/render/rivers.js';
 import { drawPeople, drawZonal, drawHypsometry, drawPolarity, drawZoneKey, drawRecord, drawOrbit, drawModel } from './src/render/figures.js';
-import { ECONOMY, economyOf, economyCaption, count } from './src/render/economy.js';
+import { ECONOMY, economyOf, economyCaption, count, sci } from './src/render/economy.js';
 import { systemOf, systemCaption, drawSystem } from './src/render/system.js';
 import { solarSystem } from './src/engine/solar.js';
 import { gpuDevice } from './src/gpu/device.js';
@@ -103,7 +103,7 @@ let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
 let clMode = 'zones';               // the Climate view's map: its zones, or the air (winds, dust, the veil)
-let pmMode = 'settlement';          // the People view's map: where people have reached, or their and the robots' density
+let pmMode = 'settlement';          // the People view's map: where people have reached, their and the robots' density, or the light they make
 // The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
 const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
 let tide = null;
@@ -396,15 +396,20 @@ function skyFrame() {
   const sun = ecliptic(solarLongitude(tau, o), eps), mo = ecliptic(skyClock.lamM, eps);
   const raM = Math.atan2(mo[1], mo[0]), raS = Math.atan2(sun[1], sun[0]);
   const m2 = 2 * (skyClock.theta - raM), s2 = 2 * (skyClock.theta - raS);
-  // The sky turns only where a day takes a few seconds or more; above, it holds where it was.
-  if (lr < Math.log10(6.8e-4)) skyClock.thetaShown = skyClock.theta;
+  // The sky turns only where the dial resolves the day (a day in ~2 s or more, DAY_HI); above, it
+  // holds where it was. The night side shows on the globe there too (dayShown), in the Sun's
+  // direction turned back by the sky's angle into the globe's frame.
+  if (lr < DAY_HI) skyClock.thetaShown = skyClock.theta;
   const amp = lunarTide(moon.a), rho = 0.46 * lunarTide(3.844e8) / amp;
   // The sea's height now only where the dial resolves a tide (a cycle of a few seconds or more).
   const now = 1 - smooth(-3.4, -3.0, lr);
+  const ct = Math.cos(skyClock.thetaShown), st = Math.sin(skyClock.thetaShown);
   return {
     tides: { m: [Math.cos(m2) + rho * Math.cos(s2), Math.sin(m2) + rho * Math.sin(s2)], hw: [Math.cos(m2), Math.sin(m2)], amp: tide ? amp : 0, now },
+    day: { dir: [ct * sun[0] + st * sun[1], -st * sun[0] + ct * sun[1], sun[2]], w: dayShown() },
     sky: { stars, theta: skyClock.thetaShown, sun, sunAlpha: 1 - smooth(-0.6, -0.2, lr), moon: mo, moonAlpha: 1 - smooth(-1.75, -1.3, lr), moonDist: moon.a,
-      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase(), years: y, eps, solarPhase, face: moonFaceOf, starDist, ...offSky(skyClock.lamM, eps) },
+      swarm: people.msg ? people.msg.Es / people.msg.sun : 0, moonbase: moonbase(), years: y, eps, solarPhase, face: moonFaceOf, starDist, ...offSky(skyClock.lamM, eps),
+      lights: view === 'people' && pmMode === 'lights' },
   };
 }
 function uploadSurface(m, mode) {
@@ -426,6 +431,11 @@ let polarityReady = false;
 // anomalies a second, and flickered.) The rivers' months and the caption's date follow the season.
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const seasonShown = () => 1 - smooth(-0.1, 0.5, Math.log10(rate()));
+// The day: where it takes a few seconds (half shown at ~6 hours a second) the globe shows its night
+// side, crossfading over half a decade of the dial (a day in ~7 s at DAY_LO, ~2 s at DAY_HI) as the
+// scheduler crossfades summaries, so the terminator never sweeps by faster than the eye follows.
+const DAY_LO = -3.4, DAY_HI = -2.9;
+const dayShown = () => 1 - smooth(DAY_LO, DAY_HI, Math.log10(rate()));
 const anomalyShown = () => (year.live > 0 ? Year.liveWeight(rate()) : 0) * (1 - smooth(0, 0.5, Math.log10(rate())));
 let seasonDrawn = -1, seasonWeightDrawn = -1, climateVersionDrawn = -1, coldEaseStart = -1e9, season = null, anomDrawn = -1;
 function refreshClimate(force) {
@@ -612,7 +622,7 @@ function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
 const EARTH_DIAL = -0.3;      // log₁₀ yr/s: today's Earth opens at half a year a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
-const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density'] };
+const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'lights'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
 const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
 function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
@@ -629,7 +639,14 @@ function syncControls() {
 }
 
 // ── The key ──
-function drawTheKey() { if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view === 'climate' ? `climate-${clMode}` : view === 'people' ? `people-${pmMode}` : view, palette()); }
+// Where the globe shows its night side, every map's key names the night, and with people their light.
+let nightKeyed = false;
+const nightKey = () => dayShown() > 0.5 && !(view === 'people' && pmMode === 'lights');
+function drawTheKey() {
+  nightKeyed = nightKey();
+  if (!els.key.hidden) drawKey(els.keyCanvas, view === 'weather' ? `weather-${wxMode}` : view === 'climate' ? `climate-${clMode}` : view === 'people' ? `people-${pmMode}` : view, palette(),
+    nightKeyed ? [['night', 'Night'], ...(people.drawn ? [['light', 'Light']] : [])] : []);
+}
 function setKey(on) {
   els.key.hidden = !on;
   els.keyBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -664,7 +681,7 @@ function setMap(m) {
   if (m === 'zones' || m === 'air') { clMode = m; setView('climate'); }
   else if (m === 'pressure' || m === 'temperature' || m === 'humidity') { wxMode = m; setView('weather'); }
   else if (m === 'tides') setView('tides');
-  else if (m === 'settlement' || m === 'density') { pmMode = m; setView('people'); }
+  else if (m === 'settlement' || m === 'density' || m === 'lights') { pmMode = m; setView('people'); }
   else setView('relief');
 }
 /** Show a group at the map it last showed; Weather only where it's live. */
@@ -734,7 +751,11 @@ function startPeople() {
       people.msg = m; people.sent = 0; if (m.events.length) people.events.push(...m.events); caption(false); figuresDirty = true;
     }
     else if (m.type === 'figure') { people.fig = m.fig; figuresDirty = true; }
-    else if (m.type === 'drawn') { people.drawn = m.d; if (globe) globe.setPeople(m.d, people.grid); drawDirty = true; }
+    else if (m.type === 'drawn') {
+      people.drawn = m.d; people.lit = m.l; people.lm = m.lm;
+      if (globe) { globe.setPeople(m.d, people.grid); globe.setLights(m.l, people.grid); }
+      drawDirty = true;
+    }
   };
   w.onerror = e => console.warn('[isochron] people:', e.message);
   showPeopleParts();
@@ -789,6 +810,7 @@ function caption(force) {
     const st = m.off && m.off.stars;
     parts.push(`${headcount(h.earth)} people` + (h.space >= 1e3 ? `, ${headcount(h.space)} off-planet` : '') + (st && st.people >= 1e3 ? `, ${headcount(st.people)} at other stars` : ''));
     if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
+    if (view === 'people' && pmMode === 'lights' && people.lm > 0) parts.push(`light ${sci(people.lm)} lm`);
   }
   setCaption(parts.join(' · '), true);
 }
@@ -1165,6 +1187,7 @@ function tick(now) {
   if (playing && rate() < 20) drawDirty = true;   // the sky, the Sun, the Moon, the tide and the rivers' months move at a slow dial
   if (playing && year.live > 0 && year.eruptions.length) drawDirty = true;   // eruptions come and fade
   if (playing) caption(false);
+  if (nightKey() !== nightKeyed) drawTheKey();
   lap('chart');
   if (figuresDirty) figures(false);
   lap('figures');
@@ -1206,7 +1229,7 @@ function tick(now) {
     lap('lines');
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
-    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0 });
+    globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, sun: sf.day });
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
@@ -1252,7 +1275,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   if (tide) g.setTides(tide.C, tide.S, tide.diss);
   if (lakesDrawn) g.setLakes(lakesDrawn.draw, lakesDrawn.salt, lakesDrawn.tint);
   if (coverDrawn) g.setCover(coverDrawn);
-  if (people.drawn) g.setPeople(people.drawn, people.grid);
+  if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setLights(people.lit, people.grid); }
   if (sulfPattern) g.setSulfate(sulfPattern);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
