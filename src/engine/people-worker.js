@@ -20,7 +20,7 @@ import { People } from './people.js';
 import { solarSystem } from './solar.js';
 import { figureOf } from './peoplefit.js';
 import { stable } from './cohorts.js';
-let pyrRef = null;
+let pyrRef = null, routesAt = null;   // Fig. 9's reference; the trade kernel last drawn
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
@@ -152,5 +152,12 @@ function post(force) {
     lastDrawn = now;
     const d = people.drawn(), l = people.pasture();
     self.postMessage({ type: 'drawn', d, l }, [d.buffer, l.buffer]);
+    // The trade's routes (src/engine/routes.js), as each new kernel comes.
+    const rt = people.routes;
+    if (rt && rt.tTrade !== routesAt) {
+      routesAt = rt.tTrade;
+      const r = rt.lines();
+      self.postMessage({ type: 'routes', ...r }, [r.P.buffer, r.W.buffer, r.sea.buffer, r.off.buffer]);
+    }
   }
 }

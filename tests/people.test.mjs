@@ -253,17 +253,35 @@ test('a sea wider than HOPS is crossed by the long crossings, and a voyage settl
   assert.ok(south() > 1e3, `the south settled (${south().toFixed(0)} people)`);
 });
 
-test('the cities keep the people: the drawn people sum to the model\'s', () => {
-  const p = new People(uniformPlanet(4), { ...quiet });
+test('cities are fed along the routes: each cell keeps 1 − u of its food, and the rest arrives less the carriers\' share', () => {
+  const p = new People(uniformPlanet(4), { ...quiet, S_WORK: 0 });
   const L = p.newLineage(null, 0, 0);
+  p.packages.push({ c: 0, t: 0, clim: Float32Array.from(p.H.clim.subarray(0, 4)) });
+  for (let c = 0; c < p.nL; c++) { p.f[c] = 0.3; p.pkg[c] = 0; L.Z[c] = 5; }
   p.capacity(L);
-  for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; p.f[c] = 0.3; p.ind[c] = c % 3 === 0 ? 1 : 0; }
-  const out = p.drawn(), g = p.planet.grid;
-  let model = 0, drawn = 0, urban = 0;
-  for (let c = 0; c < p.nL; c++) { model += p.Ntot[c]; drawn += out[8 * p.cells[c]] * p.H.area[c]; urban += p.city[c]; }
-  assert.ok(Math.abs(drawn / model - 1) < 1e-9, `drawn ${drawn.toExponential(4)} against ${model.toExponential(4)}`);
-  assert.ok(urban > 0.2 * model && urban < 0.8 * model, `urban share ${(urban / model).toFixed(2)}`);
-  void g;
+  for (let c = 0; c < p.nL; c++) { L.N[c] = L.K[c]; p.Ntot[c] = L.N[c]; p.Out[c] = L.K[c]; }
+  p.zcell(); p.trading(); p.places();
+  const K0 = Float64Array.from(L.K);
+  p.feed([L]);
+  let before = 0, after = 0, sent = 0;
+  for (let c = 0; c < p.nL; c++) { before += K0[c]; after += L.K[c]; sent += p.uShare[c] * K0[c]; }
+  const arrived = after - (before - sent);
+  assert.ok(sent > 0.07 * before, `the cities' share sent (${(sent / before).toFixed(3)})`);
+  assert.ok(arrived > 0.5 * sent && arrived < sent * (1 + 1e-9), `arrived ${(arrived / sent).toFixed(3)} of what was sent`);
+  // The people follow the food: drawn, a cell's people are the model's, and its city the share that came in.
+  const out = p.drawn();
+  let model = 0, drawn = 0;
+  for (let c = 0; c < p.nL; c++) { model += p.Ntot[c]; drawn += out[8 * p.cells[c]] * p.H.area[c]; }
+  assert.ok(Math.abs(drawn / model - 1) < 1e-6, `drawn ${drawn.toExponential(4)} against ${model.toExponential(4)}`);
+});
+
+test('a city\'s people die past its countryside\'s by D_CITY, less with medicine', () => {
+  const P = PEOPLE, K = 1e4;
+  const r = (city, yg) => Math.log(demography(K, K, yg, 1e-3, P, 0, 0, 1, null, null, city).N / K) / 1e-3;
+  assert.ok(Math.abs(r(0, 0)) < 1e-6);
+  assert.ok(Math.abs(r(1, 0) + P.D_CITY) < 1e-5, `a whole city at capacity shrinks at D_CITY (${r(1, 0).toExponential(3)})`);
+  assert.ok(Math.abs(r(0.5, 0) + 0.5 * P.D_CITY) < 1e-5);
+  assert.ok(Math.abs(r(1, 1e3) - r(0, 1e3)) < 1e-5, 'and none once medicine is whole');
 });
 
 test('ocean routes cross a wide ocean beside a strait, landing apart from it and from each other', () => {

@@ -138,6 +138,7 @@ import { stream } from '../rng.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 import { Year, YEAR } from './year.js';
+import { Routes } from './routes.js';
 import { COHORTS, stable, stableLookup, stepPyramid, stepTables, ageClock, settle, reference } from './cohorts.js';
 
 export const PEOPLE = {
@@ -180,10 +181,11 @@ export const PEOPLE = {
   LIFT_MAX: 4,                     // industry's farming at most this many times the organic ceiling
   E_AG: 200,                       // W of industrial energy a person fed past the organic ceiling takes (fertilizer, machines, transport; rough, from memory)
   CO2_FERT: 0.25,                  // crops' yield × (1 + β ln(CO₂/280)), VECODE's β
-  // Stores: the harvests' weather against granaries and trade (working capital's one distinct role)
+  // Stores: the harvests' weather against granaries and trade (working capital's one distinct role;
+  // trade pools the harvests along the routes, src/engine/routes.js)
   E_RAIN: 0.7, IRR: 0.5,           // a harvest's spread per unit of a year's log-rain spread (rain-fed; ×IRR by a river or lake)
   S_MAX: 0.5, Z_STORE: 1.5,        // years of food a farmer can keep, reached e-fold per Z_STORE of culture past Z_FARM
-  Z_TRADE: 7, W_TRADE: 1, L_CORR: 1500,   // food traded comes with industry; the weather's correlation length (km), so trade pools ~(ℓ/L_CORR)² harvests
+  C_TRADE: 1, C_TRADE_PKG: 1,      // culture and crops copied from the markets met by trade, against a neighbour's (× the share of life through markets)
   B_TMAX: 0.5,                     // a harvest's most sensitivity to a year's warmth (per K: a crop near its degree-days' floor, where a cold summer takes half of it a degree; synthesis)
   SIG_REF: 0.3,                    // farming begins where harvests are steady: its hazard × e^{−σ/SIG_REF} (Richerson, Boyd and Bettinger, from memory; at 0.15 the wet tropics' steady rain outweighed the dry lands' domesticates, and Earth's first fields were in the Congo)
   // Soil (a renewable stock)
@@ -318,16 +320,18 @@ export const PEOPLE = {
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
-  R_CITY: 3, L_CITY: 100, G_CITY: 1.25, S0_CITY: 1, T_CITY: 100,   // a city's catchment over land (rings of cells, ~330 km at level 6) and its pull's e-fold (km); agglomeration's exponent on its density (>1: the largest win, Zipf's way); the density (per km²) every site starts from; years cities take to follow their catchments
+  G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
+  K_CITY: 1.5, K_LOSS: 10,         // a city's pull on a cell's food falls e-fold over K_CITY × the trade's reach of route cost (src/engine/routes.js: ~90 km by road, ~2,800 by sea at the Iron Age's culture), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
+  D_CITY: 0.01,                    // deaths a year past the countryside's in a city's people, × medicine (the crowd diseases: pre-industrial cities' deaths outran their births, kept up by migrants; standard, the size from memory)
   SITE_COAST: 1.5, SITE_RIVER: 1,  // a port's and a river's pull on a city, against an inland site's
-  N_CITY: 0.2, K_NATION: 48, L_NATION: 800, G_NATION: 1.3,   // the country's scale: a share of each place's urban people drawn to the K largest cities within e^{−km/L_NATION}, by their density^G_NATION (capitals and primate cities; 35% at 1.6 ran away to one city of ~680 M)
+  N_CITY: 0.2, K_NATION: 48, K_NAT: 4, G_NATION: 1.3,   // the country's scale: a share of each place's cities' food drawn to the K largest cities over the markets' routes, e-fold per K_NAT × the trade's reach, by their density^G_NATION (capitals and primate cities, Rome's grain from Egypt; 35% at 1.6 ran away to one city of ~680 M)
   D_URB: 4000, D_RUR: 500, D_FAC: 30, D_DC: 500, D_SOL: 10,     // land each use takes: residents per km² of city; W/m² of factories, of datacenters, of solar farms at a sunny, dry site (from memory: dense cities 2,000–10,000 a km², heavy industry tens of W/m², datacenters hundreds to thousands, solar farms 5–10 W/m²); D_RUR the most a km² that live as countryside (the densest farmland's ~1,000, from memory): past it they live in towns, drawn as city
   SOL_FARM: 0.2, SOL_ROOM: 0.9,    // solar farms' preference for farmland against open land of the same sun (fields are worth more standing); the most of a cell's land they may cover (roads, rock, water)
   P_STEAM: 270, P_DIM: 30,         // the boiled sea's steam (bar, all of it: src/engine/runaway.js) and the pressure that dims the sunlight at the ground e-fold (the globe's steam wash; synthesis: Venus's ground, under 92 bar, is lit at a few %, from memory)
   T_WILD: 30,                      // years abandoned fields take to go back to the wild (old fields reforest in decades, from memory)
   T_MACH: 30, MACH_FLOOR: 1e-3,    // years industry's footprint takes to follow its workers; the footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
-  // Night (drawn only: `lights`): the light people make, lumens a person over the night (synthesis)
   // Stepping
+  T_ROUTES: 1000,                  // years between the routes' rebuilds as the land changes under them
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4, NSUB_IND: 48,   // the spread's most substeps a step, before industry and after (its mobility needs them in the economy's 10-year steps)
   DT_EARLY: 2000,                  // the step's most before any lineage tips (the long forager era, where nothing moves faster: earthlike's first tip at 1.75 Myr against DT_MAX's 1.77, in half the steps; after it, longer steps let several farming origins fire at once)
   T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
@@ -405,10 +409,10 @@ export function taskLabor(Lh, A, beta, sigma) {
  * step that crosses K keeps its side's law (a small error). Returns the new total and the deaths'
  * density coefficient, which sets competition between lineages.
  */
-export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null) {
+export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
-  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE));
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * (m - P.M_MIN) / (1 - P.M_MIN) : 0);
   if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), crowd: 0, b, d: 0.05, famine: 0, m: ms };
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
@@ -851,6 +855,7 @@ export class People {
   /** The rates the planet sets, from its fields (once on the cached opening; after each climate cycle when live). */
   rates(f) {
     const P = this.P, g = f.grid, H = this.H, cells = this.cells, nL = this.nL;
+    this.fields = f;
     const dw = ZN.map(z => P.DOMESTIC[z] || 0);
     for (let c = 0; c < nL; c++) {
       const i = cells[c];
@@ -1000,7 +1005,7 @@ export class People {
         this.mega[c] = m < P.M_EXT ? 0 : m;
       }
       // Works: built by the urban share's labour, decaying over T_WORK (exact).
-      const u = this.uShare ? this.uShare[c] : 0, build = P.S_WORK * u * N, ew = Math.exp(-dt / P.T_WORK);
+      const build = this.city ? P.S_WORK * this.city[c] : 0, ew = Math.exp(-dt / P.T_WORK);
       if (build > 0 || this.works[c] > 0) this.works[c] = this.works[c] * ew + build * P.T_WORK * (1 - ew);
       if (H.bS[c] > 0) {
         const zz = z ? z[c] : 0, cons = Math.exp(-Math.max(0, zz - P.Z_IND - 1) / P.Z_CONS);
@@ -1064,19 +1069,55 @@ export class People {
   }
   /**
    * A step's share of the realized years at cell c: { phi (the share of the step they cover), m, s
-   * (the harvest anomaly's mean and spread over them) }, pooled by trade as the closure is; null
-   * when there are none. `take` is the step's years taken from the pool (set by `step`).
+   * (the harvest anomaly's mean and spread over them) }, pooled by trade (`tp`, Routes.pool): the
+   * mean (1 − τ) the cell's own and τ its market's supply basket's (`pooledYears`), the spread as
+   * the closure's; null when there are none. `take` is the step's years taken from the pool (set by `step`).
    */
-  realYears(c, fc, pool, out) {
+  realYears(c, fc, tp, out) {
     const W = this.yrW;
     if (!(W > 1e-9) || !(this.yrTake > 0)) return null;
     const [a, b] = this.harvestCoef(c, fc), s = this.H.sR[c], yr = this.yr;
     const mZ = yr[0][c] / W, mT = yr[2][c] / W;
     const vZ = Math.max(0, yr[1][c] / W - mZ * mZ), vT = Math.max(0, yr[3][c] / W - mT * mT), cZT = yr[4][c] / W - mZ * mT;
+    const m = a * s * mZ + b * mT, tau = tp ? tp.tau : 0;
     out.phi = this.yrPhi;
-    out.m = (a * s * mZ + b * mT) / pool;
-    out.s = Math.sqrt(Math.max(0, a * a * s * s * vZ + b * b * vT + 2 * a * b * s * cZT)) / pool;
+    out.m = tau > 0 && this.yrM ? (1 - tau) * m + tau * this.yrM[tp.k] : m;
+    out.s = Math.sqrt(Math.max(0, a * a * s * s * vZ + b * b * vT + 2 * a * b * s * cZT)) / (tp ? tp.pool : 1);
     return out;
+  }
+  /**
+   * The realized years' mean harvest anomaly in each market's supply basket (Routes.trade's `W`):
+   * each market's own the food-weighted mean of its cells' (as farmers bear it), then each buyer's
+   * the basket's mean of its sellers'.
+   */
+  pooledYears(rt) {
+    const nm = rt.nm, W = this.yrW, yr = this.yr, own = this.yrOwn || (this.yrOwn = new Float64Array(nm)), wt = this.yrWt || (this.yrWt = new Float64Array(nm));
+    const M = this.yrM || (this.yrM = new Float64Array(nm));
+    own.fill(0); wt.fill(0); M.fill(0);
+    if (!(W > 1e-9)) return;
+    for (let c = 0; c < this.nL; c++) {
+      if (!(this.f[c] > 0)) continue;
+      const k = rt.marketOf[c], q = this.Out[c] - this.goods[c];
+      if (!(q > 0)) continue;
+      const [a, b] = this.harvestCoef(c, this.f[c]);
+      own[k] += q * (a * this.H.sR[c] * yr[0][c] / W + b * yr[2][c] / W); wt[k] += q;
+    }
+    for (let k = 0; k < nm; k++) if (wt[k] > 0) own[k] /= wt[k];
+    const act = rt.active || [], Wm = rt.W;
+    for (const i of act) { let x = 0; for (const j of act) x += Wm[i * nm + j] * own[j]; M[i] = x; }
+  }
+  /**
+   * The routes (built the first time anyone farms: before, nobody trades food), and the trade's
+   * kernel over them (every ROUTES.DT_TRADE years). Rebuilt when the land under them has changed
+   * (the sea's level, an ice sheet), at most every T_ROUTES years.
+   */
+  trading() {
+    if (!this.packages.length) return null;
+    const f = this.fields;
+    if (!this.routes) { this.routes = new Routes(this, f, this.routeParams || {}); this.tRoutes = this.t; }
+    else if (this.t - this.tRoutes >= this.P.T_ROUTES && this.routes.keyOf(f) !== this.routes.key) { this.routes.build(f); this.tRoutes = this.t; }
+    this.routes.trade();
+    return this.routes;
   }
 
   // Edges between land cells (with the relief's cost) and crossings of up to HOPS sea cells (with
@@ -1450,12 +1491,10 @@ export class People {
         const zh = z - P.Z_HERD, xh = ex(P.THETA * Math.max(0, zh));
         herd = sig(zh / P.W_HERD) * H.herd[c] * xh / (1 + (xh - 1) / P.CAP_H) * (1 - this.rewild);
       }
-      // Works' labour (S_WORK of the urban share) feeds no one.
-      const wk = this.uShare && !this.econ.on ? 1 - P.S_WORK * this.uShare[c] : 1;
-      K[c] = this.hE * H.area[c] * this.coldOK(c, z) * wk * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
+      K[c] = this.hE * H.area[c] * this.coldOK(c, z) * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
       // Herders' hold on the unfarmed land, as a share of the cell they'd graze at the food capacity
       // (drawn: the pasture, by how near the capacity the people are).
-      if (Zs) { this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) * wk : 0; this.Kown[c] = K[c]; }
+      if (Zs) { this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hE * this.coldOK(c, z) : 0; this.Kown[c] = K[c]; }
     }
   }
   /**
@@ -1510,6 +1549,10 @@ export class People {
     // Capacity and the cells' totals.
     Ntot.fill(0);
     for (const L of live) { this.capacity(L); for (let c = 0; c < nL; c++) Ntot[c] += L.N[c]; }
+    lap('capacity');
+    // The cities' food along the routes (`feed`): their people are fed from their catchments.
+    this.feed(live);
+    lap('feed');
     const dt = dtWanted;
     // People: births and deaths (`demography`), the cell's total exact over the step; the lineages'
     // shares by their crowding, d ln(N_k/N_l)/dt = c N_all (1/K_l − 1/K_k) with c the deaths'
@@ -1522,6 +1565,10 @@ export class People {
     // The planet's realized years: this step takes as many as it lasts (the rest wait for the next).
     this.yrTake = this.yrW > 1e-9 ? Math.min(this.yrW, dt) : 0; this.yrPhi = this.yrTake / dt;
     const ry = this.ry || (this.ry = { phi: 0, m: 0, s: 0 });
+    // Trade along the routes (src/engine/routes.js): the harvests pool over each market's supply basket.
+    const rt = this.trading();
+    if (rt && this.yrTake > 0) this.pooledYears(rt);
+    lap('trade');
     // The cohorts' clock: this step moves every pyramid on by `shift` whole years.
     const [shift, clk] = ageClock(this.ageClk || 0, dt); this.ageClk = clk;
     // A step past most of a lifetime leaves nothing of the pyramids but their rates' stable
@@ -1536,11 +1583,10 @@ export class People {
       for (let k = 0; k < nl; k++) { const L = live[k]; if (L.N[c] > 0) { inv += L.N[c] / Nt / Math.max(L.K[c], 1e-12); one = k; many++; } }
       const Kh = 1 / inv;
       // The harvests' spread here: rain-fed farmers bear it whole, foragers half (they move), trade
-      // pools it once industry comes; granaries hold up to a share of a year.
-      const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tr = sig((z - P.Z_TRADE) / P.W_TRADE), ell = this.reachL(this.gMax + z);
-      const pool = Math.sqrt(1 + tr * (ell / P.L_CORR) ** 2), sg = this.harvestSigma(c, fc) / pool;
+      // pools it over the market's supply basket; granaries hold up to a share of a year.
+      const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = P.S_MAX * fc * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE));
-      const { N: Nn, crowd, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, pool, ry), this.aging[c]);
+      const { N: Nn, crowd, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, tp, ry), this.aging[c], this.cityShare ? this.cityShare[c] : 0);
       this.famine += famine * Nt;
       // The pyramid over the step: births, the deaths past senescence (the total's, less the pyramid's
       // own senescence under medicine), the step's growth.
@@ -1585,11 +1631,11 @@ export class People {
     // same for every lineage.
     const sR = this.sR || (this.sR = new Float64Array(nL));
     for (let c = 0; c < nL; c++) sR[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0;
-    // Cities' minds: where farming has made cities, each cell's by the size of the city its urban
-    // share lives in, normalized so the world's are kept (`places`, every DT_PLACES years).
+    // Cities' minds: where farming has made cities, a cell's city people's by their city's size,
+    // normalized so the world's are kept (`places`, every DT_PLACES years).
     if (this.packages.length) {
       if (this.tPlaces == null || this.t - this.tPlaces >= P.DT_PLACES) this.places();
-      const u = this.uShare, S = this.cityOf, e = P.BETA_CITY - 1;
+      const u = this.cityShare, S = this.city, e = P.BETA_CITY - 1;
       let wN = 0, nN = 0;
       for (let c = 0; c < nL; c++) {
         if (!(Ntot[c] > 0)) continue;
@@ -2049,7 +2095,7 @@ export class People {
       M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
     }
     // Culture: ideas in, losses out, exact over the step; copying better neighbours and others.
-    const gain = P.A_INV, Wk = this.works;
+    const gain = P.A_INV, Wk = this.works, rt = this.routes && this.routes.active && this.routes.active.length ? this.routes : null;
     let rate = 0;
     const others = live.filter(o => o !== L), zc = this.zc;
     for (let c = 0; c < nL; c++) {
@@ -2078,6 +2124,8 @@ export class People {
       for (const o of others) if (o.N[c] > 0 && o.Z[c] > z0) accGap += (o.Z[c] - z0) * o.N[c] / Ntot[c];
       let z = z0 * eL + gain * Math.pow(M[c], P.PSI) * fL;
       if (wsum > 0) z += (1 - Math.exp(-copy * dt)) * up / wsum;
+      // And from the markets met by trade (src/engine/routes.js), as far as life goes through markets.
+      if (rt) { const tu = rt.tau(c); if (tu > 0) { const g = rt.gap(rt.marketOf[c], z0); if (g > 0) z += (1 - Math.exp(-P.C_TRADE * tu * P.COPY * this.speed(z0) / P.V0 * dt)) * g; } }
       z += (1 - Math.exp(-P.ACC * dt)) * accGap;
       Z[c] = z = Math.min(z, P.Z_SAT);
       rate = Math.max(rate, Math.abs(z - z0) / dt);
@@ -2134,6 +2182,7 @@ export class People {
 
   farming(live, dt) {
     const P = this.P, H = this.H, E = this.E, nL = this.nL, f = this.f, pkg = this.pkg, Ntot = this.Ntot;
+    const rt = this.routes && this.routes.active && this.routes.active.length ? this.routes : null;
     const zc = this.zcell();
     // The best-suited package farmed here or next door.
     const bestNear = c => {
@@ -2182,6 +2231,19 @@ export class People {
         if (!(s > s0)) continue;
         const w = (E.hop[o] ? 0.3 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : E.slope[o]) * f0[d] * (s - s0);
         rate += w; if (w > bestIn) { bestIn = w; bestQ = p0[d]; }
+      }
+      // And a better crop farmed by a market met by trade (src/engine/routes.js: the routes carried
+      // crops between farmers who never met: the Columbian exchange), as far as life goes through markets.
+      if (know > 1e-3 && rt) {
+        const tu = rt.tau(c), k = rt.marketOf[c], K = rt.C.K_PART;
+        if (tu > 0) for (let q = 0; q < K; q++) {
+          const j = rt.part.k[k * K + q], qj = j >= 0 ? rt.mPkg[j] : -1;
+          if (qj < 0 || qj === p0[c]) continue;
+          const s = this.suit(qj, c);
+          if (!(s > s0)) continue;
+          const w = P.C_TRADE_PKG * tu * rt.part.w[k * K + q] * rt.mFd[j] / Math.max(rt.mA[j], 1e-9) * (s - s0);
+          rate += w; if (w > bestIn) { bestIn = w; bestQ = qj; }
+        }
       }
       // Past industry, crops travel with its pace (the colonists' wheat and cattle reached the
       // pampas and the prairies within decades; synthesis): the uptake and the clearing × `pace`.
@@ -2443,94 +2505,124 @@ export class People {
   }
 
   /**
-   * Where the people and the machines are (synthesis; drawn only, so the model's dynamics and its
-   * calibration don't see it). Cities: each cell's urban share u (U_AG once it farms, rising to U_IND
-   * with industry) lives in the cities its catchment reaches over land (R_CITY rings), each city
-   * drawing on a source as its site (ports, rivers) × its density^G_CITY × e^{−km/L_CITY}. With
-   * G_CITY > 1 the largest grow at the others' expense (agglomeration; standard in spirit, Zipf's
-   * law the outcome), and cities follow their catchments over T_CITY, so they persist where they
-   * began. A cell's drawn people are its rural ones and its city's. Industry's footprint follows its
-   * workers (the drawn people × industry's share) over T_MACH while Earth has people, and holds when
-   * it has none; factories and datacenters are the world's on Earth (its share of the energy) spread
-   * over it, datacenters toward the cities; Earth's robots (earthBots) over it too, onto the farms and
-   * into the cities.
+   * Where the cities are and who feeds them, every DT_PLACES years (synthesis; docs/people.md,
+   * "Cities that must be fed"), and where the machines are (drawn). Each farming cell's urban share u
+   * (U_AG once it farms, rising to U_IND with industry) of its food goes to the cities it is drawn
+   * to (`foodshed`); `feed` moves it each step, and the people follow it by the spread. A city's
+   * people are the share of its cell's food that came in (`cityShare`). With G_CITY > 1 the largest
+   * grow at the others' expense (agglomeration; standard in spirit, Zipf's law the outcome).
+   * Industry's footprint follows its workers (the people × industry's share) over T_MACH while Earth
+   * has people, and holds when it has none; factories and datacenters are the world's on Earth (its
+   * share of the energy) spread over it, datacenters toward the cities; Earth's robots (earthBots)
+   * over it too, onto the farms and into the cities.
    */
   places() {
-    const P = this.P, H = this.H, nL = this.nL, E = this.E, g = this.planet.grid;
-    if (!this.ring) {
-      // Each cell's catchment: its land cells within R_CITY rings, each with e^{−km/L_CITY}.
-      const off = new Int32Array(nL + 1), idx = [], w = [], mark = new Int32Array(nL).fill(-1);
-      const pos = c => { const i = this.cells[c]; return [g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2]]; };
-      for (let c = 0; c < nL; c++) {
-        const p = pos(c);
-        let front = [c]; mark[c] = c;
-        for (let r = 0; r <= P.R_CITY && front.length; r++) {
-          const next = [];
-          for (const d of front) {
-            const q = pos(d), km = R * Math.acos(Math.min(1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2]));
-            idx.push(d); w.push(Math.exp(-km / P.L_CITY));
-            if (r < P.R_CITY) for (let o = E.off[d]; o < E.off[d + 1]; o++) { const k = E.nb[o]; if (!E.hop[o] && mark[k] !== c) { mark[k] = c; next.push(k); } }
-          }
-          front = next;
-        }
-        off[c + 1] = idx.length;
-      }
-      this.ring = { off, idx: Int32Array.from(idx), w: Float32Array.from(w) };
+    const P = this.P, H = this.H, nL = this.nL;
+    if (!this.city) {
       this.site = Float64Array.from(H.coast, (co, c) => 1 + P.SITE_COAST * co + P.SITE_RIVER * H.river[c]);
-      this.city = new Float64Array(nL); this.uShare = new Float64Array(nL); this.mach = new Float64Array(nL); this.cityOf = new Float64Array(nL);
+      this.city = new Float64Array(nL); this.uShare = new Float64Array(nL); this.mach = new Float64Array(nL);
+      this.cityShare = new Float64Array(nL); this.imp = new Float64Array(nL);
       this.tPlaces = null;
     }
-    const { off, idx, w } = this.ring, S = this.city, u = this.uShare, site = this.site, Ntot = this.Ntot, A = H.area;
+    const S = this.city, u = this.uShare, Ntot = this.Ntot;
     const dt = this.tPlaces === null ? Infinity : Math.max(0, this.t - this.tPlaces);
     this.tPlaces = this.t;
-    const Wt = this.wbuf || (this.wbuf = new Float64Array(nL)), tgt = this.tbuf || (this.tbuf = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
       u[c] = H.alive[c] ? Math.min(1, (this.f[c] > 0 ? P.U_AG : 0) + (P.U_IND - P.U_AG) * this.ind[c]) : 0;
-      Wt[c] = H.alive[c] ? site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_CITY) : 0;
+      S[c] = Ntot[c] * this.cityShare[c];
     }
-    tgt.fill(0);
-    const cof = this.cityOf;
-    for (let d = 0; d < nL; d++) {
-      const U = u[d] * Ntot[d];
-      if (!(U > 0)) { cof[d] = 0; continue; }
-      let Z = 0;
-      for (let k = off[d]; k < off[d + 1]; k++) Z += Wt[idx[k]] * w[k];
-      if (!(Z > 0)) { tgt[d] += U; cof[d] = S[d]; continue; }
-      let sz = 0;   // the size of the city its urban people live in, as they're shared out
-      for (let k = off[d]; k < off[d + 1]; k++) { const x = Wt[idx[k]] * w[k] / Z; tgt[idx[k]] += U * x; sz += x * S[idx[k]]; }
-      cof[d] = sz;
-    }
-    // The country's scale: N_CITY of what each place sent drawn on to the K_NATION largest cities
-    // within e^{−km/L_NATION}, by their density^G_NATION (so the largest grow past their catchments).
-    if (P.N_CITY > 0) {
-      const pos = this.cpos || (this.cpos = Float64Array.from({ length: 3 * nL }, (_, k) => g.pos[3 * this.cells[(k / 3) | 0] + (k % 3)]));
-      const top = Array.from({ length: nL }, (_, c) => c).filter(c => H.alive[c]).sort((x, y) => Wt[y] - Wt[x]).slice(0, P.K_NATION);
-      const Wn = top.map(c => site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_NATION));
-      const nat = this.nbuf || (this.nbuf = new Float64Array(nL));
-      nat.fill(0);
-      for (let d = 0; d < nL; d++) {
-        const U = P.N_CITY * u[d] * Ntot[d];
-        if (!(U > 0)) continue;
-        let Z = 0;
-        const wk = this.wk || (this.wk = new Float64Array(P.K_NATION));
-        for (let k = 0; k < top.length; k++) {
-          const c = top[k], dot = pos[3 * d] * pos[3 * c] + pos[3 * d + 1] * pos[3 * c + 1] + pos[3 * d + 2] * pos[3 * c + 2];
-          wk[k] = Wn[k] * Math.exp(-R * Math.acos(Math.max(-1, Math.min(1, dot))) / P.L_NATION); Z += wk[k];
-        }
-        if (!(Z > 0)) continue;
-        for (let k = 0; k < top.length; k++) nat[top[k]] += U * wk[k] / Z;
-      }
-      for (let c = 0; c < nL; c++) tgt[c] = (1 - P.N_CITY) * tgt[c] + nat[c];
-    }
-    const a = dt === Infinity ? 0 : Math.exp(-dt / P.T_CITY);
-    for (let c = 0; c < nL; c++) S[c] = tgt[c] + (S[c] - tgt[c]) * a;
-    // Industry's footprint: its workers' share of the drawn people, while there are people to work.
+    if (this.routes) this.foodshed(this.routes);
+    // Industry's footprint: its workers' share of the people, while there are people to work.
     if (this.people > 1e6) {
+      const tgt = this.tbuf || (this.tbuf = new Float64Array(nL));
       let s = 0;
-      for (let c = 0; c < nL; c++) { tgt[c] = ((1 - u[c]) * Ntot[c] + S[c]) * this.ind[c]; s += tgt[c]; }
+      for (let c = 0; c < nL; c++) { tgt[c] = Ntot[c] * this.ind[c]; s += tgt[c]; }
       if (s > 0) {
         const am = dt === Infinity ? 0 : Math.exp(-dt / P.T_MACH);
         for (let c = 0; c < nL; c++) this.mach[c] = tgt[c] / s + (this.mach[c] - tgt[c] / s) * am;
+      }
+    }
+  }
+
+  /**
+   * The cities' foodsheds (`places`): of each farming cell's cities' food, 1 − N_CITY goes over its
+   * catchment by the local routes (Routes.catch), each city drawing as its site (ports, rivers) ×
+   * its density^G_CITY × e^{−cost/(K_CITY reach)}, and N_CITY to the K_NATION largest cities over the
+   * markets' routes, as their density^G_NATION × e^{−cost/(K_NAT reach)}, reach the trade's at the
+   * cell's culture (Routes.reach) and the cost by sail or steam by industry's share; of each,
+   * e^{−cost/(K_LOSS reach)} arrives. Into `dlv` (per catchment entry) and `dlvN` (per cell and
+   * city), and the long ones' flows for the routes' drawing (Routes.feedFlows).
+   */
+  foodshed(rt) {
+    const P = this.P, H = this.H, nL = this.nL, S = this.city, site = this.site, A = H.area, zc = this.zc, ind = this.ind, u = this.uShare;
+    const { off, idx, cS, cI } = rt.catch, K = P.K_NATION;
+    const Wt = this.wbuf || (this.wbuf = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) Wt[c] = H.alive[c] ? site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_CITY) : 0;
+    const top = Array.from({ length: nL }, (_, c) => c).filter(c => H.alive[c]).sort((x, y) => Wt[y] - Wt[x]).slice(0, K);
+    this.top = Int32Array.from(top);
+    const Wn = top.map(c => site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_NATION));
+    const dl = this.dlv && this.dlv.length === idx.length ? this.dlv : (this.dlv = new Float32Array(idx.length));
+    const dn = this.dlvN && this.dlvN.length === nL * K ? this.dlvN : (this.dlvN = new Float32Array(nL * K));
+    dl.fill(0); dn.fill(0);
+    const mo = rt.marketOf, cost = new Float64Array(top.length), wk = new Float64Array(top.length), far = new Map();
+    for (let d = 0; d < nL; d++) {
+      if (!(u[d] > 0)) continue;
+      const r = rt.reach(zc ? zc[d] : 0), ll = P.K_LOSS * r, s = ind[d], md = mo[d];
+      // The country's scale: to the largest cities over the markets' routes.
+      let Zn = 0;
+      for (let k = 0; k < top.length; k++) {
+        const c = top[k], mc = mo[c], sc = Math.max(s, ind[c]);
+        const x = md === mc ? 0 : (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I');
+        cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.K_NAT * r)); Zn += wk[k];
+      }
+      const nat = Zn > 0 ? P.N_CITY : 0, q = u[d] * Math.max(0, this.Out[d] - this.goods[d]);
+      if (nat > 0) for (let k = 0; k < top.length; k++) {
+        const x = nat * wk[k] / Zn * Math.exp(-cost[k] / ll);
+        dn[d * K + k] = x;
+        const mc = mo[top[k]];
+        if (mc !== md && q * x > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * x); }
+      }
+      // The region's: over the catchment by the local routes.
+      let Z = 0;
+      for (let k = off[d]; k < off[d + 1]; k++) { const x = (1 - s) * cS[k] + s * cI[k], w = Wt[idx[k]] * Math.exp(-x / (P.K_CITY * r)); dl[k] = w; Z += w; }
+      for (let k = off[d]; k < off[d + 1]; k++) { const x = (1 - s) * cS[k] + s * cI[k]; dl[k] = Z > 0 ? (1 - nat) * dl[k] / Z * Math.exp(-x / ll) : k === off[d] ? 1 - nat : 0; }
+    }
+    rt.feedFlows = [...far].map(([key, q]) => [Math.floor(key / 65536), key % 65536, q]).sort((a, b) => b[2] - a[2]).slice(0, rt.C.N_FLOW);
+  }
+
+  /**
+   * The cities fed (each step, after the capacities): each farming cell sends its urban share u of
+   * its food (its people's mean capacity) to its cities (`foodshed`), so its own people keep 1 − u
+   * of it and every cell gains what arrives; the works' labour (S_WORK of a city's people, before
+   * industry) feeds no one. Each lineage's capacity (and its migrants', K2) moves alike: the food is
+   * the place's, whoever eats it. A cell's `cityShare` is the share of its food that came in as the
+   * cities' (its people's share in its city).
+   */
+  feed(live) {
+    const P = this.P, nL = this.nL, u = this.uShare, Ntot = this.Ntot, rt = this.routes;
+    if (!rt || !this.dlv || !u) return;
+    const { off, idx } = rt.catch, dl = this.dlv, dn = this.dlvN, top = this.top, K = P.K_NATION, nt = top.length;
+    const imp = this.imp, ex = this.exS || (this.exS = new Float64Array(nL)), own = this.ownK || (this.ownK = new Float64Array(nL));
+    imp.fill(0); ex.fill(0); own.fill(0);
+    for (let c = 0; c < nL; c++) {
+      if (!(Ntot[c] > 0)) { for (const L of live) own[c] = Math.max(own[c], L.K[c]); continue; }
+      let Kb = 0; for (const L of live) if (L.N[c] > 0) Kb += L.K[c] * L.N[c]; own[c] = Kb / Ntot[c];
+    }
+    for (let d = 0; d < nL; d++) {
+      if (!(u[d] > 0) || !(Ntot[d] > 0)) continue;
+      const q = u[d] * own[d]; ex[d] = u[d];
+      for (let k = off[d]; k < off[d + 1]; k++) imp[idx[k]] += q * dl[k];
+      for (let k = 0; k < nt; k++) imp[top[k]] += q * dn[d * K + k];
+    }
+    const cs = this.cityShare, wl = this.econ.on ? 0 : P.S_WORK;
+    for (let c = 0; c < nL; c++) { const k = own[c] * (1 - ex[c]) + imp[c]; cs[c] = k > 0 ? imp[c] / k : 0; }
+    for (const L of live) {
+      const Kl = L.K, K2 = L.K2;
+      for (let c = 0; c < nL; c++) {
+        if (!(ex[c] > 0) && !(imp[c] > 0)) continue;
+        const w = 1 - wl * cs[c];
+        Kl[c] = (Kl[c] * (1 - ex[c]) + imp[c]) * w;
+        if (K2) K2[c] = (K2[c] * (1 - ex[c]) + imp[c]) * w;
       }
     }
   }
@@ -2549,8 +2641,8 @@ export class People {
   drawn(out = null) {
     const n = this.planet.grid.n, H = this.H, E = this.econ, P = this.P, nL = this.nL;
     out = out || new Float32Array(8 * n); out.fill(0);
-    this.places();
-    const S = this.city, u = this.uShare, m = this.mach, A = H.area;
+    if (!this.city) this.places();
+    const S = this.city, m = this.mach, A = H.area;
     // The machines on Earth: the world's by Earth's share of the energy.
     let Wf = 0, Wd = 0, Rb = 0;
     if (E.on) {
@@ -2572,7 +2664,7 @@ export class People {
     for (let k = 0; k < nX; k++) Aal += X.area[k];
     const wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
-      const people = (1 - u[c]) * this.Ntot[c] + S[c];
+      const people = this.Ntot[c];
       wd[c] = m[c] * (1 + 4 * S[c] / Math.max(people, 1)); sd += wd[c];
       wr[c] = m[c] + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0) + (sc > 0 ? 0.3 * S[c] / sc : 0); sr += wr[c];
     }
@@ -2601,7 +2693,7 @@ export class People {
     }
     for (let c = 0; c < nL; c++) {
       const i = this.cells[c], o = 8 * i, Am = A[c] * 1e6, floor = H.alive[c] && this.reached[c] && Aal > 0 ? A[c] / Aal : 0;
-      const people = (1 - u[c]) * this.Ntot[c] + S[c];
+      const people = this.Ntot[c];
       // Each use's land, in order of claim.
       let room = H.alive[c] ? 1 : 0;
       const take = want => { const v = Math.min(Math.max(0, want), room); room -= v; return v; };
@@ -2613,7 +2705,7 @@ export class People {
       // dial and left datacenters none.)
       const sol = take(this.sol[c]);
       const pf = Wf * (m[c] + fl * floor) / (1 + fl) / Am, pd = sd > 0 ? Wd * (wd[c] / sd + fl * floor) / (1 + fl) / Am : 0;
-      const wc = (S[c] + Math.max(0, (1 - u[c]) * this.Ntot[c] - P.D_RUR * A[c])) / (A[c] * P.D_URB), dc = take(pd / P.D_DC), wf = pf / P.D_FAC, k = wc + wf > room ? room / (wc + wf) : 1;
+      const wc = (S[c] + Math.max(0, this.Ntot[c] - S[c] - P.D_RUR * A[c])) / (A[c] * P.D_URB), dc = take(pd / P.D_DC), wf = pf / P.D_FAC, k = wc + wf > room ? room / (wc + wf) : 1;
       const city = take(wc * k), fac = take(wf * k);
       const farm = take(this.cropped(c));
       // Herders' pasture, past the fields: their hold as far as the herders are there (the people

@@ -36,7 +36,7 @@ import { Dust, NP } from './dust.js';
 export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1 };
 /** The people's grid's level on an engine of `level`. */
 export const peopleLevel = level => Math.min(6, level);
 
@@ -53,7 +53,10 @@ export const peopleLevel = level => Math.min(6, level);
  * the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K), a
  * year's mean T′'s spread (K: the month's × √ of its memory, src/engine/year.js), a year's spread of log rain, the regolith (m), its production at bare rock (m/yr) and the rivers'
  * erosion (mm/yr); and on land the coast's sea's export production (g C m⁻² yr⁻¹, the most of its
- * sea neighbours': src/engine/life.js), which feeds the sea's foragers.
+ * sea neighbours': src/engine/life.js), which feeds the sea's foragers; for the routes
+ * (src/engine/routes.js), the surface wind at the year's six points (m/s, 3-vectors in each cell's
+ * tangent plane: 18 a cell, the point-major triples), the sea's surface current (m/s, a 3-vector;
+ * the gyres', prolonged from their grid) and the share of the year under sea ice.
  */
 export function fieldsOf(P, f = null, T = null) {
   const g = T ? T.coarse : P.grid, n = g.n, N = P.grid.n, c = P.climate, tec = P.tec, s = tec.seaLevel;
@@ -69,7 +72,16 @@ export function fieldsOf(P, f = null, T = null) {
     sea: coastSea, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
     arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
   };
-  const wide = { T12: [c.T12, 12], P12: [c.P12, 12], zones: [c.zones, NZ] };
+  const np = c.windPhase.length, wind = new Float32Array(18 * N), cur = new Float32Array(3 * N), oc = P.ocean;
+  for (let i = 0; i < N; i++) for (let p = 0; p < 6; p++) { const w = c.windPhase[Math.min(np - 1, Math.floor(p * np / 6))]; for (let k = 0; k < 3; k++) wind[18 * i + 3 * p + k] = w[3 * i + k]; }
+  if (oc) {
+    if (oc.coarse) {
+      const nc = oc.grid.n, a = new Float64Array(nc), b = new Float64Array(N);
+      for (let k = 0; k < 3; k++) { for (let i = 0; i < nc; i++) a[i] = oc.vel[3 * i + k]; prolong(c.T, a, b); for (let i = 0; i < N; i++) cur[3 * i + k] = tec.sea[i] ? b[i] : 0; }
+    } else cur.set(oc.vel);
+  }
+  src.seaIce = i => (tec.sea[i] ? c.snowAnn[i] : 0);
+  const wide = { T12: [c.T12, 12], P12: [c.P12, 12], zones: [c.zones, NZ], wind: [wind, 18], cur: [cur, 3] };
   if (!T) {
     for (const [k, get] of Object.entries(src)) { const a = f[k]; for (let i = 0; i < n; i++) a[i] = get(i); }
     for (const [k, [a]] of Object.entries(wide)) f[k].set(a);
