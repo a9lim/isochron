@@ -1,6 +1,6 @@
 # Isochron
 
-An Earth-like planet on one globe, from plate tectonics down to weather and people, every layer coupled to the others. A submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron), registered on the site (`content/projects/isochron.md`) and staged by the parent's build; the parent's `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build. Its social card (`og-image.webp`) is painted by the parent's `tools/og/paint/isochron.py` from a seeded people run exported by `tools/og/paint/isochron-run.mjs`; re-export and repaint when the card should follow a change to the people's model.
+An Earth-like planet on one globe, from plate tectonics down to weather and people, every layer coupled to the others. A submodule of the a9l.im repository at `projects/isochron` (github.com/a9lim/isochron), registered on the site (`content/projects/isochron.md`) and staged by the parent's build; the parent's `AGENTS.md` covers the shared layer, the design system ("Inside the scene") and the build. Its social card (`og-image.webp`) was painted by the parent's `tools/og/paint/isochron.py` from a seeded people run of 2026-11-16, and is **frozen** (a9, 2026-11-19): it stays as painted however the model changes (a painting of the project's idea, not a record of the model), so it's never re-exported or repainted.
 
 ## Docs
 
