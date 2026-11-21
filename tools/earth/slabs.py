@@ -5,7 +5,7 @@
 """The slabs Müller et al. 2019's trenches have sent into the mantle over the last 200 Myr: for each 10 Myr
 of the past, the plate area (km²) each trench point subducted, on the cell of the level-4 grid nearest
 where the trench then stood (the model's absolute frame, the sim's mantle frame). src/engine/mantle.js
-weights the bins by their age into today's slab graveyard (docs/plates.md, The mantle).
+weights the bins by their age into today's slab graveyard (src/engine/mantle.js).
 
     node tools/earth/cells.mjs 4
     uv run --no-project --with numpy --with scipy --with pygplates python -I tools/earth/slabs.py

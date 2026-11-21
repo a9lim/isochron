@@ -1,4 +1,4 @@
-// The margin's figures, drawn from the model's own state (docs/design.md): zonal means, hypsometry, the polarity record, and the key to
+// The margin's figures, drawn from the model's own state (docs/MODEL.md): zonal means, hypsometry, the polarity record, and the key to
 // the Climate view's zones. Hairline axes, Newsreader, the inks for data.
 
 import { ZONES } from '../engine/climate.js';
@@ -505,7 +505,7 @@ export function drawPeople(canvas, fig, pal) {
 }
 
 /**
- * Fig. 9, the people's ages (docs/people.md, age cohorts): the world's people in five-year groups
+ * Fig. 9, the people's ages (docs/MODEL.md): the world's people in five-year groups
  * (src/engine/people.js `pyramid`, each a share of everyone on Earth), ages up the side, as bars in
  * the accent; the pre-industrial reference (births B_PRE, no growth) a graphite step outline behind
  * them, so the transition reads as the shape moving off it; the working ages (15–64) bracketed.

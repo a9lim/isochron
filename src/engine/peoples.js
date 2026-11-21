@@ -1,5 +1,5 @@
-// Peoples (batch 1c, landing 4; docs/people.md, "Peoples"): who people are, beside what they know.
-// Marks as in the plan: standard, synthesis, speculation.
+// Peoples (batch 1c, landing 4; docs/MODEL.md): who people are, beside what they know.
+// Marks: standard, synthesis, speculation.
 //
 // Each cell's identity is a point on a torus of side TOR for each of its ways of life (foragers,
 // herders, fishers, farmers, city people), held by that way's people: Barth's groups that last side

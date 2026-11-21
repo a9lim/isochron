@@ -1,4 +1,4 @@
-// The Regolith experiment's survey (docs/roadmap.md): does the ice's rhythm change
+// The Regolith experiment's survey: does the ice's rhythm change
 // as its beds are stripped? From the opening with CO₂ held and the regolith started at a given
 // depth on all land, the coupled planet runs at the Ice ages experiment's pace (the orbit seen
 // through a 20 kyr window, as at 10 kyr/s), and the ice's volume is read for its dominant period

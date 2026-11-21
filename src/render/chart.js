@@ -1,4 +1,4 @@
-// The synoptic chart's lines (docs/weather.md), found on the weather's grid and drawn on the overlay:
+// The synoptic chart's lines (docs/MODEL.md), found on the weather's grid and drawn on the overlay:
 //
 //   fronts     where the surface temperature's gradient is strong and the
 //              thermal front parameter, TFP = −∇|∇θ|·n̂ (n̂ = ∇θ/|∇θ|), peaks

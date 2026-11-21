@@ -1,4 +1,4 @@
-// The people beside a live Planet, headless (docs/people.md): the planet stepped on the
+// The people beside a live Planet, headless (docs/MODEL.md): the planet stepped on the
 // people's clock from the first farming origin on, the write-back through its own inputs as the
 // page does it (src/engine/peoplelink.js: emissions, land use, tillage, heat and sulfate). After
 // each climate cycle the people re-read the climate, the cover, the soil, the sea level and the

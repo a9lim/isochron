@@ -1,4 +1,4 @@
-// The people prototype, headless (docs/people.md; the model is src/engine/people.js):
+// The people prototype, headless (docs/MODEL.md; the model is src/engine/people.js):
 // the first people placed on a settled planet, run until AFTER years past the dial (the ending,
 // drawn at early takeoff, playing out), or tMax. "The dial runs out" (the minds doubling
 // in under a day) is the model's event (src/engine/people.js). It prints the events as they happen and a line at each doubling of

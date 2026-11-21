@@ -1,4 +1,4 @@
-// Mineral dust (docs/life.md): lifted from bare, dry ground by the
+// Mineral dust (docs/MODEL.md): lifted from bare, dry ground by the
 // wind, carried in a column by the season's winds, settled and washed out.
 // The module solves the balance at the climate's six points of the year and
 // leaves the routing (ice albedo, ocean iron, loess) to the planet.

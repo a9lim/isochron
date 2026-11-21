@@ -1,4 +1,4 @@
-// Volcanoes and the stratospheric veil (docs/climate.md). The effects are standard; the process is synthesis.
+// Volcanoes and the stratospheric veil (docs/MODEL.md). The effects are standard; the process is synthesis.
 //
 // Eruptions. A seeded Poisson process at three kinds of source:
 //   arcs       where ocean sinks (the plates' arc memory, `tec.arc`), at a rate

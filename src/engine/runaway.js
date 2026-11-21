@@ -1,4 +1,4 @@
-// The runaway greenhouse, on the planet's own books (docs/climate.md).
+// The runaway greenhouse, on the planet's own books (docs/MODEL.md).
 //
 // Standard physics: a moist atmosphere's outgoing longwave saturates. As the surface warms, its
 // column's water vapour grows opaque, and the OLR approaches the Simpson–Nakajima limit, ~282 W/m²

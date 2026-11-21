@@ -1,4 +1,4 @@
-// The crust's flexure (docs/surface.md): loads bend the lithosphere over
+// The crust's flexure (docs/MODEL.md): loads bend the lithosphere over
 // the flexural length instead of only beneath themselves (src/engine/flexure.js
 // has the plate and its solver).
 //
@@ -15,7 +15,7 @@
 // stood single cells km above and below their neighbours (a lake in every low
 // one); an orogen is weak, its plateau near Airy (Tibet's; from memory), and its
 // foreland basin is the downgoing plate's, which the grid consumes (docs/
-// roadmap.md). So the flexure is an incremental
+// ROADMAP.md). So the flexure is an incremental
 // correction to the Airy elevation (synthesis), kept in each plate's frame as
 // the crust is (FRAME_EXTRA's `cf`, m, up), with the column's mass it last saw
 // (`mq`, ρh in g/cm³·km):

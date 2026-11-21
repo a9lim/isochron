@@ -1,5 +1,5 @@
 import { stream } from '../rng.js';
-// The orbit and the sunlight it delivers (docs/design.md, docs/climate.md).
+// The orbit and the sunlight it delivers (docs/MODEL.md).
 //
 // Daily-mean insolation at latitude φ when the sun is at true longitude λ
 // (measured from the northern spring equinox), for obliquity ε, eccentricity
@@ -107,7 +107,7 @@ export function monthPhase(m) {
   return ((mid - 78.5) / 365.2422 + 1) % 1;
 }
 
-// ── The orbit's cycles (docs/design.md) ──
+// ── The orbit's cycles (docs/MODEL.md) ──
 // The planet's own Milankovitch cycles, seeded: eccentricity near 405, 124 and
 // 95 kyr, obliquity near 41 and 54 kyr, and the perihelion's precession near
 // 22 kyr relative to the equinox (Earth's periods and amplitudes, from memory,

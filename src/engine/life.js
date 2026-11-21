@@ -1,4 +1,4 @@
-// Minimal life (docs/life.md): the plants' cover and the sea's
+// Minimal life (docs/MODEL.md): the plants' cover and the sea's
 // carbon wired into the planet. The two models are their own files
 // (src/engine/vegetation.js, src/engine/oceancarbon.js, each tested alone);
 // this is what each takes from the rest and gives back.

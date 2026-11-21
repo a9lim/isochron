@@ -1,4 +1,4 @@
-// The ice ages with every amplifier (docs/roadmap.md): the regolith's beds, the
+// The ice ages with every amplifier: the regolith's beds, the
 // sea's carbon with CO₂ free, dust and the plants' cover. From the opening, the climate is
 // settled with CO₂ held at the baseline (as `Planet.settleClimate`, asynchronously: the sea,
 // the cover's closure, the lakes, the regolith's layer and the iron's reference wait for it,

@@ -1,4 +1,4 @@
-// The Pulse experiment (docs/life.md): carbon put into the air at
+// The Pulse experiment (docs/MODEL.md): carbon put into the air at
 // once, and the share of it still there after 1, 10 and 100 kyr.
 //
 // Measured: against a twin of the sea (src/engine/oceancarbon.js) copied at the

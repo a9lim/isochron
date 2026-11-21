@@ -1,4 +1,4 @@
-// The long carbon cycle (docs/life.md): outgassing against weathering.
+// The long carbon cycle (docs/MODEL.md): outgassing against weathering.
 //
 // Outgassing scales with the plates' activity, crust made at ridges and
 // consumed at trenches (against their rate at the opening),

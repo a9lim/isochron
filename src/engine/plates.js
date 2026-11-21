@@ -1,4 +1,4 @@
-// Plates and crust (docs/plates.md). Times in Myr, lengths on the unit
+// Plates and crust (docs/MODEL.md). Times in Myr, lengths on the unit
 // sphere (radians), speeds in rad/Myr (× 637.1 for cm/yr on Earth's radius).
 //
 // Each plate is a rotation Q (plate frame → mantle frame) and an angular
@@ -833,7 +833,7 @@ export class Tectonics {
    * (Dijkstra; each cell takes its nearest trench's, to 2π α). From the plates' motion, not the slab
    * memory, so the GPU's path (which keeps that memory) needs nothing more. Writes `trench` (km); with
    * `patch`, the elevation moves by the change. A collision bends no trench (nor, its stacking standing
-   * on local isostasy, a foreland basin: docs/roadmap.md).
+   * on local isostasy, a foreland basin: docs/ROADMAP.md).
    */
   trenches(patch = false) {
     const g = this.grid, n = g.n, pos = g.pos, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, plates = this.plates, R = EARTH_RADIUS_KM;

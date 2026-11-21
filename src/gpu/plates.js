@@ -37,7 +37,7 @@
 // grown earlier in the pass (the slabs' chain, iterated to SLAB_MAX), a frame
 // cell an earlier cell consumed is gone (a second decide pass), and a founder
 // keeps its later neighbours from foundering (the founders' pick). Without the
-// first, level 7's plates ran ~20% slow (AGENTS.md, "How the plates work").
+// first, level 7's plates run ~20% slow.
 // Relaxation reads the decided owners whole. f32 flips a nearest-cell tie now
 // and then, so the two agree at ~99.99% of cells a step and statistically over
 // many (one step: tests/gpu-plates.test.mjs).

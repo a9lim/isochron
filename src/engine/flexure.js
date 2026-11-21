@@ -1,4 +1,4 @@
-// Flexure of the lithosphere (docs/surface.md): a thin elastic plate
+// Flexure of the lithosphere (docs/MODEL.md): a thin elastic plate
 // over a fluid mantle (standard).
 //
 //   ∇²(D ∇²w) + Δρ g w = q

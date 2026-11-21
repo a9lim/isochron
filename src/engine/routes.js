@@ -1,5 +1,5 @@
-// The routes: one transport cost for every flow between the people's cells (docs/people.md,
-// "Routes and trade"; the roadmap's seam rule 2). Food, crops and knowledge run on them now; batch
+// The routes: one transport cost for every flow between the people's cells (docs/MODEL.md,
+// seam rule 2). Food, crops and knowledge run on them now; batch
 // 2's deliveries and goods are to run on the same costs.
 //
 // The graph is the people's grid's parent (level 5 under the people's 6: ~220 km), its nodes the

@@ -1,4 +1,4 @@
-// States (batch 2a, landing 1; docs/people.md, "States"): who people deliver to. Marks as in the plan:
+// States (batch 2a, landing 1; docs/MODEL.md): who people deliver to. Marks:
 // standard, synthesis, speculation; the whole is synthesis and its values speculation.
 //
 // A polity is the places still delivering grain, labour or tax along the routes to a centre. It isn't an

@@ -1,4 +1,4 @@
-// Age cohorts (docs/people.md): each cell's pyramid of one-year cohorts, riding the total that the
+// Age cohorts (docs/MODEL.md): each cell's pyramid of one-year cohorts, riding the total that the
 // people's demography solves exactly (src/engine/people.js, `demography`). The total keeps its own
 // law; the pyramid is its shape, and it feeds two things back: aging (the crude death rate a cell's
 // old people add, in place of the demography's closure on income) and the workers' share (each

@@ -1,4 +1,4 @@
-// Crust → elevation, and sea level (docs/plates.md).
+// Crust → elevation, and sea level (docs/MODEL.md).
 //
 // Elevation is Airy isostasy on crustal thickness and density, less the
 // thermal subsidence of oceanic crust as it cools and ages. The datum is

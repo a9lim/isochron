@@ -1,4 +1,4 @@
-// The landscape (docs/surface.md): rivers cut the land the plates raise,
+// The landscape (docs/MODEL.md): rivers cut the land the plates raise,
 // and carry it to lakes and the sea.
 //
 //   routing     depressions filled by priority flood (lakes), then steepest

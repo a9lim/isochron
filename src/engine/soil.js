@@ -1,4 +1,4 @@
-// The ground (docs/surface.md): soil water, the snowpack and the
+// The ground (docs/MODEL.md): soil water, the snowpack and the
 // ground's heat on each land cell, stepped by the month.
 //
 //   the bucket    soil water S up to a capacity S_max (mm); evaporation is

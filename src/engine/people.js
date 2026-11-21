@@ -1,14 +1,14 @@
-// People, from the first hominins to the takeoff and the ending (docs/people.md). It reads a planet's fields (src/engine/peoplelink.js,
+// People, from the first hominins to the takeoff and the ending (docs/MODEL.md). It reads a planet's fields (src/engine/peoplelink.js,
 // `fieldsOf`): held fixed on a cached opening (tools/people/planet.mjs), or re-read from a live
 // Planet after each climate cycle and written back to it through the planet's own inputs (the
 // page: src/engine/people-worker.js beside the engine's worker; headless: tools/people/couple.mjs).
-// Marks as in the plan: standard, synthesis, speculation.
+// Marks: standard, synthesis, speculation.
 //
 // One loop (Kremer's, standard; Kremer 1993, from memory): minds make ideas, ideas raise what the
 // land carries, and what it carries makes minds. v1 splits the factors where a split brings its own
 // dynamics and lands on a layer the planet has, each switched on by era:
 //
-//   knowledge   z, in e-folds of productivity, per cell, in two domains (batch 1c, docs/roadmap.md):
+//   knowledge   z, in e-folds of productivity, per cell, in two domains:
 //             production (`zc`, techniques: every yield and its thresholds, cold, boats, trade's
 //             reach, industry and the economy) and learning (`zl`, writing, numeracy, science:
 //             contact, copying's pace, research's yield), bound together only by production's
@@ -409,7 +409,7 @@ export const PEOPLE = {
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
   U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
-  // Peoples (src/engine/peoples.js, docs/people.md "Peoples"; synthesis, the values speculation): identity's torus (TOR
+  // Peoples (src/engine/peoples.js, docs/MODEL.md; synthesis, the values speculation): identity's torus (TOR
   // around: a language apart is 1, a family ~2.3); its drift (σ² a dimension a year: a language apart in ~1.25 kyr
   // parted, Romance's, from memory) and a founder's kick (a dimension) where migrants settle an empty place;
   // contact's rate at no distance (a dialect levels in about a century), the distance that halves it, its floor
@@ -428,7 +428,7 @@ export const PEOPLE = {
   TOR: 8, ID_SIG2: 2e-4, ID_KICK: 0.05, R_CONT: 0.01, D_CONT: 0.5, G_FLOOR: 0.05, X_WAY: 0.05, D_MIX: 0.3, F_CONV: 0.25, R_ATT: 1e-5,
   ID_L0: 100, Z_ID0: 4, Z_IDL: 1, ID_LMAX: 2e4, R_MEDIA: 0.02, L_WORLD: 1e4, DT_ID: 10,
   D_SIM: 2, ID_COPY: 1, CL_TRADE: 0.5, ID_EPS: 1e-2, D_HILL: 0.5,
-  // States (batch 2a; src/engine/polities.js, docs/people.md "States"; synthesis, the values speculation; tuned to
+  // States (batch 2a; src/engine/polities.js, docs/MODEL.md; synthesis, the values speculation; tuned to
   // Earth's history of states on the earth seed, its geography allowed for). A state's reach e-fold over C_POL0 +
   // K_POL × the trade's reach of route cost (~260 km by road at farming's start, ~1,000 by the Iron Age's), softly
   // at most L_POLMAX (~3,300 km by road; an ocean by sea); arms e-fold per Z_MIL of production, a herder's × (1 +
@@ -2826,8 +2826,7 @@ export class People {
   }
 
   /**
-   * Where the cities are and who feeds them, every DT_PLACES years (synthesis; docs/people.md,
-   * "Cities that must be fed"), and where the machines are (drawn). Each farming cell's urban share u
+   * Where the cities are and who feeds them, every DT_PLACES years (synthesis; docs/MODEL.md), and where the machines are (drawn). Each farming cell's urban share u
    * (U_AG once it farms, rising to U_IND with industry) of its food goes to the cities it is drawn
    * to (`foodshed`); `feed` moves it each step, and the people follow it by the spread. A city's
    * people are the share of its cell's food that came in (`cityShare`). With G_CITY > 1 the largest

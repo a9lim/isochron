@@ -1,4 +1,4 @@
-// The weather (docs/weather.md), on the GPU: two-layer quasi-geostrophic
+// The weather (docs/MODEL.md), on the GPU: two-layer quasi-geostrophic
 // flow on the sphere (standard), on the drawn mesh (level 7, 55 km); its forcing comes
 // from the engine's grid, refined onto the mesh where that is coarser (src/gpu/refine.js).
 //

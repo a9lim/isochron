@@ -1,4 +1,4 @@
-// The mantle beneath the plates (docs/plates.md, The mantle): not convection, but a mantle that remembers
+// The mantle beneath the plates (docs/MODEL.md): not convection, but a mantle that remembers
 // (synthesis on standard ideas). On a coarse grid fixed in the mantle's frame (level 4, ~440 km cells):
 //   the graveyard   the slabs' area per area of mantle, σ: fed where ocean sinks (the trenches' flux,
 //                   plates.js `trenches`) and sinking away to the core over T_SINK, dσ/dt = flux − σ/T_SINK

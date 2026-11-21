@@ -1,4 +1,4 @@
-// Carbon that lives somewhere (docs/life.md): the exogenic pool of
+// Carbon that lives somewhere (docs/MODEL.md): the exogenic pool of
 // carbon.js split into the air, three boxes of sea and the seafloor's
 // carbonate, after LOSCAR (Zeebe's box model) and Toggweiler and Sarmiento's
 // three boxes. It replaces R and pCO₂ ∝ R²; outgassing, silicate weathering's

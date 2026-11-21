@@ -1,4 +1,4 @@
-// The people on today's Earth against where people live now (docs/people.md, "On Earth"): runs
+// The people on today's Earth against where people live now (docs/MODEL.md): runs
 // the people from the first of them to early takeoff on the cached opening, several draws of their
 // chances in parallel, and scores each run's population by region against the regions' shares now
 // (rough, from memory: national totals of ~2023 split onto the boxes below): Σ share × |ln(model /

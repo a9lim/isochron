@@ -1,4 +1,4 @@
-// Fig. 10 with people: the planet's solar system as the ending leaves it (docs/people.md, the endings;
+// Fig. 10 with people: the planet's solar system as the ending leaves it (docs/MODEL.md;
 // today's on the `earth` seed, else seeded: src/engine/solar.js). A plan view, the Sun at the centre and
 // distance on a log scale (0.3 to 11 AU, or as far as the system reaches), each planet on its orbit at a
 // fixed angle (where it is in its year isn't a quantity here). Every mark reads the model's:

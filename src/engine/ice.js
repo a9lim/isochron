@@ -1,4 +1,4 @@
-// Ice sheets (docs/surface.md).
+// Ice sheets (docs/MODEL.md).
 //
 //   flow         the shallow-ice approximation with Glen's law (n = 3): flux
 //                q = −Γ H⁵ |∇s|² ∇s, Γ = 2A(ρg)³/5 (standard), explicit in

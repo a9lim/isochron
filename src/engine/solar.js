@@ -1,4 +1,4 @@
-// The planet's solar system (docs/people.md, Off-world): today's on the `earth` seed, else seeded. The
+// The planet's solar system (docs/MODEL.md): today's on the `earth` seed, else seeded. The
 // people's model reads it (the worlds they settle, the inner planet the swarm takes apart, the belt the
 // habitats are built from) and Fig. 9 draws it (src/render/system.js). The Sun and the Moon are the
 // same for every seed (the climate's sunlight, and the tide and day the Moon keeps, are tuned to them).

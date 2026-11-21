@@ -1,4 +1,4 @@
-// The people and the planet (docs/people.md; the people are src/engine/people.js).
+// The people and the planet (docs/MODEL.md; the people are src/engine/people.js).
 // The people read the planet's fields after each climate cycle and write back through the
 // planet's own inputs, so nothing else in the engine knows of them:
 //   emissions   fossil carbon burned (less what capture takes back) goes to `carbon.pulse` before
@@ -110,7 +110,7 @@ export function fieldsOf(P, f = null, T = null) {
 }
 
 /**
- * The planet's years for the people's harvests (synthesis; docs/people.md). After each of the
+ * The planet's years for the people's harvests (synthesis; docs/MODEL.md). After each of the
  * year's steps (src/engine/year.js, `hooks`), on the year's own grid, its months of the log-rain
  * anomaly's unit z and of T′ go into a running year; each whole year adds its means to moments the
  * people take a few times a second: a cell each, [years, Σz, Σz², ΣT′, ΣT′², ΣzT′], the years
