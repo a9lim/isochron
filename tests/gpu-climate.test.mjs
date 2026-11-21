@@ -1,19 +1,16 @@
-// The climate's cycle on the GPU against its CPU reference (src/engine/climate.js),
-// headless (WebGPU in node via tests/webgpu-node.mjs; skipped without it):
-// the energy balance's steps (src/gpu/ebm.js, with the clouds) and the moisture's packing
-// (src/gpu/moisture.js, solveFrom), each from one warm state.
+// The climate's GPU paths against their CPU references from one warm state: the energy balance (src/gpu/ebm.js,
+// with the clouds), the moisture (src/gpu/moisture.js: its packing, and its balance against the CPU's sweeps), the tide.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasGPU } from './webgpu-node.mjs';
+import { skip } from './webgpu-node.mjs';
 
-const skip = hasGPU ? false : 'no WebGPU in node (npm install in tests/)';
 
 /** A warm level-5 climate (moisture on the GPU), its device, and a way to run a generator awaiting the GPU. */
 async function warm() {
   const { gpuDevice } = await import('../src/gpu/device.js');
   const { GpuMoisture } = await import('../src/gpu/moisture.js');
   const { Planet } = await import('../src/engine/planet.js');
-  const P = new Planet('earthlike', { level: 5, spinup: 10 });
+  const P = new Planet('earthlike', { level: 4, spinup: 10 });
   const device = await gpuDevice(), c = P.climate;
   c.gpu = new GpuMoisture(device, c.grid);
   for (let k = 0; k < 3; k++) { await c.solveAsync(1); P.afterClimate(); }
@@ -70,4 +67,46 @@ test('the moisture\'s coefficients packed on the GPU: the CPU\'s packing, solved
     assert.ok(Math.sqrt(dw / sw) < 1e-5, `point ${p}: column water off by ${Math.sqrt(dw / sw).toExponential(2)} (relative rms)`);
     assert.ok(Math.sqrt(dp / sp) < 1e-4, `point ${p}: rain off by ${Math.sqrt(dp / sp).toExponential(2)} (relative rms)`);
   }
+});
+
+test('moisture on the GPU: the balance the CPU sweeps converge to', { skip }, async () => {
+  const { gpuDevice } = await import('../src/gpu/device.js');
+  const { GpuMoisture } = await import('../src/gpu/moisture.js');
+  const { Planet, CLIMATE } = await import('../src/engine/planet.js');
+  const P = new Planet('earthlike', { level: 4, spinup: 10 });
+  const c = P.climate;
+  c.solve(4);
+  // One more cycle from the same state each way: the CPU's sweeps run to convergence.
+  const keys = ['Tc', 'Tf', 'W', 'Pph', 'Pf', 'zones', 'snowAnn', 'runoff'];
+  const snap = Object.fromEntries(keys.map(k => [k, structuredClone(c[k])]));
+  const clouds = { lo: c.clouds.lo.slice(), hi: c.clouds.hi.slice() };   // the next energy balance's (src/engine/clouds.js)
+  const restore = () => { for (const k of keys) { if (Array.isArray(c[k])) c[k].forEach((a, i) => a.set(snap[k][i])); else c[k].set(snap[k]); } c.clouds.lo.set(clouds.lo); c.clouds.hi.set(clouds.hi); };
+  const base = CLIMATE.SWEEPS;
+  CLIMATE.SWEEPS = 60;
+  c.solve(1);
+  CLIMATE.SWEEPS = base;
+  const ref = c.Pph.map(p => Float32Array.from(p));
+  restore();
+  c.gpu = new GpuMoisture(await gpuDevice(), c.grid);
+  await c.solveAsync(1);
+  let d = 0, sum = 0;
+  for (let p = 0; p < 6; p++) for (let i = 0; i < c.grid.n; i++) { d += Math.abs(c.Pph[p][i] - ref[p][i]); sum += ref[p][i]; }
+  // The GPU's sweeps stop at their own count (1.16% on the planet with Earth's relief, 2026-11-18; under 1% before).
+  assert.ok(d < 0.015 * sum, `rain off by ${(100 * d / sum).toFixed(2)}% in all`);
+});
+
+test('the tide on the GPU: the CPU reference, on the opening planet', { skip }, async () => {
+  const { gpuDevice } = await import('../src/gpu/device.js');
+  const { GpuTides } = await import('../src/gpu/tides.js');
+  const { Tides, Moon } = await import('../src/engine/tides.js');
+  const { Planet } = await import('../src/engine/planet.js');
+  const P = new Planet('earthlike', { level: 4, spinup: 10 }), g = P.grid, m = new Moon();
+  const depth = P.tideDepth(g.n);
+  const cpu = new Tides(g); cpu.ocean(depth);
+  const gpu = new GpuTides(await gpuDevice(), g); gpu.ocean(depth);
+  const a = cpu.solve(m.omega, m.Omega, 12), b = await gpu.solve(m.omega, m.Omega, 12);
+  let d = 0, s = 0;
+  for (let i = 0; i < g.n; i++) { d += Math.hypot(a.C[i] - b.C[i], a.S[i] - b.S[i]) * g.area[i]; s += Math.hypot(a.C[i], a.S[i]) * g.area[i]; }
+  assert.ok(d < 0.005 * s, `harmonic off by ${(100 * d / s).toFixed(3)}%`);
+  assert.ok(Math.abs(a.P - b.P) < 0.005 * a.P, `dissipation ${b.P.toExponential(3)} against ${a.P.toExponential(3)}`);
 });

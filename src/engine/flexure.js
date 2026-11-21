@@ -216,7 +216,7 @@ export function sharedElasticThickness(tec) {
  * With `zeroMean` the area-weighted mean is removed: with one Δρ everywhere a
  * uniform load lowers the whole sphere alike and bends nothing.
  * Flexing the whole column moves the opening planet's continental margins by
- * kilometres (tests/flexure.test.mjs): crust.js's columns are compensated as
+ * kilometres: crust.js's columns are compensated as
  * they were made, so what bends the plate is a load's change since then.
  */
 export function loadOf(grid, { h, felsic, subs = null, age = null, sediment = null, water = null, ice = null }, out = new Float64Array(grid.n), { zeroMean = true } = {}) {

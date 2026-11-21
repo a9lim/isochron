@@ -14,7 +14,7 @@
 
 ## Architecture
 
-Vanilla ES modules, no dependencies. `src/engine/` and `src/grid/` hold no DOM. A layer owns its arrays and exports its step and its summary. New per-cell state lands with a CPU reference, an analytic oracle in `tests/`, and, if it runs on the GPU, a parity test. Oracles by layer: grid counts and Euler's characteristic; plates: area kept under rotation, v = ω × r; isostasy: the half-space depth curve, water kept; landscape: S = (U/K)^{1/n} A^{−m/n}; climate: the ice line, the seasonal response 1/(B + iωC); ice: Vialov's cap; carbon: the thermostat's balance; ocean: Sverdrup's interior; weather: Phillips' criterion. Threads and the GPU: `engine.md`.
+Vanilla ES modules, no dependencies. `src/engine/` and `src/grid/` hold no DOM. A layer owns its arrays and exports its step and its summary; the CPU code is the headless reference for every GPU path. Testing: `AGENTS.md`. Threads and the GPU: `engine.md`.
 
 ## Scenarios
 

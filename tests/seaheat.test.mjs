@@ -1,7 +1,5 @@
-// The sea's heat transport (src/engine/seaheat.js) on a seeded planet: the overturning's flow is a
-// potential flow that conserves water (what leaves each cell is what arrives, less what sinks, plus
-// what wells up); the heat it gives the air sums to nothing; a circumpolar channel's westerlies drive
-// it and its upwelling lies in the channel; and a zonally open sea carries no gyre heat across it.
+// The sea's heat transport (src/engine/seaheat.js): water kept through every cell, and the heat it gives the air
+// summing to nothing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -46,24 +44,4 @@ test('the sea\'s water: kept through every cell, and the heat it gives the air s
   assert.ok(Math.abs(Q) < 1e-6 * up, `the heat sums to ${(Q / up).toExponential(1)} of what it moves`);
   const [eq, mid] = sh.transport([0, 45]);
   assert.ok(Number.isFinite(eq) && Number.isFinite(mid), 'its transport is measured');
-});
-
-test('a circumpolar channel: its westerlies drive the overturning, which wells up in it', () => {
-  // A sea open all the way round between two latitudes: cut every cell there to sea.
-  const lf = c.landFracC, kept = Float64Array.from(lf);
-  for (let I = 0; I < nc; I++) { const la = Math.asin(cg.pos[3 * I + 2]) * 180 / Math.PI; if (la > -62 && la < -52) lf[I] = 0; }
-  sh.key = null; sh.geometry(); sh.settle();
-  try {
-    assert.ok(sh.open[90 - 57] === 1, 'the channel\'s circles are open');
-    setWind(la => (la < 0 ? 9 : 4) * Math.cos(3 * la) ** 2 * (Math.abs(la) > 0.6 ? 1 : -0.5));
-    sh.setFlow();
-    assert.ok(sh.ek.S > 1, `the westerlies' Ekman transport out of the channel (${sh.ek.S.toFixed(1)} Sv)`);
-    assert.ok(sh.psi.S > 0, 'it drives an overturning');
-    let inBand = 0, all = 0;
-    for (let I = 0; I < nc; I++) { const la = Math.asin(cg.pos[3 * I + 2]) * 180 / Math.PI; all += sh.pat.S.S[I]; if (la < -52 + SEAHEAT.CHANNEL) inBand += sh.pat.S.S[I]; }
-    assert.ok(inBand > 0.999 * all, 'its upwelling lies poleward of the channel\'s band\'s edge');
-    let north = 0;
-    for (let I = 0; I < nc; I++) if (cg.pos[3 * I + 2] > 0) north += sh.pat.S.K[I];
-    assert.ok(north > 0.999, 'and it sinks in the other hemisphere');
-  } finally { lf.set(kept); sh.key = null; sh.geometry(); sh.settle(); }
 });

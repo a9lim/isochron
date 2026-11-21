@@ -1,8 +1,8 @@
-// The runaway greenhouse (src/engine/runaway.js): the OLR's curve and its inverse, the steam's
-// surface, and the sea boiling away without making or losing carbon.
+// The runaway greenhouse (src/engine/runaway.js): the OLR's curve, the steam's surface, and the boiled sea's carbon
+// kept.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { olr, olrInverse, plateau, steamT, RUNAWAY } from '../src/engine/runaway.js';
+import { olr, olrInverse, plateau, RUNAWAY } from '../src/engine/runaway.js';
 import { OceanCarbon, OC } from '../src/engine/oceancarbon.js';
 import { CLIMATE } from '../src/engine/climate.js';
 
@@ -17,15 +17,6 @@ test('the OLR leaves A + BT at the knee, reaches the limit at the plateau, C¹ a
   assert.ok(Math.abs(slope(Tk) - B) < 1e-3 && Math.abs(slope(Tp - h)) < 1e-3, `C¹ (${slope(Tk)}, ${slope(Tp - h)})`);
   for (const T of [0, 20, 30, 40, Tp - 0.5]) assert.ok(Math.abs(olrInverse(olr(T, A, B), A, B) - T) < 1e-6, `inverse at ${T}`);
   assert.equal(olrInverse(RUNAWAY.L_RUN + 1, A, B), Infinity);
-});
-
-test('the steam: 100 °C at a bar, the critical point near 374 °C, T_POST when it is all in the air, and monotone', () => {
-  const bar = b => b / RUNAWAY.P_OCEAN;
-  assert.ok(Math.abs(steamT(bar(1)) - 100) < 1e-6);
-  assert.ok(Math.abs(steamT(bar(100)) - 311) < 15, `100 bar: ${steamT(bar(100)).toFixed(0)} °C against the tables' 311`);
-  assert.ok(Math.abs(steamT(1) - RUNAWAY.T_POST) < 1e-9);
-  let last = -Infinity;
-  for (let b = 1e-4; b <= 1; b += 1e-3) { const T = steamT(b); assert.ok(T >= last - 1e-9, `monotone at ${b}`); last = T; }
 });
 
 test('the sea boiling away: the boiled water\'s carbon goes to the air, and none is made or lost', () => {

@@ -4,7 +4,7 @@
 //
 // The columns crust.js builds are compensated as they were made (Airy, on the
 // crust's thickness and density), and flexing them whole moves the opening's
-// margins by kilometres (tests/flexure.test.mjs). What bends the plate is a
+// margins by kilometres. What bends the plate is a
 // column's change of load since: arc crust, basalt from the plumes, the ice's
 // till. A collision's stacking and the crust's deformation (plates.js, deform)
 // stand on local isostasy, as do the rivers' cut and fill and the diffusion's

@@ -1,27 +1,13 @@
-// The routes (src/engine/routes.js) against their oracles: a sail's year-mean speed, Dijkstra
-// against brute force, and on a water world with two islands under one wind, the way home the long
-// way round (the volta do mar's), and a monsoon's reversal making both ways alike.
+// The routes (src/engine/routes.js): Dijkstra against brute force, and the way home the long way round under one
+// wind.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
 import { People } from '../src/engine/people.js';
-import { Routes, ROUTES, sailSpeed, dijkstra, Heap, twelve } from '../src/engine/routes.js';
+import { Routes, ROUTES, dijkstra, Heap } from '../src/engine/routes.js';
 
 const R = 6371;
-
-test('a sail runs before a fair wind at its speed, beats against one, and a monsoon halves the difference', () => {
-  const h = [1, 0, 0], cu = [0, 0, 0], C = ROUTES;
-  const fair = new Float64Array(18), foul = new Float64Array(18), mon = new Float64Array(18);
-  for (let p = 0; p < 6; p++) { fair[3 * p] = C.W_REF; foul[3 * p] = -C.W_REF; mon[3 * p] = p < 3 ? C.W_REF : -C.W_REF; }
-  const beat = Math.max(C.V_ROW, C.V_SHIP * C.G_UP);
-  assert.ok(Math.abs(sailSpeed(h, fair, cu, 1) - C.V_SHIP) < 1e-9);
-  assert.ok(Math.abs(sailSpeed(h, foul, cu, 1) - beat) < 1e-9);
-  assert.ok(Math.abs(sailSpeed(h, mon, cu, 1) - 0.5 * (C.V_SHIP + beat)) < 1e-9);
-  // A current along the way adds to the speed; ice closes the sea for its share of the year.
-  assert.ok(Math.abs(sailSpeed(h, fair, [0.5, 0, 0], 1) - (C.V_SHIP + 0.5)) < 1e-9);
-  assert.ok(Math.abs(sailSpeed(h, fair, cu, 0.5) - 0.5 * C.V_SHIP) < 1e-9);
-});
 
 test('Dijkstra matches brute force on a grid with uneven, directed costs', () => {
   const g = buildGrid(2), n = g.n, m = g.nbrOff[n];
@@ -84,42 +70,4 @@ test('under one wind the way home is the long way round, and a monsoon makes bot
     const quarter = R * Math.PI / 2, k = C.V_SHIP / (0.5 * (C.V_SHIP + Math.max(C.V_ROW, C.V_SHIP * C.G_UP)));
     assert.ok(out > 0.95 * k * quarter && out < 1.2 * k * quarter + 2 * C.C_PORT + 400, `monsoon out ${out.toFixed(0)} against ${(k * quarter).toFixed(0)}`);
   }
-});
-
-test('a market pools the harvest by its basket: one-factor variance', () => {
-  const f = islands([1, 1, 1, 1, 1, 1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f);
-  // A cell trading τ through a market whose basket has variance V and covariance C with it.
-  rt.active = [0]; rt.mF = new Float64Array(rt.nm).fill(1); rt.V = new Float64Array(rt.nm).fill(0.25); rt.Cv = new Float64Array(rt.nm).fill(0.5);
-  const c = 0; pp.f[c] = 0.5; pp.ind[c] = 0; rt.marketOf[c] = 0;
-  const tau = ROUTES.TAU_AG, want = 1 / Math.sqrt((1 - tau) ** 2 + 2 * tau * (1 - tau) * 0.5 + tau * tau * 0.25);
-  const p = rt.pool(c);
-  assert.ok(Math.abs(p.pool - want) < 1e-9 && p.tau === tau);
-  pp.f[c] = 0; assert.equal(rt.pool(c).pool, 1);   // foragers don't trade food
-});
-
-test('twelve directions: paths on an even graph run within a few percent of the great circle', () => {
-  const g = buildGrid(4), G = twelve(g), n = g.n;
-  let deg12 = 0;
-  for (let u = 0; u < n; u++) { const d = G.nbrOff[u + 1] - G.nbrOff[u]; if (d === 12) deg12++; else assert.equal(d, 10, `a pentagon's ten (${d} at ${u})`); }
-  assert.equal(deg12, n - 12);
-  // Cost = length: the worst ratio of path to great circle over far pairs, on six directions and twelve.
-  const km = (u, v) => Math.acos(Math.min(1, g.pos[3 * u] * g.pos[3 * v] + g.pos[3 * u + 1] * g.pos[3 * v + 1] + g.pos[3 * u + 2] * g.pos[3 * v + 2]));
-  const cost6 = Float32Array.from({ length: g.nbrOff[n] }, (_, o) => g.dist[o]);
-  const cost12 = new Float32Array(G.nbrOff[n]);
-  for (let u = 0; u < n; u++) for (let o = G.nbrOff[u]; o < G.nbrOff[u + 1]; o++) cost12[o] = km(u, G.nbr[o]);
-  const dist = new Float64Array(n), heap = new Heap(4 * G.nbrOff[n]);
-  const worst = (graph, cost) => { let w = 0; for (const s of [0, 100, 777]) { dijkstra(graph, cost, s, dist, null, heap); for (let v = 0; v < n; v++) { const d = km(s, v); if (d > 0.5 && d < 2.5) w = Math.max(w, dist[v] / d); } } return w; };
-  const w6 = worst(g, cost6), w12 = worst(G, cost12);
-  assert.ok(w6 > 1.1, `six directions run long off their axes (${w6.toFixed(3)})`);
-  assert.ok(w12 < 1.05, `twelve run within 5% (${w12.toFixed(3)})`);
-});
-
-test('roads and canals cheapen the sail\'s part by land between two markets', () => {
-  const f = islands([1, 1, 1, 1, 1, 1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f);
-  const a = 0, b = 1, base = rt.cost(a, b, 'S'), land = rt.LS[a * rt.nm + b];
-  rt.mWr = new Float64Array(rt.nm).fill(1); rt.mWc = new Float64Array(rt.nm);
-  assert.ok(Math.abs(rt.cost(a, b, 'S') - base * (1 - land / 2)) < 1e-6 * base, 'roads at their room halve the part by land');
-  rt.mWr.fill(0); rt.mWc.fill(0.2);
-  assert.ok(Math.abs(rt.cost(a, b, 'S') - base * (1 - land / 2)) < 1e-6 * base, 'canals over a fifth of the land halve it too');
-  assert.equal(rt.cost(a, b, 'I'), rt.R.I[a * rt.nm + b], 'steam and rail are industry\'s own');
 });

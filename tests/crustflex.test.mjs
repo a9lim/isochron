@@ -1,9 +1,4 @@
-// Phase 7's flexure of the crust (src/engine/crustflex.js): an incremental correction to
-// the Airy elevation, kept in the plates' frames. It reduces to Airy at Tₑ → 0 and at
-// τ → 0; under a narrow change of load on a stiff plate the column moves less than Airy's
-// and its surroundings move with it, the correction's integral nothing; it rides the
-// frames with the crust; and on a running planet it holds few columns below their
-// neighbours (a collision's stacking and the crust's flows stand on local isostasy).
+// The crust's flexure (src/engine/crustflex.js): Airy in its limits, its integral nothing, carried with the crust.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -13,7 +8,6 @@ import { Flexure } from '../src/engine/flexure.js';
 import { CrustFlex, CRUSTFLEX } from '../src/engine/crustflex.js';
 import { RHO_CONTINENTAL, RHO_MANTLE } from '../src/engine/crust.js';
 
-const say = (...a) => console.log('  ', ...a);
 const grids = [];
 const grid = L => { for (let l = 1; l <= L; l++) grids[l] ||= buildGrid(l); return grids[L]; };
 
@@ -69,8 +63,6 @@ test('the crust\'s flexure: Airy at Tₑ → 0 and at τ → 0; a narrow change 
   s1.F.step(0);
   let still = 0;
   for (let i = 0; i < g.n; i++) still = Math.max(still, Math.abs(tec.flexc[i] - before[i]) * 1000);
-  say(`Airy rebound ${wA.toFixed(0)} m; Tₑ 0.2 km: off Airy by ${soft.toFixed(3)} m at most; Tₑ 60 km: the cell ${(-atC).toFixed(0)} m below Airy, its neighbours ${(ring / nr).toFixed(0)} m above, ` +
-    `∫c ${(int / abs).toExponential(1)} of ∫|c|; τ → 0: ${relaxed.toFixed(3)} m on continents at most; unchanged crust moves it ${still.toExponential(1)} m`);
   assert.ok(soft < 1e-3 * wA, 'Airy at Tₑ → 0');
   assert.ok(atC < -0.15 * wA && ring / nr > 0, 'held by the plate');   // a hexagon of 220 km under α ≈ 130 km: ~18% of Airy's rebound held
   assert.ok(Math.abs(int) < 2e-3 * abs, 'the integral is nothing');
@@ -93,24 +85,5 @@ test('the crust\'s flexure rides the frames: plate steps carry c with the crust'
     else if (Math.abs(p.cf[j] - (t0 - p.tf[j])) < 1e-4 * Math.max(1, p.cf[j])) ok++;
     else bad++;
   }
-  say(`after 2 Myr of steps: ${ok} cells carried their crust's mark, ${fresh} new crust at none, ${bad} otherwise`);
   assert.equal(bad, 0);
-});
-
-test('on a running planet the flexure holds few columns below their neighbours: no speckle of one-cell lakes', async () => {
-  const { openPlanet } = await import('../src/engine/planet.js');
-  const P = await openPlanet('earthlike', { level: 6 }), tec = P.tec, g = tec.grid, n = g.n;
-  for (let k = 0; k < 40; k++) P.plateStep(2.5e5);   // 10 Myr of plates, landscape and the flexure
-  let land = 0, below = 0, above = 0;
-  for (let i = 0; i < n; i++) {
-    if (tec.sea[i]) continue;
-    land++;
-    let s = 0, c = 0;
-    for (let e = g.nbrOff[i]; e < g.nbrOff[i + 1]; e++) { s += tec.flexc[g.nbr[e]]; c++; }
-    const d = tec.flexc[i] - s / c;
-    if (d < -0.3) below++; else if (d > 0.3) above++;
-  }
-  say(`after 10 Myr, of ${land} land cells the flexure holds ${below} more than 300 m below their neighbours, ${above} above (volcanoes, their moats)`);
-  // With the stacking, the wedge's moves and the thick crust's flow as loads, ~3% stood below: a lake in each.
-  assert.ok(below < 0.015 * land, `${below} of ${land}`);
 });

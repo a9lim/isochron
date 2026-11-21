@@ -68,7 +68,7 @@ for (let b = 0; b < NB; b++) {
   for (let k = 1; k < LAG; k++) s += 2 * (1 - k / LAG) * Math.max(0, C(k));
   sw[b] = Math.sqrt(s / LAG); daily[b] = Math.sqrt(C(0));
 }
-// The anomaly model's land spread per band under Q (its closure, which tracks the live model: tests/year.test.mjs).
+// The anomaly model's land spread per band under Q (its closure, which tracks the live model).
 const Q0 = YEAR.Q.slice(), FIT_FROM = 2;
 function modelSpread() {
   const y = new Year(c, null, 'fit');

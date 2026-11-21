@@ -22,11 +22,12 @@ An Earth-like planet on one globe, from plate tectonics down to weather and peop
 
 ## Running and checking
 
-Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent's `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet (without one the page draws six letters and writes them into the link); `?seed=earth` is today's Earth; `?scenario=people` the People scenario (`&ending=1a`, `1b`, `2a`, `2b`, `3a`, `3b` forces its ending); `?level=` the engine's level. `/isochron/tests/gpu.html` runs the weather's GPU tests in the browser (results in `window.__results`).
+Serve from the parent root with `node docs/sim-overhaul/serve.mjs 8790` (the parent's `.claude/launch.json` calls it "sims") and open `/isochron/`. `?seed=<string>` picks the planet (without one the page draws six letters and writes them into the link); `?seed=earth` is today's Earth; `?scenario=people` the People scenario (`&ending=1a`, `1b`, `2a`, `2b`, `3a`, `3b` forces its ending); `?level=` the engine's level.
 
 ```bash
-(cd tests && npm install)              # once: WebGPU in node (Dawn) for the GPU parity tests
-node --test tests/                     # everything (~15 min; moon-long.test.mjs is most of it)
+node --test 'tests/*.test.mjs'         # the suite (~10 s here; the GPU tests skip without Dawn)
+(cd tests && npm ci)                   # once, for the GPU tests: WebGPU in node (Dawn, the pinned `webgpu`)
+node --test 'tests/gpu-*.test.mjs'     # the GPU tests alone (~5 s; each skips if the package or an adapter is missing)
 for f in main.js colors.js src/*.js src/*/*.js; do node --check "$f"; done
 node tools/climate-check.mjs earthlike # a seeded planet's settled climate (or `earth`)
 node tools/earth/climate-score.mjs     # today's Earth against observations (tools/earth/README.md)
@@ -58,7 +59,7 @@ src/gpu/          device.js, hierarchy.js (nested grids for multigrid), and each
                   ice, flexure, tides, soil, plates, surface, weather, season, refine)
 src/render/       camera, globe (and its shader), surface, lines, along, overlay, rivers, streamlines, chart (+ chart-worker),
                   figures (with Fig. 9's ages), economy, system (Fig. 10), key, sky
-tests/            node:test files, one per layer or coupling, GPU parity tests on Dawn (webgpu-node.mjs), gpu.html
+tests/            node:test files, one per layer or coupling; gpu-*.test.mjs on Dawn (webgpu-node.mjs sets it up)
 tools/            headless runs, surveys and fits; tools/earth/ (Earth's data and scoring), tools/people/
 docs/             the docs above
 ```
@@ -67,7 +68,8 @@ docs/             the docs above
 
 - Mark claims as standard, synthesis or speculation, and "from memory" where a value wasn't checked against a source. Never take a reference, DOI or URL from memory into `about.md` (the parent's rule).
 - Keep the docs current-only: they describe the code as it is. Code headers point to their doc.
-- New per-cell state lands with a CPU reference, a test against an analytic oracle and, on the GPU, a parity test. Kernels bind at most eight storage buffers.
-- WGSL compiles only in the browser (and Dawn in node): check the console and `tests/gpu.html` after shader edits.
+- Tests guard what running the sim wouldn't show: conservation, analytic oracles of a layer's physics, exact steps and determinism, CPU–GPU parity. Add one where a new mechanism's failure would be silent, one case per mechanism, small and seeded; never snapshot tuned values (the Earth scores in `tools/` track those). A kernel without a CPU reference gets its physics checked on Dawn (as the weather's are). Calibration, surveys and costs are tools, not tests.
+- New per-cell state lands with a CPU reference. Kernels bind at most eight storage buffers.
+- WGSL compiles only in the browser and in Dawn: the GPU tests compile the engine's kernels and the weather's, not the globe's render shader, so check the page's console after shader edits.
 - Tuning is on today's Earth (`docs/earth.md`): after a change that moves the climate, re-score and, if needed, re-tune with `tools/earth/tune.mjs` on a copy of `src/`, `earth/` and `tools/earth/` (it spawns the scorer fresh, reading the source as it stands). Seeded planets may shift; report it.
 - A hidden browser pane runs as a background page: drive it with `tick()` and time it visible.

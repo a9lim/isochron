@@ -108,7 +108,7 @@
 // converge (a large pulse and a long step) halves itself. Cost: ~10 µs a call
 // at a slow dial, ~0.7 ms for a 1 Myr call (50 substeps), ~3 ms to settle.
 //
-// Measured (tests/oceancarbon.test.mjs, Earth's sea and a normal seafloor about
+// Measured (Earth's sea and a normal seafloor about
 // 4 km): saturation at 2.4 km, compensation at 3.9 km. A pulse of 1,000 Pg C
 // leaves 17%, 6% and 3% in the air after 1, 10 and 100 kyr; 5,000 Pg C 37%,
 // 7% and 3%. A compensated sea holds CO₃ fixed, so pCO₂ ∝ HCO₃² and each

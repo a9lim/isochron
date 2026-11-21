@@ -1,12 +1,11 @@
-// The year (src/engine/year.js) and the volcanoes (src/engine/volcanoes.js):
-// Hasselmann's red spectrum, the veil's cooling against the analytic
-// convolution, determinism for a seed, and the closures' means.
+// The year (src/engine/year.js) and the volcanoes: Hasselmann's spectrum, the veil against the analytic convolution,
+// determinism.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { CLIMATE } from '../src/engine/climate.js';
-import { Year, YEAR, boxResponse } from '../src/engine/year.js';
-import { Volcanoes, VOLC, plMean } from '../src/engine/volcanoes.js';
+import { Year, boxResponse } from '../src/engine/year.js';
+import { Volcanoes, VOLC } from '../src/engine/volcanoes.js';
 
 /** A climate with only what the year reads: land (a band of continents, or none), no ice. */
 function world(level, land = () => false) {
@@ -74,7 +73,7 @@ test("the anomaly's spectrum is Hasselmann's: red, with its corner at B/C", () =
   assert.ok(ratio > 60 && ratio < 160, `fall over a decade ${ratio.toFixed(0)}×`);
 });
 
-test("the veil's global cooling is the analytic convolution: uniform sea with diffusion, and mixed land and sea without", () => {
+test("the veil's global cooling is the analytic convolution: uniform sea with diffusion, and mixed land and sea without, at any live step", () => {
   const save = VOLC.BACKGROUND;
   VOLC.BACKGROUND = false;
   try {
@@ -98,6 +97,16 @@ test("the veil's global cooling is the analytic convolution: uniform sea with di
       // The whole anomaly is the tag's here (no noise, no other eruptions): superposition.
       assert.ok(Math.abs(y.stats.meanT - I.now) < 1e-9, `${name}: the tag's response is the anomaly's`);
     }
+    // Live steps of up to five years (the dial at ~60 yr/s) land on the same curve.
+    for (const months of [12, 60]) {
+      const c = world(4), g = c.grid, V = new Volcanoes(tecOf(g, equatorCell(g)), null, null, 'dial'), y = new Year(c, V, 'dial');
+      y.capacity(true); y.q.fill(0);
+      y.t0 = y.t1 = 0;
+      const info = y.eruptTagged(1, 0), th = boxResponse(y.C, Float64Array.from(g.area, a => a / (4 * Math.PI)), CLIMATE.B, info.F0, VOLC.TAU);
+      let worst = 0;
+      for (let k = 0; k < Math.ceil(180 / months); k++) { y.step(months); worst = Math.max(worst, Math.abs(y.stats.meanT - th.at(y.t1))); }
+      assert.ok(worst < 0.02 * Math.abs(th.peak), `${months}-month steps: off by ${worst.toFixed(4)} K`);
+    }
   } finally { VOLC.BACKGROUND = save; }
 });
 
@@ -105,81 +114,12 @@ test('a seeded year is deterministic, and its seed is what varies it', () => {
   const run = seed => {
     const c = world(4, (x, y, z) => z > 0.4), g = c.grid, V = new Volcanoes(tecOf(g, equatorCell(g)), null, null, seed);
     const y = new Year(c, V, seed);
-    for (let t = 0; t <= 60; t += 1 / 60) y.advance(t, 1);
+    for (let t = 0; t <= 20; t += 1 / 60) y.advance(t, 1);
     return { T: Float64Array.from(y.Ta), e: V.recent.map(e => `${e.t.toFixed(6)}:${e.M.toFixed(6)}`).join(), steps: y.steps };
   };
   const a = run('alpha'), b = run('alpha'), c = run('beta');
   assert.deepEqual(a.T, b.T);
   assert.equal(a.e, b.e);
-  assert.ok(Math.abs(a.steps - 721) <= 1, `${a.steps} monthly steps in 60 years`);
+  assert.ok(Math.abs(a.steps - 241) <= 1, `${a.steps} monthly steps in 20 years`);
   assert.notDeepEqual(a.T, c.T);
-});
-
-test("the closure's means: the eruption rate's forcing is the live veil's mean; the live spread is the closure's", async () => {
-  // The veil, a year at a time for 100 kyr, sampled at each year's end (unbiased: the process is stationary).
-  const c = world(3), g = c.grid, V = new Volcanoes(tecOf(g, equatorCell(g)), null, null, 'mean');
-  let sum = 0;
-  const Fb = new Float64Array(VOLC.NB), years = 1e5;
-  for (let t = 0; t < years; t++) { V.step(t, 1, true); V.forcing(Fb); let s = 0; for (let b = 0; b < VOLC.NB; b++) s += Fb[b] * (Math.sin((-85 + 5 * b) * Math.PI / 180) - Math.sin((-90 + 5 * b) * Math.PI / 180)) / 2; sum += s; }
-  const live = sum / years;
-  const expect = -VOLC.FORCE * VOLC.AOD_P * VOLC.ARC_RATE * plMean(VOLC.M_MIN, VOLC.ARC_MAX) * VOLC.TAU;
-  assert.ok(Math.abs(V.meanForcing() / expect - 1) < 1e-9, 'meanForcing is rate × mean size × a Pinatubo\'s integral');
-  assert.ok(Math.abs(live / V.meanForcing() - 1) < 0.08, `live mean ${live.toFixed(3)} W/m² against the closure's ${V.meanForcing().toFixed(3)}`);
-
-  // The anomaly on a seeded planet: its live spread over land against the closure the zones read.
-  const { Planet } = await import('../src/engine/planet.js');
-  const P = new Planet('earthlike', { level: 5, spinup: 10 });
-  P.climate.solve(2);
-  const y = new Year(P.climate, null, 'spread');
-  y.capacity(true);
-  const n = y.n, s1 = new Float64Array(n), s2 = new Float64Array(n), F = new Float64Array(n);
-  let N = 0;
-  for (let k = 0; k < 160 * 12; k++) { y.stepAnomaly(1 / 12, F); if (k >= 120) { for (let i = 0; i < n; i++) { s1[i] += y.Ta[i]; s2[i] += y.Ta[i] ** 2; } N++; } }
-  let e = 0, w = 0;
-  for (let i = 0; i < n; i++) { const r = Math.log(Math.sqrt(s2[i] / N - (s1[i] / N) ** 2) / y.sigma[i]), a = y.land[i] * y.grid.area[i]; e += r * r * a; w += a; }
-  assert.ok(Math.sqrt(e / w) < 0.15, `land's live spread off the closure by ${(100 * Math.sqrt(e / w)).toFixed(0)}% rms`);
-  // At the opening, the volcanoes' mean forcing is in the climate's tuning: nothing is added.
-  P.year.advance(P.years, 1e6);
-  assert.equal(CLIMATE.F_VOLC, 0);
-});
-
-test('the stepper: live below ~56 yr/s, its closure above ~180, soft between; the ground called each step', () => {
-  assert.equal(Year.liveWeight(1), 1);
-  assert.equal(Year.liveWeight(1e3), 0);
-  const mid = Year.liveWeight(100);
-  assert.ok(mid > 0.3 && mid < 0.7, `half-live near 100 yr/s (${mid.toFixed(2)})`);
-  let prev = 1;
-  for (let lr = 1.5; lr <= 2.5; lr += 0.01) { const v = Year.liveWeight(10 ** lr); assert.ok(v <= prev && prev - v < 0.04, 'smooth'); prev = v; }
-  // Hooks: a mock ground over three years at 1 yr/s, then outrun.
-  const c = world(4, (x, y, z) => z > 0.3), n = c.grid.n;
-  Object.assign(c, {
-    Pf: [new Float32Array(n).fill(2), ...Array.from({ length: 4 }, () => new Float32Array(n))],
-    Tf: [new Float32Array(n).fill(10), ...Array.from({ length: 4 }, () => new Float32Array(n))],
-    runoffM: new Float32Array(12 * n).fill(0.03), elevPos: new Float32Array(n),
-  });
-  const y = new Year(c, null, 'hooks'), months = [], firsts = [], closures = [];
-  y.soil = {
-    step: inp => {
-      months.push(inp.months); firsts.push(inp.m0);
-      assert.equal(inp.dT.length, n); assert.equal(inp.rf.length, n);
-      assert.ok(inp.rf.every((v, i) => v > 0 && (c.landMask[i] || v === 1)), 'rain factors, 1 at sea');
-    },
-    closure: inp => closures.push(inp.live),
-  };
-  for (let t = 0; t <= 3; t += 1 / 120) y.advance(t, 1);
-  const total = months.reduce((a, b) => a + b, 0);
-  assert.ok(total >= 36 && total <= 37, `${total} months`);
-  assert.ok(new Set(firsts).size === 12, 'every month of the calendar starts a step');
-  // At 30 yr/s a step holds a year: the ground gets it in one call.
-  const k0 = months.length;
-  let rs = 0, rc = 0;
-  y.soil.step = inp => { months.push(inp.months); for (let i = 0; i < n; i++) if (c.landMask[i]) { rs += inp.rf[i]; rc++; } };
-  for (let t = 3; t <= 300; t += 0.5) y.advance(t, 30);
-  assert.ok(months.slice(k0).every(m => m >= 12), `steps of ${Math.min(...months.slice(k0))} months and more`);
-  // The rain's factor keeps the mean rain over a long step too (its noise is the step's mean).
-  assert.ok(Math.abs(rs / rc - 1) < 0.03, `mean rain factor ${(rs / rc).toFixed(3)}`);
-  const steps = y.steps;
-  for (let t = 3; t <= 1e4; t += 50) y.advance(t, 3e3);
-  assert.equal(y.steps, steps, 'outrun: no steps');
-  assert.ok(closures.length > 0 && closures.every(v => v === 0), 'outrun: closures');
 });

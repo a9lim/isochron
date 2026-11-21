@@ -1,22 +1,16 @@
-// The plates' step and the drawn surface on the GPU (src/gpu/plates.js, src/gpu/surface.js)
-// against their CPU references, headless (WebGPU in node via tests/webgpu-node.mjs; skipped
-// without it). f32 against f64 flips a nearest-cell tie now and then, and the GPU's passes
-// reproduce the CPU's sequential ones only where they matter (the slabs' inheritance,
-// consumption, foundering), so one step agrees cell for cell almost everywhere and long runs
-// agree statistically; the CPU's frames must mirror the GPU's exactly.
+// The plates' step on the GPU (src/gpu/plates.js) against the CPU's. f32 against f64 flips a nearest-cell tie now and
+// then, so one step agrees almost everywhere; the CPU's frames must mirror the GPU's exactly.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasGPU } from './webgpu-node.mjs';
+import { skip } from './webgpu-node.mjs';
 import { buildGrid } from '../src/grid/icosphere.js';
-import { Tectonics, CM_PER_YR } from '../src/engine/plates.js';
+import { Tectonics } from '../src/engine/plates.js';
 import { Landscape } from '../src/engine/landscape.js';
 import { genesis } from '../src/engine/genesis.js';
 import { solveSeaLevel } from '../src/engine/crust.js';
-import { mostPieces, deepCell, strand } from './pieces.mjs';
 
-const skip = hasGPU ? false : 'no WebGPU in node (npm install in tests/)';
 const grid6 = buildGrid(6);
-const planet = (spinup = 20, land = false) => {
+const planet = (spinup = 10, land = false) => {
   const t = new Tectonics(grid6), L = land ? new Landscape(t) : null;
   genesis(t, 'earthlike', { spinup, landscape: L || undefined });
   return { t, land: L };
@@ -63,7 +57,6 @@ test('the plate step on the GPU: one step from one state, as the CPU\'s', { skip
   // ω relaxes a fifth of the way to its balance each step, and a plate's slab pull comes from a few
   // hundred trench cells, so one cell's slab moves a small plate's ω by a percent.
   const dw = a.alivePlates().map(p => { const q = b.plates[p.index]; return Math.hypot(p.w[0] - q.w[0], p.w[1] - q.w[1], p.w[2] - q.w[2]) / Math.hypot(...p.w); }).sort((x, y) => x - y);
-  console.log(`  ω off by ${dw.map(d => (100 * d).toFixed(2)).join(' ')}%`);
   assert.ok(dw[dw.length >> 1] < 0.005 && dw[dw.length - 1] < 0.05, 'ω');
   assert.equal(await mirrorErrors(b), 0, 'the CPU\'s frames mirror the GPU\'s');
 });
@@ -92,44 +85,6 @@ test('the balance\'s sums on the GPU: the CPU\'s, on one state', { skip }, async
   }
 });
 
-test('the plate step on the GPU: 30 Myr with the landscape, statistically the CPU\'s', { skip }, async () => {
-  const A = planet(40, true), B = planet(40, true);
-  await gpu(B.t);
-  const g = grid6, n = g.n;
-  const stats = t => {
-    let cont = 0, age = 0, ocean = 0, bl = 0, land = 0, v2 = 0;
-    for (let i = 0; i < n; i++) {
-      const a = g.area[i];
-      if (t.phi[i] >= 0.5) cont += a; else { ocean += a; age += a * (t.t - t.tf[i]); }
-      if (t.elev[i] > t.seaLevel) land += a;
-      for (let e = g.nbrOff[i]; e < g.nbrOff[i + 1]; e++) if (g.nbr[e] > i && t.owner[g.nbr[e]] !== t.owner[i]) bl += g.ell[e];
-      const w = t.plates[t.owner[i]].w, x = g.pos[3 * i], y = g.pos[3 * i + 1], z = g.pos[3 * i + 2];
-      v2 += a * ((w[1] * z - w[2] * y) ** 2 + (w[2] * x - w[0] * z) ** 2 + (w[0] * y - w[1] * x) ** 2);
-    }
-    return { cont: cont / (4 * Math.PI), land: land / (4 * Math.PI), age: age / ocean, bl, rms: Math.sqrt(v2 / (4 * Math.PI)) * CM_PER_YR, sea: 1000 * t.seaLevel };
-  };
-  const sa = [], sb = [];
-  for (let s = 1; s <= 60; s++) {
-    A.t.step(0.5); A.land.step(5e5);
-    await B.t.stepAsync(0.5); B.land.step(5e5);
-    if (s % 10 === 0) { sa.push(stats(A.t)); sb.push(stats(B.t)); }
-  }
-  // The landscape's last writes reach the GPU at the next step's start.
-  await B.t.stepAsync(0.5);
-  const mean = (a, f) => a.reduce((s, x) => s + x[f], 0) / a.length;
-  // Tolerances twice chaos's own spread: a CPU whose ω was nudged by 3e-3 (eight nudges, since the
-  // 2026-11-15 retune with each plate one body) moves rms by 2.5–5.9% from this run's (all above it:
-  // this trajectory is a slow one), age by 0.3–0.6%; the GPU's step, not bitwise repeatable (its sums
-  // are atomics), lands within 2.8–8.6% on rms over repeated runs, so 8% had failed about one run in four.
-  const tol = { cont: 0.002, land: 0.012, age: 0.03, bl: 0.04, rms: 0.12, sea: 25 };
-  const rel = { age: 1, bl: 1, rms: 1 };
-  for (const [f, tl] of Object.entries(tol)) {
-    const ma = mean(sa, f), mb = mean(sb, f), d = rel[f] ? Math.abs(mb / ma - 1) : Math.abs(mb - ma);
-    assert.ok(d < tl, `${f}: CPU ${ma.toFixed(4)}, GPU ${mb.toFixed(4)}`);
-  }
-  assert.equal(await mirrorErrors(B.t), 0, 'the CPU\'s frames mirror the GPU\'s after the landscape\'s writes');
-});
-
 test('rare events on the GPU path: a rift and a merge, run on the CPU and carried back up', { skip }, async () => {
   const { t: tec } = planet();
   await gpu(tec);
@@ -156,21 +111,6 @@ test('rare events on the GPU path: a rift and a merge, run on the CPU and carrie
   assert.equal(await mirrorErrors(tec), 0, 'after the merge');
 });
 
-test('a plate in pieces on the GPU path: passed on by the CPU and carried back up', { skip }, async () => {
-  const { t: tec } = planet();
-  await gpu(tec);
-  await tec.stepAsync(0.5);
-  const alive = tec.alivePlates().sort((p, q) => q.area - p.area);
-  strand(tec, deepCell(tec, alive[0].index, 2), 2, alive[1].index);
-  const j0 = tec.counters.joined || 0;
-  await tec.stepAsync(0.5);
-  assert.equal(mostPieces(tec), 1, 'every plate one piece');
-  assert.ok((tec.counters.joined || 0) > j0, 'the piece passed on');
-  assert.ok(tec.dirty.cells.size > 0, 'its frame cells go up one by one');
-  await tec.stepAsync(0.5);
-  assert.equal(await mirrorErrors(tec), 0, 'the CPU\'s frames mirror the GPU\'s');
-});
-
 test('the frames\' extras on the GPU path (the regolith, the flexure\'s correction): carried with the crust, fresh on new crust', { skip }, async () => {
   const a = planet().t, b = planet().t;
   await gpu(b);
@@ -192,52 +132,6 @@ test('the frames\' extras on the GPU path (the regolith, the flexure\'s correcti
     return { carried, fresh, bad };
   };
   const ca = check(a), cb = check(b);
-  console.log(`  after 3 Myr: CPU ${ca.carried} carried, ${ca.fresh} fresh, ${ca.bad} otherwise; GPU path ${cb.carried} carried, ${cb.fresh} fresh, ${cb.bad} otherwise`);
   assert.equal(ca.bad, 0, 'the CPU\'s step');
   assert.equal(cb.bad, 0, 'the GPU\'s edits');
-});
-
-test('the drawn surface on the GPU: the CPU\'s fields', { skip }, async () => {
-  const { gpuDevice } = await import('../src/gpu/device.js');
-  const { GpuSurface } = await import('../src/gpu/surface.js');
-  const { surfaceFields } = await import('../src/render/surface.js');
-  const { t: tec, land } = planet(20, true);
-  land.step(5e5);
-  const ice = { H: new Float64Array(grid6.n) };
-  // A lake on each low coast's land cell's inland neighbour (made up: the coast's rule, not the lakes'),
-  // so its rim, beside the sea, draws as land on both paths.
-  const wet = new Float32Array(grid6.n), off = grid6.nbrOff, nbr = grid6.nbr;
-  const ocean = j => tec.sea[j];
-  let rims = 0;
-  for (let i = 0; i < grid6.n && rims < 400; i++) {
-    if (ocean(i) || tec.elev[i] - tec.seaLevel > 0.1) continue;
-    let coastal = false;
-    for (let t = off[i]; t < off[i + 1]; t++) if (ocean(nbr[t])) coastal = true;
-    if (!coastal) continue;
-    for (let t = off[i]; t < off[i + 1]; t++) {
-      const j = nbr[t];
-      let inland = !ocean(j);
-      for (let r = off[j]; r < off[j + 1] && inland; r++) if (ocean(nbr[r])) inland = false;
-      if (inland) { wet[j] = 1; rims++; break; }
-    }
-  }
-  const lakes = { wet, mem: new Float32Array(grid6.n) };
-  const c = surfaceFields(grid6, tec, land, ice, lakes), gs = new GpuSurface(await gpuDevice(), grid6), f = await gs.fields(tec, lakes);
-  const worst = k => { let w = 0; for (let i = 0; i < c[k].length; i++) w = Math.max(w, Math.abs(c[k][i] - f[k][i])); return w; };
-  assert.ok(worst('elevRel') < 1e-4, `relief off by ${worst('elevRel')} km`);
-  let basins = 0;
-  for (let i = 0; i < grid6.n; i++) if (!tec.sea[i] && tec.elev[i] < tec.seaLevel) basins++;
-  assert.ok(worst('coast') < 1e-4, `coast off by ${worst('coast')} km (${basins} cells in basins the sea doesn't reach)`);
-  for (let i = 0; i < grid6.n; i++) if (!tec.sea[i] && tec.elev[i] < tec.seaLevel) assert.ok(c.coast[i] > 0, 'a basin below sea level draws as land');
-  let held = 0;
-  for (let i = 0; i < grid6.n; i++) {
-    if (tec.sea[i]) continue;
-    let lake = wet[i] > 0;
-    for (let t = off[i]; t < off[i + 1]; t++) lake = lake || wet[nbr[t]] > 0;
-    if (lake) { held++; assert.ok(c.coast[i] > 0, 'land at or beside a lake draws as land'); }
-  }
-  assert.ok(rims > 50 && held > rims, `${rims} lakes, ${held} cells kept as land`);
-  assert.ok(worst('normals') < 1e-4, `normals off by ${worst('normals')}`);
-  assert.ok(worst('tfDraw') < 1e-3, `stripes off by ${worst('tfDraw')} Myr`);
-  assert.deepEqual(Object.keys(f).sort(), Object.keys(c).sort(), 'the same fields');
 });

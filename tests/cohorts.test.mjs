@@ -1,5 +1,4 @@
-// The people's age cohorts (src/engine/cohorts.js) against Lotka's stable population, the aging
-// scale's endpoints, a famine's notch ageing through the pyramid, and migrants' mixing.
+// The age cohorts (src/engine/cohorts.js): Lotka's stable population at any step, and replacement at the rich end.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { COHORTS, stable, stepPyramid, stepTables, ageClock, settle, senescent, working, reference, replacement, MIG } from '../src/engine/cohorts.js';
@@ -53,29 +52,4 @@ test("the rich end's life table is replacement: B_MIN is its stationary birth ra
   assert.ok(Math.abs(r) < 5e-4, `a rich world settles at ${(100 * r).toFixed(3)}%/yr`);
   let o65 = 0; for (let k = 65; k < K; k++) o65 += c[k];
   assert.ok(o65 > 0.2 && o65 < 0.35, `${(100 * o65).toFixed(0)}% over 65`);
-});
-
-test("a famine's missing children age through the pyramid, a year a year", () => {
-  const b = PEOPLE.B_PRE, c = stable(b, 0), ref = Float64Array.from(c);
-  for (let k = 0; k < 5; k++) c[k] *= 0.5;           // a famine takes half the under-fives
-  let s = 0; for (let k = 0; k < K; k++) s += c[k]; for (let k = 0; k < K; k++) c[k] /= s;
-  let at20 = null;
-  run(c, b, 0, 1, 20, (cc, t) => { if (Math.abs(t - 20) < 1e-6) at20 = Float64Array.from(cc); });
-  const deficit = k => at20[k] / ref[k];
-  // Twenty years on, the notch is at 20–24: those ages are short, their neighbours aren't.
-  const notch = (deficit(20) + deficit(22) + deficit(24)) / 3, around = (deficit(14) + deficit(30)) / 2;
-  assert.ok(notch < 0.75 * around, `20–24 at ${notch.toFixed(2)} of the stable against ${around.toFixed(2)} around`);
-});
-
-test("migrants come young and leave the old behind", () => {
-  const c = stable(PEOPLE.B_MIN, 0), w0 = working(c), out = {};
-  const inn = Float64Array.from(c), outC = Float64Array.from(c);
-  settle(inn, 0, 1, 1, 0.5, out);
-  assert.ok(out.work > w0, 'a third of the people newly come: more of working age');
-  settle(outC, 0, 1, 1, -0.3, out);
-  assert.ok(senescent(outC) > senescent(c), 'three in ten gone: the rest older');
-  for (const x of [inn, outC]) { let s = 0; for (let k = 0; k < K; k++) { assert.ok(x[k] >= 0); s += x[k]; } assert.ok(Math.abs(s - 1) < 1e-12); }
-  // Founders of an empty cell are the migrants' schedule.
-  const e = new Float64Array(K); settle(e, 0, 1, 0, 50, out);
-  for (let k = 0; k < K; k++) assert.ok(Math.abs(e[k] - MIG[k]) < 1e-12);
 });

@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: node --test 'tests/*.test.mjs'   # the GPU tests skip without Dawn
+
+  gpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      # Dawn in node over Mesa's software Vulkan (lavapipe): no GPU on the runner
+      - run: sudo apt-get update -q && sudo apt-get install -yq mesa-vulkan-drivers
+      - run: npm ci
+        working-directory: tests
+      - name: Adapter answers
+        run: node --input-type=module -e "const { skip } = await import('./tests/webgpu-node.mjs'); if (skip) { console.error(skip); process.exit(1); }"
+      - run: node --test 'tests/gpu-*.test.mjs'

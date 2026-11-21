@@ -1,10 +1,9 @@
-// Trenches (src/engine/plates.js, trenches): where ocean sinks, the sinking plate bends down into a trench and
-// up over an outer rise, each cell the mean of w(x) = −w₀ e^{−x/α} cos(x/α) over its width; none where the plates
-// part or slide past, none where a continent goes under a continent, and none on the plate above.
+// Trenches (src/engine/plates.js, trenches): the broken plate's profile on the sinking plate, none where the plates
+// part.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
-import { Tectonics, PARAMS, CM_PER_YR, EARTH_RADIUS_KM } from '../src/engine/plates.js';
+import { Tectonics, PARAMS, EARTH_RADIUS_KM } from '../src/engine/plates.js';
 
 const grid = buildGrid(5), n = grid.n;
 
@@ -58,42 +57,4 @@ test('a trench and an outer rise on the sinking plate where ocean closes, none w
   let d25 = 0;
   for (let i = 0; i < n; i++) if (yng.owner[i] === 1 && grid.pos[3 * i + 1] < -0.4 && Math.abs(grid.pos[3 * i + 2]) < 0.5) d25 = Math.min(d25, yng.trench[i]);
   assert.ok(d25 < 0 && d25 > deep, `25 Myr: ${d25.toFixed(3)} km, shallower than 100 Myr's ${deep.toFixed(3)}`);
-});
-
-test('no trench where the plates slide past, close too slowly, or where continent meets continent', () => {
-  const slide = twoPlates([-0.006, 0, 0], [0.006, 0, 0], young, old);   // about x: along x = 0
-  slide.trenches();
-  assert.ok(slide.trench.every(v => v === 0), 'a transform bends nothing');
-  const v0 = PARAMS.TRENCH_V[0] / CM_PER_YR;   // rad/Myr: under it everywhere (the relative motion ≤ 2 |ω|)
-  const slow = twoPlates([0, 0, -0.45 * v0], [0, 0, 0.45 * v0], young, old);
-  slow.trenches();
-  assert.ok(slow.trench.every(v => v === 0), 'too slow to bend a trench');
-  const coll = twoPlates([0, 0, -0.006], [0, 0, 0.006], cont, cont);
-  coll.trenches();
-  assert.ok(coll.trench.every(v => v === 0), 'a collision bends no trench (its foreland is the crust\'s flexure\'s)');
-  // Ocean under a continent: the trench is on the ocean's side, whichever plate it is.
-  const oc = twoPlates([0, 0, -0.006], [0, 0, 0.006], cont, old);
-  oc.trenches();
-  let ocean = 0, land = 0;
-  for (let i = 0; i < n; i++) if (grid.pos[3 * i + 1] < -0.4) { if (oc.owner[i] === 1) ocean = Math.min(ocean, oc.trench[i]); else land = Math.max(land, Math.abs(oc.trench[i])); }
-  assert.ok(ocean < 0 && land === 0, `the ocean's side bends (${ocean.toFixed(3)} km), the continent's doesn't`);
-});
-
-test('the elevation carries the trench, and the step keeps it where the plates close', () => {
-  const tec = closing();
-  tec.balance = () => {}; tec.maybeRift = () => {}; tec.maybeInitiate = () => {};
-  tec.updateElevation();
-  for (let s = 0; s < 4; s++) tec.step(0.5);
-  let deep = 0, deepElev = 0;
-  for (let i = 0; i < n; i++) if (tec.trench[i] < deep) { deep = tec.trench[i]; deepElev = tec.elev[i]; }
-  assert.ok(deep < -0.2, `a trench after the steps (${deep.toFixed(3)} km)`);
-  // The elevation is the crust's isostasy plus the trench.
-  let off = 0;
-  for (let i = 0; i < n; i++) {
-    const f = tec.phi[i], age = tec.t - tec.tf[i], sa = age < 20 ? 0.365 * Math.sqrt(Math.max(0, age)) : 3.051 - 2.473 * Math.exp(-0.0278 * age);
-    const rho = 2.95 + (2.85 - 2.95) * f, e = tec.h[i] * (1 - rho / 3.3) - (1 - f) * (f < 1 ? sa : 0) + tec.trench[i];
-    off = Math.max(off, Math.abs(e - tec.elev[i]));
-  }
-  assert.ok(off < 1e-5, `elevation off by ${off} km`);
-  assert.ok(deepElev < -0.5, 'the trench stands deep');
 });

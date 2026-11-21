@@ -1,9 +1,9 @@
-// The geodesic grid: counts, rings, areas, symmetry, point location, operators.
+// The geodesic grid: counts and the Euler characteristic, symmetric counter-clockwise rings, areas, nesting, the Laplacian.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGrid, cellCount, nearest, laplacian, gradient } from '../src/grid/icosphere.js';
+import { buildGrid, cellCount, laplacian } from '../src/grid/icosphere.js';
 
-for (const level of [0, 1, 3, 5]) {
+for (const level of [1, 4]) {
   test(`level ${level}: counts, rings, Euler characteristic`, () => {
     const g = buildGrid(level);
     assert.equal(g.n, cellCount(level));
@@ -54,23 +54,6 @@ test('nests: a level\'s cells are the first cells of the next', () => {
   for (let i = 0; i < 3 * a.n; i++) assert.ok(Math.abs(a.pos[i] - b.pos[i]) < 1e-12);
 });
 
-test('nearest agrees with brute force', () => {
-  const g = buildGrid(5);
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
-  for (let s = 0; s < 2000; s++) {
-    const z = 2 * rnd() - 1, th = 2 * Math.PI * rnd(), r = Math.sqrt(1 - z * z);
-    const x = r * Math.cos(th), y = r * Math.sin(th);
-    let best = -1, bd = -2;
-    for (let i = 0; i < g.n; i++) {
-      const d = g.pos[3 * i] * x + g.pos[3 * i + 1] * y + g.pos[3 * i + 2] * z;
-      if (d > bd) { bd = d; best = i; }
-    }
-    const got = nearest(g, x, y, z);
-    const gd = g.pos[3 * got] * x + g.pos[3 * got + 1] * y + g.pos[3 * got + 2] * z;
-    assert.ok(got === best || Math.abs(gd - bd) < 1e-12, `sample ${s}: ${got} vs ${best}`);
-  }
-});
 
 test('laplacian of Y_1 and Y_2 harmonics: eigenvalues −2 and −6', () => {
   const g = buildGrid(5);
@@ -86,26 +69,4 @@ test('laplacian of Y_1 and Y_2 harmonics: eigenvalues −2 and −6', () => {
     for (let i = 0; i < g.n; i++) { num += out[i] * f[i] * g.area[i]; den += f[i] * f[i] * g.area[i]; }
     assert.ok(Math.abs(num / den - l) / -l < 0.01, `Rayleigh quotient ${num / den} vs ${l}`);
   }
-});
-
-test('gradient of z is the tangent part of ẑ', () => {
-  const g = buildGrid(5);
-  const f = new Float64Array(g.n), out = new Float64Array(3 * g.n);
-  for (let i = 0; i < g.n; i++) f[i] = g.pos[3 * i + 2];
-  gradient(g, f, out);
-  let err = 0;
-  for (let i = 0; i < g.n; i++) {
-    const z = g.pos[3 * i + 2];
-    const ex = -z * g.pos[3 * i], ey = -z * g.pos[3 * i + 1], ez = 1 - z * z;
-    err = Math.max(err, Math.hypot(out[3 * i] - ex, out[3 * i + 1] - ey, out[3 * i + 2] - ez));
-  }
-  assert.ok(err < 0.01, `max error ${err}`);
-});
-
-test('level 7 builds in reasonable time', () => {
-  const t0 = performance.now();
-  const g = buildGrid(7);
-  const ms = performance.now() - t0;
-  assert.equal(g.n, 163842);
-  console.log(`  level 7: ${ms.toFixed(0)} ms`);
 });

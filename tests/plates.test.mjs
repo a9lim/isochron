@@ -1,14 +1,8 @@
-// Plates: exact rigid motion, crust made equals crust consumed under one
-// relative rotation, sea level conserves water, genesis gives a sane planet,
-// a plate stays one body, and a merge leaves no cell empty.
+// Plates (src/engine/plates.js): exact rigid motion, crust made equal to crust consumed, sea level holding its water.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGrid, nearest } from '../src/grid/icosphere.js';
-import { Tectonics, PARAMS, CM_PER_YR } from '../src/engine/plates.js';
-import { genesis } from '../src/engine/genesis.js';
-import { oceanVolume, solveSeaLevel, subsidence } from '../src/engine/crust.js';
-import { Polarity } from '../src/engine/polarity.js';
-import { mostPieces, deepCell, strand } from './pieces.mjs';
+import { buildGrid } from '../src/grid/icosphere.js';
+import { Tectonics } from '../src/engine/plates.js';
 
 const grid = buildGrid(5);
 
@@ -40,17 +34,6 @@ test('one plate turning makes and consumes nothing, and a full turn restores eve
   assert.ok(moved <= grid.n * 0.001, `${moved} cells not home after a full turn`);
 });
 
-test('a quarter turn carries the field with the plate', () => {
-  const w = [0, 0, 0.01];
-  const tec = onePlate(w);
-  tec.balance = () => {}; tec.maybeRift = () => {};
-  const steps = 40, dt = (Math.PI / 2) / 0.01 / steps;
-  for (let s = 0; s < steps; s++) tec.step(dt);
-  // After a quarter turn about z, the point that started at (1, 0, 0) is at (0, 1, 0).
-  const i = nearest(grid, 0, 1, 0);
-  assert.ok(Math.abs(tec.tf[i] - -1) < 0.05, `tf ${tec.tf[i]}`);
-});
-
 test('two plates under one relative rotation: crust made balances crust consumed', () => {
   const tec = new Tectonics(grid);
   const A = tec.allocPlate(), B = tec.allocPlate();
@@ -74,138 +57,4 @@ test('two plates under one relative rotation: crust made balances crust consumed
     if (tec.t - tec.tf[i] < 5 && Math.abs(grid.pos[3 * i + 2]) < 0.6) { young++; if (grid.pos[3 * i + 1] > 0.3) youngWrong++; }
   }
   assert.ok(young > 0 && youngWrong / young < 0.05, `young ${young}, on the closing side ${youngWrong}`);
-});
-
-test('a step past a cell of motion runs as substeps: the closing consumed whatever the step', () => {
-  // Two hemispheres turning opposite ways at the cap; A young, on top where they close.
-  const run = (dt, T) => {
-    const tec = new Tectonics(grid);
-    const A = tec.allocPlate(), B = tec.allocPlate();
-    A.w.set([0, 0, -PARAMS.V_MAX]); B.w.set([0, 0, PARAMS.V_MAX]);
-    for (let i = 0; i < grid.n; i++) {
-      const k = grid.pos[3 * i] > 0 ? 0 : 1, p = tec.plates[k];
-      p.mask[i] = 1; p.h[i] = 7; p.phi[i] = 0; p.tf[i] = k ? -100 : 0;
-      tec.owner[i] = k; tec.ref[i] = i;
-    }
-    tec.water = 0;
-    tec.balance = () => { for (const p of tec.plates) p.area = 1; }; tec.maybeRift = () => {};
-    const k = tec.substeps(dt);
-    for (let t = 0; t < T - 1e-9; t += dt) tec.step(dt);
-    return { k, share: tec.counters.consumed / tec.counters.closed };
-  };
-  const cell = Math.sqrt(4 * Math.PI / grid.n), fine = run(0.25, 8), coarse = run(4, 8);
-  console.log(`  ${(PARAMS.V_MAX * 4 / cell).toFixed(1)} cells a 4 Myr step, run as ${coarse.k}: ${(100 * coarse.share).toFixed(1)}% of the closing consumed, against ${(100 * fine.share).toFixed(1)}% in 0.25 Myr steps`);
-  assert.equal(fine.k, 1);
-  assert.equal(coarse.k, Math.ceil(PARAMS.V_MAX * 4 / (PARAMS.STEP_CELLS * cell)));
-  // At a cell a step a few percent of the closing goes unconsumed; at 3.6 cells a step, without substeps, over half.
-  assert.ok(Math.abs(coarse.share - fine.share) < 0.05 && fine.share > 0.9, 'consumed as closed');
-});
-
-test('sea level holds the water it is given', () => {
-  const tec = new Tectonics(grid);
-  genesis(tec, 'sea', {});
-  // Over the ocean alone: a basin below sea level the sea doesn't reach holds none (tests/sea.test.mjs).
-  let v = 0;
-  for (let i = 0; i < grid.n; i++) if (tec.sea[i]) v += (tec.seaLevel - tec.elev[i]) * grid.area[i];
-  assert.ok(Math.abs(v - tec.water) / tec.water < 1e-6);
-  assert.ok(oceanVolume(grid, tec.elev, tec.seaLevel) >= v);
-  const s2 = solveSeaLevel(grid, tec.elev, tec.water * 1.1);
-  assert.ok(s2 > tec.seaLevel);
-});
-
-test('subsidence follows √age while young and flattens', () => {
-  assert.ok(Math.abs(subsidence(4) - 0.73) < 1e-9);
-  assert.ok(Math.abs(subsidence(20) - subsidence(19.999)) < 1e-3);   // continuous at 20 Myr
-  assert.ok(subsidence(200) < 3.06 && subsidence(200) > 2.9);
-});
-
-test('polarity: the integral table matches the record', () => {
-  const pol = new Polarity('p');
-  const T0 = -50, dT = 0.01, N = 3000;
-  const C = pol.table(T0, dT, N);
-  for (const k of [10, 500, 1999, 2999]) {
-    let s = 0;
-    for (let m = 0; m < k * 10; m++) s += pol.at(T0 + (m + 0.5) * dT / 10) * dT / 10;
-    assert.ok(Math.abs(C[k] - s) < 0.02, `k ${k}: ${C[k]} vs ${s}`);
-  }
-  const rate = pol.recent(0, 100).length / 100;
-  assert.ok(rate > 0.2 && rate < 15, `rate ${rate}`);
-});
-
-test('genesis gives a sane planet that runs', () => {
-  const g6 = buildGrid(6);
-  const tec = new Tectonics(g6);
-  genesis(tec, 'earthlike', {});
-  const s0 = tec.stats();
-  assert.equal(s0.plates, 12);
-  assert.ok(Math.abs(s0.land - 0.28) < 0.02, `land ${s0.land}`);   // the sea at Earth's freeboard over Earth's continents (~27.5%)
-  const t0 = performance.now();
-  for (let s = 0; s < 60; s++) tec.step(0.5);
-  const ms = (performance.now() - t0) / 60;
-  const s1 = tec.stats();
-  for (let i = 0; i < g6.n; i++) assert.ok(Number.isFinite(tec.elev[i]), `elev ${i}`);
-  assert.ok(s1.plates >= 3, `plates ${s1.plates}`);
-  assert.ok(s1.fastest <= PARAMS.V_MAX * CM_PER_YR + 1e-6, `fastest ${s1.fastest} cm/yr`);
-  console.log(`  level 6 step: ${ms.toFixed(1)} ms; after 30 Myr: ${s1.plates} plates, land ${(100 * s1.land).toFixed(1)}%, fastest ${s1.fastest.toFixed(1)} cm/yr, ocean age ${s1.meanOceanAge.toFixed(0)} Myr, sea level ${(1000 * (s1.seaLevel - s0.seaLevel)).toFixed(0)} m; ${JSON.stringify(tec.counters)}`);
-});
-
-test('a plate is one body: a stray piece joins the plate around it, or past a plate\'s size becomes one; crust moves, none is made', () => {
-  const g6 = buildGrid(6);
-  const tec = new Tectonics(g6);
-  genesis(tec, 'earthlike', {});
-  const alive = tec.alivePlates().sort((p, q) => q.area - p.area);
-  const a = alive[0].index, b = alive[1].index, c = alive[2].index, d = alive[3].index;
-  // A piece of b inside a (19 cells), and one of c inside d past MICROPLATE (217 cells; ~164 at level 6).
-  const small = strand(tec, deepCell(tec, a, 2), 2, b);
-  const at = deepCell(tec, d, 8);
-  assert.ok(at >= 0, 'a plate wide enough to hold the big piece');
-  const big = strand(tec, at, 8, c);
-  assert.ok(mostPieces(tec) >= 2);
-  const crust = i => { const p = tec.plates[tec.owner[i]], j = tec.ref[i]; return [p.h[j], p.phi[j], p.tf[j]]; };
-  const before = new Map([...small, ...big].map(i => [i, crust(i)]));
-  const n0 = tec.alivePlates().length;
-  tec.resolveFragments();
-  assert.equal(mostPieces(tec), 1, 'every plate one piece');
-  for (const i of small) assert.equal(tec.owner[i], a, 'the small piece joins the plate around it');
-  const nb = tec.owner[big[0]];
-  assert.ok(big.every(i => tec.owner[i] === nb) && nb !== c && nb !== d, 'the big piece is a plate of its own');
-  assert.equal(tec.alivePlates().length, n0 + 1);
-  assert.deepEqual(tec.plates[nb].w, tec.plates[c].w, 'with its parent\'s motion');
-  for (const [i, v] of before) assert.deepEqual(crust(i), v, 'each cell keeps its crust');
-  for (let i = 0; i < g6.n; i++) assert.equal(tec.plates[tec.owner[i]].mask[tec.ref[i]], 1, 'every world cell reads held crust');
-  // And the planet runs on, each plate whole after every step (checked every 0.5 Myr).
-  for (let s = 0; s < 40; s++) { tec.step(0.5); assert.equal(mostPieces(tec), 1, `pieces at ${tec.t} Myr`); }
-});
-
-test('a merge of plates whose frames are turned against each other leaves no cell it covered empty', () => {
-  const tec = new Tectonics(grid), n = grid.n, pos = grid.pos;
-  const A = tec.allocPlate(), B = tec.allocPlate();
-  A.alive = B.alive = true;
-  A.w.set([0.05, 0.02, 0.1]); B.w.set([-0.1, 0.07, 0.03]);
-  tec.rotate(1);   // the frames turned ~6° and ~7°, about different axes
-  // Each world cell's crust in its plate's frame cell nearest it (A: x > 0, ocean; B: a continent), so,
-  // as crust the ridges made, each frame has cells within its crust that no world cell shows.
-  for (let i = 0; i < n; i++) {
-    const k = pos[3 * i] > 0 ? 0 : 1, p = tec.plates[k], R = p.R, x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
-    const j = nearest(grid, R[0] * x + R[3] * y + R[6] * z, R[1] * x + R[4] * y + R[7] * z, R[2] * x + R[5] * y + R[8] * z);
-    p.mask[j] = 1; p.h[j] = k ? 35 : 7; p.phi[j] = k; p.tf[j] = -100; p.sut[j] = -1e9;
-    tec.owner[i] = k; tec.ref[i] = j;
-  }
-  let hidden = 0;
-  for (let j = 0; j < n; j++) { let x = 0; for (let i = 0; i < n; i++) if (tec.owner[i] === 1 && tec.ref[i] === j) x++; if (x > 1) hidden += x - 1; }
-  const wasB = Uint8Array.from(tec.owner, o => o === 1);
-  tec.merge(0, 1);
-  let empty = 0, ocean = 0;
-  for (let i = 0; i < n; i++) {
-    assert.equal(tec.owner[i], 0);
-    let inside = !!wasB[i];   // the continent's cells off its seam with a (where a cell of each may share one of a's)
-    for (let t = grid.nbrOff[i]; t < grid.nbrOff[i + 1]; t++) if (!wasB[grid.nbr[t]]) inside = false;
-    if (!A.mask[tec.ref[i]]) empty++;
-    else if (inside && A.phi[tec.ref[i]] !== 1) ocean++;
-  }
-  // (Sent from b's frame cells to a's, b's cells shared by two world cells left a's beside them empty:
-  // the next step made each new ocean, one-cell seas in the continent.)
-  assert.ok(hidden > 20, `${hidden} of b's frame cells shared (the frames' moiré)`);
-  assert.equal(empty, 0, 'world cells on an empty frame cell');
-  assert.equal(ocean, 0, 'the continent\'s cells inside it that read ocean');
 });

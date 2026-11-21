@@ -78,7 +78,7 @@ export const YEAR = {
                          // stall), since the live state has forgotten it (the sea's memory is C/B ≈ 3.8 yr)
   // The closure's variance: the local OU's, with the heat capacity smoothed over the
   // diffusion's reach and the diffusion's damping of the noise's scale (fitted to the
-  // live model's own variance, tests/year.test.mjs).
+  // live model's own variance).
   SMOOTH: 6, BLEND: 0.7, K2: 40,
 };
 

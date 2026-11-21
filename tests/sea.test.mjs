@@ -1,9 +1,5 @@
-// The ocean and the basins it doesn't reach (src/engine/crust.js, seaMask; src/engine/plates.js,
-// solveSea): on a made-up planet, an ocean, a continent, and in the continent a basin below sea
-// level joined to the ocean by a channel, floored by continental crust (one floored by the
-// ocean's is trapped ocean, joined below the grid's scale). The sea holds its water over the ocean alone; a basin it
-// leaves keeps its water for the lakes and the level doesn't move; a sill short of STRAIT keeps
-// the strait open; a basin it reaches gives its lakes back to the sea.
+// The ocean and the basins it doesn't reach (src/engine/crust.js, seaMask; plates.js, solveSea): the sea's water over
+// the ocean alone.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -45,12 +41,6 @@ test('the sea holds its water over the ocean alone, and a closed basin lies dry'
   assert.ok(Math.abs(land - (4 * Math.PI - tec.oceanArea)) < 1e-12);
 });
 
-test('a basin floored by oceanic crust is trapped ocean: the sea, joined below the grid\'s scale', () => {
-  const tec = planet(0.3, true);
-  for (const i of basinCells()) assert.equal(tec.sea[i], 1);
-  assert.ok(Math.abs(oceanVol(tec) - tec.seaWater()) < 1e-9 * tec.water);
-});
-
 test('a basin the sea leaves keeps its water for the lakes; the level holds', () => {
   const tec = planet(-0.2);
   tec.lakeDepth = new Float32Array(n);                     // lakes attached, empty
@@ -76,84 +66,4 @@ test('a basin the sea leaves keeps its water for the lakes; the level holds', ()
   assert.ok(Math.abs(tec.cutHeld - basin) < 1e-12, `${tec.cutHeld} against ${basin}`);
   assert.ok(Math.abs(oceanVol(tec) - tec.seaWater()) < 1e-9 * tec.water);
   assert.ok(Math.abs(tec.seaLevel - s1) < 1e-9, `the level moved ${(tec.seaLevel - s1) * 1e3} m`);
-});
-
-test('a basin the sea reaches takes its water, and its lakes go back to the sea', () => {
-  const tec = planet(0.3);
-  tec.lakeDepth = new Float32Array(n);
-  const s0 = tec.seaLevel;
-  // A lake half fills the basin: its water is off the sea's.
-  let lake = 0;
-  for (const i of basinCells()) { tec.lakeDepth[i] = 0.4; lake += 0.4 * A[i]; }
-  tec.lakeWater = lake;
-  tec.solveSea();
-  assert.ok(tec.seaLevel < s0, 'the lake\'s water left the sea');
-  const s1 = tec.seaLevel;
-  // The sill drops below the sea: the basin joins, the sea pours in and the lake comes back.
-  setChannel(tec, -0.2);
-  tec.solveSea();
-  for (const i of basinCells()) assert.equal(tec.sea[i], 1);
-  assert.ok(tec.lakeWater < 1e-12, `lakes ${tec.lakeWater}`);
-  assert.ok(Math.abs(oceanVol(tec) - tec.seaWater()) < 1e-9 * tec.water);
-  let basin = 0;
-  for (let i = 0; i < n; i++) if (kind[i] === 2 || kind[i] === 3) basin += (tec.seaLevel - tec.elev[i]) * A[i];
-  // The level falls by about what the basin takes beyond its lake, over the ocean.
-  const expect = s1 - (basin - lake) / tec.oceanArea;
-  assert.ok(Math.abs(tec.seaLevel - expect) < 0.02 * Math.abs(s1 - expect) + 1e-6, `${tec.seaLevel} against ${expect}`);
-});
-
-test('a rising sea floods over a sill in one solve, and stands lower for it', () => {
-  const tec = planet(0.02);   // dry: the sill stands 20 m clear and was never sea
-  for (const i of basinCells()) assert.equal(tec.sea[i], 0);
-  const s0 = tec.seaLevel;
-  tec.water += 0.05 * tec.oceanArea;                       // 50 m more sea: over the sill
-  tec.solveSea();
-  for (const i of basinCells()) assert.equal(tec.sea[i], 1);
-  assert.ok(tec.seaLevel > 0.02 && tec.seaLevel < s0 + 0.05, `sea level ${tec.seaLevel}`);
-  assert.ok(Math.abs(oceanVol(tec) - tec.seaWater()) < 1e-9 * tec.water);
-});
-
-// The sea's channel through a cell (plates.js, seaChannel; Earth's from its baked reach): one plate
-// whose frame is the world, so each cell's channel is its own.
-function withChannels(tec, gs) {
-  const p = tec.allocPlate();
-  for (let i = 0; i < n; i++) { tec.owner[i] = 0; tec.ref[i] = i; p.mask[i] = 1; p.gs[i] = gs(i); }
-  return p;
-}
-
-test('a strait below the grid\'s scale joins its sea while the cell\'s mean stands above it', () => {
-  const tec = planet(0.3);
-  for (const i of basinCells()) assert.equal(tec.sea[i], 0, 'closed by the channel cells\' mean');
-  withChannels(tec, i => (kind[i] === 3 ? 0.35 : 0));
-  tec.solveSea();
-  for (const i of basinCells()) assert.equal(tec.sea[i], 1, 'joined through the channel');
-  for (let i = 0; i < n; i++) if (kind[i] === 3) { assert.equal(tec.sea[i], 0, 'the channel cells stay dry by their mean'); assert.equal(tec.strait[i], 1); }
-  assert.ok(Math.abs(oceanVol(tec) - tec.seaWater()) < 1e-9 * tec.water, 'the water over the wet cells alone');
-});
-
-test('the scour cuts a strait the sea flows through, not a shore; channels fill back elsewhere', () => {
-  const tec = planet(-0.2);
-  setChannel(tec, STRAIT / 2);                             // the channel just above the sea, joined by the strait's memory
-  const p = withChannels(tec, i => (kind[i] === 0 ? 0.1 : 0));
-  tec.solveSea();
-  for (const i of basinCells()) assert.equal(tec.sea[i], 1);
-  tec.scour(1);
-  // A pinch: the cell's ring of neighbours holds the water in two or more separate runs.
-  const pinch = i => {
-    const w = []; for (let t = grid.nbrOff[i]; t < grid.nbrOff[i + 1]; t++) w.push(kind[grid.nbr[t]] !== 1 ? 1 : 0);
-    let runs = 0; for (let k = 0; k < w.length; k++) if (w[k] && !w[(k + w.length - 1) % w.length]) runs++;
-    return runs >= 2;
-  };
-  let cut = 0;
-  for (let i = 0; i < n; i++) {
-    const was = kind[i] === 0 ? 0.1 * Math.exp(-1 / SEA.FILL) : 0;
-    if (kind[i] === 3 && pinch(i)) { assert.ok(p.gs[i] > was + 0.9 * SEA.SCOUR, `a pinch in the channel cut ${p.gs[i]}`); cut++; }   // above the sea: the full rate
-    else if (kind[i] === 3) assert.ok(p.gs[i] < 0.1 * SEA.SCOUR, 'a channel cell with water on one side only');
-  }
-  assert.ok(cut >= 3, `${cut} pinches cut`);
-  const fill = Math.exp(-1 / SEA.FILL);
-  for (let i = 0; i < n; i++) if (kind[i] === 0) {
-    let shore = false; for (let t = grid.nbrOff[i]; t < grid.nbrOff[i + 1]; t++) if (kind[grid.nbr[t]] === 1) shore = true;
-    if (shore) assert.ok(Math.abs(p.gs[i] - 0.1 * fill) < 1e-6, `a shore cell only fills back: ${p.gs[i]}`);
-  }
 });

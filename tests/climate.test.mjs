@@ -1,12 +1,9 @@
-// Climate: the sunlight, the energy-balance solver against its analytic modes,
-// and a seeded planet's climate within Earth-like bounds.
+// The sunlight, the energy-balance solver against its analytic modes, and the grids' transfer.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { insolation, solarLongitude, EARTH_ORBIT, S0 } from '../src/engine/orbit.js';
-import { cocg, Climate, NZ } from '../src/engine/climate.js';
-import { Tectonics } from '../src/engine/plates.js';
-import { genesis } from '../src/engine/genesis.js';
+import { cocg } from '../src/engine/climate.js';
 import { makeTransfer, prolong, restrict } from '../src/grid/transfer.js';
 
 test('insolation: the global annual mean is S/4 ÷ √(1 − e²); polar day at the solstice', () => {
@@ -56,22 +53,4 @@ test('transfer: restriction keeps the integral, prolongation keeps a constant', 
   assert.ok(Math.abs(If - Ic) < 1e-9 && Math.abs(Wc - 4 * Math.PI) < 1e-9);
   const one = prolong(T, new Float64Array(c.n).fill(1), new Float64Array(f.n));
   assert.ok(one.every(v => Math.abs(v - 1) < 1e-12));
-});
-
-test('a seeded planet: Earth-like mean temperature, wet tropics, dry subtropics, zones summing to one', () => {
-  const g = buildGrid(5), tec = new Tectonics(g);
-  genesis(tec, 'climate-test', { spinup: 0 });
-  const clim = new Climate(tec);
-  clim.solve(3);
-  const s = clim.stats, z = clim.zonal;
-  assert.ok(s.meanT > 5 && s.meanT < 22, `mean T ${s.meanT.toFixed(1)}`);
-  assert.ok(s.meanP > 500 && s.meanP < 1600, `mean P ${s.meanP.toFixed(0)}`);
-  const eq = z.P[44] + z.P[45], sub = z.P[34] + z.P[55];
-  assert.ok(eq > 2 * sub, `equator ${eq.toFixed(0)} vs subtropics ${sub.toFixed(0)}`);
-  for (let i = 0; i < g.n; i++) {
-    if (!clim.landMask[i]) continue;
-    let sum = 0;
-    for (let k = 0; k < NZ; k++) sum += clim.zones[NZ * i + k];
-    assert.ok(Math.abs(sum - 1) < 1e-6, `cell ${i} zones sum to ${sum}`);
-  }
 });

@@ -4,7 +4,7 @@
 // convex in W (Newton, four iterations, then the rain cap). The CPU sweeps it
 // Gauss–Seidel in four orders; here every cell updates at once from its
 // neighbours' last values (Jacobi), many times over, which converges to the
-// same balance (tests/gpu-node.test.mjs). The page's climate runs on the
+// same balance (tests/gpu-climate.test.mjs). The page's climate runs on the
 // engine's worker, so this uses the engine's device.
 //
 // `solveFrom` packs the coefficients here too, from the carrying wind and the

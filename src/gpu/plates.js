@@ -40,7 +40,7 @@
 // first, level 7's plates ran ~20% slow (AGENTS.md, "How the plates work").
 // Relaxation reads the decided owners whole. f32 flips a nearest-cell tie now
 // and then, so the two agree at ~99.99% of cells a step and statistically over
-// many (tests/gpu-plates.test.mjs).
+// many (one step: tests/gpu-plates.test.mjs).
 import { kernel, storage } from './device.js';
 import { PARAMS, FRAME_EXTRA, freshExtras, contSlabAge } from '../engine/plates.js';
 

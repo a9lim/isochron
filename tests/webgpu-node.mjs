@@ -1,12 +1,13 @@
-// WebGPU in node (Dawn's bindings, `npm install` in tests/), so the GPU paths
-// run headless: importing this sets navigator.gpu. `hasGPU` says whether it worked.
-let ok = false;
+// WebGPU in node (Dawn's bindings: `npm ci` in tests/), so the GPU paths run headless. Importing this
+// sets navigator.gpu when the package loads and an adapter answers; `skip` is false then, else the reason.
+let reason = false;
 try {
   const w = await import('webgpu');
   Object.assign(globalThis, w.globals);
   const gpu = w.create([]);
-  if (globalThis.navigator) Object.defineProperty(globalThis.navigator, 'gpu', { value: gpu, configurable: true });
+  if (!(await gpu.requestAdapter())) reason = 'no WebGPU adapter';
+  else if (globalThis.navigator) Object.defineProperty(globalThis.navigator, 'gpu', { value: gpu, configurable: true });
   else globalThis.navigator = { gpu };
-  ok = true;
-} catch { /* no bindings: the GPU tests skip */ }
-export const hasGPU = ok;
+} catch { reason = 'no WebGPU in node (npm ci in tests/)'; }
+export const skip = reason;
+export const hasGPU = !reason;

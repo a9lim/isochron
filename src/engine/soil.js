@@ -41,7 +41,7 @@
 //   potential evaporation  PET = 55/12 · max(0, T + 4) mm a month: the
 //                 climate's Budyko PET (55 (T̄ + 4) mm a year, src/engine/
 //                 climate.js) taken month by month. Over 810 synthetic
-//                 climates (tests/soil.test.mjs) the periodic year's runoff is
+//                 climates the periodic year's runoff is
 //                 0.3% below the climate's Budyko runoff in all (6% mean
 //                 error); on the opening planet's land too, but 24% below in
 //                 its permafrost, where Budyko's PET has its floor (30 mm a

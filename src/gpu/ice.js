@@ -1,9 +1,8 @@
 // The ice sheets stepped on the GPU (the engine's worker has its own device).
 // The physics is src/engine/ice.js's, which stays the headless reference
-// (tests/gpu-node.test.mjs and tests/gpu-ice-sliding.test.mjs check the two
-// agree): shallow ice with Glen's law plus Weertman sliding where the bed is
-// thawed (the bed's temperature by Robin's column with the deformation's
-// heat), explicit, the step set by the
+// (tests/gpu-ice.test.mjs checks the two agree): shallow ice with Glen's law
+// plus Weertman sliding where the bed is thawed (the bed's temperature by
+// Robin's column with the deformation's heat), explicit, the step set by the
 // stability limit in the worst cell on the two diffusivities' sum; the
 // degree-day mass balance from the climate's harmonics; basal melt; the marine
 // fronts (sea level over open sea, floating ice still beside grounded ice, the
