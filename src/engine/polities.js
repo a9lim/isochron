@@ -46,14 +46,44 @@
 // W_WORKS of the works by the share moved); rivalry with peer states lifts new ideas (K_RIVAL, `rv`;
 // contested, so weak, beside the border's cut in trade and the copying that rides on it).
 // Read back: each place's identity pulled toward its capital's (src/engine/peoples.js; a9: softly).
-// Drawn on the States map (`drawn`): each polity a hue and a hatch angle apart from its neighbours'; the
-// borders (`borders`) and capitals as marks; counted (`count`): the effective number of states.
+// Drawn on the States map (`drawn`): each polity a look, a hue and a hatch angle, picked apart from those
+// near its founding and picked again when it meets a larger state that looks like it (`recolour`; states
+// outgrow the region they were founded in); the hues evenly spaced by how different they look (HUE_A).
+// The borders (`borders`) and capitals as marks; counted (`count`): the effective number of states.
 import { stream } from '../rng.js';
 import { CITY } from './peoples.js';
 
 export const KP = 3;      // the polities a place keeps
 const KC = 4;             // the candidates a place weighs a step
-const HUES = 8, ANGS = 3; // the States map's colours: hues round the peoples' wheel × hatch angles 60° apart
+const HUES = 8, ANGS = 3; // the States map's looks: hues round the peoples' wheel × hatch angles 60° apart
+const SEA_TOUCH = 300;    // km: states facing each other across less sea than this meet, for their looks
+
+/** How far apart two looks are: their hues' steps round the wheel over four, plus 0.6 for another angle. */
+const look = (o, h, an) => Math.min(Math.abs(o.hue - h), HUES - Math.abs(o.hue - h)) / (HUES / 2) + (o.ang === an ? 0 : 0.6);
+
+/**
+ * The hues as angles on the peoples' wheel (src/render/globe.js, idWheel, which reads v = h/2π + ½), at
+ * equal steps of its path in OKLab, the accent midway between two. The wheel warps its hue by 0.35 sin
+ * and halves its chroma toward the accent, so equal steps in v were ~60° of hue apart beside the accent and
+ * ~30° across from it, where two teals looked alike. The path's shape in v is the same in both themes.
+ */
+const HUE_A = (() => {
+  const M = 4096, sp = new Float64Array(M + 1), TAU = 2 * Math.PI;
+  const ab = v => {
+    const t = TAU * v + 0.35 * Math.sin(TAU * v), dh = Math.abs(Math.atan2(Math.sin(t), Math.cos(t)));
+    const C = 1 - 0.5 * Math.exp(-((dh / 0.5236) ** 2));
+    return [C * Math.cos(t), C * Math.sin(t)];
+  };
+  let [a0, b0] = ab(0);
+  for (let i = 1; i <= M; i++) { const [a, b] = ab(i / M); sp[i] = sp[i - 1] + Math.hypot(a - a0, b - b0); a0 = a; b0 = b; }
+  const out = new Float64Array(HUES);
+  for (let k = 0, i = 0; k < HUES; k++) {
+    const g = (k + 0.5) / HUES * sp[M];
+    while (sp[i + 1] < g) i++;
+    out[k] = TAU * ((i + (g - sp[i]) / (sp[i + 1] - sp[i])) / M - 0.5);
+  }
+  return out;
+})();
 
 /** The cohesion's logistic with decay over dt: dA/dt = a A (1 − A) − b A, exactly. */
 export function asabiya(A, a, b, dt) {
@@ -332,9 +362,53 @@ export class Polities {
       if (this.rng.uniform() < 1 - Math.exp(-r * dt)) this.found(c, free);
     }
     this.count();
+    this.recolour();
   }
 
-  /** A polity founded at c, holding its free share; its colours apart from its neighbours'. */
+  /** The look (hue × ANGS + angle) furthest from those of the polities `near`, searched from (h0, a0). */
+  pick(near, h0, a0) {
+    let best = h0 * ANGS + a0, bv = -1;
+    for (let i = 0; i < HUES * ANGS; i++) {
+      const h = (h0 + i) % HUES, an = (a0 + Math.floor(i / HUES)) % ANGS;
+      let v = Infinity;
+      for (const q of near) v = Math.min(v, look(this.list[q], h, an));
+      if (v > bv + 1e-9) { bv = v; best = h * ANGS + an; }
+      if (v === Infinity) break;
+    }
+    return best;
+  }
+
+  /**
+   * Keep states that meet apart in look. Two meet across a border, in a place both hold (a contested
+   * march, drawn interleaved) or across less than SEA_TOUCH km of sea; largest first, each state that
+   * looks like a larger one it meets (one angle, hues a step or less apart) takes the look furthest from
+   * all it meets, so the large keep theirs and a change lands where it's smallest. Drawing only: it
+   * draws nothing from the stream, so the run is the same.
+   */
+  recolour() {
+    const pp = this.pp, nL = pp.nL, E = pp.E, id = this.id, s = this.s, d = this.d, list = this.list;
+    const meet = new Map(this.live.map(k => [k, new Set()]));
+    const tie = (a, b) => { if (a !== b && a >= 0 && b >= 0) { meet.get(a).add(b); meet.get(b).add(a); } };
+    const own = new Int32Array(nL);
+    for (let c = 0; c < nL; c++) own[c] = this.owner(c);
+    for (let c = 0; c < nL; c++) {
+      if (id[KP * c + 1] >= 0 && s[KP * c + 1] >= 0.2 * d[c]) tie(id[KP * c], id[KP * c + 1]);
+      if (own[c] < 0) continue;
+      for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e] || E.km[e] < SEA_TOUCH) tie(own[c], own[E.nb[e]]);
+    }
+    const order = [...this.live].sort((a, b) => list[b].N - list[a].N || list[a].born - list[b].born);
+    const rank = new Map(order.map((k, i) => [k, i]));
+    for (const k of order) {
+      const q = list[k], near = meet.get(k);
+      let clash = false;
+      for (const o of near) if (rank.get(o) < rank.get(k) && look(list[o], q.hue, q.ang) < 0.5) { clash = true; break; }
+      if (!clash) continue;
+      const best = this.pick(near, q.hue, q.ang);
+      q.hue = Math.floor(best / ANGS); q.ang = best % ANGS;
+    }
+  }
+
+  /** A polity founded at c, holding its free share; its look apart from those near. */
   found(c, free) {
     const pp = this.pp, P = pp.P, rt = pp.routes, id = this.id, s = this.s, k = this.list.length;
     const near = new Set();
@@ -342,18 +416,7 @@ export class Polities {
       const b = rt.catch.idx[e];
       for (let j = 0; j < KP; j++) { const q = id[KP * b + j]; if (q < 0) break; near.add(q); }
     }
-    let best = 0, bv = -1;
-    const h0 = this.rng.uniform() * HUES | 0, a0 = this.rng.uniform() * ANGS | 0;
-    for (let i = 0; i < HUES * ANGS; i++) {
-      const h = (h0 + i) % HUES, an = (a0 + Math.floor(i / HUES)) % ANGS;
-      let v = Infinity;
-      for (const q of near) {
-        const o = this.list[q], dh = Math.min(Math.abs(o.hue - h), HUES - Math.abs(o.hue - h)) / (HUES / 2);
-        v = Math.min(v, dh + (o.ang === an ? 0 : 0.6));
-      }
-      if (v > bv + 1e-9) { bv = v; best = h * ANGS + an; }
-      if (v === Infinity) break;
-    }
+    const best = this.pick(near, this.rng.uniform() * HUES | 0, this.rng.uniform() * ANGS | 0);
     if (this.first === null) this.first = pp.t;
     this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue: Math.floor(best / ANGS), ang: best % ANGS, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0 });
     this.live.push(k);
@@ -437,7 +500,7 @@ export class Polities {
       for (let j = 0; j < 2; j++) {
         const k = id[KP * c + j];
         if (k < 0) break;
-        const q = this.list[k], f = Math.min(1, s[KP * c + j] / Math.max(this.d[c], 1e-9)), a2 = 2 * Math.PI * q.ang / ANGS, h = 2 * Math.PI * (q.hue + 0.5) / HUES;
+        const q = this.list[k], f = Math.min(1, s[KP * c + j] / Math.max(this.d[c], 1e-9)), a2 = 2 * Math.PI * q.ang / ANGS, h = HUE_A[q.hue];
         out[o + 4 * j] = f * Math.cos(a2); out[o + 4 * j + 1] = f * Math.sin(a2); out[o + 4 * j + 2] = f * Math.cos(h); out[o + 4 * j + 3] = f * Math.sin(h);
       }
     }

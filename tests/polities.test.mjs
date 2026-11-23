@@ -96,6 +96,20 @@ test('the border between two states is where their projected powers are equal', 
   }
 });
 
+test('states that meet keep apart in look, the smaller giving way', () => {
+  // Three states of one look: 0–80 and 81–140 meet, 160–199 past a stateless gap meets neither. The middle
+  // one, smaller than its neighbour, takes the look furthest from it (the opposite hue, another angle); the
+  // others keep theirs.
+  const pp = line({}), pol = pp.pol;
+  seat(pol, 40, 40); seat(pol, 110, 29); seat(pol, 180, 19);
+  pol.d.fill(1);
+  pol.list.forEach((q, k) => Object.assign(q, { N: [3, 1, 2][k], hue: 2, ang: 1 }));
+  pol.recolour();
+  const [a, b, c] = pol.list.map(q => [q.hue, q.ang]);
+  assert.deepEqual([a, c], [[2, 1], [2, 1]]);
+  assert.ok(b[0] === 6 && b[1] !== 1, `${b}`);
+});
+
 test("the media pull a nation's places toward its capital, whatever the distance", () => {
   // Learning past the world's reach: the media's pull, R_MEDIA × (1 − e^{−(ℓ/L_WORLD)²}), is toward the
   // holders' capitals where a state holds a place (a9), so a place three apart (more than a family) closes
