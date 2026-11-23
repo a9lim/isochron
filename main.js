@@ -42,7 +42,7 @@ import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
 import { drawKey } from './src/render/key.js';
-import { STREAM_GAP, currentWidth } from './src/render/streamlines.js';
+import { STREAM_GAP } from './src/render/streamlines.js';
 import { Year } from './src/engine/year.js';
 import { linkCharts, chartFrame } from './src/render/chart.js';
 
@@ -594,8 +594,9 @@ function airFrame() {
   return { sets: [{ lines: air.prev && air.prev.lines, alpha: 1 - f, gap: air.prev && STREAM_GAP * air.prev.dsep }, { lines: air.cur.lines, alpha: f, gap: STREAM_GAP * air.cur.dsep }] };
 }
 // The Sea chart's currents: the gyres' surface current (the year's mean, src/engine/ocean.js) traced as
-// streamlines off the page's thread on the ocean's grid, again when the climate has cycled or the zoom
-// crosses an octave, each new set crossfading from the last as the Air chart's do.
+// streamlines off the page's thread on the ocean's grid and drawn as the Air chart's winds (at CURRENT_SCALE
+// their speed, src/render/streamlines.js), again when the climate has cycled or the zoom crosses an octave,
+// each new set crossfading from the last as the Air chart's do.
 const sea = { cur: null, prev: null, at: -1e9, busy: false, sent: null, id: 0 };
 const seaShown = () => view === 'climate' && clMode === 'sea';
 function refreshCurrents() {
@@ -617,7 +618,7 @@ function currentsFrame() {
   if (!seaShown() || !sea.cur) return null;
   const f = smooth(0, 1, (performance.now() - sea.at) / AIR_FADE);
   if (f < 1) drawDirty = true;
-  return { sets: [{ lines: sea.prev && sea.prev.lines, alpha: 1 - f, gap: sea.prev && STREAM_GAP * sea.prev.dsep, width: currentWidth }, { lines: sea.cur.lines, alpha: f, gap: STREAM_GAP * sea.cur.dsep, width: currentWidth }] };
+  return { sets: [{ lines: sea.prev && sea.prev.lines, alpha: 1 - f, gap: sea.prev && STREAM_GAP * sea.prev.dsep }, { lines: sea.cur.lines, alpha: f, gap: STREAM_GAP * sea.cur.dsep }] };
 }
 
 // ── Canvas sizing ──
@@ -869,17 +870,6 @@ function caption(force) {
     const st = m.off && m.off.stars;
     parts.push(`${headcount(h.earth)} people` + (h.space >= 1e3 ? `, ${headcount(h.space)} off-planet` : '') + (st && st.people >= 1e3 ? `, ${headcount(st.people)} at other stars` : ''));
     if (m.city >= 1e5) parts.push(`largest city ${headcount(m.city)}`);
-    // The Culture map counts the peoples (src/engine/peoples.js, `count`).
-    if (view === 'people' && pmMode === 'culture' && h.peoples > 0) parts.push(`≈ ${Math.round(+h.peoples.toPrecision(2)).toLocaleString('en')} peoples`);
-    // The States map counts the states (src/engine/polities.js, `count`).
-    if (view === 'people' && pmMode === 'states' && h.states > 0) parts.push(`≈ ${Math.round(+h.states.toPrecision(2)).toLocaleString('en')} ${Math.round(h.states) === 1 ? 'state' : 'states'}`);
-  }
-  // The Sea map: the overturning, and the deep's uptake while it takes or gives (src/engine/deepsea.js).
-  const S = seaShown() && climate.sea ? climate.sea.stats : null;
-  if (S) {
-    parts.push(`overturning ${S.sv.toFixed(S.sv < 10 ? 1 : 0)} Sv`);
-    const d = S.deep;
-    if (d && Math.abs(d.uptake) >= 0.05) parts.push(`the deep ${d.uptake > 0 ? 'taking' : 'giving'} ${Math.abs(d.uptake).toFixed(1)} W/m²`);
   }
   setCaption(parts.join(' · '), true);
 }

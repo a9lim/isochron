@@ -5,8 +5,8 @@
 // from its template's pressure at the shown date or the year's mean; the lines
 // are traced off the page's thread (src/render/chart-worker.js) and redrawn
 // each frame by reprojecting their points, as the plate boundaries are. The Sea
-// chart's currents alike (src/engine/ocean.js, the gyres' surface current), on
-// their own scale of speed (`CURRENT`).
+// chart's currents alike (src/engine/ocean.js, the gyres' surface current),
+// traced and drawn as winds at CURRENT_SCALE times their speed.
 //
 // The spacing is Jobard and Lefer's (1997): a line is traced both ways from its
 // seed until it comes within half the spacing of another line (or of itself,
@@ -18,8 +18,12 @@
 import { nearest, cellCount } from '../grid/icosphere.js';
 
 const CALM = 0.4;          // m/s: a line ends where the wind falls below this
-/** The currents' scale: a line ends below `calm` (m/s), and its weight rises from a hairline at `slow` to the heaviest at `fast`. */
-export const CURRENT = { calm: 0.01, slow: 0.02, fast: 0.15 };
+/**
+ * The currents drawn as winds: their speed × this, the sea's winds against its currents (on today's Earth, at
+ * each decile from the 10th to the 90th, 270–330×: the median wind over the sea 4.8 m/s, the current 1.6 cm/s),
+ * so their lines end, weigh and carry arrowheads as the Air chart's do.
+ */
+export const CURRENT_SCALE = 300;
 const MAX_LEN = 2.4;       // rad: the longest line (the trades would otherwise ring the globe)
 
 /** The wind at a unit vector, linear in the grid's triangle that holds it, in the tangent plane there. */
@@ -58,7 +62,7 @@ function sampler(g, wind) {
  * Returns { lines: [{ P: Float32Array(3m) unit vectors, V: Float32Array(m) speeds (m/s),
  * S: Float32Array(m) arc length (rad) }], maxWind }, each line running downwind.
  */
-export function traceStreamlines(g, wind, dsep, calm = CALM) {
+export function traceStreamlines(g, wind, dsep) {
   const at = sampler(g, wind);
   const h = dsep / 4, dtest = 0.5 * dsep, maxSteps = Math.ceil(MAX_LEN / h);
   // The points traced so far, hashed on a 3D lattice of the spacing.
@@ -102,10 +106,10 @@ export function traceStreamlines(g, wind, dsep, calm = CALM) {
     for (let n = 0; n < maxSteps; n++) {
       // The midpoint rule on the unit wind, the step's length h along the sphere.
       const a = at(x, y, z, v);
-      if (a < calm) break;
+      if (a < CALM) break;
       const mx = x + 0.5 * h * sgn * v[0] / a, my = y + 0.5 * h * sgn * v[1] / a, mz = z + 0.5 * h * sgn * v[2] / a, mr = Math.hypot(mx, my, mz);
       const b = at(mx / mr, my / mr, mz / mr, v2);
-      if (b < calm || v[0] * v2[0] + v[1] * v2[1] + v[2] * v2[2] < 0) break;   // calm, or turning back (a stagnation point)
+      if (b < CALM || v[0] * v2[0] + v[1] * v2[1] + v[2] * v2[2] < 0) break;   // calm, or turning back (a stagnation point)
       let nx = x + h * sgn * v2[0] / b, ny = y + h * sgn * v2[1] / b, nz = z + h * sgn * v2[2] / b;
       const nr = Math.hypot(nx, ny, nz);
       nx /= nr; ny /= nr; nz /= nr;
@@ -121,7 +125,7 @@ export function traceStreamlines(g, wind, dsep, calm = CALM) {
   const tryLine = (x, y, z) => {
     if (near(x, y, z, dsep)) return;
     const a = at(x, y, z, v);
-    if (a < calm) return;
+    if (a < CALM) return;
     const line = nLine++;
     add(x, y, z, line, 0);
     const fw = half(x, y, z, 1, line), bw = half(x, y, z, -1, line);
@@ -179,21 +183,17 @@ export const STREAM_GAP = 3.5;
 const W0 = 0.4, W1 = 1.3;  // px: a line's weight in light air, and what the strongest winds add
 /** A line's weight (px at scale 1) by the wind's speed: a hairline in light air, ~1.7 px past 12 m/s. */
 export const streamWidth = speed => W0 + W1 * smooth(1, 12, speed);
-/** A current's, on CURRENT's scale. */
-export const currentWidth = speed => W0 + W1 * smooth(CURRENT.slow, CURRENT.fast, speed);
 
 /**
- * The streamlines on the 2D overlay: each set ({ lines, alpha, gap, width }) reprojected, its segments
+ * The streamlines on the 2D overlay: each set ({ lines, alpha, gap }) reprojected, its segments
  * in weight classes, and arrowheads spread evenly along each line (about one per `gap` radians
- * of arc), pointing downwind. `lw` scales the weights (the symbols' scale); a set's `width` maps its
- * speed to a weight (streamWidth's when none).
+ * of arc), pointing downwind. `lw` scales the weights (the symbols' scale).
  */
 export function drawStreamlines(ctx, cx, cy, r, camera, sets, ink, lw) {
   const v = [0, 0, 0];
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (const set of sets) {
     if (!set || !set.lines || !(set.alpha > 0.01)) continue;
-    const width = set.width || streamWidth;
     const paths = Array.from({ length: NB }, () => new Path2D()), heads = new Path2D();
     let sx = new Float32Array(256), sy = new Float32Array(256), vis = new Uint8Array(256);
     for (const l of set.lines) {
@@ -209,7 +209,7 @@ export function drawStreamlines(ctx, cx, cy, r, camera, sets, ink, lw) {
       let lastB = -1;
       for (let k = 0; k < m - 1; k++) {
         if (!vis[k] || !vis[k + 1]) { lastB = -1; continue; }
-        const b = Math.min(NB - 1, Math.floor(NB * (width(0.5 * (V[k] + V[k + 1])) - W0) / W1));
+        const b = Math.min(NB - 1, Math.floor(NB * (streamWidth(0.5 * (V[k] + V[k + 1])) - W0) / W1));
         if (b !== lastB) paths[b].moveTo(sx[k], sy[k]);
         paths[b].lineTo(sx[k + 1], sy[k + 1]);
         lastB = b;
@@ -227,7 +227,7 @@ export function drawStreamlines(ctx, cx, cy, r, camera, sets, ink, lw) {
         const tl = Math.hypot(tx, ty);
         if (tl < 1e-3) continue;
         tx /= tl; ty /= tl;
-        const w = width(V[k]) * lw, len = 2.6 + 2.2 * w, half = 1.1 + 1.0 * w;
+        const w = streamWidth(V[k]) * lw, len = 2.6 + 2.2 * w, half = 1.1 + 1.0 * w;
         heads.moveTo(px + 0.55 * len * tx, py + 0.55 * len * ty);
         heads.lineTo(px - 0.45 * len * tx - half * ty, py - 0.45 * len * ty + half * tx);
         heads.lineTo(px - 0.45 * len * tx + half * ty, py - 0.45 * len * ty - half * tx);
