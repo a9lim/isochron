@@ -155,6 +155,10 @@ export const OC = {
   SUB: 2e4,                          // yr, the longest substep
 };
 
+/** A warning, once a page (or run) for each kind. */
+const warned = new Set();
+function warnOnce(kind, msg) { if (warned.has(kind)) return; warned.add(kind); console.warn(`[isochron] ${msg}`); }
+
 // ── Seawater's carbonate system ──
 
 /** Calcite's solubility product (mol² kg⁻²) at TC °C, S, and Pbar bar above the surface. */
@@ -293,11 +297,17 @@ export class OceanCarbon {
     this.settle(opts.pco2 ?? CARBON.PCO2_0);
   }
 
-  /** Update the inputs (any subset); they hold until changed. */
+  /**
+   * Update the inputs (any subset); they hold until changed. One that isn't a finite number (a NaN
+   * from upstream: a cell of the climate, the people's write-back) keeps its last value and says so
+   * once: the implicit step can't take a NaN at any length, and had thrown every frame after.
+   */
   set(inputs) {
     for (const key in inputs) {
+      const v = inputs[key];
       if (key === 'hyps') { if (inputs.hyps) this.setHyps(inputs.hyps); }
-      else this.in[key] = inputs[key];
+      else if (typeof v === 'number' && !Number.isFinite(v)) warnOnce(`input ${key}`, `the sea's carbon: its input ${key} was ${v}; it keeps ${this.in[key]}`);
+      else this.in[key] = v;
     }
   }
 
@@ -414,7 +424,7 @@ export class OceanCarbon {
     return F;
   }
 
-  /** One implicit substep of h years; it halves itself where Newton doesn't converge. */
+  /** One implicit substep of h years; it halves itself where Newton doesn't converge. Whether it was taken. */
   substep(h, x, depth = 0) {
     const P0 = Float64Array.from(this.P), hb0 = this.hb.slice();
     this.nutrients(h, x);
@@ -434,11 +444,9 @@ export class OceanCarbon {
     }
     if (!rec && depth < 14) {
       this.P.set(P0); this.hb = hb0;
-      this.substep(h / 2, x, depth + 1);
-      this.substep(h / 2, x, depth + 1);
-      return;
+      return this.substep(h / 2, x, depth + 1) && this.substep(h / 2, x, depth + 1);
     }
-    if (!rec) throw new Error(`OceanCarbon: no implicit step of ${h} yr`);
+    if (!rec) { this.P.set(P0); this.hb = hb0; return false; }
     for (let i = 0; i < 7; i++) this.I[i] = u0[i] + h * F[i];
     if (this.hold > 0) { const A = this.hold * this.ppmMol; this.cum.held += A - this.I[0]; this.I[0] = A; }
     if (!this.closed) {
@@ -454,6 +462,7 @@ export class OceanCarbon {
     }
     rec.arc = x.arc;
     this.last = rec;
+    return true;
   }
 
   /** Backward Euler over h from u0 by damped Newton; the solution, or null where it doesn't converge. */
@@ -520,7 +529,12 @@ export class OceanCarbon {
     const x = this.context();
     if (dtYears > 0) {
       const n = Math.max(1, Math.ceil(dtYears / OC.SUB - 1e-9)), h = dtYears / n;
-      for (let i = 0; i < n; i++) this.substep(h, x);
+      // A step no halving takes (its state or inputs past solving) holds the sea and the air where they
+      // are for the rest of these years, and says so once with what it had, rather than throwing.
+      for (let i = 0; i < n; i++) if (!this.substep(h, x)) {
+        warnOnce('step', `the sea's carbon: no implicit step of ${h} yr even halved 14 times; held. Its pools ${Array.from(this.I, v => v.toPrecision(3)).join(' ')}; its inputs ${JSON.stringify(this.in, (k, v) => (k === 'hyps' ? undefined : typeof v === 'number' ? +v.toPrecision(4) : v))}`);
+        break;
+      }
     }
     this.diagnose(x);
   }
@@ -547,8 +561,9 @@ export class OceanCarbon {
     [this.Mw, this.Mc, this.Md] = this.M0.map(m => m * r);
   }
 
-  /** A pulse of carbon into the air (Pg C). */
+  /** A pulse of carbon into the air (Pg C); one that isn't a finite number is dropped (and said once). */
   pulse(PgC) {
+    if (!Number.isFinite(PgC)) { warnOnce('pulse', `the sea's carbon: a pulse of ${PgC} Pg C into the air; dropped`); return; }
     this.I[0] += PgC * OC.PG;
     this.cum.source += PgC * OC.PG;
     this.pco2 = this.I[0] / this.ppmMol;

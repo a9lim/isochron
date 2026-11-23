@@ -1,5 +1,5 @@
 // Carbon in the air, the sea and the seafloor (src/engine/oceancarbon.js): published constants, conservation, the
-// steady opening, the thermostat.
+// steady opening, the thermostat, and a NaN held off (it had thrown every frame on the page).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -81,3 +81,18 @@ test("the thermostat: under constant outgassing silicate weathering meets it, at
   assert.ok(Math.abs(m.pco2 / m.equilibrium() - 1) < 0.01, `with subduction: ${m.pco2.toFixed(1)} vs ${m.equilibrium().toFixed(1)}`);
   out.push(`×0.5 with subduction: ${m.pco2.toFixed(1)} ppm (V ${m.flux.out.toFixed(4)} Pg C/yr, the arcs' return down with burial)`);
 });
+
+test('a NaN from upstream is held off: an input keeps its last value, a pulse is dropped, the sea steps on finite', () => {
+  const m = new OceanCarbon(), warn = console.warn;
+  console.warn = () => {};
+  try {
+    m.step(1, { sstWarm: 22 });
+    const p0 = m.pco2;
+    m.pulse(NaN);
+    m.step(0.02, { shelf: NaN, land: NaN, sstWarm: NaN });
+    assert.equal(m.in.sstWarm, 22);
+    for (const v of m.I) assert.ok(Number.isFinite(v) && v > 0, `a pool ${v}`);
+    assert.ok(Math.abs(m.pco2 / p0 - 1) < 0.01, `pCO₂ ${m.pco2} against ${p0}`);
+  } finally { console.warn = warn; }
+});
+

@@ -187,21 +187,31 @@ export class PeopleLink {
     P.life.onCover = () => { this.sEq0.set(P.life.veg.sEq); this.landUse(); };
   }
 
-  /** The people's write-back on their grid: farmed share, tillage (mm/yr) and solar farms' share a cell, carbon (Pg C) since the last, forcing (W/m²). */
+  /**
+   * The people's write-back on their grid: farmed share, tillage (mm/yr) and solar farms' share a cell,
+   * carbon (Pg C) since the last, forcing (W/m²). What isn't a finite number stops here (a cell's at 0, a
+   * total's last value), said once by name: past here a NaN poisons the planet's climate and carbon.
+   */
   receive({ f, Ef, s, x, m, carbon = 0, F = 0, aerC = 0 }) {
-    const put = (a, out) => {
+    const put = (a, out, name) => {
+      let bad = 0;
+      for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) { a[i] = 0; bad++; }
+      if (bad) this.warn(name, `${bad} cells of the people's ${name} weren't finite; taken as 0`);
       if (!this.T) { out.set(a.subarray(0, out.length)); return; }
       prolong(this.T, a, this.tmp); out.set(this.tmp);
     };
-    if (s) put(s, this.us);
-    if (f) { put(f, this.u); this.landUse(); }
-    if (Ef) put(Ef, this.ef);
-    if (x) put(x, this.x);
-    if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = new Float32Array(this.P.grid.n).fill(1); put(m, veg.mega); }
-    this.carbon += carbon;
-    this.F = F; CLIMATE.F_PEOPLE = F;
-    this.aerC = aerC; this.applySulfate();
+    const num = (v, keep, name) => { if (Number.isFinite(v)) return v; this.warn(name, `the people's ${name} was ${v}; kept ${keep}`); return keep; };
+    if (s) put(s, this.us, 'solar farms');
+    if (f) { put(f, this.u, 'farmed share'); this.landUse(); }
+    if (Ef) put(Ef, this.ef, 'tillage');
+    if (x) put(x, this.x, 'sulfate');
+    if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = new Float32Array(this.P.grid.n).fill(1); put(m, veg.mega, 'large game'); }
+    this.carbon += num(carbon, 0, 'carbon');
+    this.F = num(F, this.F, 'forcing'); CLIMATE.F_PEOPLE = this.F;
+    this.aerC = num(aerC, this.aerC, 'sulfate forcing'); this.applySulfate();
   }
+  /** A warning once for each kind. */
+  warn(kind, msg) { const w = this.warned || (this.warned = new Set()); if (w.has(kind)) return; w.add(kind); console.warn(`[isochron] ${msg}`); }
 
   /** Coal's sulfate's forcing per cell: its global mean on the carried pattern (uniform until one is solved). */
   applySulfate() {
