@@ -36,7 +36,8 @@
 //             density against RHO_COPY).
 //   people    a density per cell. Births and deaths (`demography`): deaths by food per person
 //             (hunger below subsistence, disease at density), cut by medicine as industrial income
-//             rises; births fall with industrial income only; so mortality falls before fertility
+//             rises and, past industry's own places, as learning brings it (`modern`); births fall
+//             with industrial income only; so mortality falls before fertility
 //             (the demographic transition's stages, standard; Earth's rates from memory). Each
 //             cell's pyramid of five-year cohorts rides its total (src/engine/cohorts.js): its old
 //             people's deaths are the cell's aging, its working ages the economy's workers. The cell's
@@ -97,8 +98,9 @@
 //             farmers breeding them toward each place over T_ADAPT (`suit`, `suitHere`).
 //   industry  starts where z passes Z_IND near coal and ore (the fossil map seeded on the opening's
 //             lowland basins and shelves, a9, 2026-11-15; the ore map on its arcs, old crust and
-//             cut relief, `oreMap`), then spreads by contact at up to IND_PACE times its own pace
-//             (two centuries to reach the world). One world economy
+//             cut relief, `oreMap`), then spreads by contact at up to IND_PACE times its own pace,
+//             slowly across borders and between peoples until schooling comes (`apart`); medicine and
+//             industry's fertilizer reach farther, with learning (`modern`). One world economy
 //             (`industrialStep`): Y = A(z) K^α L^{1−α} (standard forms; α ⅓, saving ¼), held to the
 //             energy it gets (a CES of low elasticity against the capital–labour bundle, the
 //             intensity falling with z); fixed capital (δ 5%/yr), energy capital for fossil carbon
@@ -247,9 +249,16 @@ export const PEOPLE = {
   // People
   // Births and deaths (/yr; Earth's series from memory: deaths ~3.5% → ~1.5% by 1950 → ~0.8%, births
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
-  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 5.5, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (5.5: today's Earth at ~9–9.5 B at early takeoff, with the pyramids' aging, a region's luck hastening the industrial era and the fields' work slowing it (6.5 before it); 4.5 left ~6.5 B with luck; steepness K_B; Earth's crude births ~3.7% at ~4 sy a person in 1950, ~2.1% at ~11 in 2000, ~1.7% at ~20 now, from memory); the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
+  B_PRE: 0.035, B_MIN: 0.01245, Y_B: 8, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (8: England and Wales's crude births ~3.5% in 1870, ~2.4% in 1913, ~1.6% in 1950 at its goods then, as reported from the Registrar-General's and Mitchell's series; today's Earth at ~8–9 B at early takeoff; 5.5, set on the poorer one-world economy, had the industrial world's births fall a generation early); steepness K_B; the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
   M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
+  // Industry's reach past its own works (synthesis on Preston's shifting curve, 1975, and the Green
+  // Revolution; from memory): medicine and industry's farm inputs reached the agrarian world with its
+  // science, ahead of its industry (Asia's and Africa's crude deaths fell by about half over 1945–80 at
+  // incomes near subsistence). Once industry is somewhere, where learning passes Z_MOD (over W_MOD)
+  // medicine's reach adds U_MED to its income's, and the fields take industry's lift as an
+  // industrial place's do (`modern`).
+  Z_MOD: 7.6, W_MOD: 0.25, U_MED: 1.4,
   AGE: 0.0087, Y_AGE: 30,          // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   D_IND: 1e4,                      // … and industry's (railways and steamships, a logistic about Z_IND: the American and Siberian frontiers moved ~30–50 km a year in the nineteenth century, from memory), on top, past D_MAX
@@ -333,13 +342,22 @@ export const PEOPLE = {
   D_OASIS: 5,
   // Industry: where it starts and how it spreads
   IND_PACE: 60,                    // industry's spread by contact keeps knowledge's pace only to this many times its own (the works, capital and skills a place builds: industrialization reached the world's regions over two centuries, not one; from memory)
-  B_IND: 0.3, L_IND: 0.8,           // industry's spread and its techniques' copying across a border × B_IND, between unlike peoples × (1 − L_IND (1 − likeness)) (`apart`; synthesis)
+  B_IND: 0.02, L_IND: 0.9, Q_IND: 5,   // industry's spread and its techniques' copying across a border × B_IND + (1 − B_IND) s^Q_IND, s the holders two places share (a contested march shares ~⅓ and is no market), between unlike peoples × (1 − L_IND (1 − likeness^Q_IND)) (`apart`; synthesis): Q_IND 1 let a border's march pass industry at ~⅓, and the Old World industrialized within a century
+  // Schooling opens the way (synthesis on Abramovitz's social capability and the post-1950 catch-up,
+  // from memory): where a place's learning passes Z_ABS (over W_ABS), industry and its techniques reach
+  // it whatever border or people lies between (`apart`): the agrarian world industrialized as its
+  // schooling came, not when its first neighbour did.
+  Z_ABS: 8.3, W_ABS: 0.25,
   RHO_IND: 10,                     // people per km² past which a farming people has the labour and the markets for industry
-  Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
+  Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 2e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
   // The industrial economy (standard forms; Earth's values from memory)
-  A_I0: 0.7, THETA_I: 0.85, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,   // TFP at Z_IND (≈ a subsistence-year a worker at its Solow balance), ×e^{THETA_I} per unit of knowledge past it, capital's share, saving, workers' share
+  // TFP at Z_IND, ×e^{THETA_I} per unit of knowledge past it: industry's first places near ~5 sy a person
+  // a century on and its frontier ~10× that by the takeoff, ~1.5%/yr, as Maddison's (western Europe 4.9 sy
+  // in 1870, the US 70 in 2000, at $400 1990 GK$ a sy; Maddison 2003); TFP at Z_AI as before the
+  // regional economies (0.7 × e^{0.85 × 3.35}), which set AI's era; capital's share, saving, workers' share
+  A_I0: 4, THETA_I: 0.33, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,
   N_TAX: 0.1, R_FOS: 0.3,          // regional economies (batch 2b, landing 2): a state's share of each place's output to its capital (taxes, and a colony's drain; ~10% of output before 1914, from memory), fossil carbon's rent as a share of the fuel's worth (synthesis)
   DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
   E_SUB: 200, Z_EFF: 5.5, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~100 at the takeoff, as Earth's ~19 TW over ~8 B × ~22 sy now), falling toward E_MIN_Y e-fold per Z_EFF
@@ -466,8 +484,10 @@ export const PEOPLE = {
   // decolonization, the breakup of empires by nation).
   // Arms with industry: × (1 + K_ARM × industrial income a person over the world's mean): a great power's
   // is its wealth against the others' (Kennedy, from memory), and the troops a state raises overseas are
-  // armed at its own.
-  F_PROJ: 0.3, L_PROJ: 2e4, I_PROJ: 0.05, K_SELF: 1, K_ARM: 2,
+  // armed at its own. (At F_PROJ 0.3 and K_ARM 2, set while incomes barely parted, once they parted as
+  // history's did the first industrial states took their unindustrialized neighbours, alike peoples whom
+  // no nationalism defends: at early takeoff ~4 effective states, the largest with half the world.)
+  F_PROJ: 0.1, L_PROJ: 2e4, I_PROJ: 0.05, K_SELF: 1, K_ARM: 0.5,
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   // Where ideas go (synthesis, a9; the size speculation): a place's new ideas are shared between the
   // domains, learning's share ½ − TILT among those who feed themselves (foragers, herders, fishers,
@@ -593,7 +613,7 @@ export function taskLabor(Lh, A, beta, sigma) {
  *     not with food (a well-fed frontier keeps its births);
  *   deaths d = m(y_g) [D_LO + (B_PRE − D_LO)/y_f] + age(y_g) while fed (disease and density: zero
  *     growth at the food capacity before medicine), plus famine F_FAM (1/y_f − 1) below it; medicine
- *     m = M_MIN + (1 − M_MIN) e^{−y_g/Y_D} comes first, so mortality falls before fertility, and aging
+ *     m = M_MIN + (1 − M_MIN) e^{−y_g/Y_D − U_MED μ} (μ: industry's reach past its works, `modern`) comes first, so mortality falls before fertility, and aging
  *     lifts the crude rate once fertility has fallen: m^{M_SEN} × `aging`, the cell's pyramid's senescence past
  *     the pre-industrial reference's (src/engine/cohorts.js), or without a pyramid its closure AGE
  *     (1 − e^{−y_g/Y_AGE}).
@@ -608,10 +628,10 @@ export function taskLabor(Lh, A, beta, sigma) {
  * step that crosses K keeps its side's law (a small error). Returns the new total, the births' and
  * deaths' rates, famine's deaths and medicine's factor on senescence.
  */
-export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0) {
+export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0, med = 0) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
-  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0);
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D - P.U_MED * med), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0);
   if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms };
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
@@ -1776,7 +1796,7 @@ export class People {
         // the organic yields, modern grain's against pre-industrial, from memory), each approached softly.
         // Draft animals lift the organic ceiling's yield (TRACT); industry's machines take over above it.
         const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A) * (1 + P.TRACT * this.animHere(c)), capI = softMin(x, P.CAP_A * P.LIFT_MAX, 1);
-        const PA = cap + ind[c] * lift * Math.max(0, capI - cap);
+        const PA = cap + Math.max(ind[c], this.modern(c)) * lift * Math.max(0, capI - cap);
         // Less the seed kept for the next sowing (working capital's first claim), and what the store
         // loses between harvests (the hungry season).
         const seed = 1 / (P.R_SEED0 * Math.exp(Math.min(Math.max(0, z - P.Z_FARM) / P.Z_R, 50))), l = this.keepRate(z) * (1 - P.G_K * this.built(c, 'G'));
@@ -1785,7 +1805,7 @@ export class People {
       // The land's, as habitable as Earth still is; and what energy buys indoors, until the oceans boil.
       // The tropics' diseases among settled farmers (malaria spread with clearing and standing water;
       // Livingstone 1958 on West Africa's yams, from memory), as far as medicine hasn't put them down.
-      const yg = this.Ntot[c] > 0 ? this.goods[c] / this.Ntot[c] : 0, sick = 1 + P.PATH * H.path[c] * Math.exp(-Math.max(0, yg) / P.Y_D);
+      const yg = this.Ntot[c] > 0 ? this.goods[c] / this.Ntot[c] : 0, sick = 1 + P.PATH * H.path[c] * Math.exp(-Math.max(0, yg) / P.Y_D - P.U_MED * this.modern(c));
       // Foraging on land with its game, or herding where the herds yield more; the sea's, the fish's share left.
       const forage = H.bL[c] * (1 + P.MEAT * this.mega[c]) / (1 + P.MEAT * P.MG_REF) * PF * eg;
       // Herders need animals: their herd is the stock's (`stocks`), its share of what the grass keeps.
@@ -1812,8 +1832,8 @@ export class People {
    * soil lies fallow but for its fertility's share, industry's fertilizer making up the rest.
    */
   fertility(c, p = this.H.phi[c]) {
-    // Mixed farming's manure makes up MANURE of the fallow's lack where the animals are kept; industry's fertilizer the rest.
-    const x = this.ind ? this.ind[c] * (this.lift || 0) : 0, q = this.anim ? p + (1 - p) * this.P.MANURE * this.animHere(c) : p;
+    // Mixed farming's manure makes up MANURE of the fallow's lack where the animals are kept; industry's fertilizer the rest (where its reach is, `modern`).
+    const x = this.ind ? Math.max(this.ind[c], this.modern(c)) * (this.lift || 0) : 0, q = this.anim ? p + (1 - p) * this.P.MANURE * this.animHere(c) : p;
     return q + (1 - q) * x;
   }
   /** The fields' yield; with a store's loss rate `l` (a year, at 15 °C: × the cell's warmth, `rot`), what's left of it as it's eaten over each kind of field's gap between harvests (`kept`). */
@@ -1885,6 +1905,8 @@ export class People {
   /** Contact length (km) at knowledge z: the species' clock × e^{z/Z_L}, at most L_CMAX. */
   reachL(z) { const P = this.P; return softMin(this.clockL() * Math.exp(Math.min(Math.max(0, z) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
+  /** Industry's reach past its own works (PEOPLE.Z_MOD): medicine's and the fields' inputs, by learning, once industry is somewhere. */
+  modern(c) { const P = this.P; return this.econ.on ? sig((this.zl[c] - P.Z_MOD) / P.W_MOD) : 0; }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
   /** The sea's reach (km) at production z: rafts and boats along coasts, then the open ocean. */
   seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * sig((z - P.Z_OCEAN) / P.W_OCEAN) : 0; }
@@ -1929,7 +1951,7 @@ export class People {
       // pools it over the market's supply basket; granaries hold up to a share of a year.
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = this.reserve(c, fc, z);
-      const { N: Nn, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, tp, ry), this.aging[c], this.cityShare ? this.cityShare[c] : 0);
+      const { N: Nn, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, tp, ry), this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c));
       this.famine += famine * Nt;
       // The pyramid over the step: births, the deaths past senescence (the total's, less the pyramid's
       // own senescence under medicine), the step's growth.
@@ -2481,16 +2503,19 @@ export class People {
 
   /** Knowledge over the step, each domain alike: ideas in, losses out, exact; copying from better neighbours and trade partners. */
   /**
-   * How much of industry and its techniques passes between neighbouring places c and d (synthesis): a
-   * border leaves B_IND of it, and unlike peoples 1 − L_IND (1 − likeness). Industrial techniques are
-   * tacit and institutional, carried by skilled migrants, firms and states' own programmes, so they
-   * crossed borders and languages slowly (Clark's labour efficiency, Comin and Hobijn's adoption lags,
-   * from memory): without it the model's Old World industrialized within a century and its incomes
-   * converged as fast as they parted.
+   * How much of industry and its techniques passes into place c from its neighbour d (synthesis): a
+   * border leaves B_IND + (1 − B_IND) s^Q of it, s the share of holders the two share, and unlike
+   * peoples 1 − L_IND (1 − likeness^Q); where c's learning passes Z_ABS, all of it (o + (1 − o) × that,
+   * o = sig((z_L − Z_ABS)/W_ABS)). Industrial techniques are tacit and institutional, carried by
+   * skilled migrants, firms and states' own programmes, so they crossed borders and languages slowly
+   * (Clark's labour efficiency, Comin and Hobijn's adoption lags, from memory) until schooling made
+   * them learnable (Abramovitz's social capability): without it the model's Old World industrialized
+   * within a century and its incomes converged as fast as they parted; read linearly (Q 1), a soft
+   * border's march, sharing ~⅓ of its holders, let industry through at ~⅓ whatever B_IND.
    */
   apart(c, d) {
-    const P = this.P;
-    return (P.B_IND < 1 ? this.pol.border(c, d, P.B_IND) : 1) * (P.L_IND > 0 ? 1 - P.L_IND * (1 - this.ids.sim(c, d)) : 1);
+    const P = this.P, q = P.Q_IND, o = sig((this.zl[c] - P.Z_ABS) / P.W_ABS);
+    return o + (1 - o) * (P.B_IND < 1 ? P.B_IND + (1 - P.B_IND) * Math.pow(this.pol.border(c, d, 0), q) : 1) * (P.L_IND > 0 ? 1 - P.L_IND * (1 - Math.pow(this.ids.sim(c, d), q)) : 1);
   }
 
   knowledge(dt) {
@@ -2548,7 +2573,7 @@ export class People {
     for (const [Z, zo, mZ, luckC, wW, cT, base] of [[ZP, oP, rt && rt.mZ, this.luckC, P.W_WORK_P, P.C_TRADE, true], [ZL, oL, rt && rt.mZL, this.luckL, P.W_WORK, P.C_TRADE_L, false]]) {
       for (let c = 0; c < nL; c++) {
         if (!(N[c] > 0)) continue;
-        const z0 = zo[c], gI = base ? sig((z0 - (P.Z_IND - 1)) / 0.25) : 0;   // how far its techniques are industry's
+        const z0 = zo[c];
         // Forgetting, less where works keep what's known (a person's share of the cell's works).
         const lam = Wk[c] > 0 ? P.LAMBDA / (1 + Wk[c] / Math.max(Ntot[c], 1e-9) / wW) : P.LAMBDA;
         const eL = Math.exp(-lam * dt), fL = lam * dt > 1e-9 ? (1 - eL) / lam : dt;
@@ -2563,7 +2588,9 @@ export class People {
           if (zd <= z0) { wsum += E.hop[o] ? 0 : E.slope[o]; continue; }
           const e = E.hop[o] ? (reach > 0 ? Math.exp(-E.km[o] / reach) : 0) : E.slope[o];
           // Learning's texts need a shared language (src/engine/peoples.js); production's tacit copying
-          // doesn't, until its techniques are industry's (`apart`).
+          // doesn't, but industry's techniques, tied to its works, cross borders and peoples slowly
+          // (`apart`), as far as the neighbour's are industry's.
+          const gI = base ? this.ind[d] : 0;
           up += e * dens(d) * (zd - z0) * (base ? (gI > 1e-3 ? 1 - gI * (1 - this.apart(c, d)) : 1) : ids.copyW(c, d)); wsum += e;
         }
         const pace = this.speed(oL[c]) / P.V0, copy = P.COPY * pace * dens(c);

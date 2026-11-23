@@ -151,8 +151,10 @@ test('the task CES: its limits, its boundary and its derivative', () => {
 
 test('fixed capital settles at the Solow balance, K/Y = s/δ', () => {
   // Knowledge held below AI's (no compute), fossil carbon plenty: what's saved past energy's share
-  // builds fixed capital, which settles where its saving matches its wear.
-  const P = { ...PEOPLE, FOSSIL: 1e9 }, E = newEconomy(P), x = { Lh: 1e6, z: 8 };
+  // builds fixed capital, which settles where its saving matches its wear. (At z 9: lower, the
+  // physical work that builds power stations, B_POW e-fold per Z_BP below Z_AI, holds energy a
+  // percent or two short of what industry's early TFP wants.)
+  const P = { ...PEOPLE, FOSSIL: 1e9 }, E = newEconomy(P), x = { Lh: 1e6, z: 9 };
   E.on = true; E.Kf = 1e5; E.Ke[0] = 1e6;
   let If = 0;
   for (let k = 0; k < 4000; k++) {

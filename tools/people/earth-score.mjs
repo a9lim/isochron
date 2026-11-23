@@ -4,7 +4,7 @@
 // (rough, from memory: national totals of ~2023 split onto the boxes below): Σ share × |ln(model /
 // observed)|, a model share floored at 0.1%. Prints each region's mean share against the observed, the
 // continents', where farming and industry began (the first six origins by region and zone), the run's totals, the
-// states, and the empires and incomes a century or two after industry.
+// states, and the industrial era against history's dates, industry's start read as 1760.
 // usage: node tools/people/earth-score.mjs ['{PEOPLE overrides}'] [draws=4]
 //   env: ENGINE=7 the page's desktop engine restricted to the people's grid (tools/people/planet.mjs)
 import { spawn } from 'node:child_process';
@@ -21,6 +21,7 @@ export const REGIONS = [
   ['E N America', 25, 50, -100, -60, 3.5], ['W N America', 30, 50, -125, -100, 1.0], ['Canada/Alaska', 50, 75, -170, -50, 0.2], ['Mesoamerica', 7, 25, -118, -77, 2.8],
   ['Andes', -40, 12, -82, -69, 1.3], ['Amazon', -15, 7, -69, -44, 0.5], ['S Am SE', -56, -15, -69, -34, 2.9],
 ];
+const marks0 = [110, 153, 190, 213, 240];
 const CONT = { Asia: [4, 5, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24], Europe: [0, 1, 2, 3], Africa: [6, 7, 8, 9, 10, 11, 12, 13], Americas: [28, 29, 30, 31, 32, 33, 34], Oceania: [25, 26, 27] };
 
 async function one(ov, run) {
@@ -34,22 +35,22 @@ async function one(ov, run) {
   const ev = {};
   pp.onEvent = (t, k, s) => { if (!ev[k]) ev[k] = { t, s }; };
   pp.seed();
-  // Empires and incomes after industry (+100, +160, +220 yr): the share of everyone held by a state whose
-  // capital's people are unlike them (likeness under 0.5) and a family apart (under 0.35), and the richest
-  // region's income a person (food and goods) against the poorest's (regions with 1% of the people or more).
-  const marks = [100, 160, 220], emp = [];
+  // The industrial era at history's dates (industry's start as 1760: +110 is 1870, +153 1913, +190 1950, +213
+  // 1973, +240 2000): the people, the world's income a person (food and goods, sy), the richest region's
+  // against the poorest's (regions with 1% of the people or more), industry's share of the people, and the
+  // share held by a state whose capital's people are unlike them (likeness under 0.5).
+  const marks = marks0.slice(), emp = [];
   const empire = () => {
     const pol = pp.pol, N = pp.Ntot, inc = new Float64Array(REGIONS.length), pop = new Float64Array(REGIONS.length);
-    let all = 0, sub = 0, unl = 0;
+    let all = 0, unl = 0, out = 0, ind = 0;
     for (let c = 0; c < pp.nL; c++) {
-      all += N[c];
+      all += N[c]; out += pp.Out[c]; ind += N[c] * pp.ind[c];
       if (regOf[c] >= 0) { inc[regOf[c]] += pp.Out[c]; pop[regOf[c]] += N[c]; }
       const k = pol.owner(c), sm = k >= 0 ? pp.ids.sim(c, pol.list[k].cap) : 1;
       if (sm < 0.5) unl += N[c];
-      if (sm < 0.35) sub += N[c];
     }
     const y = [...pop.keys()].filter(r => pop[r] > 0.01 * all).map(r => inc[r] / pop[r]);
-    return [unl / all, sub / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9)];
+    return [all, out / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9), ind / all, unl / all];
   };
   while (pp.t < 6e6 && !ev.present) {
     pp.step(pp.nextDt());
@@ -91,7 +92,10 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   for (const [k, r] of runs.entries()) console.log(`draw ${k}: score ${sc[k].toFixed(3)} · farming first at ${r.farm} (${r.packages} origins), industry ${r.farmToInd ? (r.farmToInd / 1e3).toFixed(1) : '-'} kyr later at ${r.ind} · early takeoff ${r.yrs ? r.yrs.toFixed(0) : '-'} yr after industry, ${(r.people / 1e9).toFixed(2)} billion people\n         origins in order: ${r.origins.join(', ')}`);
   const st = runs.filter(r => r.states);
   if (st.length) console.log('states (effective number · the largest\'s share · the people held) at ' + ['3 kyr before industry', '1 kyr before', 'industry', 'early takeoff'].map((w, i) => `${w} ${mean(st.map(r => r.states[i][0])).toFixed(1)} · ${(100 * mean(st.map(r => r.states[i][1]))).toFixed(0)}% · ${(100 * mean(st.map(r => r.states[i][2]))).toFixed(0)}%`).join('; '));
-  const em = runs.filter(r => r.emp && r.emp.length === 3);
-  if (em.length) console.log('empires (under unlike rulers · a family apart · the richest region\'s income a person against the poorest\'s) at ' + ['industry +100 yr', '+160', '+220'].map((w, i) => `${w} ${(100 * mean(em.map(r => r.emp[i][0]))).toFixed(0)}% · ${(100 * mean(em.map(r => r.emp[i][1]))).toFixed(0)}% · ${mean(em.map(r => r.emp[i][2])).toFixed(1)}×`).join('; '));
+  // History (Maddison 2003: people, and income at $400 1990 GK$ a sy; the richest against the poorest as the US's
+  // against Africa's; Eloranta and Harrison: ~31% of the world's people in dependencies in 1913).
+  const HIST = [[1870, 1.27, 2.19, 4.9], [1913, 1.79, 3.81, 8.3], [1950, 2.52, 5.28, 10.7], [1973, 3.92, 10.2, 11.8], [2000, 6.07, 15.0, 19.2]];
+  const em = runs.filter(r => r.emp && r.emp.length === HIST.length), med = a => [...a].sort((p, q) => p - q)[a.length >> 1];
+  if (em.length) console.log('the industrial era, median of the draws (history) — people · income a person · the richest region against the poorest · industrial · under unlike rulers:\n' + HIST.map(([yr, n, y, r], i) => `  ${yr} (+${marks0[i]}): ${(med(em.map(q => q.emp[i][0])) / 1e9).toFixed(2)} B (${n}) · ${med(em.map(q => q.emp[i][1])).toFixed(1)} sy (${y}) · ${med(em.map(q => q.emp[i][2])).toFixed(1)}× (${r}) · ${(100 * med(em.map(q => q.emp[i][3]))).toFixed(0)}% · ${(100 * med(em.map(q => q.emp[i][4]))).toFixed(0)}%${yr === 1913 ? ' (~31%)' : ''}`).join('\n'));
   console.log(`score ${mean(sc).toFixed(3)} ± ${Math.sqrt(mean(sc.map(s => (s - mean(sc)) ** 2))).toFixed(3)} over ${draws} draws`);
 }

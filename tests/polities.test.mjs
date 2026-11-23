@@ -163,3 +163,21 @@ test("the media pull a nation's places toward its capital, whatever the distance
   const d1 = Math.abs(wrap(ids.X[2 * 8] - ids.X[2 * 3], P.TOR)), want = 3 * Math.exp(-gam * dt);
   assert.ok(Math.abs(d1 - want) < 1e-6, `${d1} against ${want}`);
 });
+
+test('industry crosses a contested march almost as it crosses a border, and freely where schooled', () => {
+  // Places 1 and 2 held two-thirds and a third by two states, crosswise, so they share 4/9 of their holders.
+  // Read linearly, a march let industry and its techniques through at about that, and the model's soft borders
+  // (most marches share ~⅓) left B_IND without effect; sharpened (s^Q_IND), it passes little more than a
+  // border does, and all of it once the receiving place's learning is past Z_ABS.
+  const pp = line({ n: 4 }), pol = pp.pol, P = pp.P;
+  const a = seat(pol, 0, 0), b = seat(pol, 3, 0);
+  pol.claim(1, a, 2 / 3); pol.claim(1, b, 1 / 3); pol.claim(2, b, 2 / 3); pol.claim(2, a, 1 / 3);
+  pol.d.fill(1);
+  const apart = People.prototype.apart.bind(pp);
+  pp.zl.fill(P.Z_ABS - 3);
+  const march = apart(1, 2), border = apart(0, 3), home = apart(0, 0);
+  assert.ok(Math.abs(pol.border(1, 2, 0) - 4 / 9) < 1e-9, `the march shares ${pol.border(1, 2, 0)}`);
+  assert.ok(border < 1.01 * P.B_IND * home && march < 2 * P.B_IND * home, `a border ${border.toFixed(4)} and a march ${march.toFixed(4)} against B_IND ${P.B_IND} at home ${home.toFixed(3)}`);
+  pp.zl.fill(P.Z_ABS + 3);
+  assert.ok(apart(1, 2) > 0.99 && apart(0, 3) > 0.99, `schooled: ${apart(1, 2).toFixed(4)}, ${apart(0, 3).toFixed(4)}`);
+});
