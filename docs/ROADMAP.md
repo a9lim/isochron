@@ -5,10 +5,15 @@
 Each landing is scored on Earth (`tools/people/earth-score.mjs`) and retuned.
 
 1. **Overseas empires** (synthesis). A state's power at a place gains a projected part: its capital's arms carried by sea route, e-fold over a naval reach that grows with knowledge and industry (steam), lifted by the gap in knowledge between the capital and the place (Headrick's *Tools of Empire*, from memory). Settlers carry their state's allegiance, so lands the voyages fill become settler colonies rather than conquered ones. Extraction is what holding already does: a held place's national share of food goes to its capital, and after landing 2 its ores and fossil carbon too. Decolonization should fall out of cohesion (a colony's metaethnic frontier with its rulers; the nation's floor as learning spreads): check when. Targets on Earth, from memory: the largest empire holding about a quarter of the world's people ~160 years after industry began (the British, ~1920), decolonization mostly ~185–215 years after (1945–1975). Epidemics at the meeting of long-parted worlds stay out (below, Ideas).
-2. **Regional economies.** `industrialStep` per polity (6.5 µs a call, so 500 polities cost ~3 ms a step and the full split is affordable), each with its own stocks, fossil carbon and ores from the cells it holds. Goods move by the gravity kernel with borders, energy and materials at a pooled price, and capital stays home (Feldstein–Horioka). Compute and the takeoff then have a place.
-3. **The race.** Each polity has its compute, research minds and algorithmic frontier: grown by research, bounded by its learning, leaking across borders at a rate that closure lowers, with export controls on chips. The endings' draw reads the leader's margin in years, the contenders within a year, and the share they spend on safety and coordination (likeness on the torus, trade's ties). Alignment's odds rise with the margin and with safety (Armstrong, Bostrom and Shulman's race to the precipice); a pause's odds rise with coordination. The draw's mechanics stay (seam rule 4).
-4. **Claims on the machines** (speculation, said so on the page): the aligned endings ask "aligned to whom", and claims by polity decide who returns and who is housed.
-5. The docs and the about panel.
+2. **Regional economies.** `industrialStep` per polity (6.5 µs a call, so 500 polities cost ~3 ms a step and the full split is affordable), each with its own stocks, fossil carbon and ores from the cells it holds. Goods move by the gravity kernel with borders, energy and materials at a pooled price, and capital stays home (Feldstein–Horioka). Within a state each place's output follows its own productivity, less the national share to the capital (a9), so a colony's goods are drained as its grain is. Compute and the takeoff then have a place.
+3. The docs and the about panel.
+
+## Parked: the race (batch 2c)
+
+Its detail is the race's own, so it may be built with the game (batch 3), whose last act is the race (a9). Its seam is ready: the endings' draw reads a state (seam rule 4).
+
+1. **The race.** Each polity has its compute, research minds and algorithmic frontier: grown by research, bounded by its learning, leaking across borders at a rate that closure lowers, with export controls on chips. The endings' draw reads the leader's margin in years, the contenders within a year, and the share they spend on safety and coordination (likeness on the torus, trade's ties). Alignment's odds rise with the margin and with safety (Armstrong, Bostrom and Shulman's race to the precipice); a pause's odds rise with coordination. The draw's mechanics stay (seam rule 4).
+2. **Claims on the machines** (speculation, said so on the page): the aligned endings ask "aligned to whom", and claims by polity decide who returns and who is housed.
 
 Left out: industrial war's nuclear exchanges (soot into the climate's forcing), a catastrophe outside the AI endings, to come after the race.
 
