@@ -68,3 +68,31 @@ test('a box basin under a westerly–trade wind: Sverdrup transport inside, the 
   assert.ok(nw > 0 && gw / nw > 3 * gi / ni, `western gradient ${(gw / nw).toExponential(2)} vs interior ${(gi / ni).toExponential(2)}`);
   assert.ok(Math.max(...o.psi) > 0 || Math.min(...o.psi) < 0, 'a gyre formed');
 });
+
+test('the equator under the trades wells up: easterlies cool it on both sides alike, most at its basin\'s eastern end, and westerlies don\'t', () => {
+  // A planet at rest (no gyres), a uniform zonal stress, the anomaly's steady balance: all sea, then
+  // one basin walled by a meridional continent 20° wide.
+  const g = buildGrid(5), n = g.n, id = Int32Array.from({ length: n }, (_, i) => i), back = id.slice().reverse();
+  const lat = Float64Array.from({ length: n }, (_, i) => Math.asin(g.pos[3 * i + 2]) * 180 / Math.PI);
+  const lon = Float64Array.from({ length: n }, (_, i) => Math.atan2(g.pos[3 * i + 1], g.pos[3 * i]) * 180 / Math.PI);
+  const run = (tx, walled) => {
+    const landMask = Uint8Array.from(lon, l => (walled && Math.abs(l) < 10 ? 1 : 0));
+    const climate = { grid: g, landMask, windPhase: [new Float32Array(3 * n)], Tf: [new Float32Array(n).fill(25)], orders: [id, back, id, back] };
+    const o = new Ocean(climate);
+    for (let i = 0; i < n; i++) {
+      const x = g.pos[3 * i], y = g.pos[3 * i + 1], h = Math.hypot(x, y) || 1;
+      o.tau[3 * i] = tx * -y / h; o.tau[3 * i + 1] = tx * x / h; o.tau[3 * i + 2] = 0; o.sea[i] = 1 - landMask[i];
+    }
+    for (const _ of o.temperature());
+    const band = (a, b, ok = () => true) => { let s = 0, k = 0; for (let i = 0; i < n; i++) if (o.sea[i] && lat[i] >= a && lat[i] < b && ok(i)) { s += o.sst[i]; k++; } return s / k; };
+    return { eq: band(-2, 2), n: band(2, 6), s: band(-6, -2), far: Math.max(Math.abs(band(20, 30)), Math.abs(band(-30, -20))),
+      west: band(-2, 2, i => lon[i] > 20 && lon[i] < 80), east: band(-2, 2, i => lon[i] > -80 && lon[i] < -20) };
+  };
+  const e = run(-0.05, false), w = run(0.05, false), b = run(-0.05, true);
+  assert.ok(e.eq < -2, `easterlies: the equator ${e.eq.toFixed(2)} K`);
+  assert.ok(e.n < 0 && e.s < 0 && Math.abs(e.n - e.s) < 0.1 * Math.abs(e.n), `easterlies: ${e.n.toFixed(2)} K north, ${e.s.toFixed(2)} south`);
+  assert.ok(e.far < 0.05 * Math.abs(e.eq), `off the equator: ${e.far.toFixed(3)} K`);
+  assert.ok(Math.abs(w.eq) < 1e-6, `westerlies: the equator ${w.eq} K`);
+  // The basin runs east from 10° E round to 10° W: its eastern end is colder than its western.
+  assert.ok(b.east < 2 * b.west && b.east < -2, `walled: the basin's east ${b.east.toFixed(2)} K, its west ${b.west.toFixed(2)}`);
+});

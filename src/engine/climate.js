@@ -12,11 +12,14 @@
 // and its harmonics re-solved: a fixed point, warm-started and iterated with
 // Anderson's mixing (`energyBalance`), which also keeps the ice-albedo
 // feedback's hysteresis. The diffusivity falls toward the poles (synthesis). T is the sea-level temperature; the
-// surface is colder by the lapse rate. Solved on the level below the
-// surface's (220 km cells): heat spreads over thousands of km.
+// surface is colder by the lapse rate, and high ground's outgoing longwave reads part of that drop,
+// A + B (T − OLR_Z Γ z) (synthesis: a high surface radiates from its own cold top through a thinner
+// column; read at sea level, Tibet's OLR ran ~30 W/m² above CERES's and its year ~5 K cold). Solved
+// on the level below the surface's (220 km cells): heat spreads over thousands of km.
 //
 // Circulation (synthesis). A template, not a solve: the ITCZ follows the
-// warmest latitude in each sector of longitude, the Hadley cell's edge scales
+// warmest latitude in each sector of longitude (at sea the water's surface, its
+// currents' and upwelling's anomaly with it, so it stands off a cold tongue), the Hadley cell's edge scales
 // as Held and Hou's, ∝ √ΔT / Ω, and surface pressure has the ITCZ's trough,
 // the subtropical highs, the subpolar lows and the polar highs, plus a low
 // over land warmer than its latitude and a high over land colder than it
@@ -84,9 +87,9 @@ import { Clouds, CLOUDS, shortwave, longwave } from './clouds.js';
 // and 71% with the clouds), with land 3.8 K cold in the year and 14 K off in January.
 export const CLIMATE = {
   // OLR = A + B·T (W/m², T in °C), the clear sky's: B North's fit to Earth (from memory); A Earth's,
-  // against CERES's clear sky (its 268 W/m² over a mean ~15 °C: ~238; tuned 234), the clouds' longwave
+  // against CERES's clear sky (its 268 W/m² over a mean ~15 °C: ~238; tuned 234, 235.6 with high ground's drop, OLR_Z, and the equator's upwelling), the clouds' longwave
   // taken from it (src/engine/clouds.js). Before the clouds, 206: the all-sky's, North's 203.3 raised.
-  A: 234, B: 2.09,
+  A: 235.6, B: 2.09,
   // Heat diffusion, W m⁻² K⁻¹ on the unit sphere (the annual mean), at the equator; it falls toward
   // the poles as 1 + D_LAT sin²φ (each edge's weight carries it). Synthesis: a uniform 0.45 was
   // tuned to the opening's fourth cycle, a transient; converged it left the planet 2–3 K cold, 60°
@@ -120,6 +123,7 @@ export const CLIMATE = {
   C_LAND: 0.61,            // Earth (from 0.3, then 0.46: the air's column with the ground's seasonal layer)
   C_ICE: 1.2,
   LAPSE: 5.4,              // K/km. Earth (from 6.5, then 5.6): the surface's, which broad uplands warm (Tibet's air)
+  OLR_Z: 0.45,             // the share of the lapse rate's drop over land the outgoing longwave reads (`olrDrop`). Earth (tuned: Tibet's OLR 248 → 233 W/m², CERES's 218)
   // The clear sky's albedo at the top of the atmosphere (the surface and the clear air; the clouds
   // are src/engine/clouds.js's, over it), + ALB_POLAR·sin²φ at sea and ALB_POLAR_LAND·sin²φ on land
   // (a low sun: water's reflection grows at a slant, land's less). Earth, against CERES's clear sky
@@ -136,7 +140,7 @@ export const CLIMATE = {
   // Circulation and moisture
   OMEGA: 7.292e-5,         // rad/s, the planet's spin
   FRICTION: 4.5e-5,        // 1/s
-  ITCZ_PEN: 0.5,           // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6 before)
+  ITCZ_PEN: 0.05,          // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6, then 0.5 before the equator's upwelling, which cools it in its own right: India's monsoon 0.66 → ~0.95 of Earth's)
   ITCZ_MAX: 0.4,           // rad: the ITCZ's reach from the equator (Earth; 0.5 before the land's own evaporation; 0.35 kept India's monsoon trough at 20°)
   ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
   // hPa per K: the low where it's warmer than its latitude, the high where it's colder, bounded softly at
@@ -723,6 +727,9 @@ export class Climate {
     }
   }
 
+  /** K below the sea-level temperature that cell i's outgoing longwave reads: OLR_Z of the lapse rate's drop over land (A + B (T − this)). */
+  olrDrop(i) { return this.landMask[i] ? CLIMATE.OLR_Z * CLIMATE.LAPSE * this.elevPos[i] : 0; }
+
   /** The forcing outside the sunlight: CO₂, the volcanoes' mean, the people's (W/m²). */
   externalForcing() { const C = CLIMATE; return 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE; }
 
@@ -751,18 +758,19 @@ export class Climate {
     for (let i = 0; i < n; i++) {
       let h = 0;
       for (let p = 0; p < NP; p++) h += cl.hi[p * n + i];
-      s += a[i] * longwave(C.A + C.B * T[i], h / NP);
+      s += a[i] * longwave(C.A + C.B * (T[i] - this.olrDrop(i)), h / NP);
       w += a[i];
     }
     return s / w;
   }
 
-  /** After each step: its mean absorbed sunlight, from the annual mean's global balance, A + B T̄ = Ā + the forcing (the transport sums to nothing). */
+  /** After each step: its mean absorbed sunlight, from the annual mean's global balance, A + B (T̄ − the drop's mean) = Ā + the forcing (the transport sums to nothing). */
   olrMeasure() {
-    const C = CLIMATE, a = this.coarse.area, T = this.Tc[0];
-    let s = 0, w = 0;
+    const C = CLIMATE, a = this.coarse.area, T = this.Tc[0], fa = this.grid.area;
+    let s = 0, w = 0, d = 0, dw = 0;
     for (let I = 0; I < a.length; I++) { s += a[I] * T[I]; w += a[I]; }
-    this.absMean = C.A + C.B * s / w - this.forcingUsed;
+    if (C.OLR_Z) for (let i = 0; i < fa.length; i++) { d += fa[i] * this.olrDrop(i); dw += fa[i]; }
+    this.absMean = C.A + C.B * (s / w - (dw > 0 ? d / dw : 0)) - this.forcingUsed;
   }
 
   /** The energy balance: absorbed sunlight from the last state, then the five harmonic solves. */
@@ -784,7 +792,7 @@ export class Climate {
     for (let i = 0; i < n; i++) {
       const l = this.row[i], w = this.roww[i], land = this.landMask[i], tp = !land && sstA ? sstA[i] : 0;
       let f0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0, cold = 0;
-      const [al, ah] = cl ? cl.layerAlbedo(i) : [0, 0];
+      const [al, ah] = cl ? cl.layerAlbedo(i) : [0, 0], zo = this.olrDrop(i);
       for (let s = 0; s < NS; s++) {
         const q = Q[l * NS + s] * (1 - w) + Q[(l + 1) * NS + s] * w;
         const c = cs[s], sv = sn[s], c2 = c * c - sv * sv, s2 = 2 * sv * c;
@@ -794,12 +802,12 @@ export class Climate {
           const u = cw[s], k0 = ck[2 * s] + i, k1 = ck[2 * s + 1] + i;
           const lo = cl.lo[k0] * (1 - u) + cl.lo[k1] * u, hi = cl.hi[k0] * (1 - u) + cl.hi[k1] * u;
           a = shortwave(a, lo, al, hi, ah);
-          fa = q * (1 - a) + longwave(C.A + C.B * Tsl, hi);
+          fa = q * (1 - a) + longwave(C.A + C.B * (Tsl - zo), hi);
         } else fa = q * (1 - a);
         f0 += fa; a1 += fa * c; b1 -= fa * sv; a2 += fa * c2; b2 -= fa * s2;
         cold += land ? ramp(-(T - C.LAPSE * this.elevPos[i]), -1, 5) : ramp(-T, 1.5, 6);
       }
-      F[0][i] = f0 / NS + (dF ? dF[i] : 0) + (pF ? pF[i] : 0); F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
+      F[0][i] = f0 / NS + C.B * zo + (dF ? dF[i] : 0) + (pF ? pF[i] : 0); F[1][i] = 2 * a1 / NS; F[2][i] = 2 * b1 / NS; F[3][i] = 2 * a2 / NS; F[4][i] = 2 * b2 / NS;
       this.snowAnn[i] = cold / NS;
     }
     yield;
@@ -981,13 +989,13 @@ export class Climate {
       const c = Math.cos(2 * Math.PI * tau), sv = Math.sin(2 * Math.PI * tau), c2 = c * c - sv * sv, s2 = 2 * sv * c;
       for (let i = 0; i < n; i++) T[i] = Tf[0][i] + Tf[1][i] * c - Tf[2][i] * sv + Tf[3][i] * c2 - Tf[4][i] * s2;
     }
-    // Zonal means and the ITCZ by sector.
-    const zm = new Float64Array(90), za = new Float64Array(90);
+    // Zonal means and the ITCZ by sector (at sea, the water's surface).
+    const zm = new Float64Array(90), za = new Float64Array(90), sstA = this.ocean ? this.ocean.fine.sst : null;
     const sec = new Float64Array(36 * 30), secA = new Float64Array(36 * 30);   // ±30° in 2° bands
     for (let i = 0; i < n; i++) {
       const b = this.band[i], a = g.area[i];
       zm[b] += T[i] * a; za[b] += a;
-      if (b >= 30 && b < 60) { const k = this.sector[i] * 30 + b - 30; sec[k] += T[i] * a; secA[k] += a; }
+      if (b >= 30 && b < 60) { const k = this.sector[i] * 30 + b - 30; sec[k] += (T[i] + (sstA && !this.landMask[i] ? sstA[i] : 0)) * a; secA[k] += a; }
     }
     for (let b = 0; b < 90; b++) zm[b] = za[b] > 0 ? zm[b] / za[b] : 0;
     const itcz = new Float64Array(36);

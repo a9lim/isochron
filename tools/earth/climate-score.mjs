@@ -7,7 +7,7 @@
 // The top of the atmosphere against CERES EBAF (obs.py's sdn, sup, supc, olr, olrc): the sunlight
 // reflected and the outgoing longwave, clear and all-sky, per cell through the year (the energy
 // balance's 24 samples, two a month), by cell and by 10° zone, and the clouds' forcing.
-// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO, AIRO, CLOUDO and SOILO (overrides-json for VEG, SEAHEAT, AIRHEAT, CLOUDS and SOIL), LEVEL (6), MAX (40), QUIET=1 (summary only)
+// usage: node tools/earth/climate-score.mjs [overrides-json for CLIMATE]   env: VEGO, SEAO, AIRO, CLOUDO, SOILO and OCEANO (overrides-json for VEG, SEAHEAT, AIRHEAT, CLOUDS, SOIL and OCEAN), LEVEL (6), MAX (40), QUIET=1 (summary only)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildGrid } from '../../src/grid/icosphere.js';
@@ -19,7 +19,7 @@ import { Lakes } from '../../src/engine/lakes.js';
 import { Regolith } from '../../src/engine/regolith.js';
 import { Vegetation, VEG } from '../../src/engine/vegetation.js';
 import { coverClimate } from '../../src/engine/life.js';
-import { Ocean } from '../../src/engine/ocean.js';
+import { Ocean, OCEAN } from '../../src/engine/ocean.js';
 import { Ice } from '../../src/engine/ice.js';
 import { loadEarth, earthGenesis, earthIce } from '../../src/engine/earth.js';
 import { SEAHEAT } from '../../src/engine/seaheat.js';
@@ -33,6 +33,7 @@ Object.assign(SEAHEAT, JSON.parse(process.env.SEAO || '{}'));
 Object.assign(AIRHEAT, JSON.parse(process.env.AIRO || '{}'));
 Object.assign(CLOUDS, JSON.parse(process.env.CLOUDO || '{}'));
 Object.assign(SOIL, JSON.parse(process.env.SOILO || '{}'));
+Object.assign(OCEAN, JSON.parse(process.env.OCEANO || '{}'));
 const LEVEL = +(process.env.LEVEL || 6), QUIET = !!process.env.QUIET;
 const cache = fileURLToPath(new URL('./.cache/', import.meta.url));
 const meta = JSON.parse(readFileSync(`${cache}obs-${LEVEL}.json`, 'utf8'));
@@ -83,6 +84,7 @@ function koppen(tm, pm, north) {
 const SEAS = [
   ['N Atlantic 40-55', 40, 55, -70, -10], ['Labrador 52-66', 52, 66, -65, -45], ['Nordic 60-76', 60, 76, -30, 20], ['Barents 68-80', 68, 80, 20, 60],
   ['N Pacific 40-55', 40, 55, 145, -125], ['Bering/Okhotsk 52-66', 52, 66, 140, -160], ['S Ocean 50-65', -65, -50, -180, 180], ['S Atlantic 20-40', -40, -20, -50, 10],
+  ['E Pacific 3S-3N', -3, 3, -140, -90], ['W Pacific 5S-5N', -5, 5, 140, 170],
 ];
 const SR = SEAS.map(() => ({ a: 0, t: 0, o: 0, i: 0, io: 0 }));
 const REGIONS = [
@@ -138,9 +140,9 @@ const toa = (() => {
     const l = clim.row[i], w = clim.roww[i], tp = !clim.landMask[i] && sst ? sst[i] : 0, [al, ah] = cl ? cl.layerAlbedo(i) : [0, 0];
     for (let k = 0; k < NS; k++) {
       const tau = (k + 0.5) / NS, q = Q[l * NS + k] * (1 - w) + Q[(l + 1) * NS + k] * w, Tsl = clim.tAt(i, tau);
-      const a = clim.albedo(i, Tsl + tp), Lc = CLIMATE.A + CLIMATE.B * Tsl - forcing;
+      const a = clim.albedo(i, Tsl + tp), Lc = CLIMATE.A + CLIMATE.B * (Tsl - clim.olrDrop(i)) - forcing;
       let aa = a, La = Lc;
-      if (cl) { const [lo, hi] = cl.at(i, tau); aa = shortwave(a, lo, al, hi, ah); La = Lc - longwave(CLIMATE.A + CLIMATE.B * Tsl, hi); }
+      if (cl) { const [lo, hi] = cl.at(i, tau); aa = shortwave(a, lo, al, hi, ah); La = Lc - longwave(Lc + forcing, hi); }
       sim.sdn[i] += q / NS; sim.supc[i] += q * a / NS; sim.sup[i] += q * aa / NS; sim.olrc[i] += Lc / NS; sim.olr[i] += La / NS;
     }
     for (const key of Object.keys(ob)) { let v = 0; for (let m = 0; m < 12; m++) v += O[key][12 * i + m] / 12; ob[key][i] = v; }

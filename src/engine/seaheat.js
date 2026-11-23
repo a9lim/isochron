@@ -27,8 +27,9 @@
 //                    shallow). Its strength is EKMAN × that
 //                    transport, ∮ τₓ dx / ρ|f| over the sea at its strongest across the channel's
 //                    band (CHANNEL degrees either side of its open circles), from the climate's
-//                    mean winds (fitted to Earth's ~15–17 Sv: mean winds lack the storms' stress,
-//                    and eddies return a share). Mixing drives MIX on any planet, upwelling everywhere and
+//                    winds with the storms' gusts (`stressSpeed`; EKMAN tuned on Earth to ~10 Sv
+//                    against the Atlantic's ~17: eddies return a share, and the sinking is spread
+//                    over every basin). Mixing drives MIX on any planet, upwelling everywhere and
 //                    sinking in both hemispheres' polar seas. Its upper limb is the potential flow
 //                    from where it upwells to where it sinks, through the connected sea, each edge
 //                    conducting as its water's depth up to DEPTH (the limb's thickness), so shelves
@@ -50,22 +51,36 @@ export const SEAHEAT = {
   LAMBDA: 15,            // W m⁻² K⁻¹: the water's exchange with the air (the bulk fluxes and the radiation's, ~15–40, from memory; held at 15: Earth's tuning pressed it to 5, sending the overturning's heat down with the sinking water instead of fixing the air's missing advection)
   ICE: 0.08,             // its share under sea ice (~2 m of ice conducts ~1 W m⁻² K⁻¹), by the year's share under ice
   GYRE: 0.7,             // the gyres' transport's share at the water's temperature (Earth)
-  EKMAN: 0.6,            // the overturning per unit of a channel's equatorward Ekman transport: Earth's ~13 Sv and ~1.2 PW north across 26° N (the Atlantic's measured ~17 Sv and ~1.25 PW, from memory)
+  EKMAN: 0.37,           // the overturning per unit of a channel's equatorward Ekman transport: Earth's ~10 Sv and ~1.2 PW north across 26° N (the Atlantic's measured ~17 Sv and ~1.25 PW, from memory; 0.6 before the storms' gusts, GUST)
   MIX: 3,                // Sv: the overturning mixing drives on any planet
   SINK0: 55, SINK1: 68, SINK2: 78, SINK3: 88,   // degrees: a sea cell's share of the sinking rises over SINK0–SINK1 and falls over SINK2–SINK3 (smoothsteps), by its area and depth
   CHANNEL: 10,           // degrees either side of a channel's open circles: its upwelling's band
   DEPTH: 1000,           // m: the overturning's upper limb, the depth an edge's water conducts it to
-  SURF: 0.3,             // the share of the water's departure from the air its surface shows (src/engine/ocean.js's `publish`: the sea's ice, evaporation and drawing). Earth (tuned: at 1 the Nordic Seas came right and the subpolar Atlantic, where θ runs warm, 4–6 K warm)
+  SURF: 0.4,             // the share of the water's departure from the air its surface shows (src/engine/ocean.js's `publish`: the sea's ice, evaporation and drawing). Earth (tuned: at 1 the Nordic Seas came right and the subpolar Atlantic, where θ runs warm, 4–6 K warm; 0.3 before the storms' gusts)
   THETA_F: -1.8,         // °C: the water's freezing point
   THETA_MAX: 60,         // °C: at most (a guard: the flows balance water in every cell, so θ is a mean of what flows in and the air's)
   RHO_CP: 4.1e6,         // J m⁻³ K⁻¹
   RHO_W: 1025, RHO_A: 1.2, CD: 1.3e-3,   // the wind's stress on the sea
+  // m/s: the storms' gusts the stress feels beside the template's mean wind, ρ_a C_D √(|u|² + G²) u
+  // (standard in kind: a bulk formula's gustiness), G GUST past GUST_LAT[1]° and a tenth of it within
+  // GUST_LAT[0]° (the trades are steady, the storm tracks not). The template's winds are the year's
+  // points' means, so without it the westerlies' stress over the Southern Ocean was ~0.02 N/m² at
+  // 50–60° S (Earth's ~0.15, from memory) while the trades' was Earth's.
+  GUST: 6, GUST_LAT: [10, 30],   // Earth (tuned with EKMAN, SURF and the equator's upwelling)
   MAX: 40,               // Sv: the overturning at most, per hemisphere's channel
   SWEEPS: 96, TOL: 1e-3, // the water's sweeps at most, until no cell's θ moves by TOL (K)
 };
 
 const R = 6.371e6, SV = 1e6;
 const smooth = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/** The stress's speed at a wind of speed sp at a cell whose position's z is z: √(sp² + G²), G the storms' gusts there (GUST). The stress is ρ_a C_D times it times the wind. */
+export function stressSpeed(sp, z) {
+  const C = SEAHEAT;
+  if (!(C.GUST > 0)) return sp;
+  const la = Math.asin(Math.min(1, Math.abs(z))) * 180 / Math.PI, G = C.GUST * (0.1 + 0.9 * smooth(la, C.GUST_LAT[0], C.GUST_LAT[1]));
+  return Math.sqrt(sp * sp + G * G);
+}
 
 export class SeaHeat {
   constructor(climate) {
@@ -277,7 +292,7 @@ export class SeaHeat {
     // Each cell's east, (−y, x)/|(x, y)|, once.
     const east = this.east || (this.east = Float64Array.from({ length: 2 * n }, (_, j) => { const i = j >> 1, x = pos[3 * i], y = pos[3 * i + 1], h = Math.sqrt(x * x + y * y) || 1; return (j & 1 ? x : -y) / h; }));
     for (const w of c.windPhase) for (let i = 0; i < n; i++) {
-      const u = w[3 * i], v = w[3 * i + 1], s = w[3 * i + 2], sp = Math.sqrt(u * u + v * v + s * s);
+      const u = w[3 * i], v = w[3 * i + 1], s = w[3 * i + 2], sp = stressSpeed(Math.sqrt(u * u + v * v + s * s), pos[3 * i + 2]);
       tx[i] += k * sp * (east[2 * i] * u + east[2 * i + 1] * v);   // the stress's eastward part
     }
     restrict(c.T, tx, tc);

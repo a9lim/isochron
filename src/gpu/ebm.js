@@ -195,9 +195,10 @@ fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u)
 // or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing). The clouds
 // (src/engine/clouds.js): cld, each cell's low and high shares at the six points of the year (12 a
 // cell), over the clear sky's albedo by the adding formula, and the high cloud's longwave over
-// A + B T (at most L_MAX); k (A, B, σT_TOP⁴, on), h (the layers' albedos A_LO, A_HI, Z, and L_MAX).
+// A + B T (at most L_MAX); k (A, B, σT_TOP⁴, on), h (the layers' albedos A_LO, A_HI, Z, and L_MAX), o
+// (OLR_Z: over land the outgoing longwave reads A + B (T + OLR_Z o), o the lapse rate's drop, `olrDrop`).
 const FORCING = /* wgsl */`
-struct Fu { n: u32, N: u32, off: u32, p0: u32, c: vec4f, k: vec4f, h: vec4f, ang: array<vec4f, ${NS}> };
+struct Fu { n: u32, N: u32, off: u32, p0: u32, c: vec4f, k: vec4f, h: vec4f, o: vec4f, ang: array<vec4f, ${NS}> };
 fn ramp(x: f32, a: f32, b: f32) -> f32 { let t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
 fn adding(a: f32, c: f32, l: f32) -> f32 { return (1.0 - c) * a + c * (l + (1.0 - l) * (1.0 - l) * a / (1.0 - l * a)); }
 @group(0) @binding(0) var<uniform> U: Fu;
@@ -228,6 +229,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let al = U.h.x + U.h.z * s2 * (1.0 - U.h.x);
   let ah = U.h.y + U.h.z * s2 * (1.0 - U.h.y);
   let on = U.k.w > 0.5;
+  let zo = select(0.0, -U.o.x * A.x, land);
   var f0 = 0.0; var a1 = 0.0; var b1 = 0.0; var a2 = 0.0; var b2 = 0.0; var cold = 0.0;
   for (var s = 0u; s < ${NS}u; s++) {
     let g = U.ang[s];
@@ -245,7 +247,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       let cl = cld[12u * i + k0] * (1.0 - u) + cld[12u * i + k1] * u;
       let ch = cld[12u * i + 6u + k0] * (1.0 - u) + cld[12u * i + 6u + k1] * u;
       alb = adding(adding(alb, cl, al), ch, ah);
-      let L = min(U.k.x + U.k.y * tsl, U.h.w);
+      let L = min(U.k.x + U.k.y * (tsl - zo), U.h.w);
       lw = select(0.0, ch * (L - U.k.z), L > U.k.z);
     }
     let fa = qs * (1.0 - alb) + lw;
@@ -267,7 +269,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   yv[i] = vec4f(y1, y2);
   let N = U.N;
   let c = U.off + i;
-  rf[c] = f0 / ${NS}.0 + P.w;
+  rf[c] = f0 / ${NS}.0 + P.w + U.k.y * zo;
   rf[N + c] = y1.x; rf[2u * N + c] = y1.y;
   rf[3u * N + c] = F.x * y1.x - F.y * y1.y; rf[4u * N + c] = F.x * y1.y + F.y * y1.x;
   rf[5u * N + c] = y2.x; rf[6u * N + c] = y2.y;
@@ -530,7 +532,7 @@ export class GpuEnergyBalance {
     this.Lu = lv.map((_, k) => U(this.lvBuf(k)));
     const Urf = lv.map((_, k) => U(this.lvBuf(k, NR))), Upf = lv.map((_, k) => U(this.lvBuf(k, NPF)));
     this.Uc = U(this.lvBuf(ci));
-    this.Fu = uniform(device, new Float32Array(16 + 4 * NS));
+    this.Fu = uniform(device, new Float32Array(20 + 4 * NS));
     this.Su = [0, 1].map(() => uniform(device, new Float32Array(8)));
     const { topo, X, Y, Bv, Dg, RF, PF } = this, gb = this.geo;
     this.SEA = B(8 * cg.n); this.sea = new Float32Array(2 * cg.n); this.seaOn = false;
@@ -594,14 +596,15 @@ export class GpuEnergyBalance {
     const P = CLIMATE, q = this.device.queue, lv = this.H.levels;
     lv.forEach((_, k) => q.writeBuffer(this.Lu[k], 0, this.lvBuf(k)));
     this.writeForcing();
-    const fu = new ArrayBuffer(64 + 16 * NS), u = new Uint32Array(fu), ff = new Float32Array(fu);
+    const fu = new ArrayBuffer(80 + 16 * NS), u = new Uint32Array(fu), ff = new Float32Array(fu);
     u[0] = this.n; u[1] = this.N; u[2] = this.offTop;
     ff[4] = P.B + P.SUB_K; ff[5] = P.C_LAND; ff[6] = P.C_OCEAN; ff[7] = P.C_ICE;
     const K = CLOUDS;
     ff.set([P.A, P.B, topEmission(), K.ON && climate.clouds ? 1 : 0, K.A_LO, K.A_HI, K.Z, K.L_MAX], 8);
+    ff[16] = P.OLR_Z;
     for (let s = 0; s < NS; s++) {
       const c = Math.cos(2 * Math.PI * (s + 0.5) / NS), sv = Math.sin(2 * Math.PI * (s + 0.5) / NS);
-      ff.set([c, sv, c * c - sv * sv, 2 * sv * c], 16 + 4 * s);
+      ff.set([c, sv, c * c - sv * sv, 2 * sv * c], 20 + 4 * s);
     }
     q.writeBuffer(this.Fu, 0, fu);
     q.writeBuffer(this.Su[0], 0, this.suBuf(0));

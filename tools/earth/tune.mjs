@@ -3,7 +3,7 @@
 // processes), takes the best, then tries every improving move together; with none, the steps halve.
 // usage: node tools/earth/tune.mjs spec.json [rounds] [objective]
 //   spec.json: { "params": [{ "key": "CLIMATE.A", "lo": 200, "hi": 210, "x": 205.5, "step": 1 }, …],
-//                "fixed": { "CLIMATE": {…}, "VEG": {…}, "SEAHEAT": {…}, "AIRHEAT": {…}, "CLOUDS": {…}, "SOIL": {…} } }
+//                "fixed": { "CLIMATE": {…}, "VEG": {…}, "SEAHEAT": {…}, "AIRHEAT": {…}, "CLOUDS": {…}, "SOIL": {…}, "OCEAN": {…} } }
 //   objective: temp (default: land temperature, the sea's surface and ice, the Köppen groups), all (with rain),
 //   rad (temp with the Köppen classes and the top of the atmosphere against CERES: reflected and outgoing by cell and zone, clear and all-sky, and the clouds' forcing),
 //   or reg (rad with land's rain and the rain of the regions in REG_RAIN)
@@ -33,14 +33,14 @@ const OBJ = {
 const objective = OBJ[objName];
 
 function overrides(x) {
-  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) }, AIRHEAT: { ...(spec.fixed?.AIRHEAT || {}) }, CLOUDS: { ...(spec.fixed?.CLOUDS || {}) }, SOIL: { ...(spec.fixed?.SOIL || {}) } };
+  const o = { CLIMATE: { ...(spec.fixed?.CLIMATE || {}) }, VEG: { ...(spec.fixed?.VEG || {}) }, SEAHEAT: { ...(spec.fixed?.SEAHEAT || {}) }, AIRHEAT: { ...(spec.fixed?.AIRHEAT || {}) }, CLOUDS: { ...(spec.fixed?.CLOUDS || {}) }, SOIL: { ...(spec.fixed?.SOIL || {}) }, OCEAN: { ...(spec.fixed?.OCEAN || {}) } };
   P.forEach((p, k) => { const [ns, key] = p.key.split('.'); o[ns][key] = x[k]; });
   return o;
 }
 function run(x) {
   const o = overrides(x);
   return new Promise(resolve => {
-    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT), AIRO: JSON.stringify(o.AIRHEAT), CLOUDO: JSON.stringify(o.CLOUDS), SOILO: JSON.stringify(o.SOIL) } });
+    const ch = spawn(process.execPath, [score, JSON.stringify(o.CLIMATE)], { env: { ...process.env, JSON: '1', VEGO: JSON.stringify(o.VEG), SEAO: JSON.stringify(o.SEAHEAT), AIRO: JSON.stringify(o.AIRHEAT), CLOUDO: JSON.stringify(o.CLOUDS), SOILO: JSON.stringify(o.SOIL), OCEANO: JSON.stringify(o.OCEAN) } });
     let out = '';
     ch.stdout.on('data', d => { out += d; });
     ch.on('close', () => {

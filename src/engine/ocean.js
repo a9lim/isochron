@@ -17,13 +17,24 @@
 // currents run warm and equatorward eastern ones cold, and where the wind
 // drives surface water off a coast (Ekman transport) cold water wells up.
 // T′ feeds evaporation, rain and sea ice: the cold coasts make coastal
-// deserts.
+// deserts. On the equator the trades' Ekman drift turns poleward on both
+// sides (f changes sign), so the water between diverges and wells up: the
+// cold tongues under the easterlies (standard). Its strength is the drift
+// at EQ_W from the equator, τ/(ρ f), through the coast's tanh, spread over
+// e^{−(φ/EQ_W)²}, and by the cell's place across its basin from west to east
+// (`tilt`): the trades pile the warm water up against the basin's western
+// shore, so the thermocline is deep there and shallow in the east, where the
+// upwelling brings up cold water (standard: the zonal stress balanced by the
+// thermocline's slope; the slope linear here). The ITCZ reads the surface it
+// leaves (src/engine/climate.js), so it stands off the cold tongue. The stress
+// is src/engine/seaheat.js's (`stressSpeed`: the storms' gusts).
 
-const R_M = 6.371e6, RHO_W = 1025, RHO_A = 1.2, CD = 1.3e-3;
+const R_M = 6.371e6;
 
+import { nearest } from '../grid/icosphere.js';
 import { restrict, prolong } from '../grid/transfer.js';
 import { CLIMATE } from './climate.js';
-import { SEAHEAT } from './seaheat.js';
+import { SEAHEAT, stressSpeed } from './seaheat.js';
 
 export const OCEAN = {
   LAYER_CELLS: 2,     // the western boundary layer's width, in cells
@@ -31,6 +42,8 @@ export const OCEAN = {
   RELAX: 180,         // days: SST anomalies against the air
   KAPPA: 170,         // km²/day of eddy mixing
   UPWELL: 6,          // K of cooling where the Ekman drift leaves a coast at 1 m²/s
+  UPWELL_EQ: 16,      // K of cooling where the trades' Ekman drift leaves the equator at 1 m²/s (at EQ_W), at a basin's eastern shore (`tilt`). Earth (tuned with EQ_W)
+  EQ_W: 5.5,          // degrees: the equatorial upwelling's e-folding half-width (Earth)
   MAX_ANOM: 8,        // K
 };
 
@@ -102,9 +115,10 @@ export class Ocean {
     const tf = this.coarse ? this.tauF : this.tau;
     for (let i = 0; i < fn; i++) {
       let tx = 0, ty = 0, tz = 0;
+      const k = SEAHEAT.RHO_A * SEAHEAT.CD, z = c.grid.pos[3 * i + 2];
       for (let p = 0; p < np; p++) {
-        const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = Math.sqrt(u * u + v * v + w * w);
-        tx += RHO_A * CD * s * u; ty += RHO_A * CD * s * v; tz += RHO_A * CD * s * w;
+        const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = stressSpeed(Math.sqrt(u * u + v * v + w * w), z);
+        tx += k * s * u; ty += k * s * v; tz += k * s * w;
       }
       tf[3 * i] = tx / np; tf[3 * i + 1] = ty / np; tf[3 * i + 2] = tz / np;
     }
@@ -137,7 +151,7 @@ export class Ocean {
   /** The gyres: BiCGSTAB on the sea's cells, coasts at ψ = 0. */
   *gyres() {
     const g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, ell = g.ell, dist = g.dist, A = g.area, dl = this.dl, sea = this.sea, eps = this.eps;
-    const scale = R_M * R_M / (2 * CLIMATE.OMEGA * RHO_W);   // the spin: the Moon's tides slow it (tides.js)
+    const scale = R_M * R_M / (2 * CLIMATE.OMEGA * SEAHEAT.RHO_W);   // the spin: the Moon's tides slow it (tides.js)
     const ws = this.ws;
     for (const k of ['r', 'r0', 'p', 'v', 's', 't', 'b', 'diag']) if (!ws[k]) ws[k] = new Float64Array(n);
     const { r, r0, p, v, s, t, b, diag } = ws;
@@ -199,6 +213,45 @@ export class Ocean {
     this.stats.maxSv = mx / 1e6;
   }
 
+  /**
+   * Each sea cell within 3 EQ_W of the equator: its place across its basin along its latitude, from
+   * 0 at the western shore to 1 at the eastern (½ where the latitude circle is all sea: no shore to
+   * hold a tilt), from 1° rows sampled every half degree of longitude. Kept until the sea changes.
+   */
+  tilt() {
+    const g = this.grid, n = g.n, sea = this.sea, top = Math.ceil(3 * OCEAN.EQ_W), M = 720;
+    let key = top;
+    for (let i = 0; i < n; i++) if (sea[i]) key = (key + (i + 1) * 2654435761) % 4294967291;
+    if (this.tiltKey === key) return this.fw;
+    const fw = this.fw || (this.fw = new Float32Array(n)), rows = [], s = new Uint8Array(M), dW = new Int32Array(M), dE = new Int32Array(M);
+    let guess = 0;
+    for (let r = -top; r <= top; r++) {
+      const la = r * Math.PI / 180, cl = Math.cos(la), z = Math.sin(la), frac = new Float32Array(M).fill(0.5);
+      let land = -1;
+      for (let k = 0; k < M; k++) {
+        const lo = -Math.PI + 2 * Math.PI * (k + 0.5) / M;
+        guess = nearest(g, cl * Math.cos(lo), cl * Math.sin(lo), z, guess);
+        s[k] = sea[guess]; if (!s[k]) land = k;
+      }
+      if (land >= 0) {
+        // Sea samples to the west (and east) of each, unbroken, itself included.
+        for (let j = 1; j <= M; j++) { const k = (land + j) % M; dW[k] = s[k] ? dW[(k + M - 1) % M] + 1 : 0; }
+        for (let j = 1; j <= M; j++) { const k = (land - j + 2 * M) % M; dE[k] = s[k] ? dE[(k + 1) % M] + 1 : 0; }
+        for (let k = 0; k < M; k++) if (s[k]) frac[k] = (dW[k] - 0.5) / (dW[k] + dE[k] - 1);
+      }
+      rows.push(frac);
+    }
+    for (let i = 0; i < n; i++) {
+      fw[i] = 0.5;
+      const z = g.pos[3 * i + 2], r = Math.round(Math.asin(Math.max(-1, Math.min(1, z))) * 180 / Math.PI);
+      if (!sea[i] || Math.abs(r) > top) continue;
+      const lo = Math.atan2(g.pos[3 * i + 1], g.pos[3 * i]), k = Math.min(M - 1, Math.floor((lo + Math.PI) / (2 * Math.PI) * M));
+      fw[i] = rows[r + top][k];
+    }
+    this.tiltKey = key;
+    return fw;
+  }
+
   /** Surface currents from ψ, and the SST anomaly they carry. */
   *temperature() {
     const c = this.climate, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, pos = g.pos, gw = g.gw, tan = g.tan, ell = g.ell, dist = g.dist, sea = this.sea;
@@ -214,13 +267,20 @@ export class Ocean {
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
       vel[3 * i] = (y * gz - z * gy) / (R_M * H); vel[3 * i + 1] = (z * gx - x * gz) / (R_M * H); vel[3 * i + 2] = (x * gy - y * gx) / (R_M * H);
     }
-    // Upwelling: where the Ekman drift (τ × k / ρf) leaves a coast.
+    // Upwelling: where the Ekman drift (τ × k / ρf) leaves a coast, and where the trades' leaves the equator.
     const up = this.upwell || (this.upwell = new Float32Array(n));
+    const RHO_W = SEAHEAT.RHO_W, fe = 2 * CLIMATE.OMEGA * Math.sin(OCEAN.EQ_W * Math.PI / 180), we = OCEAN.EQ_W * Math.PI / 180;
+    const fw = OCEAN.UPWELL_EQ > 0 ? this.tilt() : null;
     for (let i = 0; i < n; i++) {
       up[i] = 0;
       if (!sea[i]) continue;
       const x = pos[3 * i], y = pos[3 * i + 1], z = pos[3 * i + 2];
-      const f = 2 * CLIMATE.OMEGA * z;
+      const f = 2 * CLIMATE.OMEGA * z, la = Math.asin(Math.max(-1, Math.min(1, z)));
+      if (OCEAN.UPWELL_EQ > 0 && Math.abs(la) < 3 * we) {
+        // The stress's westward part, and the drift it sends off the equator at EQ_W.
+        const h = Math.sqrt(x * x + y * y) || 1, west = (this.tau[3 * i] * y - this.tau[3 * i + 1] * x) / h;
+        up[i] = -OCEAN.UPWELL_EQ * fw[i] * Math.tanh(Math.max(0, west) / (RHO_W * fe)) * Math.exp(-(la / we) * (la / we));
+      }
       if (Math.abs(f) < 1.5e-5) continue;
       const tx = this.tau[3 * i], ty = this.tau[3 * i + 1], tz = this.tau[3 * i + 2];
       // τ × r̂ / (ρ f): to the right of the wind in the north, left in the south.
@@ -230,7 +290,7 @@ export class Ocean {
         if (sea[nbr[t]]) continue;
         off = Math.max(off, -(mx * tan[3 * t] + my * tan[3 * t + 1] + mz * tan[3 * t + 2]));   // away from the land
       }
-      up[i] = -OCEAN.UPWELL * Math.tanh(off);
+      up[i] += -OCEAN.UPWELL * Math.tanh(off);
     }
     // The steady anomaly, by sweeps (as the moisture's).
     const T = this.coarse ? c.Tc[0] : c.Tf[0], Tp = this.sst, lam = 1 / OCEAN.RELAX, kap = OCEAN.KAPPA, Akm = R_M * R_M / 1e6;

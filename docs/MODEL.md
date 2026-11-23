@@ -50,11 +50,11 @@ The page (`main.js`) keeps the clock and posts each frame's planned steps to the
 
 | Layer | Code | Form |
 |---|---|---|
-| Energy balance | `climate.js` `CLIMATE` | C ∂T/∂t = S(1 − α) − (A + BT) + L_c + 5.35 ln(CO₂/CO₂₀) + F + ∇·D∇T on level 5, the mean and two harmonics by COCG or BiCGSTAB; A 234, B 2.09; D = 1.14 (1 − 0.85 sin²φ), D_SEASON 0.44; capacities 7.9 sea, 0.61 land, 1.2 ice W yr m⁻² K⁻¹; albedo resampled at 24 points of the year, Anderson-mixed to 0.02 K. Each fine cell's seasons: (B + K + ikωC) T̂ = F̂ + L + K T̂ₘ, K 8 W m⁻² K⁻¹. Lapse 5.4 K/km. |
+| Energy balance | `climate.js` `CLIMATE` | C ∂T/∂t = S(1 − α) − (A + BT) + L_c + 5.35 ln(CO₂/CO₂₀) + F + ∇·D∇T on level 5, the mean and two harmonics by COCG or BiCGSTAB; A 235.6, B 2.09, over land the OLR at T − `OLR_Z` (0.45) Γz; D = 1.14 (1 − 0.85 sin²φ), D_SEASON 0.44; capacities 7.9 sea, 0.61 land, 1.2 ice W yr m⁻² K⁻¹; albedo resampled at 24 points of the year, Anderson-mixed to 0.02 K. Each fine cell's seasons: (B + K + ikωC) T̂ = F̂ + L + K T̂ₘ, K 8 W m⁻² K⁻¹. Lapse 5.4 K/km. |
 | Clouds | `clouds.js` | High cloud 0.27 (1 − e^{−P/0.72 mm/day}); low cloud by column humidity and, over open sea at 45–60°, stratocumulus by EIS (7.1–15.3 K); shortwave by the adding formula; the high cloud's top at 220 K replaces A + BT over its share, the clear sky capped at 300 W/m². |
 | Air's heat | `airheat.js` | The surface wind's rotational part as edge fluxes (∇²ψ = ζ, divergence-free), carrying 1 km of air at the surface's temperature; sums to nothing. |
-| Sea's heat | `seaheat.js`, `ocean.js` | Steady θ: ρc_p(ΣF_in θ_in − F_out θ) = λA(θ − T); currents the gyres' (Stommel: ε∇²ψ + ∂ψ/∂λ = a² curl τ/2Ωρ₀) plus an overturning where a latitude circle is all sea (Drake Passage effect), `EKMAN` 0.6 of its Ekman transport plus `MIX` Sv. |
-| Circulation | `climate.js` | A template: the ITCZ the warmest latitude per 10° sector; the Hadley edge √ΔT/Ω (30° at 28 K); subpolar lows at 2.05 × the edge; thermal pressure −1 hPa/K of departure; r u + f k×u = −∇p/ρ. |
+| Sea's heat | `seaheat.js`, `ocean.js` | Steady θ: ρc_p(ΣF_in θ_in − F_out θ) = λA(θ − T); currents the gyres' (Stommel: ε∇²ψ + ∂ψ/∂λ = a² curl τ/2Ωρ₀) plus an overturning where a latitude circle is all sea (Drake Passage effect), `EKMAN` 0.37 of its Ekman transport plus `MIX` Sv. The stress ρ_a C_D √(\|u\|² + G²) u, the storms' gusts G 6 m/s past 30° (a tenth within 10°). The surface's anomaly T′ relaxed to upwelling: off coasts by the Ekman drift, and on the equator under the trades, `UPWELL_EQ` × the cell's place across its basin from west to east (the thermocline's tilt) × e^{−(φ/5.5°)²}. |
+| Circulation | `climate.js` | A template: the ITCZ the warmest latitude per 10° sector (at sea the water's surface, T + T′), pulled to the equator by 0.05 K (φ/14°)²; the Hadley edge √ΔT/Ω (30° at 28 K); subpolar lows at 2.05 × the edge; thermal pressure −1 hPa/K of departure; r u + f k×u = −∇p/ρ. |
 | Moisture | `climate.js`, `gpu/moisture.js` | ∇·(uW) − ∇·(κ∇W) = E − P, steady at six points of the year; rain (W_s/60) e^{CONV_A(r − 0.743)} mm/day + orographic + background; descent raises r₀. |
 | Zones | `climate.js` | Köppen's thresholds as logistics over 14 classes, widths the year's spread, so a class's probability is the share of years in it. |
 | Year | `year.js` | Hasselmann: C ∂T′/∂t = −BT′ + ∇·D∇T′ + F on level 4, F noise correlated over 1,500 km plus the veil, exact OU steps; rain z = ρT′/σ + √(1 − ρ²)η (ρ −0.3 land, +0.3 sea); live below ~56 yr/s, the closure above ~180. |
@@ -104,14 +104,15 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 
 | Target | Model | Observed | Tool |
 |---|---|---|---|
-| Land temperature rms (year, January, July) | 3.8, 5.6, 4.8 K | UDel | `climate-score.mjs` |
-| Sea surface by latitude rms; sea ice | 1.1 K; 0.04 | OISST | `climate-score.mjs` |
-| Land's rain; log-ratio rms | 859 mm/yr; 0.71 | 718 mm/yr (UDel) | `climate-score.mjs` |
-| Köppen classes; groups agreeing | 46%; 73% of land | | `climate-score.mjs` |
-| Reflected shortwave; clear sky | 99.0; 54.9 W/m² | 99.0; 53.3 (CERES EBAF) | `climate-score.mjs` |
-| Outgoing longwave; clear sky | 241.3; 268.1 W/m² | 240.4; 268.3 | `climate-score.mjs` |
-| Clouds' forcing, short and long | −44.2, +26.7 W/m² | −45.7, +27.9 | `climate-score.mjs` |
-| Overturning; heat across 26° N | 11.3 Sv; 1.2 PW | | `climate-score.mjs` |
+| Land temperature rms (year, January, July) | 3.7, 5.4, 4.9 K | UDel | `climate-score.mjs` |
+| Sea surface by latitude rms; sea ice | 1.05 K; 0.036 | OISST | `climate-score.mjs` |
+| The eastern Pacific's cold tongue (3° S–3° N, 140–90° W); the western Pacific (5° S–5° N, 140–170° E) | 25.6; 29.7 °C | 25.2; 29.6 (OISST) | `climate-score.mjs` |
+| Land's rain; log-ratio rms | 931 mm/yr; 0.74 | 718 mm/yr (UDel) | `climate-score.mjs` |
+| Köppen classes; groups agreeing | 44%; 72% of land | | `climate-score.mjs` |
+| Reflected shortwave; clear sky | 98.3; 54.4 W/m² | 99.0; 53.3 (CERES EBAF) | `climate-score.mjs` |
+| Outgoing longwave; clear sky | 241.9; 268.5 W/m² | 240.4; 268.3 | `climate-score.mjs` |
+| Clouds' forcing, short and long | −43.9, +26.6 W/m² | −45.7, +27.9 | `climate-score.mjs` |
+| Overturning; heat across 26° N | 9.7 Sv; 1.16 PW | | `climate-score.mjs` |
 | Doubled CO₂, ice sheets held | 2.8 K | | `climate-score.mjs` |
 | Plates' opening balance rms; correlation with Müller 2019 | 4.80 cm/yr; 0.927 | 4.40 cm/yr | `plates-score.mjs` |
 | Hypsometry at the opening (land, mean, 90th, 99th percentile) | 27.1%, 0.67, 1.44, 4.15 km | 27.5%, 0.63, 1.37, 4.6 (ETOPO) | `tools/hypsometry.mjs` |
