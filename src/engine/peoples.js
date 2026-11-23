@@ -28,7 +28,9 @@
 //               point toward the world's mean, R_MEDIA × 1 − e^{−(ℓ_id/L_WORLD)²}, whatever the
 //               distance: the world blends once learning spans it (a9), or where a state holds the
 //               place, its nation does: the media's pull is toward the holders' capitals' identity by
-//               their shares (a9: national broadcasting), the world's mean for the rest. States also
+//               their shares (a9: national broadcasting), each × how alike the place is to its capital
+//               (a nation's media reach those who share its tongue: a colony's aren't its rulers'), the
+//               world's mean for the rest. States also
 //               pull the places they hold toward their capitals' identity, R_STATE × the share held ×
 //               the falloff (src/engine/polities.js; a9: softly). With drift, the
 //               nearest-neighbour pull is a stepping-stone field, whose identity distance grows as the
@@ -233,8 +235,8 @@ export class Peoples {
         // The states holding the place pull it toward their capitals' identity (src/engine/polities.js;
         // a9: softly), R_STATE × the share held × contact's falloff.
         // The media's pull is the nation's where a state holds the place (a9: national broadcasting, its
-        // schools and press), each holder's capital by its share of those who deliver, and the world's mean
-        // for the rest: whatever the distance.
+        // schools and press), each holder's capital by its share of those who deliver × how alike the people
+        // are to its capital's, and the world's mean for the rest: whatever the distance.
         let rs = 0, sx = 0, sy = 0, hm = 0, mx = 0, my = 0;
         if (pol) for (let j = 0; j < KPOL; j++) {
           const q = pol.id[KPOL * c + j];
@@ -242,7 +244,7 @@ export class Peoples {
           const b = pol.capSlot(q);
           if (b < 0) continue;
           const ddx = wrap(X[2 * b] - xa, S), ddy = wrap(X[2 * b + 1] - ya, S), sh = pol.s[KPOL * c + j];
-          if (gam > 0 && pol.d[c] > 0) { const f = Math.min(1 - hm, sh / pol.d[c]); hm += f; mx += f * ddx; my += f * ddy; }
+          if (gam > 0 && pol.d[c] > 0) { const f = Math.min(1 - hm, sh / pol.d[c] / (1 + (ddx * ddx + ddy * ddy) / (P.D_SIM * P.D_SIM))); hm += f; mx += f * ddx; my += f * ddy; }
           if (b === a) continue;
           const w = P.R_STATE * sh * pull(ddx * ddx + ddy * ddy, Dc, g0);
           rs += w; sx += w * ddx; sy += w * ddy;

@@ -39,6 +39,21 @@
 //               founders' cohesion COH0 brought to the places it takes (Ibn Khaldun's dynasty).
 //               A polity that loses its capital moves it to its largest city held, its cohesion ×
 //               CAP_LOSS; one holding fewer than N_DIE people is gone.
+// Empires (batch 2b, landing 1; synthesis):
+//   projection  a state's power at a place adds F_PROJ of the place's region's arms (garrisons and the
+//               troops raised there, armed at the state's wealth: × (1 + K_ARM y_state/ȳ)/(1 + K_ARM y_place/ȳ))
+//               × e^{−cost/LP}, LP = L_PROJ × sig((z_cap − Z_PROJ)/W_PROJ) (steam navies, at industry's
+//               knowledge; steam cheapens the routes too), so a small state far ahead in knowledge, wealth or
+//               cohesion holds a large region far away (Headrick's Tools of Empire, from memory). Arms
+//               everywhere × (1 + K_ARM × industrial income a person over the world's mean ȳ): a great
+//               power's is its wealth against the others' (Kennedy), the gap widest while industry is young.
+//   settlers    carry their allegiance across the sea (`carry`), so a colony of settlers holds to their
+//               state; a conquered one holds by projection.
+//   nationalism once a place is schooled (its learning past Z_NAT), its people resist strangers' rule
+//               × e^{−K_SELF (1 − likeness)} (Gellner's congruence of state and nation): decolonization,
+//               and the breakup of empires by nation.
+//   core        a state's cohesion is its people's by how alike they are to its capital's (Turchin's
+//               core): subjects decaying behind no frontier of their own don't drain their rulers'.
 // What states do (landing 2): each place's national share of its cities' food goes to its states'
 // capitals and the capitals' works labour back to it (People.foodshed, feed: roads and works out from
 // the centre); the state's granaries widen its places' stores (G_STATE); a border in trade's kernel
@@ -105,6 +120,8 @@ export class Polities {
     this.d = new Float64Array(nL);                // the share of each place's people with something to deliver
     this.arm = new Float64Array(nL);              // its arms a person (the horse)
     this.pi0 = new Float64Array(nL);              // its own resistance
+    this.rA = new Float64Array(nL);               // its region's arms (the kernel's sum)
+    this.nat = new Float64Array(nL);              // how far its people are schooled into a nation (0–1)
     this.S = new Float64Array(nL).fill(pp.P.COH0); // each place's cohesion (asabiya)
     this.fr = new Float64Array(nL);               // its metaethnic frontier's weight
     this.rv = new Float64Array(nL).fill(1);       // its new ideas' lift by its states' rivals
@@ -134,14 +151,19 @@ export class Polities {
     this.ver++;
     const W = ids.W, T = ids.T, E = pp.E, H = pp.H, ind = pp.ind, zc = pp.zc, K = pp.K;
     const d = this.d, arm = this.arm, pi0 = this.pi0, id = this.id, s = this.s, list = this.list;
-    // Each place: what it can deliver, its arms, its own resistance.
+    // Each place: what it can deliver, its arms, its own resistance. With industry arms follow wealth
+    // against the world's (Kennedy's great powers, from memory): × (1 + K_ARM × its income a person over
+    // the world's mean), so the gap is widest while industry is young and closes as it spreads.
+    let gs = 0, ns = 0;
+    for (let c = 0; c < nL; c++) { gs += pp.goods[c]; ns += N[c]; }
+    const yW = this.yW = gs > 0 && ns > 0 ? gs / ns : 0, ky = yW > 0 ? P.K_ARM / yW : 0;
     for (let c = 0; c < nL; c++) {
       const n = N[c], t = T[c];
       if (!(n > 0) || !(t > 0)) { d[c] = 0; arm[c] = 1; pi0[c] = 0; continue; }
       const o = 5 * c;
       let dc = (W[o + 3] + W[o + CITY] + P.DL_HERD * W[o + 1] + P.DL_FISH * W[o + 2]) / t;
       dc = Math.min(1, dc + (1 - dc) * ind[c]);
-      d[c] = dc; arm[c] = 1 + P.M_HERD * W[o + 1] / t;
+      d[c] = dc; arm[c] = (1 + P.M_HERD * W[o + 1] / t) * (1 + ky * pp.goods[c] / n);
       let ex = 0, deg = 0;
       for (let e = E.off[c]; e < E.off[c + 1]; e++) {
         if (E.hop[e]) continue;
@@ -166,7 +188,8 @@ export class Polities {
         const b = cix[e], w = N[b] > 0 ? Math.exp(-((1 - si) * cS[e] + si * cI[e]) / Lc) : 0;
         wE[e] = w; r += w * N[b] * arm[b];
       }
-      pi0[c] *= r;
+      pi0[c] *= r; this.rA[c] = r;
+      this.nat[c] = 1 / (1 + Math.exp(-(pp.zl[c] - P.Z_NAT) / P.W_NAT));
     }
     // Each polity: its cohesion's weight, its reach, and the costs from its capital (its catchment's
     // near it, else the capital to its market, the markets' route, the market to the place).
@@ -175,6 +198,7 @@ export class Polities {
       const q = list[k], cap = q.cap, zk = zc[cap];
       q.w = q.coh * Math.exp(Math.min(zk / P.Z_MIL, 600));
       q.L = this.reachAt(zk); q.sI = ind[cap]; q.m0 = mo[cap]; q.o0 = own[node[cap]];
+      q.LP = P.F_PROJ > 0 ? P.L_PROJ / (1 + Math.exp(-(zk - P.Z_PROJ) / P.W_PROJ)) : 0;
       const near = q.near || (q.near = new Map());
       near.clear();
       for (let e = cof[cap]; e < cof[cap + 1]; e++) near.set(cix[e], (1 - q.sI) * cS[e] + q.sI * cI[e]);
@@ -185,9 +209,18 @@ export class Polities {
       const m = mo[c], sI = q.sI, xm = m === q.m0 ? 0 : (sI < 1e-6 ? rt.cost(q.m0, m, 'S') : (1 - sI) * rt.cost(q.m0, m, 'S') + sI * rt.cost(q.m0, m, 'I'));
       return q.o0 + xm + own[node[c]];
     };
+    // The polities projecting power past their own people (landing 1 of batch 2b; synthesis): those whose
+    // capitals know the open sea's navigation, Z_PROJ.
+    const proj = live.filter(k => list[k].LP > 1e-3 * P.L_PROJ), rA = this.rA, nat = this.nat;
     // The candidates: the polities holding among each place's region, each by its arms there × its
-    // cohesion × its capital's reach (Boulding's gradient) × how alike the place is to its capital's
-    // people; the strongest KC a place.
+    // cohesion × its capital's reach (Boulding's gradient), and those projecting power to it: F_PROJ of
+    // the region's own arms (garrisons and the troops raised there, the sepoys) × its cohesion × e^{−cost/LP}
+    // by the routes from its capital, the sea's cheap legs first. Knowledge lifts both, as its own arms:
+    // the capital's e^{z/Z_MIL} against the place's resistance at its own, so a small state far ahead
+    // holds a large region far away (Headrick's Tools of Empire, from memory). Each × how alike the
+    // place is to its capital's people, and a schooled place resists strangers' rule × e^{−K_SELF (1 −
+    // likeness)} (Gellner's principle that the political and the national unit be one; decolonization
+    // and the breakup of empires by nation). The strongest KC a place.
     const cid = this.cid, cpi = this.cpi, kin = P.K_KIN, lk = new Int32Array(64), la = new Float64Array(64);
     cid.fill(-1); cpi.fill(0);
     for (let c = 0; c < nL; c++) {
@@ -206,9 +239,18 @@ export class Polities {
           la[h] += s[KP * b + j] * nb;
         }
       }
+      for (const k of proj) {
+        let h = 0;
+        while (h < nk && lk[h] !== k) h++;
+        if (h === nk && nk < 64) { lk[nk] = k; la[nk] = 0; nk++; }
+      }
       const o = KC * c;
       for (let h = 0; h < nk; h++) {
-        const q = list[lk[h]], v = q.w * la[h] * Math.exp(-capCost(q, c) / q.L) * (1 + kin * ids.sim(c, q.cap)) / (1 + kin);
+        const q = list[lk[h]], sm = ids.sim(c, q.cap), x = capCost(q, c);
+        // The troops raised there are armed as their rulers are: the region's arms at the state's wealth.
+        const yc = N[c] > 0 ? pp.goods[c] / N[c] : 0, lift = (1 + ky * (q.y || 0)) / (1 + ky * yc);
+        const arms = la[h] * Math.exp(-x / q.L) + (q.LP > 1e-3 * P.L_PROJ ? P.F_PROJ * rA[c] * lift * Math.exp(-x / q.LP) : 0);
+        const v = q.w * arms * (1 + kin * sm) / (1 + kin) * Math.exp(-P.K_SELF * nat[c] * (1 - sm));
         if (!(v > cpi[o + KC - 1])) continue;
         let r = KC - 1;
         while (r > 0 && cpi[o + r - 1] < v) { cpi[o + r] = cpi[o + r - 1]; cid[o + r] = cid[o + r - 1]; r--; }
@@ -288,19 +330,22 @@ export class Polities {
       const floor = P.A_MIN + (P.A_NAT - P.A_MIN) / (1 + Math.exp(-(pp.zl[c] - P.Z_NAT) / P.W_NAT));
       Sc[c] = Math.max(floor, asabiya(Sc[c], P.R_ASA * fr[c], P.D_ASA * (1 - fr[c]), dt));
     }
-    for (const k of live) list[k].area = 0;
+    // A state's cohesion is its people's, each by how alike they are to its capital's: the ruling
+    // people's asabiya, not its subjects' (Turchin's core; an empire's colonies, subjects decaying
+    // behind no frontier of their own, had drained its home's).
+    for (const k of live) { const q = list[k]; q.area = 0; q.cw = 0; q.y = 0; }
     for (let c = 0; c < nL; c++) {
       if (own2[c] >= 0) list[own2[c]].area += H.area[c];
       for (let j = 0; j < KP; j++) {
         const k = id[KP * c + j];
         if (k < 0) break;
-        const q = list[k], w = s[KP * c + j] * N[c];
-        q.N += w; q.A += w * arm[c]; q.coh += w * Sc[c]; q.f += w * fr[c];
+        const q = list[k], w = s[KP * c + j] * N[c], wk = w * ids.sim(c, q.cap);
+        q.N += w; q.A += w * arm[c]; q.coh += wk * Sc[c]; q.cw += wk; q.f += w * fr[c]; q.y += wk * pp.goods[c] / Math.max(N[c], 1e-9);
       }
     }
     for (const k of live) {
       const q = list[k];
-      q.coh = q.N > 0 ? q.coh / q.N : P.COH0; q.f = q.N > 0 ? q.f / q.N : 0;
+      q.coh = q.cw > 0 ? q.coh / q.cw : P.COH0; q.f = q.N > 0 ? q.f / q.N : 0; q.y = q.cw > 0 ? q.y / q.cw : 0;   // its core's income a person
       q.P = q.coh * q.A; q.rb = 0; q.ra = 0;
     }
     // Rivalry (a9; contested, so weak: Hoffman's tournament, the fragmented Europe of Jones, Mokyr and
@@ -450,6 +495,25 @@ export class Polities {
     id[o + j] = k; s[o + j] = f;
     for (let i = j; i > 0 && s[o + i] > s[o + i - 1]; i--) {
       [id[o + i], id[o + i - 1]] = [id[o + i - 1], id[o + i]]; [s[o + i], s[o + i - 1]] = [s[o + i - 1], s[o + i]];
+    }
+  }
+
+  /**
+   * n settlers from place a into b across the sea (People.diffuse's crossings, voyages): b's allegiance
+   * mixes with theirs by people, so a colony of settlers holds to their state (synthesis: settler
+   * colonies, against the conquered). Allegiance then relaxes toward power as everywhere.
+   */
+  carry(a, b, n) {
+    const N = this.pp.Ntot, f = n / Math.max(N[b] + n, 1e-12), id = this.id, s = this.s;
+    if (!(f > 0) || id[KP * a] < 0 && id[KP * b] < 0) return;
+    for (let j = 0; j < KP; j++) { if (id[KP * b + j] < 0) break; s[KP * b + j] *= 1 - f; }
+    for (let j = 0; j < KP; j++) {
+      const k = id[KP * a + j];
+      if (k < 0) break;
+      let cur = 0, has = false;
+      for (let i = 0; i < KP; i++) if (id[KP * b + i] === k) { cur = s[KP * b + i]; has = true; break; }
+      const v = cur + f * s[KP * a + j];
+      if (v > this.pp.P.S_MIN && (has || id[KP * b + KP - 1] < 0 || v > s[KP * b + KP - 1])) this.claim(b, k, v);
     }
   }
 

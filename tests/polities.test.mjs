@@ -1,10 +1,10 @@
 // States (src/engine/polities.js) on a line of farming places: cohesion exactly, Boulding's radius, the border at
-// equal power, the media's pull.
+// equal power, the reach of power projected and nationalism's cut, the media's pull.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Polities, asabiya, KP } from '../src/engine/polities.js';
 import { Peoples, wrap } from '../src/engine/peoples.js';
-import { PEOPLE } from '../src/engine/people.js';
+import { PEOPLE, People } from '../src/engine/people.js';
 
 
 /** A stand-in People: n farming places on a line, N people each, cost c0 a step along it, reach L. */
@@ -21,7 +21,7 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
     nL: n, P, E, t: 0, packages: [1], planet: { seed: 'polities' }, Ntot: new Float64Array(n).fill(N), K: new Float64Array(n).fill(N),
     zc: new Float64Array(n), zl: new Float64Array(n), ind: new Float32Array(n), city: null, wol, cityShare: null, dx: 100,
     H: { slope: new Float64Array(n), area: new Float64Array(n).fill(1e4) },
-    works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) },
+    goods: new Float64Array(n), works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) },
   };
   // Each place's catchment: the places within M of it along the line, itself first, the strait's cost J
   // added across it.
@@ -94,6 +94,43 @@ test('the border between two states is where their projected powers are equal', 
     const want = 100 + (L / 2) * Math.log(q0.coh / q1.coh) / c0;
     assert.ok(Math.abs(b - want) < 0.3, `${b} against ${want}`);
   }
+});
+
+test("power projected past a state's own people holds to LP ln(coh F/B), and a schooled people's resists strangers", () => {
+  // A capital at one end, its own reach nil past it: a place far out is held only by the troops raised
+  // there, F_PROJ of its region's arms × the state's cohesion × e^{−x/LP}, against its resistance B_LOC ×
+  // the same arms, so the edge (half held, sharp γ) is at x* = LP ln(coh F k/B), k = (1 + K_KIN s)/(1 + K_KIN)
+  // its people's likeness s to the capital's, × e^{−K_SELF (1 − s)} once schooled past Z_NAT (whose
+  // cohesion's floor, the nation's, the state's then is).
+  const n = 120, c0 = 100, LP = 3000, F = 0.5, B = 0.05, s = 0.5;
+  for (const zl of [0, 20]) {
+    const pp = line({ n, c0, L: 10, params: { POL_G: 12, F_PROJ: F, L_PROJ: LP, Z_PROJ: -10 } }), pol = pp.pol, ids = pp.ids, P = pp.P;
+    pp.zl.fill(zl);
+    for (let c = 0; c < n; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = c ? P.D_SIM : 0; }   // likeness 1/(1 + 1) to the capital's
+    seat(pol, 0, 0);
+    for (let k = 0; k < 300; k++) { pol.advance(10); pp.t += 10; }
+    const nat = 1 / (1 + Math.exp(-(zl - P.Z_NAT) / P.W_NAT)), k = (1 + P.K_KIN * s) / (1 + P.K_KIN) * Math.exp(-P.K_SELF * nat * (1 - s));
+    const want = LP * Math.log(pol.list[0].coh * F * k / B) / c0, got = half(held(pol, 0, n), 1, 1);
+    assert.ok(Math.abs(got - want) < 0.2, `schooled ${zl}: ${got} against ${want}`);
+  }
+});
+
+test('within one pool, capital goes where it earns: income a worker e^{θΔz/(1−α)} apart, and a state takes N_TAX', () => {
+  // Two places alike but for knowledge Δz: at the steady state the pool's investment holds φ ∝ A^{1/(1−α)} ℓ,
+  // so output a worker is A φ^α ℓ^{−α} ∝ e^{θΔz/(1−α)}. Then a state holding the second sends N_TAX of its
+  // output to its capital, the first.
+  const P = { ...PEOPLE }, dz = 0.4, nL = 2;
+  const pp = { P, nL, Ntot: Float64Array.of(1e6, 1e6), ind: Float32Array.of(1, 1), zc: Float64Array.of(7 + dz, 7), lfp: Float64Array.of(0.5, 0.5),
+    kF: Float64Array.of(0.5, 0.5), kM: Float64Array.of(0.5, 0.5), goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL),
+    pol: { id: new Int32Array(KP * nL).fill(-1), s: new Float64Array(KP * nL), list: [] } };
+  const E = { Y: 100, sA: 0, Ef: 0, lamE: 0, burned: 0, Kf: 50, Kc: 0, Kq: 0, Kr: 0 }, Lh = 1e6;
+  for (let k = 0; k < 400; k++) { pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, E.Kf, 0, 10); }
+  const want = Math.exp(P.THETA_I * dz / (1 - P.ALPHA));
+  assert.ok(Math.abs(pp.goods[0] / pp.goods[1] / want - 1) < 1e-6, `${pp.goods[0] / pp.goods[1]} against ${want}`);
+  const y0 = pp.goods[0], y1 = pp.goods[1];
+  pp.pol.list.push({ cap: 0 }); pp.pol.id[KP * 1] = 0; pp.pol.s[KP * 1] = 1;
+  pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, E.Kf, 0, 10);
+  assert.ok(Math.abs(pp.goods[1] - (1 - P.N_TAX) * y1) < 1e-9 * y1 && Math.abs(pp.goods[0] - y0 - P.N_TAX * y1) < 1e-9 * y1);
 });
 
 test('states that meet keep apart in look, the smaller giving way', () => {

@@ -2,11 +2,11 @@
 
 ## Next: the industrial states (batch 2b)
 
-Each landing is scored on Earth (`tools/people/earth-score.mjs`) and retuned.
+Built on the `batch-2b` branch, held unmerged with 2a (docs/MODEL.md has the forms): overseas empires (power projected by steam, the troops raised overseas armed at the state's wealth against the world's, settlers carrying their state, nationalism's cut on strangers' rule, a state's cohesion its core's) and regional economies (one market for energy and materials, each place's output by its own productivity, capitals' share and fossil rent, saving invested within each state). Open:
 
-1. **Overseas empires** (synthesis). A state's power at a place gains a projected part: its capital's arms carried by sea route, e-fold over a naval reach that grows with knowledge and industry (steam), lifted by the gap in knowledge between the capital and the place (Headrick's *Tools of Empire*, from memory). Settlers carry their state's allegiance, so lands the voyages fill become settler colonies rather than conquered ones. Extraction is what holding already does: a held place's national share of food goes to its capital, and after landing 2 its ores and fossil carbon too. Decolonization should fall out of cohesion (a colony's metaethnic frontier with its rulers; the nation's floor as learning spreads): check when. Targets on Earth, from memory: the largest empire holding about a quarter of the world's people ~160 years after industry began (the British, ~1920), decolonization mostly ~185–215 years after (1945–1975). Epidemics at the meeting of long-parted worlds stay out (below, Ideas).
-2. **Regional economies.** `industrialStep` per polity (6.5 µs a call, so 500 polities cost ~3 ms a step and the full split is affordable), each with its own stocks, fossil carbon and ores from the cells it holds. Goods move by the gravity kernel with borders, energy and materials at a pooled price, and capital stays home (Feldstein–Horioka). Within a state each place's output follows its own productivity, less the national share to the capital (a9), so a colony's goods are drained as its grain is. Compute and the takeoff then have a place.
-3. The docs and the about panel.
+- **The colonial era is short and small on the model's Earth.** Industry reaches the whole Old World within a century and knowledge gaps between its regions are under a unit, so the wealth gap that sustained empires closes as it opens: ~4% of people are under rulers a family apart a century after industry (history ~⅓ in 1920), the richest region ~30× the poorest's income then and ~3× by +220 (history ~10× in 1913, ~15× now). Lengthening it means slowing industry's spread or knowledge's copying across borders and peoples, which moves the takeoff.
+- **The industrial world consolidates** to ~8 effective states at takeoff (2a's ~11; history ~14): industry's arms favour the large and rich, and decolonization's new states are few.
+- Goods' trade has no term of its own (borders cut food's trade and ideas' copying, which carry it); ores set where industry begins but pay no rent.
 
 ## Parked: the race (batch 2c)
 
@@ -29,7 +29,7 @@ Ideas not yet placed: place names laid down in layers; crowd diseases and the me
 
 ## Open in the people's model
 
-- **States**: Turchin's secular cycles (hunger lowering cohesion) aren't in; no state rules overseas until 2b's first landing, since a state's power comes only from its own people near a place; the largest city at takeoff is ~170 million, since capitals take a state's whole share; the Americas stay stateless longer than history's.
+- **States**: Turchin's secular cycles (hunger lowering cohesion) aren't in; the largest city at takeoff is ~170 million, since capitals take a state's whole share; the Americas stay stateless longer than history's.
 - **Earth**: Asia's paddies (wet rice beyond the floodplains) are missing; the model's Chukotka keeps half a steppe's pasture, so Eurasia's animals reach Alaska early and Africa gains as much from its animals as Eurasia; the Americas and Australia fill by diffusion, not by industry-era ships (the ships' flux runs down crowding, and without epidemics the Americas are never emptied to draw it); India holds ~3% of the people and China ~7%, under the climate's weak monsoon.
 - **Food and ages**: births don't read the pyramid, so a baby bust doesn't echo in births a generation on; winter fodder, the animals' own climates and the horse's reach; the lean month isn't drawn; granaries as works should set the store by place.
 - **Routes and cities**: the routes' kernel isn't reread as the winds shift between rebuilds; the routes' paths don't follow the works; the largest cities reach ~70–150 million by takeoff against today's ~30–40.

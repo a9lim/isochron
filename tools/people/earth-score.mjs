@@ -3,7 +3,8 @@
 // chances in parallel, and scores each run's population by region against the regions' shares now
 // (rough, from memory: national totals of ~2023 split onto the boxes below): Σ share × |ln(model /
 // observed)|, a model share floored at 0.1%. Prints each region's mean share against the observed, the
-// continents', where farming and industry began (the first six origins by region and zone), and the run's totals.
+// continents', where farming and industry began (the first six origins by region and zone), the run's totals, the
+// states, and the empires and incomes a century or two after industry.
 // usage: node tools/people/earth-score.mjs ['{PEOPLE overrides}'] [draws=4]
 //   env: ENGINE=7 the page's desktop engine restricted to the people's grid (tools/people/planet.mjs)
 import { spawn } from 'node:child_process';
@@ -33,7 +34,27 @@ async function one(ov, run) {
   const ev = {};
   pp.onEvent = (t, k, s) => { if (!ev[k]) ev[k] = { t, s }; };
   pp.seed();
-  while (pp.t < 6e6 && !ev.present) { pp.step(pp.nextDt()); if (ev.industry && pp.t - ev.industry.t > 3000) break; }
+  // Empires and incomes after industry (+100, +160, +220 yr): the share of everyone held by a state whose
+  // capital's people are a family apart (likeness under 0.35), and the richest region's income a person
+  // against the poorest's (regions with 1% of the people or more).
+  const marks = [100, 160, 220], emp = [];
+  const empire = () => {
+    const pol = pp.pol, N = pp.Ntot, inc = new Float64Array(REGIONS.length), pop = new Float64Array(REGIONS.length);
+    let all = 0, sub = 0;
+    for (let c = 0; c < pp.nL; c++) {
+      all += N[c];
+      if (regOf[c] >= 0) { inc[regOf[c]] += pp.goods[c]; pop[regOf[c]] += N[c]; }
+      const k = pol.owner(c);
+      if (k >= 0 && pp.ids.sim(c, pol.list[k].cap) < 0.35) sub += N[c];
+    }
+    const y = [...pop.keys()].filter(r => pop[r] > 0.01 * all).map(r => inc[r] / pop[r]);
+    return [sub / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9)];
+  };
+  while (pp.t < 6e6 && !ev.present) {
+    pp.step(pp.nextDt());
+    if (ev.industry && marks.length && pp.t >= ev.industry.t + marks[0]) { marks.shift(); emp.push(empire()); }
+    if (ev.industry && pp.t - ev.industry.t > 3000) break;
+  }
   const by = new Float64Array(REGIONS.length);
   let tot = 0;
   for (let c = 0; c < pp.nL; c++) { tot += pp.Ntot[c]; if (regOf[c] >= 0) by[regOf[c]] += pp.Ntot[c]; }
@@ -42,12 +63,14 @@ async function one(ov, run) {
   // effective number, the largest's share of the people held, and the share of the people held.
   const h = pp.history, near = t => h.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), h[0]);
   const states = ev.industry ? [ev.industry.t - 3000, ev.industry.t - 1000, ev.industry.t, ev.present ? ev.present.t : pp.t].map(t => { const x = near(t); return [x.states || 0, x.stTop || 0, x.stHeld || 0]; }) : null;
-  return { states, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
+  return { states, emp, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
     farm: ev.farming ? at(ev.farming) : null, ind: ev.industry ? at(ev.industry) : null, farmToInd: ev.farming && ev.industry ? ev.industry.t - ev.farming.t : null, packages: pp.packages.length,
     origins: pp.packages.slice(0, 6).map(q => `${regOf[q.c] >= 0 ? REGIONS[regOf[q.c]][0] : `${Math.round(q.lat * deg)}°, ${Math.round(q.lon * deg)}°`} (${q.zone})`) };
 }
 
-if (process.argv[2] === '--one') {
+if (process.argv[1] !== fileURLToPath(import.meta.url)) {
+  // imported (for REGIONS): nothing to run
+} else if (process.argv[2] === '--one') {
   process.stdout.write(JSON.stringify(await one(JSON.parse(process.argv[3]), process.argv[4])));
 } else {
   const ov = process.argv[2] || '{}', draws = +(process.argv[3] || 4), self = fileURLToPath(import.meta.url);
@@ -67,5 +90,7 @@ if (process.argv[2] === '--one') {
   for (const [k, r] of runs.entries()) console.log(`draw ${k}: score ${sc[k].toFixed(3)} · farming first at ${r.farm} (${r.packages} origins), industry ${r.farmToInd ? (r.farmToInd / 1e3).toFixed(1) : '-'} kyr later at ${r.ind} · early takeoff ${r.yrs ? r.yrs.toFixed(0) : '-'} yr after industry, ${(r.people / 1e9).toFixed(2)} billion people\n         origins in order: ${r.origins.join(', ')}`);
   const st = runs.filter(r => r.states);
   if (st.length) console.log('states (effective number · the largest\'s share · the people held) at ' + ['3 kyr before industry', '1 kyr before', 'industry', 'early takeoff'].map((w, i) => `${w} ${mean(st.map(r => r.states[i][0])).toFixed(1)} · ${(100 * mean(st.map(r => r.states[i][1]))).toFixed(0)}% · ${(100 * mean(st.map(r => r.states[i][2]))).toFixed(0)}%`).join('; '));
+  const em = runs.filter(r => r.emp && r.emp.length === 3);
+  if (em.length) console.log('empires (under rulers a family apart · the richest region\'s income a person against the poorest\'s) at ' + ['industry +100 yr', '+160', '+220'].map((w, i) => `${w} ${(100 * mean(em.map(r => r.emp[i][0]))).toFixed(0)}% · ${mean(em.map(r => r.emp[i][1])).toFixed(1)}×`).join('; '));
   console.log(`score ${mean(sc).toFixed(3)} ± ${Math.sqrt(mean(sc.map(s => (s - mean(sc)) ** 2))).toFixed(3)} over ${draws} draws`);
 }

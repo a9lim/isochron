@@ -94,8 +94,8 @@ The page (`main.js`) keeps the clock and posts each frame's planned steps to the
 | Routes, trade, cities | One route graph (sail by the planet's winds and gyres, steam, rail); markets on level 4, Dijkstra between them; trade a gravity kernel e^{−c/reach} every 10 years, pooling harvests by τ (15% → 90%); cities fed over catchments, dying `D_CITY` 1%/yr past the countryside before sanitation. |
 | Works | A quarter of a city's labour: learning's works (forgetting λ/(1 + w/W_WORK)) and the land's terraces, canals, granaries and roads, each to its room; canals' salt s → a/(a + b), exact. |
 | Peoples | A point a way of life a cell on a torus of side 8: drift E d² = 4σ²t (σ² 2×10⁻⁴); contact pull R_CONT g(d), g = 0.05 + 0.95/(1 + (d/0.5)²); conformist mixing; customs' attractors; a founder's kick. |
-| States | Power = arms in the region × cohesion × e^{z/1.5} × e^{−cost/L} (Boulding); resistance B_LOC × arms × ruggedness × exit (Scott, Carneiro); allegiance → dπ^γ/(Σπ^γ + π₀^γ), γ 3, over 20 yr; cohesion dA/dt = 0.07 f A(1 − A) − 0.005(1 − f)A (Turchin); founding by cities over 20,000; identity pulled to the capital's, and by the media where learning spans the world. |
-| Industry, AI | Industry where dense farmers (10/km²) have coal and ore; Solow capital K/Y = s/δ; energy CES; finite fossil carbon and ores (Lasky, Skinner); AI capital doing labour through a task CES; robots growing at most e-fold per 1.44 yr. |
+| States | Power = arms in the region × cohesion × e^{z/1.5} × e^{−cost/L} (Boulding); resistance B_LOC × arms × ruggedness × exit (Scott, Carneiro); allegiance → dπ^γ/(Σπ^γ + π₀^γ), γ 3, over 20 yr; cohesion dA/dt = 0.07 f A(1 − A) − 0.005(1 − f)A (Turchin); founding by cities over 20,000; identity pulled to the capital's, and by the media where learning spans the world (each nation's by likeness to its capital). Empires: power projected F_PROJ 0.3 of a region's arms × e^{−cost/LP}, LP 20,000 at industry's knowledge (steam), the troops armed at the state's wealth; arms × (1 + K_ARM y/ȳ) with industry (Kennedy); settlers carry their state; a schooled people resists strangers × e^{−K_SELF (1 − likeness)} (Gellner); a state's cohesion its core's, by likeness to its capital. |
+| Industry, AI | Industry where dense farmers (10/km²) have coal and ore; Solow capital K/Y = s/δ; energy CES; finite fossil carbon and ores (Lasky, Skinner); AI capital doing labour through a task CES; robots growing at most e-fold per 1.44 yr. One market for energy and materials; output shared among places by A(z) φ^α ℓ^{1−α} (each place's shares of capital and work), N_TAX 10% to its states' capitals, fossil carbon drawn where it's left and its rent R_FOS 30% to the holders; each state's saving invested across its places where it earns, φ ∝ A^{1/(1−α)} ℓ. |
 | Endings | A draw on two axes (a third paused; aligned or not; Earth preserved or sacrificed): 1a, 1b, 2a, 2b, 3a, 3b. Off-world: the swarm takes the inner planet (2.8×10²³ kg for the whole Sun), habitats from the belt, probes at 0.5 c. |
 
 ## Calibration targets
@@ -121,10 +121,12 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 | Tidal dissipation | ~4.8 TW | ~3.7 TW | the page |
 | Dust emission; lifetime | ~1,600 Tg/yr; ~2 days | | `tools/dust-check.mjs` |
 | Lakes' production (Caspian, Great Lakes, Baikal) | ~100, ~100, ~70 g C m⁻² yr⁻¹ | 50–110, 50–250, 75–120 | `climate-score.mjs` |
-| People's score at early takeoff, Σ share × \|ln(model/observed)\| | ~1.05 ± 0.07 over eight draws | regions' shares of ~2023 | `people/earth-score.mjs` |
-| Early takeoff | ~235–290 yr after industry, ~7.4–8.2 B people | | `people/earth-score.mjs` |
+| People's score at early takeoff, Σ share × \|ln(model/observed)\| | ~1.08 ± 0.08 over eight draws | regions' shares of ~2023 | `people/earth-score.mjs` |
+| Early takeoff | ~245–320 yr after industry (one draw ~400), ~7.7–8.4 B people | | `people/earth-score.mjs` |
 | The first state | ~6 kyr after the first fields | ~6 kyr (Uruk, Egypt) | `people/earth-score.mjs` |
-| The largest state's share at industry | ~13% | ~⅓ (the Qing) | `people/earth-score.mjs` |
+| The largest state's share at industry | ~14% | ~⅓ (the Qing) | `people/earth-score.mjs` |
+| Under rulers a family apart, industry +100, +160, +220 yr | ~4%, 2%, 1% | ~⅓ in 1920, from memory | `people/earth-score.mjs` |
+| The richest region's income a person against the poorest's, same dates | ~31×, 6×, 3× | ~8–10× in 1913, ~15× now (PPP), from memory | `people/earth-score.mjs` |
 | The lead's changes in the last 5 kyr before industry | ~16 | ~15–20 | `people/earth-score.mjs` |
 | A great state's median life | ~600 yr | ~200–500 | `people/earth-score.mjs` |
 
