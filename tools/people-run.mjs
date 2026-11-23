@@ -85,8 +85,8 @@ if (tip) {
   for (const [name, f] of [['people', fit], ['minds', fitM]]) if (f) console.log(`hyperbola (${name}, from the tip): t* = ${fmtYears(f.tStar)} (${fmtYears(f.tStar - pp.t)} after the end), exponent ${f.p.toFixed(2)}, R² ${f.r2.toFixed(3)} (an exponential: R² ${f.r2exp.toFixed(3)})`);
   if (fitM) for (const e of pp.events) console.log(`  t* − t ${fmtYears(fitM.tStar - e.t).padStart(12)}  ${e.kind}`);
 }
-const dial = followDial(h, 10);   // the page's 10 s a doubling
-console.log(`the follow dial (10 s a doubling, clamped to the dial's 2.8 h/s and the page's ~80 kyr/s): ${dial.wall.toFixed(0)} s in all · ${dial.eras.map(([k, s]) => `${k} ${s.toFixed(0)} s`).join(' · ')}`);
+const dial = followDial(h);   // as the page sets it (src/clock.js: FOLLOW)
+console.log(`the follow dial (FOLLOW's seconds a doubling, within the dial's 2.8 h/s and the page's ~80 kyr/s): ${dial.wall.toFixed(0)} s in all · ${dial.eras.map(([k, s]) => `${k} ${s.toFixed(0)} s`).join(' · ')} · the most it moved in 2 s ${dial.worst.toFixed(2)} decades`);
 const out = process.env.OUT || new URL(`./people/.cache/run-${seed}${LIVE ? '-live' : ''}.json`, import.meta.url).pathname;
 writeFileSync(out, JSON.stringify({ seed, live: LIVE, params: pp.P, events: pp.events, packages: pp.packages.map(({ clim, ...p }) => p),
   history: h.filter((_, k) => k % Math.max(1, Math.floor(h.length / 4000)) === 0 || k === h.length - 1) }));

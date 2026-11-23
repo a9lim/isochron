@@ -5,7 +5,9 @@
 // observed)|, a model share floored at 0.1%. Prints each region's mean share against the observed, the
 // continents', where farming and industry began (the first six origins by region and zone), the run's totals, the
 // states, the agrarian era's timeline (in kyr before early takeoff, history's before-present) and the industrial
-// era against history's dates, industry's start read as 1760.
+// era against history's dates, industry's start read as 1760; then on to the dial (the minds doubling in under a day:
+// the singularity), dated by industry's start and by the world's passing 6 billion (1999), with the world's
+// milestones between (its people passing 1, 1.5, 2, 3, 4, 5, 6 billion) against history's.
 // usage: node tools/people/earth-score.mjs ['{PEOPLE overrides}'] [draws=4]
 //   env: ENGINE=7 the page's desktop engine restricted to the people's grid (tools/people/planet.mjs)
 import { spawn } from 'node:child_process';
@@ -55,21 +57,27 @@ async function one(ov, run) {
   };
   // When each continent is first peopled (its first 10,000 people), checked every 500 years.
   const CN = Object.keys(CONT), contOf = Int8Array.from(regOf, r => CN.findIndex(n => CONT[n].includes(r))), peopled = {};
-  let chk = -1e9;
-  while (pp.t < 6e6 && !ev.present) {
+  let chk = -1e9, by = null;
+  // The world's milestones (its people passing 1, 1.5, 2, 3, 4, 5 and 6 billion), and the regions' shares at early takeoff.
+  const MILE = [1, 1.5, 2, 3, 4, 5, 6], mile = {};
+  const shares = () => { const b = new Float64Array(REGIONS.length); let tot = 0; for (let c = 0; c < pp.nL; c++) { tot += pp.Ntot[c]; if (regOf[c] >= 0) b[regOf[c]] += pp.Ntot[c]; } return { b, tot }; };
+  while (pp.t < 6e6 && !ev.dial) {
     pp.step(pp.nextDt());
+    const N = pp.history[pp.history.length - 1].people;
+    for (const x of MILE) if (mile[x] == null && N >= x * 1e9) mile[x] = pp.t;
+    if (ev.present && !by) by = shares();
     if (pp.t - chk >= 500) {
       chk = pp.t;
-      const by = new Float64Array(CN.length);
-      for (let c = 0; c < pp.nL; c++) if (contOf[c] >= 0) by[contOf[c]] += pp.Ntot[c];
-      CN.forEach((n, i) => { if (peopled[n] == null && by[i] > 1e4) peopled[n] = pp.t; });
+      const bc = new Float64Array(CN.length);
+      for (let c = 0; c < pp.nL; c++) if (contOf[c] >= 0) bc[contOf[c]] += pp.Ntot[c];
+      CN.forEach((n, i) => { if (peopled[n] == null && bc[i] > 1e4) peopled[n] = pp.t; });
     }
     if (ev.industry && marks.length && pp.t >= ev.industry.t + marks[0]) { marks.shift(); emp.push(empire()); }
     if (ev.industry && pp.t - ev.industry.t > 3000) break;
   }
-  const by = new Float64Array(REGIONS.length);
-  let tot = 0;
-  for (let c = 0; c < pp.nL; c++) { tot += pp.Ntot[c]; if (regOf[c] >= 0) by[regOf[c]] += pp.Ntot[c]; }
+  if (!by) by = shares();
+  const tot = by.tot;
+  by = by.b;
   const at = e => (e ? (/at (-?\d+°, -?\d+°)/.exec(e.s) || [])[1] : null);
   // The states (src/engine/polities.js) at 3 and 1 kyr before industry, at it, and at early takeoff: the
   // effective number, the largest's share of the people held, and the share of the people held.
@@ -79,7 +87,10 @@ async function one(ov, run) {
     sahul: peopled.Oceania != null ? (tP - peopled.Oceania) / 1e3 : null, americas: peopled.Americas != null ? (tP - peopled.Americas) / 1e3 : null,
     pop: [11.76e3, 1.76e3, 0.26e3].map(b => near(ev.industry.t - b).people) } : null;
   const states = ev.industry ? [ev.industry.t - 3000, ev.industry.t - 1000, ev.industry.t, ev.present ? ev.present.t : pp.t].map(t => { const x = near(t); return [x.states || 0, x.stTop || 0, x.stHeld || 0]; }) : null;
+  const dialN = ev.dial ? near(ev.dial.t).people : null;
   return { agr, states, emp, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
+    dial: ev.dial && ev.industry ? { ind: ev.dial.t - ev.industry.t, six: mile[6] != null ? ev.dial.t - mile[6] : null, people: dialN, after: ev.present ? ev.dial.t - ev.present.t : null } : null,
+    miles: MILE.slice(1).map((x, i) => mile[x] != null && mile[MILE[i]] != null ? mile[x] - mile[MILE[i]] : null), lead: mile[1] != null && ev.industry ? mile[1] - ev.industry.t : null,
     farm: ev.farming ? at(ev.farming) : null, ind: ev.industry ? at(ev.industry) : null, farmToInd: ev.farming && ev.industry ? ev.industry.t - ev.farming.t : null, packages: pp.packages.length,
     origins: pp.packages.slice(0, 6).map(q => `${regOf[q.c] >= 0 ? REGIONS[regOf[q.c]][0] : `${Math.round(q.lat * deg)}°, ${Math.round(q.lon * deg)}°`} (${q.zone})`) };
 }
@@ -116,5 +127,12 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   const HIST = [[1870, 1.27, 2.19, 4.9], [1913, 1.79, 3.81, 8.3], [1950, 2.52, 5.28, 10.7], [1973, 3.92, 10.2, 11.8], [2000, 6.07, 15.0, 19.2]];
   const em = runs.filter(r => r.emp && r.emp.length === HIST.length), med = a => [...a].sort((p, q) => p - q)[a.length >> 1];
   if (em.length) console.log('the industrial era, median of the draws (history) — people · income a person · the richest region against the poorest · industrial · under unlike rulers:\n' + HIST.map(([yr, n, y, r], i) => `  ${yr} (+${marks0[i]}): ${(med(em.map(q => q.emp[i][0])) / 1e9).toFixed(2)} B (${n}) · ${med(em.map(q => q.emp[i][1])).toFixed(1)} sy (${y}) · ${med(em.map(q => q.emp[i][2])).toFixed(1)}× (${r}) · ${(100 * med(em.map(q => q.emp[i][3]))).toFixed(0)}% · ${(100 * med(em.map(q => q.emp[i][4]))).toFixed(0)}%${yr === 1913 ? ' (~31%)' : ''}`).join('\n'));
+  // History's milestones (from memory: the UN's and the Census Bureau's estimates): 1 billion ~1804, 1.5 ~1890, 2 in
+  // 1927, 3 in 1960, 4 in 1974, 5 in 1987, 6 in 1999; the dial wanted in late 2027 (a9), ~8.3 billion then.
+  const dl = runs.filter(r => r.dial);
+  if (dl.length) {
+    const HM = [86, 37, 33, 14, 13, 12], NM = ['1→1.5', '1.5→2', '2→3', '3→4', '4→5', '5→6'];
+    console.log(`the takeoff, medians: early takeoff ${md(runs.map(r => r.yrs)).toFixed(0)} yr after industry · the dial ${md(dl.map(r => r.dial.after)).toFixed(1)} yr after it: ${(1760 + md(dl.map(r => r.dial.ind))).toFixed(1)} by industry's start as 1760 (the draws ${Math.min(...dl.map(r => 1760 + r.dial.ind)).toFixed(0)}–${Math.max(...dl.map(r => 1760 + r.dial.ind)).toFixed(0)}), ${(1999 + md(dl.map(r => r.dial.six))).toFixed(1)} by the world's 6 billion as 1999 (late 2027), ${(md(dl.map(r => r.dial.people)) / 1e9).toFixed(2)} billion people (~8.3)\n  the world's milestones, years between (history's): ${NM.map((nm, i) => `${nm} ${md(runs.map(r => r.miles[i])).toFixed(0)} (${HM[i]})`).join(' · ')} · industry to 1 billion ${md(runs.map(r => r.lead)).toFixed(0)} (~44)`);
+  }
   console.log(`score ${mean(sc).toFixed(3)} ± ${Math.sqrt(mean(sc.map(s => (s - mean(sc)) ** 2))).toFixed(3)} over ${draws} draws`);
 }

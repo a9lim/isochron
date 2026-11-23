@@ -19,7 +19,7 @@ node tools/people-run.mjs earthlike 5e6 '{}'   # the people headless (LIVE=1: be
 node tools/engine-cost.mjs 7 20 0.5 earthlike gpu   # the plate step's cost by part
 ```
 
-The other tools in `tools/` (surveys, fits, `hypsometry`) document their arguments in their headers. `window.__isochron` exposes the page's mirrors (`P`, `tec`, `land`, `climate`, `ice`, `carbon`, `year`), the `engine` worker, `globe`, `scheduler`, `setMap` (by name), `setDial` (log₁₀ yr/s), `tick(now)` (one frame, for driving a hidden tab), `prof` and `engineProf`, `gpuScale` (the globe's resolution under the page's, which follows its GPU time) and `LEVEL`, `people` and `follow`.
+The other tools in `tools/` (surveys, fits, `hypsometry`) document their arguments in their headers. `window.__isochron` exposes the page's mirrors (`P`, `tec`, `land`, `climate`, `ice`, `carbon`, `year`), the `engine` worker, `globe`, `scheduler`, `setMap` (by name), `setDial` (log₁₀ yr/s), `tick(now)` (one frame, for driving a hidden tab), `prof` and `engineProf`, `gpuScale` (the globe's resolution under the page's, which follows its GPU time) and `LEVEL`, `people` and `follow` (the follow dial; `follow.scale` scales its seconds a doubling, `FOLLOW` in `src/clock.js`).
 
 ## Layout
 

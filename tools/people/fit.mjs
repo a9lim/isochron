@@ -12,30 +12,36 @@ export function fmtYears(y) {
 
 export { fitHyperbola } from '../../src/engine/peoplefit.js';
 import { paceOf } from '../../src/engine/people.js';
+import { DIAL_MIN, followAim, followEase } from '../../src/clock.js';
 
 /**
- * The follow dial's wall-clock, as People.pace sets it: a doubling of what changes fastest takes
- * `secs` seconds (the minds; before early takeoff also the farmed land and the energy, each from its
- * floor; after it the energy and the people on Earth and off it), within the dial's range and at
- * most `cap` yr/s (the people's thread on the page: ~80 kyr/s in the forager era). Its wall-clock in
- * all, and by era (before the first tip, foragers after it, farmers, industry, then from early
- * takeoff to the dial, and after the dial).
+ * The follow dial's wall-clock, replayed as the page sets it (src/clock.js: `followAim`, `followEase`,
+ * at frames of at most 50 ms) from People.pace on the record, within the dial's range and at most `cap`
+ * yr/s (the people's thread on the page: ~80 kyr/s in the forager era). Its eras as the people's worker
+ * names them, read from the record (the tip as the frontier's knowledge past 1, the farmers from the
+ * first fields, early takeoff at β_c 0.15, the dial at the minds doubling in under a day). Its wall-clock
+ * in all and by era, and the most it moved in any 2 s (decades).
  */
-export const FLOOR_FIRST = 5e3;   // yr/s: main.js's follow floor before the first tip
-export function followDial(h, secs, cap = 8e4) {
-  let wall = 0, present = false, dial = false;
-  const eras = new Map();
+export function followDial(h, cap = 8e4) {
+  let wall = 0, v = null, present = false, dial = false, worst = 0;
+  const eras = new Map(), hi = Math.log10(cap), back = [];
   for (let k = 1; k < h.length; k++) {
     const b = h[k];
     present = present || b.beta >= 0.15;
-    const g = paceOf(h.slice(Math.max(0, k - 20), k + 1), present);
-    const floor = b.zmax > 1 || b.farm > 0 ? 0 : FLOOR_FIRST;   // the page's floor before the tip (main.js)
-    const rate = Math.min(cap, 1e7, Math.max(floor, g > 1e-7 ? Math.max(Math.pow(10, -3.5), Math.log(2) / g / secs) : 1e7));
-    const w = b.dt / rate;
-    wall += w;
     if (!dial && k >= 6) { const c = h[k - 5]; const gm = Math.log(b.minds / c.minds) / Math.max(b.t - c.t, 1e-12); dial = gm > 0 && Math.LN2 / gm < 1 / 365.25; }
-    const era = dial ? 'after the dial' : present ? 'takeoff' : b.ind > 0.05 ? 'industry' : b.farm > 0.05 ? 'farmers' : b.zmax > 1 ? 'foragers' : 'first people';
+    const era = dial ? 'after the dial' : present ? 'takeoff' : b.ind > 0 ? 'industry' : b.farm > 0 ? 'farmers' : b.zmax > 1 ? 'foragers' : 'first people';
+    const aim = followAim(paceOf(h.slice(Math.max(0, k - 80), k + 1), present), era, DIAL_MIN, hi);
+    if (v === null) v = aim;
+    let y = b.dt, w = 0;
+    while (y > 1e-12 && w < 1e5) {
+      const ds = Math.min(0.05, y / 10 ** v);
+      y -= ds * 10 ** v; w += ds; v = followEase(v, aim, ds);
+      back.push([wall + w, v]);
+      while (back.length > 1 && back[back.length - 1][0] - back[0][0] > 2) back.shift();
+      worst = Math.max(worst, Math.abs(v - back[0][1]));
+    }
+    wall += w;
     eras.set(era, (eras.get(era) || 0) + w);
   }
-  return { wall, eras: [...eras] };
+  return { wall, eras: [...eras], worst };
 }

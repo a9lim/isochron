@@ -25,7 +25,7 @@ import { CLIMATE, NZ } from './src/engine/climate.js';
 import { CARBON } from './src/engine/carbon.js';
 import { Polarity } from './src/engine/polarity.js';
 import { monthName, monthAt, S0, solarLongitude } from './src/engine/orbit.js';
-import { Scheduler, formatRate, formatTime } from './src/clock.js';
+import { Scheduler, formatRate, formatTime, followAim as followAimOf, followEase } from './src/clock.js';
 import { Orbit } from './src/render/camera.js';
 import { createGlobe } from './src/render/globe.js';
 import { drawOverlay, placeLine, capOf, capFaces, matchLines, link, lakeAlong } from './src/render/overlay.js';
@@ -639,7 +639,7 @@ resize();
 
 // ── The dial ──
 // The People scenario's follow dial (below): while it holds the dial, the rate is its eased value.
-const follow = { on: true, secs: 10, v: null, active: false };   // 10 s a doubling (a9)
+const follow = { on: true, v: null, active: false, scale: 1 };   // FOLLOW's seconds a doubling (src/clock.js) × scale (a check's fast-forward)
 function rate() { return 10 ** (follow.active && follow.on && follow.v != null ? follow.v : +els.dial.value); }
 function syncDial() { els.dialOut.textContent = formatRate(rate()); }
 els.dial.addEventListener('input', () => { follow.on = false; clampDial(); syncDial(); syncControls(); caption(true); figuresDirty = true; });
@@ -765,8 +765,8 @@ els.followBtn.addEventListener('click', () => setFollow(!follow.on));
 // ── The people (the People scenario) ──
 // Their thread, its last report (the clock, what's owed, the record's last row, the ending), the
 // drawn fields, the years sent since that report, and the follow dial: the rate at which a
-// doubling (or halving) of what moves fastest takes `secs` seconds (People.pace), within the
-// dial's range and what the people keep up with, eased; the dial taken by hand ends it.
+// doubling (or halving) of what moves fastest takes FOLLOW's seconds (People.pace; src/clock.js),
+// within the dial's range and what the people keep up with, eased; the dial taken by hand ends it.
 const people = { worker: null, msg: null, sent: 0, events: [], link: null, grid: null };
 const PEOPLE_LEVEL = Math.min(6, LEVEL);
 function startPeople() {
@@ -801,12 +801,9 @@ const peopleOwed = () => (people.msg ? people.msg.owed + people.sent : 0);
 function followAim() {
   const m = people.msg;
   if (!m) return null;
-  const top = Math.min(+els.dial.max, Math.log10(Math.max(1e-3, m.cap)));
-  // Before the tip, at least 5 kyr/s: the first people's spread over their continent doubles
+  // Before the tip at least FOLLOW.FIRST: the first people's spread over their continent doubles
   // every few decades, and at the control's seconds a doubling it took most of the run's first minute.
-  const floor = m.era === 'first people' ? Math.log10(5e3) : -Infinity;
-  const want = Math.max(floor, m.pace > 0 ? Math.log10(Math.LN2 / (m.pace * follow.secs)) : top);
-  return Math.max(+els.dial.min, Math.min(top, want));
+  return followAimOf(m.pace, m.era, +els.dial.min, Math.min(+els.dial.max, Math.log10(Math.max(1e-3, m.cap))), follow.scale);
 }
 // ── Captions: the view's name and live values ──
 const setCaption = window._colophon ? window._colophon.caption(els.caption, 250) : t => { els.caption.textContent = t; };
@@ -1195,7 +1192,7 @@ function tick(now) {
       if (aim !== null) {
         if (follow.v == null) follow.v = +els.dial.value;
         follow.active = true;
-        follow.v += (aim - follow.v) * (1 - Math.exp(-dt / 0.6));
+        follow.v = followEase(follow.v, aim, dt);
         setDial(follow.v);
       }
     }

@@ -365,8 +365,8 @@ export const PEOPLE = {
   // The industrial economy (standard forms; Earth's values from memory)
   // TFP at Z_IND, ×e^{THETA_I} per unit of knowledge past it: industry's first places near ~5 sy a person
   // a century on and its frontier ~10× that by the takeoff, ~1.5%/yr, as Maddison's (western Europe 4.9 sy
-  // in 1870, the US 70 in 2000, at $400 1990 GK$ a sy; Maddison 2003); TFP at Z_AI as before the
-  // regional economies (0.7 × e^{0.85 × 3.35}), which set AI's era; capital's share, saving, workers' share
+  // in 1870, the US 70 in 2000, at $400 1990 GK$ a sy; Maddison 2003); TFP at knowledge 10.35 as before the
+  // regional economies (0.7 × e^{0.85 × 3.35}); capital's share, saving, workers' share
   A_I0: 4, THETA_I: 0.33, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,
   N_TAX: 0.1, R_FOS: 0.3,          // regional economies (batch 2b, landing 2): a state's share of each place's output to its capital (taxes, and a colony's drain; ~10% of output before 1914, from memory), fossil carbon's rent as a share of the fuel's worth (synthesis)
   DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
@@ -386,7 +386,7 @@ export const PEOPLE = {
   AER: 0.11, Z_SCRUB: 2,                            // sulfate's forcing, W/m² per Pg C/yr of coal (~−1.1 at 10, from memory), scrubbed e-fold per Z_SCRUB
   // AI (speculation): capability from effective compute, labour from compute, bodies from robots
   ALG: 0.8,                                        // AI's efficiency: algorithms' share, on learning (research-weighted, `za`), against hardware's on production (log ratio of algorithms' ~3×/yr to FLOP per dollar's ~1.35×/yr, Epoch, from memory; a9, batch 1c): AI needs science first, its chips second
-  Z_AI: 10.35, B_MAX: 1, SIGMA: 0.5,                // knowledge where AI's efficiencies are referenced (early takeoff lands near it, at Earth's ~20–25 sy a person); the automatable share's most; the tasks' elasticity
+  Z_AI: 9.81, B_MAX: 1, SIGMA: 0.5,                 // knowledge where AI's efficiencies are referenced: the dial (the singularity) comes ~28 yr after the world's people pass 6 billion, as late 2027 is after 1999 (a9; at 10.35, ~43 yr after), early takeoff ~5 yr before it at ~26 sy a person (Earth's ~20–25); the automatable share's most; the tasks' elasticity
   X20: 8.08, THETA_C: 40, FLOP_GAP: 4,              // log₁₀ effective compute (sy of compute × e^{θ_C (z − Z_AI)}) where 20% of cognitive tasks automate; ~98% FLOP_GAP orders on (Davidson's FLOP gap, from memory). θ_C: AI's efficiency (algorithms and hardware) is its own fast field, so effective compute grows ~10×/yr at early takeoff (frontier training compute ~4–5×/yr and algorithms ~3×/yr, Epoch, from memory) where general TFP grows a few %/yr. (8.7 with S_IT at 5%: lowered by S_IT's log ratio, so the timeline holds.)
   GAP_P: 1.5, PHI: 0.5, SIGMA_G: 0.5,               // physical tasks need GAP_P orders more (Moravec, speculation); their share of production's tasks (~half, from memory); cognitive against physical, elasticity
   // Ordinary computing's share of investment past energy (compute exists before AI pays): Earth's
@@ -712,28 +712,40 @@ export function labour(Lh, Kc, Kr, z, run, P, Kq = 0, bmax = Infinity, za = z) {
 }
 
 /**
- * The follow dial's rate of change (/yr) over a record's last 20 steps: the fastest e-folding,
- * growing or shrinking, among its keys, each from its first entry above its floor within them.
- * Each revolution counts its own growth: the farmed land from the first fields, energy from the
- * first works, AI's labour from a billion workers' worth (the minds alone gave industry ~4
- * doublings and early takeoff to the dial ~4, while AI's labour doubles every few months through
- * it); from early takeoff also the people on Earth and off it (what the ending moves).
+ * The follow dial's rate of change (/yr): what changes fastest, growing or shrinking, among the
+ * record's keys, each counted from the scale where it shows (`x0`: ln(x + x0), so a quantity
+ * appearing from nothing ramps the pace in rather than setting it at once; the hard floors these
+ * replace had the dial drop two decades in a second as the first fields, the first works and AI's
+ * first labour came). Each revolution counts its own growth: the farmed land (from ~2% of the
+ * agrarian world's), energy (from a terawatt), AI's labour (from 10⁸ workers' worth), and from early
+ * takeoff the people on Earth and off it (what the ending moves). The keys combine as a soft maximum
+ * (their rates' 4-norm: the lead passing from one to another doesn't step the dial), over a window of
+ * about a doubling at the pace over the last 20 steps (at least 3 steps, at most 60), so a step's
+ * length doesn't set it.
  */
+export const FOLLOW_KEYS = {
+  before: [['minds', 0], ['farmA', 1e6], ['energy', 1e12], ['AI', 1e8]],
+  after: [['minds', 0], ['AI', 1e8], ['energy', 1e12], ['earth', 0], ['space', 1e7]],
+};
 export function paceOf(h, present) {
   const n = h.length;
   if (n < 2) return 0;
-  const keys = present ? [['minds', 1e3], ['AI', 1e9], ['energy', 1e9], ['earth', 1e3], ['space', 1e3]]
-    : [['minds', 0], ['farmA', 1e3], ['energy', 1e9], ['AI', 1e9]];
-  const b = h[n - 1];
-  let g = 0;
-  for (const [k, lo] of keys) {
-    if (!(b[k] > lo)) continue;
-    let j = Math.max(0, n - 21);
-    while (j < n - 1 && !(h[j][k] > lo)) j++;
-    const dt = b.t - h[j].t;
-    if (j < n - 1 && dt > 0) g = Math.max(g, Math.abs(Math.log(b[k] / h[j][k])) / dt);
-  }
-  return g;
+  const keys = present ? FOLLOW_KEYS.after : FOLLOW_KEYS.before, b = h[n - 1];
+  const over = j => {
+    const a = h[j], dt = b.t - a.t;
+    if (!(dt > 0)) return 0;
+    let s = 0;
+    for (const [k, x0] of keys) {
+      const u = (a[k] || 0) + x0, v = (b[k] || 0) + x0;
+      if (u > 0 && v > 0) s += (Math.log(v / u) / dt) ** 4;
+    }
+    return s ** 0.25;
+  };
+  const g0 = over(Math.max(0, n - 21));
+  if (!(g0 > 0)) return g0;
+  let j = n - 1;
+  while (j > 0 && n - j < 60 && b.t - h[j - 1].t <= Math.LN2 / g0) j--;
+  return over(Math.max(0, Math.min(j, n - 4)));
 }
 
 /**
@@ -997,7 +1009,7 @@ export class People {
     this.P = { ...PEOPLE, M_MERC: system.quarry.mass, M_BELT: system.belt.mass, ...params };
     this.planet = planet;
     this.rng = stream(planet.seed, 'people'); this.seaRng = stream(planet.seed, 'people:sea');
-    this.t = 0; this.events = []; this.history = []; this.tTip = null;
+    this.t = 0; this.events = []; this.history = []; this.tTip = null; this.t6 = null;   // t6: when the people first pass 6 billion (the dial's other calendar)
     this.index(); this.rates(planet); this.graph(); this.fossilMap(); this.oreMap();
     const nL = this.nL;
     this.soil = new Float64Array(nL); this.dField = new Float64Array(nL);   // the regolith's mean (m); the fields' deficit past it (m)
@@ -2931,6 +2943,7 @@ export class People {
       this.event('tip', `the people tip: mean knowledge past 1 (${people.toFixed(0)} people, contact ${this.reachL(0).toFixed(0)} km at none, frontier at ${deg(this.H.lat[best]).toFixed(0)}°, ${deg(this.H.lon[best]).toFixed(0)}°)`);
     }
     const earth = people;
+    if (this.t6 === null && earth >= 6e9) this.t6 = this.t;
     people += this.space;
     const y = earth > 0 ? this.O / earth : 0, F = this.flags;
     const once = (k, cond, text) => { if (!F[k] && cond) { F[k] = true; this.event(k, typeof text === 'function' ? text() : text); } };
@@ -2940,7 +2953,7 @@ export class People {
       once('peak', F.peakFos > 1e11 && E.Ef < 0.9 * F.peakFos, () => `fossil carbon's peak passed (${(F.peakFos / 1e12).toFixed(1)} TW; ${this.emitted.toFixed(0)} Pg C burned, ${E.S.toFixed(0)} left)`);
       once('renewables', E.Er > E.Ef && E.Er > 1e11, () => `renewables pass fossil carbon (${(E.Er / 1e12).toFixed(1)} TW)`);
       if (F.present && !this.ending) this.drawEnding();
-      once('present', E.beta >= 0.15, () => `early takeoff (β_c 0.15; effective compute ${E.x.toFixed(2)} orders from 20%'s, compute ${E.Kc.toExponential(2)} sy): ${(this.t - (this.events.find(e => e.kind === 'industry') || { t: this.t }).t).toFixed(0)} yr after industry, ${(people / 1e9).toFixed(2)} billion people, ${((E.Ef + E.Er + E.Eu) / 1e12).toFixed(1)} TW (fossil ${(100 * E.Ef / Math.max(1, E.Ef + E.Er + E.Eu)).toFixed(0)}%), ${this.emitted.toFixed(0)} Pg C burned, CO₂ ${this.co2.toFixed(0)} ppm; ${(E.Y / people).toFixed(1)} sy of goods a person, K/Y ${(E.Kf / E.Y).toFixed(2)}, output at ${(100 * E.avail).toFixed(0)}% of its factors', famine ${(1000 * (this.famine / Math.max(1, people))).toFixed(2)}‰/yr (Earth's now: ~245 yr, 8, ~19 TW at ~80%, ~500 Pg C, ~420 ppm, ~20–25 sy, K/Y ~3–4; from memory)`);
+      once('present', E.beta >= 0.15, () => `early takeoff (β_c 0.15; effective compute ${E.x.toFixed(2)} orders from 20%'s, compute ${E.Kc.toExponential(2)} sy): ${(this.t - (this.events.find(e => e.kind === 'industry') || { t: this.t }).t).toFixed(0)} yr after industry, ${(people / 1e9).toFixed(2)} billion people, ${((E.Ef + E.Er + E.Eu) / 1e12).toFixed(1)} TW (fossil ${(100 * E.Ef / Math.max(1, E.Ef + E.Er + E.Eu)).toFixed(0)}%), ${this.emitted.toFixed(0)} Pg C burned, CO₂ ${this.co2.toFixed(0)} ppm; ${(E.Y / people).toFixed(1)} sy of goods a person, K/Y ${(E.Kf / E.Y).toFixed(2)}, output at ${(100 * E.avail).toFixed(0)}% of its factors', famine ${(1000 * (this.famine / Math.max(1, people))).toFixed(2)}‰/yr (Earth's now: ~265 yr, 8.2, ~19 TW at ~80%, ~500 Pg C, ~425 ppm, ~20–25 sy, K/Y ~3–4; from memory)`);
       once('robots', E.Ap > P.PHI * E.Lh && E.Lh > 0, () => `robots' work passes people's physical work (β_p ${E.betaP.toFixed(2)}, ${E.bodies.toExponential(2)} bodies)`);
       once('compute', E.AAI > E.Lh && E.Lh > 0, () => `AI's labour passes people's (β ${E.beta.toFixed(2)}, ${(people / 1e9).toFixed(2)} billion people)`);
       once('fusion', E.Eu > E.Er && E.Eu > 1e11, () => `fusion passes renewables (${(E.Eu / 1e12).toFixed(0)} TW)`);
@@ -2975,7 +2988,7 @@ export class People {
     const n = h.length;
     if (!F.dial && n >= 3) {
       const k = Math.max(0, n - 6), g = Math.log(h[n - 1].minds / h[k].minds) / Math.max(h[n - 1].t - h[k].t, 1e-12);
-      if (g > 0 && Math.log(2) / g < 1 / 365.25) { F.dial = true; this.dialAt = this.t; this.dtCap = 1; this.event('dial', 'the minds double in under a day: the dial runs out'); }
+      if (g > 0 && Math.log(2) / g < 1 / 365.25) { F.dial = true; this.dialAt = this.t; this.dtCap = 1; const ind = this.events.find(e => e.kind === 'industry'); this.event('dial', `the minds double in under a day: the dial runs out (${ind ? `${(this.t - ind.t).toFixed(1)} yr after industry, ` : ''}${this.t6 !== null ? `${(this.t - this.t6).toFixed(1)} after the people passed 6 billion, ` : ''}${(h[n - 1].earth / 1e9).toFixed(2)} billion people; Earth's late 2027: ~268 yr after 1760, ~29 after 1999's 6 billion, ~8.3)`); }
     }
     if (F.dial && this.dtCap && this.t - this.dialAt > P.T_FINE) this.dtCap = null;
   }
@@ -2989,12 +3002,7 @@ export class People {
     return Math.max(P.DT_MIN, Math.min(this.flags.present ? P.DT_ECON : this.flags.tipped ? P.DT_MAX : P.DT_EARLY, P.DZ_MAX / Math.max(this.lastRate, 1e-12), grow > 0 ? 0.05 / grow : Infinity, 2 * last, this.dtCap || Infinity));
   }
 
-  /**
-   * The follow dial's rate of change (/yr): the fastest e-folding, growing or shrinking, over the
-   * last 20 steps among the minds, the farmed land, the energy and AI's labour, and from early
-   * takeoff the people on Earth and off it (what the ending moves). Below its floor a quantity is
-   * out of it.
-   */
+  /** The follow dial's rate of change (/yr; `paceOf`). */
   pace() { return paceOf(this.history, this.flags.present); }
 
   /** The write-back on the people's grid (src/engine/peoplelink.js): each cell's farmed share and tillage's erosion (mm/yr). */

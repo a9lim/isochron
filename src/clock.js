@@ -16,6 +16,27 @@ export const DIAL_MAX = 7;      // 10 Myr a second
 
 const HOUR = 1 / 8766, DAY = 1 / 365.25;
 
+// The follow dial (the People scenario): the rate at which a doubling or halving of what changes
+// fastest (People.pace) takes SECS seconds; AFTER seconds past the dial, where the minds and the
+// swarm double dozens of times over (at SECS each they took ~10 minutes of a ~20-minute run); at least
+// FIRST yr/s before the first people tip. Eased in the dial's log: down within DOWN seconds, so
+// what slows the people isn't passed by, and up over UP seconds at most SLEW decades a second, so a
+// pace easing off doesn't fling the dial.
+export const FOLLOW = { SECS: 10, AFTER: 4, FIRST: 5e3, DOWN: 1, UP: 2, SLEW: 0.25 };
+
+/** The follow dial's aim (log₁₀ yr/s) at a pace (/yr) in an era (the people's worker's), within lo…hi; `scale` the seconds. */
+export function followAim(pace, era, lo, hi, scale = 1) {
+  const secs = scale * (era === 'after the dial' ? FOLLOW.AFTER : FOLLOW.SECS);
+  const floor = era === 'first people' ? Math.log10(FOLLOW.FIRST) : -Infinity;
+  return Math.max(lo, Math.min(hi, Math.max(floor, pace > 0 ? Math.log10(Math.LN2 / (pace * secs)) : hi)));
+}
+
+/** The follow dial's value v (log₁₀ yr/s) eased toward its aim over dt seconds. */
+export function followEase(v, aim, dt) {
+  const dv = (aim - v) * (1 - Math.exp(-dt / (aim < v ? FOLLOW.DOWN : FOLLOW.UP)));
+  return v + (dv > 0 ? Math.min(dv, FOLLOW.SLEW * dt) : dv);
+}
+
 /** "2.8 h/s", "1 day/s", "3 yr/s", "10 kyr/s", "1 Myr/s". */
 export function formatRate(yps) {
   const fmt = v => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(0) : v >= 1 ? (Math.round(v * 10) / 10).toString() : v.toPrecision(1));
