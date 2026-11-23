@@ -359,7 +359,11 @@ export const PEOPLE = {
   // schooling came, not when its first neighbour did.
   Z_ABS: 8.3, W_ABS: 0.25,
   RHO_IND: 10,                     // people per km² past which a farming people has the labour and the markets for industry
-  Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 2e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
+  // W_IND: the onset's width in knowledge. The hazard fires in its soft tail, summed over every place and
+  // year, so a sharper onset sparks industry later in the world's growth. Earth: 0.06 (0.1 before the
+  // equator's upwelling wetted the model's Sahel, whose dense farmers then sparked industry in six draws
+  // of eight at a smaller world: 2000 at 4.0 B against history's 6.07; at 0.06 two of eight, as before)
+  Z_IND: 7, W_IND: 0.06, COAL_MIN: 5, H_IND: 0.02, C_IND: 2e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
   // The industrial economy (standard forms; Earth's values from memory)
