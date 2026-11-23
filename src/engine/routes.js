@@ -152,6 +152,9 @@ export function twelve(g) {
   return { n, nbrOff, nbr, via };
 }
 
+/** o[key] as a typed array T of n, made anew where it isn't that long (the markets' count changes with a rebuild). */
+export function sized(o, key, T, n) { const a = o[key]; return a && a.length === n ? a : (o[key] = new T(n)); }
+
 export class Routes {
   /** For a People (its grid, land cells and fields `f`, the people's grid's arrays), with ROUTES overrides. */
   constructor(people, f, params = {}) {
@@ -371,15 +374,17 @@ export class Routes {
     const C = this.C, pp = this.pp, nm = this.nm, nL = pp.nL;
     if (!force && this.tTrade !== null && pp.t - this.tTrade < C.DT_TRADE) return;
     this.tTrade = pp.t;
-    const F = this.mF || (this.mF = new Float64Array(nm)), N = this.mN || (this.mN = new Float64Array(nm)), Z = this.mZ || (this.mZ = new Float64Array(nm)), ZL = this.mZL || (this.mZL = new Float64Array(nm));
-    const S = this.mS || (this.mS = new Float64Array(nm)), Fd = this.mFd || (this.mFd = new Float64Array(nm)), A = this.mA || (this.mA = new Float64Array(nm));
+    // (Each market's array at the markets' count, which a rebuild changes: one left at the old count read
+    // a new market's entries as undefined, NaN in every sum, and the weights' rows i × nm as the wrong pairs.)
+    const F = sized(this, 'mF', Float64Array, nm), N = sized(this, 'mN', Float64Array, nm), Z = sized(this, 'mZ', Float64Array, nm), ZL = sized(this, 'mZL', Float64Array, nm);
+    const S = sized(this, 'mS', Float64Array, nm), Fd = sized(this, 'mFd', Float64Array, nm), A = sized(this, 'mA', Float64Array, nm);
     F.fill(0); N.fill(0); Z.fill(0); ZL.fill(0); S.fill(0); Fd.fill(0); A.fill(0);
     const zc = pp.zc, zl = pp.zl, Ntot = pp.Ntot, mo = this.marketOf;
     // Each market's most peopled cell (its town), whose learned identity is the market's language.
-    const lead = this.mLead || (this.mLead = new Int32Array(nm)), leadN = this.mLeadN || (this.mLeadN = new Float64Array(nm));
+    const lead = sized(this, 'mLead', Int32Array, nm), leadN = sized(this, 'mLeadN', Float64Array, nm);
     lead.fill(-1); leadN.fill(0);
     // Each market's crops: the package on most of its fields.
-    const pk = this.mPkg || (this.mPkg = new Int32Array(nm)), byPkg = new Map();
+    const pk = sized(this, 'mPkg', Int32Array, nm), byPkg = new Map();
     for (let c = 0; c < nL; c++) {
       const k = mo[c], n = Ntot[c];
       A[k] += pp.H.area[c];
@@ -393,7 +398,7 @@ export class Routes {
       }
     }
     // Each market's roads (their built share) and canals (the land they water), by area.
-    const Wr = this.mWr || (this.mWr = new Float64Array(nm)), Wc = this.mWc || (this.mWc = new Float64Array(nm));
+    const Wr = sized(this, 'mWr', Float64Array, nm), Wc = sized(this, 'mWc', Float64Array, nm);
     Wr.fill(0); Wc.fill(0);
     if (pp.wk) for (let c = 0; c < nL; c++) {
       const k = mo[c], a = pp.H.area[c];
@@ -408,13 +413,13 @@ export class Routes {
     for (let k = 0; k < nm; k++) { if (N[k] > 0) { Z[k] /= N[k]; ZL[k] /= N[k]; S[k] /= N[k]; } if (F[k] > 0) act.push(k); }
     this.active = act;
     const na = act.length;
-    const V = this.V || (this.V = new Float64Array(nm)), Cv = this.Cv || (this.Cv = new Float64Array(nm));
+    const V = sized(this, 'V', Float64Array, nm), Cv = sized(this, 'Cv', Float64Array, nm);
     V.fill(1); Cv.fill(1);
-    const W = this.W || (this.W = new Float32Array(nm * nm));
+    const W = sized(this, 'W', Float32Array, nm * nm);
     this.flows = [];
     if (!na) return;
     const reach = act.map(k => this.reach(Z[k]));
-    const part = this.part || (this.part = { k: new Int32Array(nm * C.K_PART).fill(-1), w: new Float32Array(nm * C.K_PART) });
+    const part = this.part && this.part.k.length === nm * C.K_PART ? this.part : (this.part = { k: new Int32Array(nm * C.K_PART), w: new Float32Array(nm * C.K_PART) });
     part.k.fill(-1); part.w.fill(0);
     // The kernel, symmetric, once a pair.
     const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, LS = this.LS, ids = pp.ids;

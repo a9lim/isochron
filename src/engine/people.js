@@ -162,7 +162,7 @@ import { stream } from '../rng.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 import { Year, YEAR } from './year.js';
-import { Routes } from './routes.js';
+import { Routes, sized } from './routes.js';
 import { Peoples } from './peoples.js';
 import { Polities, KP as KPOL } from './polities.js';
 import { COHORTS, stable, stableLookup, stepPyramid, stepTables, ageClock, settle, reference } from './cohorts.js';
@@ -1379,6 +1379,7 @@ export class People {
     }
     const { T, nc, x, y } = this.yrT;
     if (mom.length !== 6 * nc || !(mom[0] > 0)) return;
+    if (this.debug && !this.yrBad) for (let i = 0; i < mom.length; i++) if (!Number.isFinite(mom[i])) { this.yrBad = `the planet's years [${i % 6}] at ${Math.floor(i / 6)} of ${nc} = ${mom[i]} (its moments ${Array.from(mom.subarray(6 * Math.floor(i / 6), 6 * Math.floor(i / 6) + 6)).join(' ')})`; console.error(`[isochron] the people: ${this.yrBad}`); break; }
     this.yrW += mom[0];
     for (let j = 0; j < 5; j++) {
       for (let i = 0; i < nc; i++) x[i] = mom[6 * i + j + 1];
@@ -1411,8 +1412,8 @@ export class People {
    * the basket's mean of its sellers'.
    */
   pooledYears(rt) {
-    const nm = rt.nm, W = this.yrW, yr = this.yr, own = this.yrOwn || (this.yrOwn = new Float64Array(nm)), wt = this.yrWt || (this.yrWt = new Float64Array(nm));
-    const M = this.yrM || (this.yrM = new Float64Array(nm));
+    const nm = rt.nm, W = this.yrW, yr = this.yr, own = sized(this, 'yrOwn', Float64Array, nm), wt = sized(this, 'yrWt', Float64Array, nm);
+    const M = sized(this, 'yrM', Float64Array, nm);   // at the markets' count, which the routes' rebuild changes
     own.fill(0); wt.fill(0); M.fill(0);
     if (!(W > 1e-9)) return;
     for (let c = 0; c < this.nL; c++) {
@@ -1944,10 +1945,12 @@ export class People {
     this.co2 = this.env.co2();
     // Capacity.
     this.capacity();
+    if (this.debug) this.check('capacity');
     lap('capacity');
     const dt = dtWanted;
     // The cities' food along the routes (`feed`): their people are fed from their catchments.
     this.feed(dt);
+    if (this.debug) this.check('feed');
     lap('feed');
     // People: births and deaths (`demography`), the cell's total exact over the step.
     this.famine = 0;
@@ -1975,7 +1978,10 @@ export class People {
       // pools it over the market's supply basket; granaries hold up to a share of a year.
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = this.reserve(c, fc, z);
-      const { N: Nn, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, this.realYears(c, fc, tp, ry), this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c));
+      const real = this.realYears(c, fc, tp, ry);
+      const { N: Nn, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c));
+      // (demography takes a total that isn't finite as none: said here, where it arose)
+      if (this.debug && !Number.isFinite(famine)) throw new Error(`growth: famine at ${c} = ${famine} (N ${Nt}, K ${Kh}, goods ${this.goods[c]}, σ ${sg}, store ${st}, years ${real ? `φ ${real.phi} m ${real.m} s ${real.s}` : 'none'}, the years' moments ${this.yr ? this.yr.map(a => a[c]).join(' ') : '–'} over ${this.yrW}, pool ${tp ? `${tp.pool} τ ${tp.tau} market ${tp.k} mean ${this.yrM ? this.yrM[tp.k] : '–'}` : '–'}, harvest ${this.harvestCoef(c, fc).join(' ')}, sR ${this.H.sR[c]}) at t ${this.t.toFixed(1)}; not finite there: ${this.unfinite(c)}`);
       this.famine += famine * Nt;
       // The pyramid over the step: births, the deaths past senescence (the total's, less the pyramid's
       // own senescence under medicine), the step's growth.
@@ -2055,8 +2061,28 @@ export class People {
 
   check(phase) {
     const bad = a => { for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) return i; return -1; };
-    for (const k of ['Ntot', 'zc', 'zl', 'M', 'K', 'Out', 'goods', 'ind', 'lfp']) { const a = this[k]; if (!a) continue; const i = bad(a); if (i >= 0) throw new Error(`${phase}: ${k}[${i}] = ${a[i]} (N ${this.Ntot[i]}, z ${this.zc[i]}, zl ${this.zl[i]}, K ${this.K[i]}, M ${this.M[i]}, ind ${this.ind[i]}, out ${this.Out[i]}) at t ${this.t.toFixed(1)}, ${this.people.toPrecision(3)} people`); }
+    for (const k of ['Ntot', 'zc', 'zl', 'M', 'K', 'Out', 'goods', 'ind', 'lfp']) { const a = this[k]; if (!a) continue; const i = bad(a); if (i >= 0) throw new Error(`${phase}: ${k}[${i}] = ${a[i]} (N ${this.Ntot[i]}, z ${this.zc[i]}, zl ${this.zl[i]}, K ${this.K[i]}, M ${this.M[i]}, ind ${this.ind[i]}, out ${this.Out[i]}) at t ${this.t.toFixed(1)}, ${this.people.toPrecision(3)} people; not finite there: ${this.unfinite(i)}`); }
     for (const k of ['Kf', 'Kc', 'Kq', 'Kr', 'Y', 'S', 'z', 'sA', 'Ef', 'Er']) if (!Number.isFinite(this.econ[k])) throw new Error(`${phase}: econ.${k} = ${this.econ[k]} at t ${this.t.toFixed(1)} (Lh ${this.econ.Lh}, z ${this.econ.z})`);
+  }
+
+  /** Every value at cell c that isn't finite: the people's per-cell arrays, the habitat's (H), the planet's fields (`rates`), the scalars capacity reads. */
+  unfinite(c) {
+    const out = [], nL = this.nL, f = this.fields, i = this.cells[c];
+    const scan = (o, pre) => { for (const [k, a] of Object.entries(o || {})) {
+      if (!ArrayBuffer.isView(a) || a.length < nL || a.length % nL) continue;
+      const w = a.length / nL; for (let m = 0; m < w; m++) if (!Number.isFinite(a[w * c + m])) { out.push(`${pre}${k}${w > 1 ? `[${m}]` : ''} ${a[w * c + m]}`); break; } } };
+    scan(this, ''); scan(this.H, 'H.');
+    if (f) for (const [k, a] of Object.entries(f)) { if (!ArrayBuffer.isView(a) || a.length % f.n) continue; const w = a.length / f.n; for (let m = 0; m < w; m++) if (!Number.isFinite(a[w * i + m])) { out.push(`f.${k}${w > 1 ? `[${m}]` : ''} ${a[w * i + m]}`); break; } }
+    for (const k of ['co2', 'hE', 'boiled', 'lift', 'rewild', 'people']) if (typeof this[k] === 'number' && !Number.isFinite(this[k])) out.push(`${k} ${this[k]}`);
+    // And anywhere: each typed array of the people, the routes, the states and the peoples with a value
+    // that isn't finite (Infinity's a cost's "none"), as how many and the first.
+    const far = [], seen = new Set();
+    const walk = (o, pre, depth) => { if (!o || typeof o !== 'object' || seen.has(o) || depth > 3) return; seen.add(o);
+      if (ArrayBuffer.isView(o)) { let n = 0, first = -1; for (let j = 0; j < o.length; j++) if (Number.isNaN(o[j])) { n++; if (first < 0) first = j; } if (n) far.push(`${pre} ${n} (first ${first} of ${o.length})`); return; }
+      if (Array.isArray(o) && o.length > 64) return;
+      for (const k of Object.keys(o)) { if (k === 'planet' || k === 'fields' || k === 'pp' || k === 'H') continue; walk(o[k], pre ? `${pre}.${k}` : k, depth + 1); } };
+    walk({ people: Object.fromEntries(Object.entries(this).filter(([, v]) => ArrayBuffer.isView(v) || (v && typeof v === 'object' && Object.values(v).some(ArrayBuffer.isView)))), routes: this.routes, pol: this.pol, ids: this.ids }, '', 0);
+    return `${out.join(', ') || 'nothing else'}; NaN anywhere: ${far.join(', ') || 'none'}`;
   }
 
   diffuse(dt) {

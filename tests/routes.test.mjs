@@ -71,3 +71,22 @@ test('under one wind the way home is the long way round, and a monsoon makes bot
     assert.ok(out > 0.95 * k * quarter && out < 1.2 * k * quarter + 2 * C.C_PORT + 400, `monsoon out ${out.toFixed(0)} against ${(k * quarter).toFixed(0)}`);
   }
 });
+
+test('a rebuild that adds markets (an ice sheet gone) trades among all of them, at finite costs, with their years pooled', () => {
+  const f = islands([1, 1, 1, 1, 1, 1]), iced = { ...f, ice: Float32Array.from(f.ice) };
+  for (let i = 0; i < f.n; i++) if (f.elev[i] > 0 && f.grid.pos[3 * i + 1] > 0.5) iced.ice[i] = 1e3;   // the island at 90° under ice
+  const pp = new People(f, { H_FARM: 0 });
+  const farm = () => { for (let c = 0; c < pp.nL; c++) if (pp.H.alive[c]) { pp.Ntot[c] = 1e5; pp.f[c] = 0.2; pp.Out[c] = 2e5; pp.goods[c] = 1e5; pp.zc[c] = pp.zl[c] = 4; } };
+  pp.yr = Array.from({ length: 5 }, () => new Float64Array(pp.nL).fill(0.1)); pp.yrW = 1;
+  pp.rates(iced); farm();
+  const rt = pp.routes = new Routes(pp, iced);
+  rt.trade(true); pp.pooledYears(rt);
+  const nm0 = rt.nm;
+  pp.rates(f); farm(); rt.build(f); rt.trade(true); pp.pooledYears(rt);
+  const nm = rt.nm, farmed = new Set();
+  assert.ok(nm > nm0, `the thaw adds markets (${nm0} → ${nm})`);
+  for (let c = 0; c < pp.nL; c++) if (pp.H.alive[c]) farmed.add(rt.marketOf[c]);
+  assert.deepEqual([...rt.active].sort(), [...farmed].sort(), 'every market with fields trades');
+  for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) if (Number.isFinite(rt.R.S[a * nm + b])) assert.ok(Number.isFinite(rt.cost(a, b, 'S')), `the cost ${a} → ${b} is ${rt.cost(a, b, 'S')}`);
+  for (const k of rt.active) assert.ok(Number.isFinite(pp.yrM[k]), `market ${k}'s pooled years ${pp.yrM[k]}`);
+});

@@ -27,6 +27,7 @@ const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
 let grid = null, people = null, port = null, params = {}, system = undefined, owed = 0, lastStep = 0, timer = 0;
 let lastPost = 0, lastDrawn = 0, lastBack = 0, lastFig = 0, eventsSent = 0, msPerStep = 5, dtLast = 1, trail = 0;
+let bad = null;   // the first number that wasn't finite, where (People.check), for the page too
 // The planet's side: its CO₂, how much of the sea has boiled (src/engine/runaway.js), and its warming since the people began.
 const env = { live: true, pco2: 280, bank: 0, boiled: 0, years: 0, meanT: null, T0: null, get dT() { return this.meanT === null ? 0 : this.meanT - this.T0; },
   co2() { return this.pco2; }, emit(PgC) { this.bank += PgC; }, soil() {} };
@@ -93,7 +94,7 @@ function pump() {
     const dt = Math.min(want, owed), ts = performance.now();
     // The first number that isn't finite is said once, where it arose (People.check's phase, array and
     // cell), and the checks stop: the people go on, the planet's side holding off what they write back.
-    try { people.step(dt); } catch (err) { if (!people.debug) throw err; people.debug = false; console.error(`[isochron] the people: ${err.message}`); }
+    try { people.step(dt); } catch (err) { if (!people.debug) throw err; people.debug = false; bad = err.message; console.error(`[isochron] the people: ${bad}`); }
     owed -= dt; dtLast = want;
     lastStep = performance.now();
     msPerStep = 0.9 * msPerStep + 0.1 * (lastStep - ts);
@@ -127,7 +128,7 @@ function post(force) {
     const era = F.dial ? 'after the dial' : F.present ? 'takeoff' : F.industry ? 'industry' : people.packages.length ? 'farmers'
       : people.tTip !== null ? 'foragers' : 'first people';
     self.postMessage({
-      type: 'people', t: people.t, owed, cap, pace: people.pace(), events: ev, last, era,
+      type: 'people', t: people.t, owed, cap, pace: people.pace(), events: ev, last, era, bad: [bad, people.yrBad].filter(Boolean).join(' | ') || null,
       packages: people.packages.length,
       ending: people.ending, flags: { ...people.flags }, dialAt: people.dialAt ?? null,
       forcing: { ...people.forcing }, space: people.space, boiled: people.boiled, hE: people.hE, dis: people.dis,
