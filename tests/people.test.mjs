@@ -248,3 +248,13 @@ test('fishers live by lakes and rivers: a lakeshore, a floodplain and a coast of
   assert.equal(H.bS[dryC], 0);
 });
 
+test('the check names where a number stops being finite (the page reports the first: src/engine/people-worker.js)', () => {
+  const p = new People(uniformPlanet(3), quiet);
+  p.seed();
+  p.step(10);
+  p.debug = true;
+  const c = p.cells.findIndex((_, k) => p.Ntot[k] > 0);
+  p.zl[c] = NaN;
+  assert.throws(() => p.step(10), new RegExp(`zl\\[${c}\\] = NaN`));
+});
+

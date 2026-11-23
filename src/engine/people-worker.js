@@ -54,6 +54,7 @@ function onEngine(e) {
     if (!people) {
       people = new People(f, params, system);
       people.env = env;
+      people.debug = true;   // the numbers checked after each phase until one isn't finite (`step`, below)
       people.seed();
       lastStep = performance.now();
       post(true);
@@ -90,7 +91,9 @@ function pump() {
     // A step shorter than the model would take only once the owed years have waited WAIT ms.
     if (owed < want && performance.now() - lastStep < WAIT) break;
     const dt = Math.min(want, owed), ts = performance.now();
-    people.step(dt);
+    // The first number that isn't finite is said once, where it arose (People.check's phase, array and
+    // cell), and the checks stop: the people go on, the planet's side holding off what they write back.
+    try { people.step(dt); } catch (err) { if (!people.debug) throw err; people.debug = false; console.error(`[isochron] the people: ${err.message}`); }
     owed -= dt; dtLast = want;
     lastStep = performance.now();
     msPerStep = 0.9 * msPerStep + 0.1 * (lastStep - ts);

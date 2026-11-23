@@ -2023,15 +2023,19 @@ export class People {
     lap('knowledge');
     // Who people are (src/engine/peoples.js): their ways of life, conformity, contact, drift.
     this.ids.step(dt);
+    if (this.debug) this.check('peoples');
     lap('peoples');
     // States (src/engine/polities.js): power, allegiance, cohesion, founding.
     this.pol.step(dt);
+    if (this.debug) this.check('states');
     lap('states');
     // Farming and its soil, industry's spread, the record.
     this.farming(dt);
     this.soilStep(dt);
+    if (this.debug) this.check('farming');
     lap('farming');
     this.industry(dt);
+    if (this.debug) this.check('industry');
     this.t += dt;
     this.record(dt); lap('record');
     return dt;
@@ -2039,8 +2043,8 @@ export class People {
 
   check(phase) {
     const bad = a => { for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) return i; return -1; };
-    for (const k of ['Ntot', 'zc', 'zl', 'M', 'K']) { const i = bad(this[k]); if (i >= 0) throw new Error(`${phase}: ${k}[${i}] = ${this[k][i]} (N ${this.Ntot[i]}, z ${this.zc[i]}, K ${this.K[i]}, M ${this.M[i]}) at t ${this.t}`); }
-    for (const k of ['Kf', 'Kc', 'Y', 'S']) if (!Number.isFinite(this.econ[k])) throw new Error(`${phase}: econ.${k} = ${this.econ[k]} at t ${this.t}`);
+    for (const k of ['Ntot', 'zc', 'zl', 'M', 'K', 'Out', 'goods', 'ind', 'lfp']) { const a = this[k]; if (!a) continue; const i = bad(a); if (i >= 0) throw new Error(`${phase}: ${k}[${i}] = ${a[i]} (N ${this.Ntot[i]}, z ${this.zc[i]}, zl ${this.zl[i]}, K ${this.K[i]}, M ${this.M[i]}, ind ${this.ind[i]}, out ${this.Out[i]}) at t ${this.t.toFixed(1)}, ${this.people.toPrecision(3)} people`); }
+    for (const k of ['Kf', 'Kc', 'Kq', 'Kr', 'Y', 'S', 'z', 'sA', 'Ef', 'Er']) if (!Number.isFinite(this.econ[k])) throw new Error(`${phase}: econ.${k} = ${this.econ[k]} at t ${this.t.toFixed(1)} (Lh ${this.econ.Lh}, z ${this.econ.z})`);
   }
 
   diffuse(dt) {
