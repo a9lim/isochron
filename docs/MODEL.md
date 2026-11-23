@@ -121,11 +121,11 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 | Tidal dissipation | ~4.8 TW | ~3.7 TW | the page |
 | Dust emission; lifetime | ~1,600 Tg/yr; ~2 days | | `tools/dust-check.mjs` |
 | Lakes' production (Caspian, Great Lakes, Baikal) | ~100, ~100, ~70 g C m⁻² yr⁻¹ | 50–110, 50–250, 75–120 | `climate-score.mjs` |
-| People's score at early takeoff, Σ share × \|ln(model/observed)\| | ~1.04 ± 0.09 over eight draws | regions' shares of ~2023 | `people/earth-score.mjs` |
-| Early takeoff | ~245–310 yr after industry (median ~270), ~7.3–10 B people (mean ~8.8) | ~265 yr, ~8 B | `people/earth-score.mjs` |
-| The first state | ~6 kyr after the first fields | ~6 kyr (Uruk, Egypt) | `people/earth-score.mjs` |
-| The largest state's share at industry; states at early takeoff | ~14%; ~8 effective, the largest ~24% | ~⅓ (the Qing) | `people/earth-score.mjs` |
-| The industrial era, medians of eight draws, industry's start as 1760: people (B), world income a person (sy: Maddison's $400 1990 GK$), the richest region against the poorest, under unlike rulers (likeness under 0.5) | 1870: 1.22, 1.8, 3.3×, 12%; 1913: 1.73, 3.1, 7.0×, 13%; 1950: 2.90, 5.8, 9.7×, 11%; 1973: 4.40, 9.0, 9.8×, 8%; 2000: 7.06, 17.2, 6.1×, 6% | 1.27, 2.19, 4.9× (the US against Africa); 1.79, 3.81, 8.3×, ~31% in dependencies (Eloranta and Harrison); 2.52, 5.28, 10.7×; 3.92, 10.2, 11.8×; 6.07, 15.0, 19.2× (Maddison 2003) | `people/earth-score.mjs` |
+| People's score at early takeoff, Σ share × \|ln(model/observed)\| | ~1.07 ± 0.10 over eight draws | regions' shares of ~2023 | `people/earth-score.mjs` |
+| Early takeoff | ~237–287 yr after industry (median ~270), ~5.4–11 B people (mean ~8.4) | ~265 yr, ~8 B | `people/earth-score.mjs` |
+| The agrarian era, medians in kyr before early takeoff: people reach Europe, Sahul, the Americas; the first fields; the first state; people at 10,000 BCE, 1 CE, 1500 | 145, 91, 25; 10.6 (farming to industry ~10 kyr, 9.5–12.9); 7.7; 20 M, 104 M, 398 M | ~45, 47–65, ≥21–23; ~11.4 (the Fertile Crescent); ~5.45 (Uruk); 1–10 M, 170–255 M, 425–503 M (McEvedy and Jones to HYDE 3.3) | `people/earth-score.mjs` |
+| The largest state's share at industry; states at early takeoff | ~13%; ~8.5 effective, the largest ~27% | ~⅓ (the Qing) | `people/earth-score.mjs` |
+| The industrial era, medians of eight draws, industry's start as 1760: people (B), world income a person (sy: Maddison's $400 1990 GK$), the richest region against the poorest, under unlike rulers (likeness under 0.5) | 1870: 1.22, 1.7, 3.2×, 8%; 1913: 1.70, 3.1, 5.6×, 7%; 1950: 2.84, 5.6, 7.3×, 7%; 1973: 4.26, 8.5, 7.2×, 6%; 2000: 6.47, 15.9, 5.6×, 4% | 1.27, 2.19, 4.9× (the US against Africa); 1.79, 3.81, 8.3×, ~31% in dependencies (Eloranta and Harrison); 2.52, 5.28, 10.7×; 3.92, 10.2, 11.8×; 6.07, 15.0, 19.2× (Maddison 2003) | `people/earth-score.mjs` |
 | The lead's changes in the last 5 kyr before industry | ~16 | ~15–20 | `people/earth-score.mjs` |
 | A great state's median life | ~600 yr | ~200–500 | `people/earth-score.mjs` |
 

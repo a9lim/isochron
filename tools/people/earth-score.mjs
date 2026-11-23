@@ -4,7 +4,8 @@
 // (rough, from memory: national totals of ~2023 split onto the boxes below): Σ share × |ln(model /
 // observed)|, a model share floored at 0.1%. Prints each region's mean share against the observed, the
 // continents', where farming and industry began (the first six origins by region and zone), the run's totals, the
-// states, and the industrial era against history's dates, industry's start read as 1760.
+// states, the agrarian era's timeline (in kyr before early takeoff, history's before-present) and the industrial
+// era against history's dates, industry's start read as 1760.
 // usage: node tools/people/earth-score.mjs ['{PEOPLE overrides}'] [draws=4]
 //   env: ENGINE=7 the page's desktop engine restricted to the people's grid (tools/people/planet.mjs)
 import { spawn } from 'node:child_process';
@@ -52,8 +53,17 @@ async function one(ov, run) {
     const y = [...pop.keys()].filter(r => pop[r] > 0.01 * all).map(r => inc[r] / pop[r]);
     return [all, out / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9), ind / all, unl / all];
   };
+  // When each continent is first peopled (its first 10,000 people), checked every 500 years.
+  const CN = Object.keys(CONT), contOf = Int8Array.from(regOf, r => CN.findIndex(n => CONT[n].includes(r))), peopled = {};
+  let chk = -1e9;
   while (pp.t < 6e6 && !ev.present) {
     pp.step(pp.nextDt());
+    if (pp.t - chk >= 500) {
+      chk = pp.t;
+      const by = new Float64Array(CN.length);
+      for (let c = 0; c < pp.nL; c++) if (contOf[c] >= 0) by[contOf[c]] += pp.Ntot[c];
+      CN.forEach((n, i) => { if (peopled[n] == null && by[i] > 1e4) peopled[n] = pp.t; });
+    }
     if (ev.industry && marks.length && pp.t >= ev.industry.t + marks[0]) { marks.shift(); emp.push(empire()); }
     if (ev.industry && pp.t - ev.industry.t > 3000) break;
   }
@@ -64,8 +74,12 @@ async function one(ov, run) {
   // The states (src/engine/polities.js) at 3 and 1 kyr before industry, at it, and at early takeoff: the
   // effective number, the largest's share of the people held, and the share of the people held.
   const h = pp.history, near = t => h.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), h[0]);
+  const tP = ev.present ? ev.present.t : pp.t, s1 = h.find(x => (x.states || 0) > 0.5);
+  const agr = ev.industry ? { fields: ev.farming ? (tP - ev.farming.t) / 1e3 : null, state: s1 ? (tP - s1.t) / 1e3 : null, europe: peopled.Europe != null ? (tP - peopled.Europe) / 1e3 : null,
+    sahul: peopled.Oceania != null ? (tP - peopled.Oceania) / 1e3 : null, americas: peopled.Americas != null ? (tP - peopled.Americas) / 1e3 : null,
+    pop: [11.76e3, 1.76e3, 0.26e3].map(b => near(ev.industry.t - b).people) } : null;
   const states = ev.industry ? [ev.industry.t - 3000, ev.industry.t - 1000, ev.industry.t, ev.present ? ev.present.t : pp.t].map(t => { const x = near(t); return [x.states || 0, x.stTop || 0, x.stHeld || 0]; }) : null;
-  return { states, emp, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
+  return { agr, states, emp, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
     farm: ev.farming ? at(ev.farming) : null, ind: ev.industry ? at(ev.industry) : null, farmToInd: ev.farming && ev.industry ? ev.industry.t - ev.farming.t : null, packages: pp.packages.length,
     origins: pp.packages.slice(0, 6).map(q => `${regOf[q.c] >= 0 ? REGIONS[regOf[q.c]][0] : `${Math.round(q.lat * deg)}°, ${Math.round(q.lon * deg)}°`} (${q.zone})`) };
 }
@@ -92,6 +106,11 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   for (const [k, r] of runs.entries()) console.log(`draw ${k}: score ${sc[k].toFixed(3)} · farming first at ${r.farm} (${r.packages} origins), industry ${r.farmToInd ? (r.farmToInd / 1e3).toFixed(1) : '-'} kyr later at ${r.ind} · early takeoff ${r.yrs ? r.yrs.toFixed(0) : '-'} yr after industry, ${(r.people / 1e9).toFixed(2)} billion people\n         origins in order: ${r.origins.join(', ')}`);
   const st = runs.filter(r => r.states);
   if (st.length) console.log('states (effective number · the largest\'s share · the people held) at ' + ['3 kyr before industry', '1 kyr before', 'industry', 'early takeoff'].map((w, i) => `${w} ${mean(st.map(r => r.states[i][0])).toFixed(1)} · ${(100 * mean(st.map(r => r.states[i][1]))).toFixed(0)}% · ${(100 * mean(st.map(r => r.states[i][2]))).toFixed(0)}%`).join('; '));
+  // History: Europe ~45 kyr (Ranis), Sahul 47–65 (the short and long chronologies), the Americas by ~21–23 (White
+  // Sands); the first fields ~11.4 (the Fertile Crescent), the first state ~5.45 (Uruk); people as McEvedy and Jones
+  // (Kremer's table) to HYDE 3.3 and the Census Bureau's range.
+  const ag = runs.filter(r => r.agr), md = a => { const b = a.filter(v => v != null).sort((p, q) => p - q); return b.length ? b[b.length >> 1] : NaN; };
+  if (ag.length) console.log(`the agrarian era, medians in kyr before early takeoff (history's before-present): people reach Europe ${md(ag.map(r => r.agr.europe)).toFixed(0)} (~45), Sahul ${md(ag.map(r => r.agr.sahul)).toFixed(0)} (47–65), the Americas ${md(ag.map(r => r.agr.americas)).toFixed(0)} (≥21–23) · the first fields ${md(ag.map(r => r.agr.fields)).toFixed(1)} (~11.4) · the first state ${md(ag.map(r => r.agr.state)).toFixed(1)} (~5.45) · people at 10,000 BCE ${(md(ag.map(r => r.agr.pop[0])) / 1e6).toFixed(0)} M (1–10), 1 CE ${(md(ag.map(r => r.agr.pop[1])) / 1e6).toFixed(0)} M (170–255), 1500 ${(md(ag.map(r => r.agr.pop[2])) / 1e6).toFixed(0)} M (425–503)`);
   // History (Maddison 2003: people, and income at $400 1990 GK$ a sy; the richest against the poorest as the US's
   // against Africa's; Eloranta and Harrison: ~31% of the world's people in dependencies in 1913).
   const HIST = [[1870, 1.27, 2.19, 4.9], [1913, 1.79, 3.81, 8.3], [1950, 2.52, 5.28, 10.7], [1973, 3.92, 10.2, 11.8], [2000, 6.07, 15.0, 19.2]];

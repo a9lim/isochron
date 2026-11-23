@@ -329,8 +329,11 @@ export const PEOPLE = {
   // Denisovans' Asia; Sunda by the glacial shelves, Flores and Luzon, not Sahul or the Americas: from
   // memory). Its game had long known hominins and is wary; elsewhere it meets people naive.
   Z_ARCH: 1, D_ARCH: 300,
-  // Farming
-  Z_FARM: 3, W_FARM: 0.15, H_FARM: 6e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, C_PKG: 0.05,
+  // Farming. Its origin's knowledge is sharp (W_FARM): at 0.15 the hazard's tail, summed over every
+  // place and millennium, began the first fields at knowledge ~2.6, ~17 kyr before early takeoff (and
+  // 12–25 kyr before industry), where history's began ~11.4 kyr ago (the Fertile Crescent; Zeder 2011),
+  // ~11 kyr before industry.
+  Z_FARM: 3, W_FARM: 0.05, H_FARM: 6e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, C_PKG: 0.05,
   BREED: 1,                        // industry's breeding: a crop's climate envelope × (1 + BREED × industry's share)
   // Domesticates by zone: the seasonally dry climates' large-seeded annuals (after Blumler via
   // Diamond, from memory), next to none in the perhumid tropics; and a river's floodplain in a dry
