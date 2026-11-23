@@ -27,6 +27,7 @@
 import { NZ, CLIMATE } from './climate.js';
 import { restrict, prolong } from '../grid/transfer.js';
 import { Dust, NP } from './dust.js';
+import { LIFE } from './life.js';
 
 // Coal's sulfate as a haze carried by the climate's winds (src/engine/dust.js's balance, one bin,
 // solved on level 5): lifted where industry's workers are, washed out by rain and settled, so its
@@ -36,7 +37,10 @@ import { Dust, NP } from './dust.js';
 export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1 };
+/** A lake's shore: its cells wet past this share of their area, and their neighbours. */
+export const LAKE_SHORE = 0.05;
+
 /** The people's grid's level on an engine of `level`. */
 export const peopleLevel = level => Math.min(6, level);
 
@@ -53,7 +57,9 @@ export const peopleLevel = level => Math.min(6, level);
  * the rivers' discharge (m³/s), the lakes' share, permafrost's share, a month's T′ spread (K), a
  * year's mean T′'s spread (K: the month's × √ of its memory, src/engine/year.js), a year's spread of log rain, the regolith (m), its production at bare rock (m/yr) and the rivers'
  * erosion (mm/yr); and on land the coast's sea's export production (g C m⁻² yr⁻¹, the most of its
- * sea neighbours': src/engine/life.js), which feeds the sea's foragers; for the routes
+ * sea neighbours': src/engine/life.js) and a lakeshore's lake's (E_LAKE of its production, on the
+ * sea's scale: the most of the cell's own lake and its neighbours', where they're LAKE_SHORE wet),
+ * which feed the fishers; for the routes
  * (src/engine/routes.js), the surface wind at the year's six points (m/s, 3-vectors in each cell's
  * tangent plane: 18 a cell, the point-major triples), the sea's surface current (m/s, a 3-vector;
  * the gyres', prolonged from their grid) and the share of the year under sea ice.
@@ -65,11 +71,13 @@ export function fieldsOf(P, f = null, T = null) {
   for (let i = 0; i < N; i++) { let t = 0; for (let m = 0; m < 12; m++) t += c.P12[12 * i + m]; map[i] = t; }
   const sp = P.year.spreadFine(), sigT = sp.T, ex = P.life.export, G = P.grid;
   const coastSea = i => { if (tec.sea[i] || !ex) return 0; let m = 0; for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) { const j = G.nbr[t]; if (tec.sea[j]) m = Math.max(m, ex[j] || 0); } return m; };
+  const pp = P.life.lakePP, lw = c.lakeWet, lakeAt = j => (!tec.sea[j] && lw[j] > LAKE_SHORE ? LIFE.E_LAKE * (pp[j] || 0) : 0);
+  const shoreLake = i => { if (tec.sea[i] || !pp) return 0; let m = lakeAt(i); for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) m = Math.max(m, lakeAt(G.nbr[t])); return m; };
   const src = {
     elev: i => tec.sea[i] ? Math.min(-1e-3, tec.elev[i] - s) : Math.max(1e-3, tec.elev[i] - s), ice: i => P.ice.H[i], ft: i => P.life.veg.ft[i], fg: i => P.life.veg.fg[i], npp: i => P.life.veg.pi[i],
     runoff: i => c.runoff[i], discharge: i => P.land.discharge[i], lake: i => c.lakeWet[i], perma: i => c.soil.permafrost[i],
     sigT: i => sigT[i], sigTy: i => sigT[i] * Math.sqrt(sp.mem[i]), sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
-    sea: coastSea, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
+    sea: coastSea, lakeEx: shoreLake, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
     arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
   };
   const np = c.windPhase.length, wind = new Float32Array(18 * N), cur = new Float32Array(3 * N), oc = P.ocean;
@@ -87,7 +95,7 @@ export function fieldsOf(P, f = null, T = null) {
     for (const [k, [a]] of Object.entries(wide)) f[k].set(a);
   } else {
     const x = new Float64Array(N), y = new Float64Array(n);
-    const most = new Set(['discharge', 'lake', 'sea']), { nc, par } = T;
+    const most = new Set(['discharge', 'lake', 'sea', 'lakeEx']), { nc, par } = T;
     for (const [k, get] of Object.entries(src)) {
       const a = f[k];
       for (let i = 0; i < N; i++) x[i] = get(i);

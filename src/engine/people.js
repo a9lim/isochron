@@ -53,8 +53,8 @@
 //             + Y(f) s P_A(z) CO₂ / sick]: foraging's base density on land b_L from the accessible
 //             NPP and water, its productivity P_F capped at CAP_F (the wild food, a flow), its large
 //             game (`meat`, a stock hunted down where people arrive, src/engine/people.js `stocks`);
-//             the sea's b_S from the coast's export production, its fish F a stock that industry's
-//             fleets draw down; herders on the land the plough can't use, held by the leaner of
+//             the water's b_S, the fishers', from the coast's export production, a lakeshore's lake's and
+//             a river's floodplain, its fish F a stock that industry's fleets draw down; herders on the land the plough can't use, held by the leaner of
 //             their summer and winter pastures within a season's move (`rates`) and by their herd
 //             (`herds`, below); farming's fields Y(f) take a
 //             river's floodplain first (watered, renewed by its floods, cropped as often as the
@@ -169,13 +169,20 @@ import { COHORTS, stable, stableLookup, stepPyramid, stepTables, ageClock, settl
 
 export const PEOPLE = {
   // Habitat (synthesis)
-  B0: 0.03, NPP_REF: 0.4,          // foragers per km² at NPP_REF kg C m⁻² yr⁻¹ of accessible NPP (Binford's order, from memory)
-  // The sea's people (synthesis): a coastal cell's sea feeds up to B_SEA a km², half that where its
-  // coast's export production is PS_REF g C m⁻² yr⁻¹ (the coasts' median on today's Earth and the
-  // seeded planets, ~12–14; upwelling coasts and river mouths ~30), so a desert coast on an upwelling
-  // (Peru's, Namibia's) feeds people the land can't. B_SEA keeps the coasts' mean at the flat bonus
-  // (half of b) it replaced: the sea's food is moved toward the productive coasts, not added.
-  B_SEA: 0.019, PS_REF: 13,
+  B0: 0.025, NPP_REF: 0.4,         // foragers per km² at NPP_REF kg C m⁻² yr⁻¹ of accessible NPP (Binford's order, from memory; 0.03 before the lakes and rivers fed fishers, the world's foraging held where it was: the water's share of it 7% → 23%, as fishing's of warm-climate foragers' food is about a fifth, Marlowe 2005, from memory)
+  // The water's people, its fishers (synthesis): a cell's water feeds up to B_SEA a km², half that where
+  // its productivity is one: its coast's sea's export production over PS_REF g C m⁻² yr⁻¹ (the coasts'
+  // median on today's Earth and the seeded planets, ~12–14; upwelling coasts and river mouths ~30), so a
+  // desert coast on an upwelling (Peru's, Namibia's) feeds people the land can't; plus F_LAKE × a
+  // lakeshore's lake's on the same scale (src/engine/peoplelink.js, `lakeEx`); plus F_RIV × a river's
+  // floodplain share (as the fields', W_FP √Q a km of the cell's width: a tenth of it feeds as a median
+  // coast; floodplain fisheries, the Amazon's várzea and the Mekong's, yield by the flooded area,
+  // Welcomme's rule, from memory) × Q/(Q + Q_RIVER), so a wadi's trickle feeds no fishers (by √Q alone
+  // every desert's streams did). Aquatic food is what let foragers live densely and stay put (Binford
+  // 2001; Kelly; the Northwest Coast's salmon rivers, the Green Sahara's lake and Nile harpoon fishers,
+  // Sutton 1974: all from memory). B_SEA kept the coasts' mean at the flat bonus (half of b) the sea's
+  // term replaced: the sea's food moved toward the productive coasts, not added.
+  B_SEA: 0.019, PS_REF: 13, F_LAKE: 1, F_RIV: 10,
   R_FISH: 0.3, H_FISH: 0.03, H_FISH_IND: 0.45,   // the fish's regrowth (/yr: Schaefer's r for the stocks people take, a few tenths, from memory); fishing's take before industry and at industry's height (past the regrowth: the twentieth century's collapses), easing with knowledge as tillage does (Z_CONS)
   // Herders (synthesis): pastoralists' densities (~1 a km² on good steppe, from memory) on the grass
   // within a season's move, held by the leaner of summer's pasture and winter's (grazed standing,
@@ -1005,7 +1012,7 @@ export class People {
     this.M = new Float64Array(nL); this.K = new Float64Array(nL); this.K2 = new Float64Array(nL);
     this.Out = new Float64Array(nL); this.goods = new Float64Array(nL);
     this.reached = new Uint8Array(nL);   // where people have lived (sticky: the Settlement map's explored land)
-    // The stocks people draw on (`stocks`): large game and the coast's fish (shares of their own
+    // The stocks people draw on (`stocks`): large game and the water's fish (shares of their own
     // without people), and how wary each cell's game is of people (the home world-island's, `seed`).
     this.herdS = new Float64Array(nL); this.past = new Float64Array(nL); this.Kown = new Float64Array(nL);   // herders' hold on the unfarmed land, their pasture's share of the cell (drawn), and the capacity it was found at
     this.mega = new Float64Array(nL).fill(1); this.fish = new Float64Array(nL).fill(1); this.naive = new Float64Array(nL).fill(1);
@@ -1124,9 +1131,11 @@ export class People {
       // Miami's NPP saturates with warmth rather than failing, so a 1,200 °C cell rated as farmland.
       const uh = Math.min(1, Math.max(0, (Ta - VEG.T_HOT[0]) / (VEG.T_HOT[1] - VEG.T_HOT[0])));
       H.hot[c] = uh * uh * (3 - 2 * uh);
-      // Foraging on land, and the sea's (the coast's export production: `sea`, src/engine/peoplelink.js).
+      // Foraging on land, and the water's: the coast's sea's export production (`sea`, src/engine/peoplelink.js),
+      // a lakeshore's lake's (`lakeEx`) and a river's floodplain (its share as for the fields, below).
       H.bL[c] = H.alive[c] ? P.B0 * acc / P.NPP_REF * water * (1 - H.hot[c]) : 0;
-      const ps = coast && f.sea ? Math.max(0, f.sea[i]) / P.PS_REF : 0;
+      const fp = Math.min(P.FP_MAX, P.W_FP * Math.sqrt(Math.max(0, f.discharge[i])) / Math.sqrt(H.area[c]));
+      const ps = (coast && f.sea ? Math.max(0, f.sea[i]) / P.PS_REF : 0) + (f.lakeEx ? P.F_LAKE * Math.max(0, f.lakeEx[i]) / P.PS_REF : 0) + P.F_RIV * fp * f.discharge[i] / (f.discharge[i] + P.Q_RIVER);
       H.bS[c] = H.alive[c] ? P.B_SEA * ps / (1 + ps) * (1 - H.hot[c]) : 0;
       H.b[c] = H.bL[c] + H.bS[c];
       // Herders' pastures: summer's the grass's production, winter's what of it stands to be grazed.
@@ -1260,10 +1269,10 @@ export class People {
 
   /**
    * The stocks over a step (synthesis): works (built by the city people's labour, S_WORK of it a
-   * year, decaying over T_WORK); large game and the coast's fish, each logistic in its own
+   * year, decaying over T_WORK); large game and the water's fish, each logistic in its own
    * share with a take h, dM/dt = R M (1 − M) − h M, solved exactly. Game: h = H_MEGA × wariness ×
    * the foragers' density against B0 (at most 3) × their foraging's knowledge (P_F/CAP_F); gone below
-   * M_EXT for good. Fish: H_FISH where people live on a coast (by their crowding), and industry's
+   * M_EXT for good. Fish: H_FISH where people live by the water (by their crowding), and industry's
    * fleets H_FISH_IND × its share, easing with knowledge as tillage does.
    */
   stocks(dt) {
@@ -1328,7 +1337,7 @@ export class People {
    * less), foragers half (they move), less the sea's share of their food. Into `out`: [α, β].
    */
   harvestCoef(c, fc, out = this.hc || (this.hc = [0, 0])) {
-    const H = this.H, sea = H.b[c] > 0 ? H.bS[c] / H.b[c] : 0, fo = 0.5 * (1 - fc) * (1 - sea);   // the sea's food doesn't follow the land's rain or warmth
+    const H = this.H, sea = H.b[c] > 0 ? H.bS[c] / H.b[c] : 0, fo = 0.5 * (1 - fc) * (1 - sea);   // the water's food doesn't follow the land's rain or warmth
     out[0] = this.P.E_RAIN * H.irr[c] * (fc * H.kap[c] + fo); out[1] = fc * H.bF[c] + fo * H.bW[c];   // the crops' rain over the months they grow (κ: several crops a year pool it)
     return out;
   }

@@ -230,3 +230,21 @@ test("game: logistic under the hunt, exact; held at 1 − h/R where it knew homi
   }
   for (const c of [half, p.nL - 1]) assert.equal(p.mega[c], 0, 'naive game hunted out, and gone for good');
 });
+
+test('fishers live by lakes and rivers: a lakeshore, a floodplain and a coast of one productivity feed alike, a dry plain none', () => {
+  // No sea: a lakeshore whose lake exports PS_REF (productivity one) and a river of productivity one (F_RIV ×
+  // its floodplain share W_FP √Q/√area × Q/(Q + Q_RIVER)) feed B_SEA/2 a km², as a coast on a median sea does;
+  // the dry plain beside them nothing.
+  const f = uniformPlanet(3);
+  f.lakeEx = new Float32Array(f.n);
+  const p0 = new People(f, quiet), lakeC = 5, rivC = 40, dryC = 80, A = p0.H.area[rivC], i = c => p0.cells[c];
+  const river = Q => PEOPLE.F_RIV * Math.min(PEOPLE.FP_MAX, PEOPLE.W_FP * Math.sqrt(Q / A)) * Q / (Q + PEOPLE.Q_RIVER);
+  let lo = 0, hi = 1e7;
+  for (let k = 0; k < 200; k++) { const m = 0.5 * (lo + hi); if (river(m) < 1) lo = m; else hi = m; }
+  f.lakeEx[i(lakeC)] = PEOPLE.PS_REF;
+  f.discharge[i(rivC)] = lo;
+  const p = new People(f, quiet), H = p.H;
+  for (const c of [lakeC, rivC]) assert.ok(Math.abs(H.bS[c] / (PEOPLE.B_SEA / 2) - 1) < 1e-6, `cell ${c}: the water's ${H.bS[c]} against ${PEOPLE.B_SEA / 2}`);
+  assert.equal(H.bS[dryC], 0);
+});
+
