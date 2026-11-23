@@ -75,6 +75,7 @@ import { Soil, SOIL, potentialEvaporation } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
 import { SeaHeat } from './seaheat.js';
+import { DeepSea } from './deepsea.js';
 import { AirHeat, AIRHEAT } from './airheat.js';
 import { Clouds, CLOUDS, shortwave, longwave } from './clouds.js';
 
@@ -491,6 +492,7 @@ export class Climate {
     this.airHeat = new AirHeat(this);     // the air's heat carried by the mean wind (src/engine/airheat.js): its wind from each cycle
     this.clouds = new Clouds(this);       // the clouds (src/engine/clouds.js): from each point of the year's moisture, in the next energy balance
     this.seaHeat = new SeaHeat(this);     // the sea's heat transport (src/engine/seaheat.js): the gyres and the overturning, their paths with the geography, their flows from each cycle's winds
+    this.deep = new DeepSea(this);        // the deep sea's heat (src/engine/deepsea.js): the climate's slow response, stepped by the dial's years (Planet.fast)
     this.ocean = null;   // src/engine/ocean.js, when there is one
     this.year = null;    // src/engine/year.js, when there is one: the zones' widths
     this.warm = false;
@@ -820,9 +822,9 @@ export class Climate {
     const br = new Float64Array(nc), bi = new Float64Array(nc);
     const forcing = 5.35 * Math.log(C.CO2 / C.CO2_REF) + C.F_VOLC + C.F_PEOPLE + C.F_OLR;
     const sv = C.EBM_CG, tol = this.warm ? sv[0] : sv[2], maxIt = this.warm ? sv[1] : sv[3];
-    // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF, with the heat the sea's currents bring (src/engine/seaheat.js:
-    // linearized about the last state, its own cell's share on the diagonal).
-    const sh = this.seaHeat && this.seaHeat.terms(this.Tc[0]) ? this.seaHeat : null;
+    // Mean: B T̄ − ∇·D∇T̄ = F̄ − A + ΔF, with the heat the sea's currents bring and the deep takes
+    // (src/engine/seaheat.js, src/engine/deepsea.js: about the last state, its own cell's share on the diagonal).
+    const sh = this.seaTerms(this.Tc[0]);
     for (let I = 0; I < nc; I++) {
       dr[I] = A[I] * C.B + (sh ? sh.diag[I] : 0); di[I] = 0;
       br[I] = A[I] * (this.Fc[0][I] - C.A + forcing) + (sh ? sh.rhs[I] : 0); bi[I] = 0;
@@ -858,6 +860,18 @@ export class Climate {
     }
     this.fineTemperature();
     this.temperatureStats();
+  }
+
+  /**
+   * The sea's terms in the annual mean against the state T (coarse): its currents' heat and the deep's
+   * uptake, summed (each `diag` and `rhs`, src/engine/seaheat.js and src/engine/deepsea.js), or null.
+   */
+  seaTerms(T) {
+    const sh = this.seaHeat && this.seaHeat.terms(T) ? this.seaHeat : null, dp = this.deep && this.deep.terms(T) ? this.deep : null;
+    if (!sh || !dp) return sh || dp;
+    const nc = this.coarse.n, s = this.seaSum || (this.seaSum = { diag: new Float64Array(nc), rhs: new Float64Array(nc) });
+    for (let I = 0; I < nc; I++) { s.diag[I] = sh.diag[I] + dp.diag[I]; s.rhs[I] = sh.rhs[I] + dp.rhs[I]; }
+    return s;
   }
 
   /**
@@ -955,7 +969,7 @@ export class Climate {
     for (let it = 0; it < maxIt; it++) {
       this.olrCorrection();
       if (gpu) {
-        gpu.setSeaHeat(this.seaHeat && this.seaHeat.terms(Tc[0]) ? this.seaHeat : null);
+        gpu.setSeaHeat(this.seaTerms(Tc[0]));
         gpu.setAirHeat(this.airHeat, Tc);
         yield gpu.step(Tc, this.warm);
       } else yield* this.ebm();
@@ -1399,7 +1413,9 @@ export class Climate {
     this.geography();
     yield;
     if (this.seaHeat) yield* this.seaHeat.solveSteps();   // the overturning's flows when the sea has moved (src/engine/seaheat.js)
+    if (this.deep) this.deep.begin();
     yield* this.energyBalance();
+    if (this.deep) this.deep.end();
     for (let p = 0; p < NP; p++) yield* this.phase(p);
     // The year's winds carry the air's heat in the next cycle's energy balance (src/engine/airheat.js).
     if (this.airHeat) yield* this.airHeat.windSteps();

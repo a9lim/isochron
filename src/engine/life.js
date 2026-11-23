@@ -219,9 +219,13 @@ export class Life {
     // (before, it keeps the steady state it was built in).
     // Dust's iron to the cold box's water (src/engine/aeolian.js), against what reaches it when the sea settles.
     const iron = this.dust ? this.dust.ironTo(sst, edge, !this.carbon.settled) : 1;
+    // The deep box: ventilated by the overturning the sea's heat runs (src/engine/seaheat.js), at the cold
+    // box's temperature less the deep's lag behind the surface (src/engine/deepsea.js).
+    const sh = c.seaHeat, lag = c.deep ? c.deep.stats.lag : 0;
     this.seaIn = {
       sstWarm, sstCold, iceFree: cA > 0 ? Math.max(0.05, 1 - iceA / cA) : 1, shelf: shelf * R2,
       hyps: { depth, area: Array.from(hy) }, bio: this.bio, carbW: rel(runS, R.run), iron,
+      vent: sh && sh.on && sh.stats.sv > 0 ? sh.stats.sv : null, tDeep: Math.max(-1.8, sstCold + lag),
     };
     if (this.carbon.settled || this.closed) this.carbon.sea.set(this.seaIn);
     // The export, drawn: each box's spread over the sea by its supply.

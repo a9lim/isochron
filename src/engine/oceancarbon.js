@@ -10,7 +10,8 @@
 // - a warm surface sea (85% of the sea's area, 100 m) and a cold one (15%,
 //   250 m), each at the climate's mean SST over its share of the sea, so a
 //   colder high-latitude sea holds more carbon;
-// - the deep sea (the rest), at the cold box's temperature (deep water forms there).
+// - the deep sea (the rest), at the cold box's temperature (deep water forms there), less the
+//   lag the deep sea's heat holds behind the surface (src/engine/deepsea.js: the caller's tDeep).
 // Each sea box carries dissolved inorganic carbon (DIC), alkalinity (ALK) and
 // phosphate.
 //
@@ -18,10 +19,15 @@
 // - Air and sea (standard): F = k·area·(pCO₂,air − pCO₂,sea), k = 0.06 mol
 //   m⁻² yr⁻¹ µatm⁻¹ (LOSCAR's, from memory), so pCO₂ at the surface
 //   equilibrates in ~1 yr and DIC follows ~10× slower (the buffer factor).
-// - Surface and deep (standard form; a closure): an overturning of 20 Sv,
+// - Surface and deep (standard form; the strength synthesis): an overturning,
 //   warm → cold → deep → warm, and 20 Sv of mixing between the cold box and
-//   the deep, so the deep is ventilated in ~1 kyr. The overturning isn't
-//   modelled or drawn; this is its box exchange.
+//   the deep, so the deep is ventilated in ~1 kyr. The overturning is the one
+//   the sea's heat runs (src/engine/seaheat.js, the caller's `vent`: the
+//   Drake Passage effect's and mixing's) × OVERTURN/VENT_REF, so today's
+//   Earth's 9.7 Sv there is the box's 20 (LOSCAR's, from memory: the sea
+//   heat's is its upper limb's warm water, the box's the whole exchange,
+//   bottom water with it). A planet without a channel round its pole
+//   ventilates its deep on mixing's 3 Sv, ×2 here, and the 20 Sv of mixing.
 // - The biological pump (standard; after the three-box models): each surface
 //   box exports phosphate at bio·P/τ (τ 0.5 yr warm, 30 yr cold: the warm
 //   sea strips its nutrients, ~0.02 µmol/kg left, and the cold one keeps a
@@ -132,7 +138,8 @@ export const OC = {
   RHO: 1025,
   WARM: 0.85, COLD: 0.15,            // shares of the sea's surface
   H_WARM: 100, H_COLD: 250,          // m
-  OVERTURN: 20, MIX_CD: 20, MIX_WD: 0,   // Sv
+  OVERTURN: 20, MIX_CD: 20, MIX_WD: 0,   // Sv: the overturning (at VENT_REF of the caller's, or without one), the cold box's and the warm's mixing with the deep
+  VENT_REF: 9.7,                     // Sv: the sea heat's overturning on today's Earth (src/engine/seaheat.js), where the box's is OVERTURN
   KGAS: 0.06,                        // mol m⁻² yr⁻¹ µatm⁻¹
   PO4: 2.15e-6,                      // mol/kg, the sea's mean phosphate
   TAU_W: 0.5, TAU_C: 30,             // yr, nutrient uptake in each surface box
@@ -271,7 +278,8 @@ export class OceanCarbon {
       land: 0,                 // Pg C/yr from the land's store (vegetation, soil) to the air; negative takes up
       wRel: 1, wCO2: CARBON.PCO2_0,   // silicate weathering's map against the opening's, and the pCO₂ the climate saw
       carbW: 1,                // carbonate weathering against the opening's
-      sstWarm: 21, sstCold: 1.5, tDeep: null,   // °C
+      sstWarm: 21, sstCold: 1.5, tDeep: null,   // °C (tDeep null: the cold box's)
+      vent: null,              // Sv: the sea heat's overturning (src/engine/seaheat.js); null: the box's is OVERTURN
       salinity: OC.SALINITY,
       shelf: 1,                // warm shallow shelf area (any unit; against its value at the opening)
       bio: 1,                  // productivity against the opening's
@@ -350,7 +358,7 @@ export class OceanCarbon {
       this.kspT = [tDeep, S];
     }
     return {
-      k, tDeep, T: OC.OVERTURN * SV * OC.RHO, Mcd: OC.MIX_CD * SV * OC.RHO, Mwd: OC.MIX_WD * SV * OC.RHO,
+      k, tDeep, T: OC.OVERTURN * (s.vent != null ? s.vent / OC.VENT_REF : 1) * SV * OC.RHO, Mcd: OC.MIX_CD * SV * OC.RHO, Mwd: OC.MIX_WD * SV * OC.RHO,
       areaW: OC.WARM * this.area * this.left, areaC: OC.COLD * this.area * s.iceFree * this.left,
     };
   }

@@ -4,7 +4,8 @@
 //   per plate step (0.5 Myr)   plates, plumes, landscape, the crust's flexure
 //                              (src/engine/crustflex.js)
 //   per frame                  the orbit the climate sees (averaged over the
-//                              time the dial passes in ~2 s), carbon, ice, the
+//                              time the dial passes in ~2 s), carbon, the deep
+//                              sea's heat (src/engine/deepsea.js), ice, the
 //                              regolith (src/engine/regolith.js: the ice's
 //                              erosion and till applied to it and the crust),
 //                              the year (src/engine/year.js): its months
@@ -224,6 +225,8 @@ export class Planet {
     this.carbon.step(dt);
     CLIMATE.CO2 = this.carbon.pco2;
     if (dt > 0) {
+      // The deep sea's heat toward the last cycle's climate (src/engine/deepsea.js).
+      if (this.climate.deep) this.climate.deep.step(dt);
       // On the GPU where there is one (src/gpu/ice.js), else here (headless).
       if (this.iceGpu) this.iceGpu.advance(dt, iceSteps); else this.ice.advance(dt, iceMs);
       // The regolith: the ice's erosion and till into it and the crust, production against the rivers.
