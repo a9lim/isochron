@@ -185,15 +185,22 @@ const GLYPHS = {
   fishing: (c, x, y, P) => parcels(c, x, y, P.ocean, 0.1, 0.65),
   // Peoples (src/render/globe.js, the Culture map): each its hue and its hatch's angle, three apart.
   peoples: (c, x, y, P) => { [[0.3, 0.4], [2.4, 1.6], [4.4, 2.7]].forEach(([h, a], k) => idPatch(c, x + 9 * k, y, k < 2 ? 9 : 8, 12, idHue(h, P.dark), a)); },
-  // States (the States map): each a hue and a hatch angle set apart from its neighbours'.
-  states: (c, x, y, P) => { [[0.4, 0], [3.5, 2.094]].forEach(([h, a], k) => idPatch(c, x + 13 * k, y, 13, 12, idHue(h, P.dark), a / 2)); },
-  // A contested march: the second state's hatch between the first's lines.
-  contested: (c, x, y, P) => { idPatch(c, x, y, 26, 12, idHue(0.4, P.dark), 0); idPatch(c, x, y, 26, 12, idHue(3.5, P.dark), 1.047, false, 0.5); },
-  // Borders: between two states a hairline, a state's edge against the stateless fainter.
-  border: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.8); c.lineWidth = 1.2; line(c, x, y + 6, x + 26, y + 6); },
-  edge: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.4); c.lineWidth = 0.6; line(c, x, y + 6, x + 26, y + 6); },
-  // A capital: a ring in the rules' colour.
-  capital: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.85); c.lineWidth = 1.1; c.beginPath(); c.arc(x + 13, y + 6, 3.2, 0, 7); c.stroke(); },
+  // States (the States map): each a wash of its hue, set apart from its neighbours'.
+  states: (c, x, y, P) => { [0.4, 3.5].forEach((h, k) => { c.fillStyle = rgba(idHue(h, P.dark), 0.45); c.fillRect(x + 13 * k, y, 13, 12); }); },
+  // A contested place: equal stripes of its two states' hues.
+  contested: (c, x, y, P) => {
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.fillStyle = rgba(idHue(0.4, P.dark), 0.45); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(idHue(3.5, P.dark), 0.9); c.lineWidth = 4 / Math.SQRT2;
+    c.beginPath(); for (let t = -12; t <= 38; t += 8) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 12, y); } c.stroke();
+    c.restore();
+  },
+  // A capital: a star in the rules' colour.
+  capital: (c, x, y, P) => {
+    c.fillStyle = rgba(P.text, 0.85); c.beginPath();
+    for (let p = 0; p < 10; p++) { const a = -Math.PI / 2 + p * Math.PI / 5, r = p % 2 ? 1.8 : 4.5; c.lineTo(x + 13 + r * Math.cos(a), y + 6.5 + r * Math.sin(a)); }
+    c.closePath(); c.fill();
+  },
   // Two ways of life in one place: the second's hatch between the first's lines.
   mixed: (c, x, y, P) => { idPatch(c, x, y, 26, 12, idHue(0.3, P.dark), 0.4); idPatch(c, x, y, 26, 12, idHue(2.4, P.dark), 1.6, false, 0.5); },
   // Knowledge's domains: production in the accent and learning in verdigris, each by how near the
@@ -296,7 +303,7 @@ const ITEMS = {
   'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
   'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
   'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities']],
-  'people-states': [['states', 'States'], ['contested', 'Contested'], ['border', 'Border'], ['edge', 'Stateless edge'], ['capital', 'Capital'], ['city', 'Cities']],
+  'people-states': [['states', 'States'], ['contested', 'Contested'], ['capital', 'Capital'], ['city', 'Cities']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

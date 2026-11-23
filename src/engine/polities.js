@@ -62,29 +62,36 @@
 // W_WORKS of the works by the share moved); rivalry with peer states lifts new ideas (K_RIVAL, `rv`;
 // contested, so weak, beside the border's cut in trade and the copying that rides on it).
 // Read back: each place's identity pulled toward its capital's (src/engine/peoples.js; a9: softly).
-// Drawn on the States map (`drawn`): each polity a look, a hue and a hatch angle, picked apart from those
-// near its founding and picked again when it meets a larger state that looks like it (`recolour`; states
-// outgrow the region they were founded in); the hues evenly spaced by how different they look (HUE_A).
-// The borders (`borders`) and capitals as marks; counted (`count`): the effective number of states.
+// Drawn on the States map (`drawn`): each polity a hue, free on the peoples' wheel and measured along its
+// path in OKLab so that equal steps look equally different (`HUE`), picked where it least resembles the
+// hues of the states it meets, then of those near, then of the world's (`pick`: a sum of Gaussians in the
+// hues' distance), at its founding and again when it meets a larger state of nearly its hue (`recolour`;
+// states outgrow the region they were founded in). A contested place is striped equally in both states'
+// hues. The capitals as marks (`capitals`); counted (`count`): the effective number of states.
 import { stream } from '../rng.js';
 import { CITY } from './peoples.js';
 
 export const KP = 3;      // the polities a place keeps
 const KC = 4;             // the candidates a place weighs a step
-const HUES = 8, ANGS = 3; // the States map's looks: hues round the peoples' wheel × hatch angles 60° apart
-const SEA_TOUCH = 300;    // km: states facing each other across less sea than this meet, for their looks
-const SPECK = 4;          // places: a drawn owner's piece smaller than this is folded into its surroundings
-
-/** How far apart two looks are: their hues' steps round the wheel over four, plus 0.6 for another angle. */
-const look = (o, h, an) => Math.min(Math.abs(o.hue - h), HUES - Math.abs(o.hue - h)) / (HUES / 2) + (o.ang === an ? 0 : 0.6);
+const SEA_TOUCH = 300;    // km: states facing each other across less sea than this meet, for their hues
+// The States map's hues, each a place u on the wheel's path (0–1 round it, the accent at 0):
+const HUE_SIG = 0.09;     // how near two hues look alike: e^{−(Δu/σ)²}
+const HUE_NEAR = 0.3;     // a state not met: its weight, e-fold over HUE_L of arc between the capitals
+const HUE_L = 0.25;       // rad (~1,600 km on Earth)
+const HUE_ALL = 0.3;      // the world's hues: this weight spread over them all
+const HUE_RED = 0.5;      // the accent, weighed as a state met by half: the people's red stays theirs
+const HUE_CLASH = 0.06;   // a state this near in hue to a larger one it meets takes another
+const HUE_N = 240;        // the hues a pick weighs
+const MARCH = [0.2, 0.4]; // the second state's share over which a place turns to equal stripes
 
 /**
- * The hues as angles on the peoples' wheel (src/render/globe.js, idWheel, which reads v = h/2π + ½), at
- * equal steps of its path in OKLab, the accent midway between two. The wheel warps its hue by 0.35 sin
- * and halves its chroma toward the accent, so equal steps in v were ~60° of hue apart beside the accent and
- * ~30° across from it, where two teals looked alike. The path's shape in v is the same in both themes.
+ * A hue's angle on the peoples' wheel (src/render/globe.js, idWheel, which reads v = h/2π + ½) from its
+ * place u along the wheel's path in OKLab. The wheel warps its hue by 0.35 sin and halves its chroma
+ * toward the accent, so equal steps in v were ~60° of hue apart beside the accent and ~30° across from it,
+ * where two teals looked alike; equal steps in u look equally different. The path's shape in v is the
+ * same in both themes.
  */
-const HUE_A = (() => {
+const HUE = (() => {
   const M = 4096, sp = new Float64Array(M + 1), TAU = 2 * Math.PI;
   const ab = v => {
     const t = TAU * v + 0.35 * Math.sin(TAU * v), dh = Math.abs(Math.atan2(Math.sin(t), Math.cos(t)));
@@ -93,14 +100,17 @@ const HUE_A = (() => {
   };
   let [a0, b0] = ab(0);
   for (let i = 1; i <= M; i++) { const [a, b] = ab(i / M); sp[i] = sp[i - 1] + Math.hypot(a - a0, b - b0); a0 = a; b0 = b; }
-  const out = new Float64Array(HUES);
-  for (let k = 0, i = 0; k < HUES; k++) {
-    const g = (k + 0.5) / HUES * sp[M];
-    while (sp[i + 1] < g) i++;
-    out[k] = TAU * ((i + (g - sp[i]) / (sp[i + 1] - sp[i])) / M - 0.5);
+  const N = 1024, tab = new Float64Array(N + 1);
+  for (let k = 0, i = 0; k <= N; k++) {
+    const g = k / N * sp[M];
+    while (i < M - 1 && sp[i + 1] < g) i++;
+    tab[k] = TAU * ((i + (g - sp[i]) / (sp[i + 1] - sp[i])) / M - 0.5);
   }
-  return out;
+  return u => { const x = (u - Math.floor(u)) * N, k = Math.min(N - 1, x | 0); return tab[k] + (x - k) * (tab[k + 1] - tab[k]); };
 })();
+/** How far apart two hues are round the wheel (0–½). */
+const hueGap = (a, b) => { const d = Math.abs(a - b) % 1; return Math.min(d, 1 - d); };
+const smooth = x => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 /** The cohesion's logistic with decay over dt: dA/dt = a A (1 − A) − b A, exactly. */
 export function asabiya(A, a, b, dt) {
@@ -129,7 +139,7 @@ export class Polities {
     this.fr = new Float64Array(nL);               // its metaethnic frontier's weight
     this.rv = new Float64Array(nL).fill(1);       // its new ideas' lift by its states' rivals
     this.cid = new Int32Array(KC * nL); this.cpi = new Float64Array(KC * nL);
-    this.list = [];                               // every polity yet: { cap, coh, born, died, hue, ang, N, A, P, L, f }
+    this.list = [];                               // every polity yet: { cap, coh, born, died, hue, N, A, P, L, f }
     this.live = [];
     this.rng = stream(pp.planet.seed, 'people:polities');
     this.owed = 0; this.nStates = 0; this.topShare = 0; this.heldN = 0; this.topN = 0; this.topArea = 0; this.first = null;
@@ -414,25 +424,41 @@ export class Polities {
     this.recolour();
   }
 
-  /** The look (hue × ANGS + angle) furthest from those of the polities `near`, searched from (h0, a0). */
-  pick(near, h0, a0) {
-    let best = h0 * ANGS + a0, bv = -1;
-    for (let i = 0; i < HUES * ANGS; i++) {
-      const h = (h0 + i) % HUES, an = (a0 + Math.floor(i / HUES)) % ANGS;
-      let v = Infinity;
-      for (const q of near) v = Math.min(v, look(this.list[q], h, an));
-      if (v > bv + 1e-9) { bv = v; best = h * ANGS + an; }
-      if (v === Infinity) break;
+  /**
+   * The hue where a state seated at place c least resembles the others: the least of HUE_N hues from u0
+   * of Σ w e^{−(Δu/HUE_SIG)²} over the live states but `self`, each weighed by its weight in `meet` (those
+   * it meets), HUE_NEAR e^{−θ/HUE_L} by the arc θ between their capitals and HUE_ALL over the number
+   * live, and the accent by HUE_RED.
+   */
+  pick(c, meet, self, u0) {
+    const pp = this.pp, g = pp.planet.grid, cells = pp.cells, list = this.list, live = this.live;
+    const hs = [0], ws = [HUE_RED], all = HUE_ALL / Math.max(1, live.length), a = g && cells ? 3 * cells[c] : -1;
+    for (const o of live) {
+      if (o === self) continue;
+      const q = list[o];
+      let w = (meet.get(o) || 0) + all;
+      if (a >= 0) {
+        const b = 3 * cells[q.cap], x = g.pos[a] * g.pos[b] + g.pos[a + 1] * g.pos[b + 1] + g.pos[a + 2] * g.pos[b + 2];
+        w += HUE_NEAR * Math.exp(-Math.acos(Math.max(-1, Math.min(1, x))) / HUE_L);
+      }
+      hs.push(q.hue); ws.push(w);
+    }
+    let best = u0, bv = Infinity;
+    for (let n = 0; n < HUE_N; n++) {
+      const u = (u0 + n / HUE_N) % 1;
+      let v = 0;
+      for (let m = 0; m < hs.length; m++) { const x = hueGap(u, hs[m]) / HUE_SIG; v += ws[m] * Math.exp(-x * x); }
+      if (v < bv - 1e-12) { bv = v; best = u; }
     }
     return best;
   }
 
   /**
-   * Keep states that meet apart in look. Two meet across a border, in a place both hold (a contested
-   * march, drawn interleaved) or across less than SEA_TOUCH km of sea; largest first, each state that
-   * looks like a larger one it meets (one angle, hues a step or less apart) takes the look furthest from
-   * all it meets, so the large keep theirs and a change lands where it's smallest. Drawing only: it
-   * draws nothing from the stream, so the run is the same.
+   * Keep states that meet apart in hue. Two meet across a border, in a place both hold (a contested
+   * march, drawn striped) or across less than SEA_TOUCH km of sea; largest first, each state within
+   * HUE_CLASH of a larger one it meets takes the hue where it least resembles the others (`pick`, those it
+   * meets weighed 1 if larger and ½ if smaller), so the large keep theirs and a change lands where it's
+   * smallest. Drawing only: it draws nothing from the stream, so the run is the same.
    */
   recolour() {
     const pp = this.pp, nL = pp.nL, E = pp.E, id = this.id, s = this.s, d = this.d, list = this.list;
@@ -448,26 +474,30 @@ export class Polities {
     const order = [...this.live].sort((a, b) => list[b].N - list[a].N || list[a].born - list[b].born);
     const rank = new Map(order.map((k, i) => [k, i]));
     for (const k of order) {
-      const q = list[k], near = meet.get(k);
+      const q = list[k], near = meet.get(k), rk = rank.get(k);
       let clash = false;
-      for (const o of near) if (rank.get(o) < rank.get(k) && look(list[o], q.hue, q.ang) < 0.5) { clash = true; break; }
+      for (const o of near) if (rank.get(o) < rk && hueGap(list[o].hue, q.hue) < HUE_CLASH) { clash = true; break; }
       if (!clash) continue;
-      const best = this.pick(near, q.hue, q.ang);
-      q.hue = Math.floor(best / ANGS); q.ang = best % ANGS;
+      const w = new Map();
+      for (const o of near) w.set(o, rank.get(o) < rk ? 1 : 0.5);
+      q.hue = this.pick(q.cap, w, k, q.hue);
     }
   }
 
-  /** A polity founded at c, holding its free share; its look apart from those near. */
+  /** A polity founded at c, holding its free share; its hue apart from those in its catchment's. */
   found(c, free) {
     const pp = this.pp, P = pp.P, rt = pp.routes, id = this.id, s = this.s, k = this.list.length;
-    const near = new Set();
+    const meet = new Map();
     if (rt) for (let e = rt.catch.off[c]; e < rt.catch.off[c + 1]; e++) {
       const b = rt.catch.idx[e];
-      for (let j = 0; j < KP; j++) { const q = id[KP * b + j]; if (q < 0) break; near.add(q); }
+      for (let j = 0; j < KP; j++) { const q = id[KP * b + j]; if (q < 0) break; meet.set(q, 1); }
     }
-    const best = this.pick(near, this.rng.uniform() * HUES | 0, this.rng.uniform() * ANGS | 0);
+    // Two draws a founding, the stream's count from when a look was a hue and an angle, so the run is the
+    // same: the first starts the search.
+    const u0 = this.rng.uniform(); this.rng.uniform();
+    const hue = this.pick(c, meet, -1, u0);
     if (this.first === null) this.first = pp.t;
-    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue: Math.floor(best / ANGS), ang: best % ANGS, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0 });
+    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0 });
     this.live.push(k);
     // It unites its region: the free share of each place in its catchment, e-fold over its reach (a
     // chiefdom's confederation; from one place, the region's resistance stopped every founding). Its
@@ -554,22 +584,33 @@ export class Polities {
   capSlot(k) { return this.pp.ids.lead[this.list[k].cap]; }
 
   /**
-   * The States map's fields, three vec4s a cell of the people's grid, as the Culture map's
-   * (src/engine/peoples.js, `drawn`): the largest polity's hatch angle (2θ) and hue as cosines and
-   * sines × its share of the place's people, the second's alike.
+   * The States map's fields, three vec4s a cell of the people's grid (as the Culture map's,
+   * src/engine/peoples.js, `drawn`): the first the hues of the place's two bands, each (cos, sin) of its
+   * wheel angle × the share F its two largest states hold of those who deliver; the second's x F alone (so
+   * the shader can tell a band's hue turning from its share falling). A place one state holds is one hue
+   * in both bands; where the second holds past MARCH its band turns to the second's hue, so a contested
+   * place is striped equally in both. The bands go by the states' order, not their shares, so a march's
+   * stripes keep their colours across it while the larger flickers place by place. The third's x the
+   * fishers' parcels (Settlement, Density).
    */
   drawn(out = null) {
-    const pp = this.pp, n = pp.planet.grid.n, id = this.id, s = this.s;
+    const pp = this.pp, n = pp.planet.grid.n, id = this.id, s = this.s, list = this.list;
     out = out || new Float32Array(12 * n); out.fill(0);
     for (let c = 0; c < pp.nL; c++) {
-      const o = 12 * pp.cells[c];
+      const o = 12 * pp.cells[c], d = Math.max(this.d[c], 1e-9), k0 = id[KP * c], k1 = id[KP * c + 1];
       out[o + 8] = pp.fishU ? pp.fishU[c] : 0;
-      for (let j = 0; j < 2; j++) {
-        const k = id[KP * c + j];
-        if (k < 0) break;
-        const q = this.list[k], f = Math.min(1, s[KP * c + j] / Math.max(this.d[c], 1e-9)), a2 = 2 * Math.PI * q.ang / ANGS, h = HUE_A[q.hue];
-        out[o + 4 * j] = f * Math.cos(a2); out[o + 4 * j + 1] = f * Math.sin(a2); out[o + 4 * j + 2] = f * Math.cos(h); out[o + 4 * j + 3] = f * Math.sin(h);
+      if (k0 < 0) continue;
+      const f1 = k1 >= 0 ? Math.min(1, s[KP * c + 1] / d) : 0, F = Math.min(1, s[KP * c] / d + f1);
+      const h0 = HUE(list[k0].hue), x0 = Math.cos(h0), y0 = Math.sin(h0);
+      let x1 = x0, y1 = y0;
+      if (k1 >= 0) {
+        const t = smooth((f1 - MARCH[0]) / (MARCH[1] - MARCH[0])), h1 = HUE(list[k1].hue);
+        x1 = (1 - t) * x0 + t * Math.cos(h1); y1 = (1 - t) * y0 + t * Math.sin(h1);
       }
+      const sw = k1 >= 0 && k1 < k0;
+      out[o] = F * (sw ? x1 : x0); out[o + 1] = F * (sw ? y1 : y0);
+      out[o + 2] = F * (sw ? x0 : x1); out[o + 3] = F * (sw ? y0 : y1);
+      out[o + 4] = F;
     }
     return out;
   }
@@ -577,136 +618,15 @@ export class Polities {
   /** Each place's strongest polity where it holds most of those who deliver, else −1. */
   owner(c) { const k = this.id[KP * c]; return k >= 0 && this.s[KP * c] >= 0.5 * this.d[c] && this.d[c] > 0 ? k : -1; }
 
-  /**
-   * Each peopled place's owner for drawing its borders (`borders`): the holder of the most of its own and
-   * its land neighbours' deliverers (itself twice), stateless where none holds half; then specks under
-   * SPECK places folded into what most surrounds them. A contested march's shares flicker about a half
-   * place by place, and the owner's lines had drawn it as a froth of specks (Xinjiang's, late in industry).
-   */
-  drawOwners() {
-    const pp = this.pp, nL = pp.nL, E = pp.E, N = pp.Ntot, id = this.id, s = this.s, d = this.d;
-    const own = this.dOwn && this.dOwn.length === nL ? this.dOwn : (this.dOwn = new Int32Array(nL)), sc = new Map();
-    for (let c = 0; c < nL; c++) {
-      own[c] = -2;
-      if (!(N[c] > 0)) continue;
-      sc.clear();
-      let tw = 0;
-      const take = (b, w) => {
-        if (!(d[b] > 0)) { tw += w; return; }
-        tw += w;
-        for (let j = 0; j < KP; j++) { const k = id[KP * b + j]; if (k < 0) break; sc.set(k, (sc.get(k) || 0) + w * s[KP * b + j] / d[b]); }
-      };
-      take(c, 2);
-      for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e] && N[E.nb[e]] > 0) take(E.nb[e], 1);
-      let best = -1, bv = 0;
-      for (const [k, v] of sc) if (v > bv) { bv = v; best = k; }
-      own[c] = best >= 0 && bv >= 0.5 * tw ? best : -1;
-    }
-    // Specks: components (land edges) of under SPECK places take their surroundings' commonest owner.
-    const comp = this.dComp && this.dComp.length === nL ? this.dComp : (this.dComp = new Int32Array(nL)), stack = [], members = [];
-    comp.fill(-1);
-    for (let c = 0; c < nL; c++) {
-      if (own[c] === -2 || comp[c] >= 0) continue;
-      stack.length = 0; members.length = 0; stack.push(c); comp[c] = c;
-      while (stack.length) {
-        const u = stack.pop(); members.push(u);
-        for (let e = E.off[u]; e < E.off[u + 1]; e++) { if (E.hop[e]) continue; const b = E.nb[e]; if (comp[b] < 0 && own[b] === own[c]) { comp[b] = c; stack.push(b); } }
-      }
-      if (members.length >= SPECK) continue;
-      const around = new Map();
-      for (const u of members) for (let e = E.off[u]; e < E.off[u + 1]; e++) { if (E.hop[e]) continue; const b = E.nb[e]; if (own[b] !== -2 && own[b] !== own[c]) around.set(own[b], (around.get(own[b]) || 0) + 1); }
-      let best = null, bv = 0;
-      for (const [k, v] of around) if (v > bv) { bv = v; best = k; }
-      if (best !== null) for (const u of members) own[u] = best;
-    }
-    return own;
-  }
-
-  /**
-   * The borders, for drawing: the Voronoi edges between peopled places whose drawn owners differ (`drawOwners`), as chains
-   * relaxed as the peoples' tears were (a network smoothed with its ends held, then each chain cut):
-   * weight 1 between two states, 0 between a state and the stateless. And the capitals of the states
-   * holding at least N_MARK people (positions, people).
-   */
-  borders(relax = 4, cuts = 2, net = 6) {
-    const pp = this.pp, P = pp.P, g = pp.planet.grid, loc = pp.loc, cells = pp.cells, N = pp.Ntot;
-    const adj = new Map(), add = (u, v, w) => { if (!adj.has(u)) adj.set(u, []); adj.get(u).push([v, w]); }, own = this.drawOwners();
-    for (let c = 0; c < pp.nL; c++) {
-      if (!(N[c] > 0)) continue;
-      const kc = own[c], i = cells[c], o = g.nbrOff[i], deg = g.nbrOff[i + 1] - o;
-      for (let k = 0; k < deg; k++) {
-        const b = loc[g.nbr[o + k]];
-        if (b < 0 || b <= c || !(N[b] > 0)) continue;
-        const kb = own[b];
-        if (kb === kc) continue;
-        const w = kb >= 0 && kc >= 0 ? 1 : 0;
-        const f0 = g.corner[o + (k + deg - 1) % deg], f1 = g.corner[o + k];
-        add(f0, f1, w); add(f1, f0, w);
-      }
-    }
-    const used = new Set(), key = (u, v) => (u < v ? u * g.nf + v : v * g.nf + u), chains = [];
-    const walk = (u, v, w) => {
-      const nodes = [u, v], ws = [w];
-      used.add(key(u, v));
-      for (let prev = u, cur = v; ;) {
-        const e = adj.get(cur);
-        if (!e || e.length !== 2) break;
-        const nx = e[0][0] === prev ? e[1] : e[0];
-        if (used.has(key(cur, nx[0]))) break;
-        used.add(key(cur, nx[0])); nodes.push(nx[0]); ws.push(nx[1]); prev = cur; cur = nx[0];
-      }
-      chains.push([nodes, ws]);
-    };
-    for (const [u, e] of adj) if (e.length !== 2) for (const [v, w] of e) if (!used.has(key(u, v))) walk(u, v, w);
-    for (const [u, e] of adj) for (const [v, w] of e) if (!used.has(key(u, v))) walk(u, v, w);
-    // The network relaxed first, its junctions too (only its ends held): held at the junctions, a
-    // mosaic of small states drew the grid's hexagons.
-    const C = g.centre, pos = new Map();
-    for (const u of adj.keys()) pos.set(u, [C[3 * u], C[3 * u + 1], C[3 * u + 2]]);
-    for (let it = 0; it < net; it++) {
-      const np = new Map();
-      for (const [u, e] of adj) {
-        const p = pos.get(u);
-        if (e.length < 2) { np.set(u, p); continue; }
-        let x = 0, y = 0, z = 0;
-        for (const [v] of e) { const q = pos.get(v); x += q[0]; y += q[1]; z += q[2]; }
-        x = 0.5 * p[0] + 0.5 * x / e.length; y = 0.5 * p[1] + 0.5 * y / e.length; z = 0.5 * p[2] + 0.5 * z / e.length;
-        const r = Math.hypot(x, y, z);
-        np.set(u, [x / r, y / r, z / r]);
-      }
-      for (const [u, p] of np) pos.set(u, p);
-    }
-    const Pt = [], Wt = [], off = [];
-    for (const [nodes, ws] of chains) {
-      let pts = nodes.map(f => pos.get(f).slice()), wt = [ws[0], ...ws];
-      for (let it = 0; it < relax && pts.length > 2; it++) {
-        const np = pts.map(p => p.slice());
-        for (let k = 1; k + 1 < pts.length; k++) {
-          const a = pts[k - 1], b = pts[k], c = pts[k + 1], x = 0.5 * b[0] + 0.25 * (a[0] + c[0]), y = 0.5 * b[1] + 0.25 * (a[1] + c[1]), z = 0.5 * b[2] + 0.25 * (a[2] + c[2]), r = Math.hypot(x, y, z);
-          np[k] = [x / r, y / r, z / r];
-        }
-        pts = np;
-      }
-      for (let it = 0; it < cuts && pts.length > 2; it++) {
-        const np = [pts[0]], nw = [wt[0]];
-        for (let k = 0; k + 1 < pts.length; k++) {
-          const p0 = pts[k], p1 = pts[k + 1], m = t => { const x = p0[0] + t * (p1[0] - p0[0]), y = p0[1] + t * (p1[1] - p0[1]), z = p0[2] + t * (p1[2] - p0[2]), r = Math.hypot(x, y, z); return [x / r, y / r, z / r]; };
-          if (k > 0) { np.push(m(0.25)); nw.push(wt[k + 1]); }
-          if (k + 2 < pts.length) { np.push(m(0.75)); nw.push(wt[k + 1]); }
-        }
-        np.push(pts[pts.length - 1]); nw.push(wt[wt.length - 1]);
-        pts = np; wt = nw;
-      }
-      off.push(Pt.length / 3);
-      for (let k = 0; k < pts.length; k++) { Pt.push(...pts[k]); Wt.push(wt[k]); }
-    }
-    const caps = [];
+  /** The capitals of the states holding at least N_MARK people, for drawing: position and people, four a capital. */
+  capitals() {
+    const pp = this.pp, g = pp.planet.grid, caps = [];
     for (const k of this.live) {
       const q = this.list[k];
-      if (!(q.N >= P.N_MARK)) continue;
-      const i = cells[q.cap];
+      if (!(q.N >= pp.P.N_MARK)) continue;
+      const i = pp.cells[q.cap];
       caps.push(g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2], q.N);
     }
-    return { P: Float32Array.from(Pt), W: Float32Array.from(Wt), off: Int32Array.from(off), caps: Float32Array.from(caps) };
+    return Float32Array.from(caps);
   }
 }

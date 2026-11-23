@@ -47,8 +47,10 @@
 // wash with isotherms every 5 °C, the sea's ice, and the water's vertical
 // motion in indigo: upwelling a stipple by the cooling it brings the surface,
 // the overturning's sinking a hatch by its rate; the currents are streamlines
-// on the overlay (src/render/streamlines.js). The Air chart is a
-// chart's base (pale land with half the relief, the paper for sea) under an
+// on the overlay (src/render/streamlines.js); lakes are the chart's water
+// with their ice and their shore's hairline. The Air chart is a
+// chart's base (pale land with half the relief, the paper for sea and lakes, a
+// lake's shore a hairline) under an
 // ochre stipple whose density is the dust the air carries (the year's mean
 // load, src/engine/aeolian.js) and, after an eruption, the sulfate veil as
 // graphite hatching along the circles of latitude, denser where its optical
@@ -59,8 +61,8 @@
 // The Climate view draws each land cell's soft Köppen mixture as a mosaic:
 // tesserae fixed to the surface (a jittered 3D lattice), each taking one class
 // with the cell's probability, so a boundary is an ecotone that interleaves.
-// Each class is its group's ink in its second letter's pattern (zonePattern in src/render/figures.js must match): solid f, cross-hatch m, hatch / for w and \ for s, dense
-// and sparse stipple for BW and BS, fine hatch for ET, bare paper for EF.
+// Each class is its group's ink in its second letter's pattern (zonePattern in src/render/figures.js must match): solid f, cross-hatch m, hatch / for w and stipple for s,
+// BW solid and BS cross-hatched as the monsoon, ET solid, bare paper for EF.
 // Patterns and the mosaic are fixed to the globe and scale with the zoom.
 // The Tides view is a co-tidal chart: the semidiurnal tide's amplitude as a
 // wash (co-range), co-tidal lines every lunar hour (30° of its phase) meeting
@@ -80,12 +82,17 @@
 // hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, production
 // as an accent wash and learning as a verdigris one by how near each is to its
 // frontier, production's lines at farming's and industry's in the accent, a stipple by the works a km², and of the land's
-// uses only the cities (People.drawnB). The ice is plain on the People charts.
+// uses only the cities (People.drawnB). Culture: each place's way of life as a
+// wash of its hue and a hatch at its angle, a second way's hatch between the
+// first's lines (Peoples.drawn). States: each place's state as a wash of its hue,
+// fading where it holds few and where states' hues part (so the fade is the
+// border), a contested place in equal stripes of both states' hues
+// (Polities.drawn); with the cities. The ice is plain on the People charts.
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
 // away from the Sun in three steps (the Sun 0°, 6° and 12° below the horizon:
 // civil, nautical and astronomical twilight) and lights it where people and
-// robots are: a tint by the log of their density (the cities' tesserae at a
-// city's), yellow for people turning white with the robots' share.
+// robots are: a tint by the log of their density, yellow for people turning
+// white with the robots' share.
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
@@ -168,8 +175,8 @@ fn toView(p: vec3f) -> vec3f {
   o.vp = vec4f(v, 0.0);
   // The People view's peoples (Peoples.drawn): on the Culture map the largest way's identity in the
   // tides' varying, the second's in Knowledge's and the pasture's (none of them drawn there); the
-  // States map's states alike (Polities.drawn); on Settlement and Density the fishers' parcels in the
-  // tides' x.
+  // States map's two bands in the tides' (Polities.drawn); on Settlement and Density the fishers'
+  // parcels in the tides' x.
   let cult = u.mode.x > 9.5 && u.mode.x < 11.5;
   let seaV = u.mode.x > 11.5;
   let id1 = ident[3u * vi + 1u];
@@ -280,6 +287,19 @@ fn hatchP(T: Tri, dir: vec2f, periodPx: f32, wpx: f32, ph: f32) -> f32 {
   let c = lineAA(dot(T.z, dir) * o.x + ph, T.f.z * o.x, wpx);
   return T.w.x * a + T.w.y * b + T.w.z * c;
 }
+// Equal stripes, 1 on one band and 0 on the other, antialiased over a pixel (a contested place's two
+// states); the next octave's blended in as the zoom crosses it, as hatch's lines are.
+fn halves(c: f32, fwc: f32) -> f32 {
+  return clamp(0.5 + (0.25 - abs(fract(c) - 0.5)) / max(fwc, 1e-7), 0.0, 1.0);
+}
+fn stripes1(uv: vec2f, fw: f32, dir: vec2f, o: vec2f) -> f32 {
+  let c = dot(uv, dir) * o.x;
+  return mix(halves(c, fw * o.x), halves(2.0 * c, 2.0 * fw * o.x), o.y);
+}
+fn stripes(T: Tri, dir: vec2f, periodPx: f32) -> f32 {
+  let o = octave(periodPx);
+  return T.w.x * stripes1(T.x, T.f.x, dir, o) + T.w.y * stripes1(T.y, T.f.y, dir, o) + T.w.z * stripes1(T.z, T.f.z, dir, o);
+}
 // The peoples' hue wheel (Miasma's strain wheel, its src/strain-style.js): OKLCH at one lightness and
 // chroma a theme, fitted like the inks, its zero opposite the accent's hue, hurried through the accent
 // with its chroma dipping there so no people reads as the people's red; h the hue angle, gamma sRGB.
@@ -388,22 +408,20 @@ fn zoneColor(k: i32, T: Tri) -> vec3f {
   if (k >= 12) { g = 4; }
   let ink = zoneInk(g);
   let paper = u.canvas.rgb;
-  // The groups step in value as well as hue (A darkest, then C, D), so they part in grayscale.
+  // The groups step in value as well as hue (A darkest, then C, D), so they part in grayscale: the
+  // fills, the grounds and the patterns' marks alike, every pattern at one density.
   var v = 1.0;
   if (g == 2) { v = 0.8; }
   if (g == 3) { v = 0.64; }
   let ground = mix(paper, ink, 0.16 * v);
-  let mark = mix(paper, ink, 0.82);
+  let mark = mix(paper, ink, 0.82 * v);
   let diag = vec2f(0.7071, 0.7071);
   let anti = vec2f(0.7071, -0.7071);
   switch k {
-    case 0, 6, 9: { return mix(paper, ink, 0.56 * v); }                                         // f: solid
-    case 1: { return mix(ground, mark, max(hatch(T, diag, 5.0 * s, 1.0 * s), hatch(T, anti, 5.0 * s, 1.0 * s))); }   // m
-    case 2, 8, 11: { return mix(ground, mark, hatch(T, diag, 4.5 * s / v, 1.1 * s)); }          // w: hatch /
-    case 3, 7, 10: { return mix(ground, mark, hatch(T, anti, 4.5 * s / v, 1.1 * s)); }          // s: hatch, the other way
-    case 4: { return mix(mix(paper, ink, 0.10), mark, stipple(T, 3.6 * s, 0.95 * s)); }        // BW: dense stipple
-    case 5: { return mix(mix(paper, ink, 0.07), mark, stipple(T, 6.5 * s, 0.95 * s)); }        // BS: sparse stipple
-    case 12: { return mix(mix(paper, ink, 0.10), mark, hatch(T, vec2f(0.0, 1.0), 3.2 * s, 0.8 * s)); }   // ET: fine hatch
+    case 0, 4, 6, 9, 12: { return mix(paper, ink, 0.56 * v); }                                  // f, BW, ET: solid
+    case 1, 5: { return mix(ground, mark, max(hatch(T, diag, 7.0 * s, 1.0 * s), hatch(T, anti, 7.0 * s, 1.0 * s))); }   // m, BS: cross-hatch
+    case 2, 8, 11: { return mix(ground, mark, hatch(T, diag, 7.0 * s, 1.1 * s)); }              // w: hatch /
+    case 3, 7, 10: { return mix(ground, mark, stipple(T, 6.25 * s, 1.05 * s)); }               // s: stipple
     default: { return paper; }                                                                  // EF: paper
   }
 }
@@ -498,7 +516,8 @@ fn hair(d: f32, w: f32) -> f32 {
   let folkV = u.mode.x > 6.5 && u.mode.x < 11.5;   // the People view: its Settlement map (7), Density map (8), Knowledge map (9), Culture map (10) or States map (11)
   let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
   let folkK = u.mode.x > 8.5 && u.mode.x < 9.5;
-  let folkU = u.mode.x > 9.5 && u.mode.x < 11.5;   // Culture or States: each drawn as a strain is (hue × hatch angle)
+  let folkU = u.mode.x > 9.5 && u.mode.x < 11.5;   // Culture or States: identities on a chart's base
+  let folkS = u.mode.x > 10.5 && u.mode.x < 11.5;  // States
   let seaM = u.mode.x > 11.5;       // the Climate view's Sea chart
   let folkC = folkD || folkK || folkU;   // the People maps on a chart's base
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
@@ -665,8 +684,10 @@ fn hair(d: f32, w: f32) -> f32 {
   // sea and ice alike.
   let dl = smoothstep(-2.0, 0.3, log(max(i.z3.w * 1000.0, 1e-6)) / 2.302585);
   let dustDots = stipple(T, mix(16.0, 4.2, dl) * u.mode.z, 0.75 * u.mode.z) * smoothstep(0.0, 0.1, dl);
-  let aland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), u.inkB.rgb, 0.75 * dustDots);
+  var aland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), u.inkB.rgb, 0.75 * dustDots);
   let asea = mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), u.inkB.rgb, 0.75 * dustDots);
+  // Lakes as the chart's sea, under the dust, with their shore's hairline.
+  aland = mix(mix(aland, asea, lk), u.text.rgb, 0.5 * hair(abs(lake), flake));
   land = select(land, aland, air);
   sea = select(sea, asea, air);
 
@@ -687,7 +708,11 @@ fn hair(d: f32, w: f32) -> f32 {
   let sinkW = smoothstep(0.3, 2.0, log(max(i.td.y, 1e-3)) / 2.302585);
   let sinkL = hatch(T, vec2f(0.7071, 0.7071), mix(9.0, 3.6, sinkW) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.08, sinkW);
   ssea = mix(ssea, u.inkE.rgb, 0.8 * max(upDots, sinkL));
-  let sland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
+  var sland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
+  // Lakes as the chart's water (no temperature of their own), frozen as the Relief view's are, with
+  // their shore's hairline.
+  let slake = mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
+  sland = mix(mix(sland, slake, lk), u.text.rgb, 0.5 * hair(abs(lake), flake));
   land = select(land, sland, seaM);
   sea = select(sea, ssea, seaM);
 
@@ -721,10 +746,9 @@ fn hair(d: f32, w: f32) -> f32 {
   // On the People charts the ice is plain (its surface's contours crowd at a cap's steep edge, and
   // read there as the charts' own lines).
   var pland = select(mix(unknown, land, explored), mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), snowInk, sheet), folkC);
-  // The land's uses by a rank fixed to the globe at the tessera's site (the People view's, and the
-  // night's lights: the cities' tesserae lit at a city's density).
+  // The land's uses by a rank fixed to the globe at the tessera's site (the People view's).
   var rank = 1.0;
-  if (folkV || u.sun.w > 0.0) { rank = landRank(ts.xyz / u.mode.y); }
+  if (folkV) { rank = landRank(ts.xyz / u.mode.y); }
   if (folkV) {
     if (folkD) {
       // People: the accent by log density, a faint wash wherever anyone lives deepening to the farms'
@@ -757,6 +781,31 @@ fn hair(d: f32, w: f32) -> f32 {
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
+    } else if (folkS) {
+      // States: each place's state as a wash of its hue, no border drawn: the bands' vectors are its
+      // hue × the share F its states hold (Polities.drawn), interpolated, so the wash fades where a state
+      // holds few and where neighbours' hues part, and the fade is the border. A contested place is
+      // striped equally in its two states' hues (the second band turned to the second's). A band whose
+      // hue turns across the triangle while the other's holds (a march's edge) takes the other's, so the
+      // stripes come in without a band of paper; where both turn (a border) each keeps its own fade.
+      let had = explored * (1.0 - sheet);
+      let a = select(0.42, 0.48, dark);
+      let F = max(i.wx.y, 1e-3);
+      let b0 = i.td.xy;
+      let b1 = i.td.zw;
+      let l0 = length(b0);
+      let l1 = length(b1);
+      let q0 = smoothstep(0.5, 0.9, l0 / F);
+      let q1 = smoothstep(0.5, 0.9, l1 / F);
+      let r0 = max(q0, 1.0 - q1);
+      let r1 = max(q1, 1.0 - q0);
+      let c0 = idWheel(atan2(b0.y, b0.x), dark);
+      let c1 = idWheel(atan2(b1.y, b1.x), dark);
+      let w0 = smoothstep(0.3, 0.8, l0);
+      let w1 = smoothstep(0.3, 0.8, l1);
+      let p0 = mix(pland, mix(c1, c0, r0), a * mix(w1, w0, r0) * had);
+      let p1 = mix(pland, mix(c0, c1, r1), a * mix(w0, w1, r1) * had);
+      pland = mix(p0, p1, stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z));
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
       // hatch at the torus's first angle (over 180°) in the hue of its second (a wheel), over a wash of
@@ -765,9 +814,6 @@ fn hair(d: f32, w: f32) -> f32 {
       // shortens and the fill fades to the chart: a seam where distant branches meet, none in a continuum.
       // Each tessera takes one angle, in 15° steps dithered between the two nearest by its rank, so its
       // lines run straight (an angle turning per pixel bent them into whorls) and a turn reads gradual.
-      // States (11): each place's largest state alike, its hue and angle its own (set apart from its
-      // neighbours'), faint where it holds few of those who deliver, the second's interleaved: a contested
-      // march (the borders are the overlay's hairlines).
       let d0 = i.td;
       let d1 = vec4f(i.wx.yzw, i.wp.w);
       let had = explored * (1.0 - sheet);
@@ -849,15 +895,14 @@ fn hair(d: f32, w: f32) -> f32 {
   // Night: where the dial resolves the day (u.sun.w), the side away from the Sun darkens in three
   // steps, at the Sun 0°, 6° and 12° below the horizon (civil, nautical and astronomical twilight's:
   // standard), toward graphite (black in the dark theme). Over it, the lights: a tint by the log of
-  // people's and robots' density (the cities' tesserae at a city's, D_URB), from nothing at a
-  // forager's ~1 a km² through a third at farmland's ~100 to full at a city's ~4,000, yellow where
-  // people make it and white where the robots do; none on the sea, a lake or an ice sheet.
+  // people's and robots' density, from nothing at a forager's ~1 a km² through a third at farmland's
+  // ~100 to full at a city's ~4,000, yellow where people make it and white where the robots do; none
+  // on the sea, a lake or an ice sheet.
   let dusk = clamp(0.5 - sunUp / fsun, 0.0, 1.0) + clamp(0.5 - (sunUp + 0.104528) / fsun, 0.0, 1.0) + clamp(0.5 - (sunUp + 0.207912) / fsun, 0.0, 1.0);
   let night = u.sun.w * dusk / 3.0;
   if (night > 0.0) {
     c = mix(c, select(u.text.rgb, vec3f(0.0), dark), select(NIGHT_K, NIGHT_K_DARK, dark) * night);
-    let dens = pow(10.0, i.pp.x);
-    let folkN = select(dens, max(dens, 4000.0), rank < i.pp.z);
+    let folkN = pow(10.0, i.pp.x);
     let bots = pow(10.0, i.pq.z);
     let lq = log(max(folkN + bots, 1e-9)) / 2.302585;
     let lit = pow(smoothstep(0.0, 3.6, lq), 2.2) * step(0.0, cst) * (1.0 - lk) * (1.0 - sheet);

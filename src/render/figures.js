@@ -184,7 +184,7 @@ export function zonePattern(ctx, k, x, y, w, h, pal) {
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
   const fill = a => { ctx.fillStyle = alpha(ink, a); ctx.fillRect(x, y, w, h); };
   const hatch = (dx, dy, period, lw) => {
-    ctx.strokeStyle = alpha(ink, 0.82); ctx.lineWidth = lw;
+    ctx.strokeStyle = alpha(ink, 0.82 * v); ctx.lineWidth = lw;
     ctx.beginPath();
     for (let o = -w - h; o < w + h; o += period) {
       if (dy === 0) { ctx.moveTo(x, y + o); ctx.lineTo(x + w, y + o); continue; }
@@ -193,18 +193,15 @@ export function zonePattern(ctx, k, x, y, w, h, pal) {
     ctx.stroke();
   };
   const dots = (period, r) => {
-    ctx.fillStyle = alpha(ink, 0.82);
+    ctx.fillStyle = alpha(ink, 0.82 * v);
     for (let row = 0, yy = y; yy < y + h + period; row++, yy += period * 0.866) {
       for (let xx = x + (row % 2 ? period / 2 : 0); xx < x + w + period; xx += period) { ctx.beginPath(); ctx.arc(xx, yy, r, 0, 2 * Math.PI); ctx.fill(); }
     }
   };
-  if (k === 0 || k === 6 || k === 9) fill(0.56 * v);
-  else if (k === 1) { fill(0.16); hatch(1, 1, 5 * 1.414, 1); hatch(-1, 1, 5 * 1.414, 1); }
-  else if (k === 2 || k === 8 || k === 11) { fill(0.16 * v); hatch(1, 1, 4.5 * 1.414 / v, 1.1); }
-  else if (k === 3 || k === 7 || k === 10) { fill(0.16 * v); hatch(-1, 1, 4.5 * 1.414 / v, 1.1); }
-  else if (k === 4) { fill(0.10); dots(3.6, 0.95); }
-  else if (k === 5) { fill(0.07); dots(6.5, 0.95); }
-  else if (k === 12) { fill(0.10); hatch(0, 0, 3.2, 0.8); }
+  if (k === 0 || k === 4 || k === 6 || k === 9 || k === 12) fill(0.56 * v);
+  else if (k === 1 || k === 5) { fill(0.16); hatch(1, 1, 7 * 1.414, 1); hatch(-1, 1, 7 * 1.414, 1); }
+  else if (k === 2 || k === 8 || k === 11) { fill(0.16 * v); hatch(1, 1, 7 * 1.414, 1.1); }
+  else if (k === 3 || k === 7 || k === 10) { fill(0.16 * v); dots(6.25, 1.05); }
   ctx.restore();
   ctx.strokeStyle = alpha(pal.text, 0.25); ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);

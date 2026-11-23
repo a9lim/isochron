@@ -21,7 +21,7 @@ import { solarSystem } from './solar.js';
 import { figureOf } from './peoplefit.js';
 import { stable } from './cohorts.js';
 let pyrRef = null, routesAt = null;   // Fig. 9's reference; the trade kernel last drawn
-let bordersAt = -1, lastBorders = 0;   // the states' step last drawn, and when
+let capsAt = -1;   // the states' step whose capitals were last sent
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
 const WAIT = 50;              // ms the owed years may build toward a whole step before one shorter is taken
@@ -157,12 +157,12 @@ function post(force) {
     lastDrawn = now;
     const d = people.drawn(), l = people.drawnB(), c = people.ids.drawn(), st = people.pol.drawn();
     self.postMessage({ type: 'drawn', d, l, c, s: st, zf: [people.zfP || 0, people.zfL || 0] }, [d.buffer, l.buffer, c.buffer, st.buffer]);
-    // The states' borders and capitals (src/engine/polities.js), as they change, at most once a second.
+    // The states' capitals (src/engine/polities.js), as the states change.
     const pol = people.pol;
-    if (pol.ver !== bordersAt && now - lastBorders > 1000) {
-      bordersAt = pol.ver; lastBorders = now;
-      const b = pol.borders();
-      self.postMessage({ type: 'borders', ...b }, [b.P.buffer, b.W.buffer, b.off.buffer, b.caps.buffer]);
+    if (pol.ver !== capsAt) {
+      capsAt = pol.ver;
+      const caps = pol.capitals();
+      self.postMessage({ type: 'capitals', caps }, [caps.buffer]);
     }
     // The trade's routes (src/engine/routes.js), as each new kernel comes.
     const rt = people.routes;

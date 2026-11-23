@@ -134,18 +134,18 @@ test('within one pool, capital goes where it earns: income a worker e^{θΔz/(1�
   assert.ok(Math.abs(pp.goods[1] - (1 - P.N_TAX) * y1) < 1e-9 * y1 && Math.abs(pp.goods[0] - y0 - P.N_TAX * y1) < 1e-9 * y1);
 });
 
-test('states that meet keep apart in look, the smaller giving way', () => {
-  // Three states of one look: 0–80 and 81–140 meet, 160–199 past a stateless gap meets neither. The middle
-  // one, smaller than its neighbour, takes the look furthest from it (the opposite hue, another angle); the
+test('states that meet keep apart in hue, the smaller giving way', () => {
+  // Three states of one hue: 0–80 and 81–140 meet, 160–199 past a stateless gap meets neither. The middle
+  // one, smaller than its neighbour, takes a hue across the wheel from it (short of the accent, at 0); the
   // others keep theirs.
   const pp = line({}), pol = pp.pol;
   seat(pol, 40, 40); seat(pol, 110, 29); seat(pol, 180, 19);
   pol.d.fill(1);
-  pol.list.forEach((q, k) => Object.assign(q, { N: [3, 1, 2][k], hue: 2, ang: 1 }));
+  pol.list.forEach((q, k) => Object.assign(q, { N: [3, 1, 2][k], hue: 0.3 }));
   pol.recolour();
-  const [a, b, c] = pol.list.map(q => [q.hue, q.ang]);
-  assert.deepEqual([a, c], [[2, 1], [2, 1]]);
-  assert.ok(b[0] === 6 && b[1] !== 1, `${b}`);
+  const [a, b, c] = pol.list.map(q => q.hue), gap = x => { const d = Math.abs(x - 0.3) % 1; return Math.min(d, 1 - d); };
+  assert.deepEqual([a, c], [0.3, 0.3]);
+  assert.ok(gap(b) > 0.3 && b < 0.9, `${b}`);
 });
 
 test("the media pull a nation's places toward its capital, whatever the distance", () => {
