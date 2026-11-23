@@ -35,20 +35,21 @@ async function one(ov, run) {
   pp.onEvent = (t, k, s) => { if (!ev[k]) ev[k] = { t, s }; };
   pp.seed();
   // Empires and incomes after industry (+100, +160, +220 yr): the share of everyone held by a state whose
-  // capital's people are a family apart (likeness under 0.35), and the richest region's income a person
-  // against the poorest's (regions with 1% of the people or more).
+  // capital's people are unlike them (likeness under 0.5) and a family apart (under 0.35), and the richest
+  // region's income a person (food and goods) against the poorest's (regions with 1% of the people or more).
   const marks = [100, 160, 220], emp = [];
   const empire = () => {
     const pol = pp.pol, N = pp.Ntot, inc = new Float64Array(REGIONS.length), pop = new Float64Array(REGIONS.length);
-    let all = 0, sub = 0;
+    let all = 0, sub = 0, unl = 0;
     for (let c = 0; c < pp.nL; c++) {
       all += N[c];
-      if (regOf[c] >= 0) { inc[regOf[c]] += pp.goods[c]; pop[regOf[c]] += N[c]; }
-      const k = pol.owner(c);
-      if (k >= 0 && pp.ids.sim(c, pol.list[k].cap) < 0.35) sub += N[c];
+      if (regOf[c] >= 0) { inc[regOf[c]] += pp.Out[c]; pop[regOf[c]] += N[c]; }
+      const k = pol.owner(c), sm = k >= 0 ? pp.ids.sim(c, pol.list[k].cap) : 1;
+      if (sm < 0.5) unl += N[c];
+      if (sm < 0.35) sub += N[c];
     }
     const y = [...pop.keys()].filter(r => pop[r] > 0.01 * all).map(r => inc[r] / pop[r]);
-    return [sub / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9)];
+    return [unl / all, sub / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9)];
   };
   while (pp.t < 6e6 && !ev.present) {
     pp.step(pp.nextDt());
@@ -91,6 +92,6 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   const st = runs.filter(r => r.states);
   if (st.length) console.log('states (effective number · the largest\'s share · the people held) at ' + ['3 kyr before industry', '1 kyr before', 'industry', 'early takeoff'].map((w, i) => `${w} ${mean(st.map(r => r.states[i][0])).toFixed(1)} · ${(100 * mean(st.map(r => r.states[i][1]))).toFixed(0)}% · ${(100 * mean(st.map(r => r.states[i][2]))).toFixed(0)}%`).join('; '));
   const em = runs.filter(r => r.emp && r.emp.length === 3);
-  if (em.length) console.log('empires (under rulers a family apart · the richest region\'s income a person against the poorest\'s) at ' + ['industry +100 yr', '+160', '+220'].map((w, i) => `${w} ${(100 * mean(em.map(r => r.emp[i][0]))).toFixed(0)}% · ${mean(em.map(r => r.emp[i][1])).toFixed(1)}×`).join('; '));
+  if (em.length) console.log('empires (under unlike rulers · a family apart · the richest region\'s income a person against the poorest\'s) at ' + ['industry +100 yr', '+160', '+220'].map((w, i) => `${w} ${(100 * mean(em.map(r => r.emp[i][0]))).toFixed(0)}% · ${(100 * mean(em.map(r => r.emp[i][1]))).toFixed(0)}% · ${mean(em.map(r => r.emp[i][2])).toFixed(1)}×`).join('; '));
   console.log(`score ${mean(sc).toFixed(3)} ± ${Math.sqrt(mean(sc.map(s => (s - mean(sc)) ** 2))).toFixed(3)} over ${draws} draws`);
 }

@@ -333,6 +333,7 @@ export const PEOPLE = {
   D_OASIS: 5,
   // Industry: where it starts and how it spreads
   IND_PACE: 60,                    // industry's spread by contact keeps knowledge's pace only to this many times its own (the works, capital and skills a place builds: industrialization reached the world's regions over two centuries, not one; from memory)
+  B_IND: 0.3, L_IND: 0.8,           // industry's spread and its techniques' copying across a border × B_IND, between unlike peoples × (1 − L_IND (1 − likeness)) (`apart`; synthesis)
   RHO_IND: 10,                     // people per km² past which a farming people has the labour and the markets for industry
   Z_IND: 7, W_IND: 0.1, COAL_MIN: 5, H_IND: 0.02, C_IND: 4e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
@@ -456,14 +457,17 @@ export const PEOPLE = {
   W_DEATH: 0.05, W_WORKS: 0.2, G_STATE: 0.5, B_TRADE: 0.5, K_RIVAL: 0.2,
   // Empires (batch 2b, landing 1; synthesis): power projected past a state's own people, F_PROJ of a place's
   // region's arms (garrisons and the troops raised there) e-fold over LP of route cost from the capital, LP =
-  // L_PROJ × sig((z − Z_PROJ)/W_PROJ) at the capital's production (steam navies and the telegraph, at
-  // industry's knowledge: opened with the open sea's navigation, every state projected alike and the
-  // pre-industrial world merged into a few); a schooled place resists strangers' rule × e^{−K_SELF (1 −
-  // likeness)} (Gellner's congruence of state and nation: decolonization, the breakup of empires by nation).
+  // L_PROJ × i/(i + I_PROJ), i the industry of the state's core (steam navies and the telegraph, which a
+  // little industry builds: opened with the open sea's navigation, every state projected alike and the
+  // pre-industrial world merged into a few; opened at the capital's knowledge, the first industrial states'
+  // capitals were short of it for a century; in proportion to industry, the reach came after the wealth that
+  // armed it had spread); a schooled
+  // place resists strangers' rule × e^{−K_SELF (1 − likeness)} (Gellner's congruence of state and nation:
+  // decolonization, the breakup of empires by nation).
   // Arms with industry: × (1 + K_ARM × industrial income a person over the world's mean): a great power's
   // is its wealth against the others' (Kennedy, from memory), and the troops a state raises overseas are
   // armed at its own.
-  F_PROJ: 0.3, L_PROJ: 2e4, Z_PROJ: 7, W_PROJ: 0.2, K_SELF: 1, K_ARM: 2,
+  F_PROJ: 0.3, L_PROJ: 2e4, I_PROJ: 0.05, K_SELF: 1, K_ARM: 2,
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   // Where ideas go (synthesis, a9; the size speculation): a place's new ideas are shared between the
   // domains, learning's share ½ − TILT among those who feed themselves (foragers, herders, fishers,
@@ -2476,6 +2480,19 @@ export class People {
   }
 
   /** Knowledge over the step, each domain alike: ideas in, losses out, exact; copying from better neighbours and trade partners. */
+  /**
+   * How much of industry and its techniques passes between neighbouring places c and d (synthesis): a
+   * border leaves B_IND of it, and unlike peoples 1 − L_IND (1 − likeness). Industrial techniques are
+   * tacit and institutional, carried by skilled migrants, firms and states' own programmes, so they
+   * crossed borders and languages slowly (Clark's labour efficiency, Comin and Hobijn's adoption lags,
+   * from memory): without it the model's Old World industrialized within a century and its incomes
+   * converged as fast as they parted.
+   */
+  apart(c, d) {
+    const P = this.P;
+    return (P.B_IND < 1 ? this.pol.border(c, d, P.B_IND) : 1) * (P.L_IND > 0 ? 1 - P.L_IND * (1 - this.ids.sim(c, d)) : 1);
+  }
+
   knowledge(dt) {
     const P = this.P, H = this.H, E = this.E, nL = this.nL, N = this.Ntot, ZP = this.zc, ZL = this.zl, Ntot = N, ids = this.ids;
     let zmax = 0, zmaxL = 0;
@@ -2531,7 +2548,7 @@ export class People {
     for (const [Z, zo, mZ, luckC, wW, cT, base] of [[ZP, oP, rt && rt.mZ, this.luckC, P.W_WORK_P, P.C_TRADE, true], [ZL, oL, rt && rt.mZL, this.luckL, P.W_WORK, P.C_TRADE_L, false]]) {
       for (let c = 0; c < nL; c++) {
         if (!(N[c] > 0)) continue;
-        const z0 = zo[c];
+        const z0 = zo[c], gI = base ? sig((z0 - (P.Z_IND - 1)) / 0.25) : 0;   // how far its techniques are industry's
         // Forgetting, less where works keep what's known (a person's share of the cell's works).
         const lam = Wk[c] > 0 ? P.LAMBDA / (1 + Wk[c] / Math.max(Ntot[c], 1e-9) / wW) : P.LAMBDA;
         const eL = Math.exp(-lam * dt), fL = lam * dt > 1e-9 ? (1 - eL) / lam : dt;
@@ -2545,8 +2562,9 @@ export class People {
           const zd = zo[d];
           if (zd <= z0) { wsum += E.hop[o] ? 0 : E.slope[o]; continue; }
           const e = E.hop[o] ? (reach > 0 ? Math.exp(-E.km[o] / reach) : 0) : E.slope[o];
-          // Learning's texts need a shared language (src/engine/peoples.js); production's tacit copying doesn't.
-          up += e * dens(d) * (zd - z0) * (base ? 1 : ids.copyW(c, d)); wsum += e;
+          // Learning's texts need a shared language (src/engine/peoples.js); production's tacit copying
+          // doesn't, until its techniques are industry's (`apart`).
+          up += e * dens(d) * (zd - z0) * (base ? (gI > 1e-3 ? 1 - gI * (1 - this.apart(c, d)) : 1) : ids.copyW(c, d)); wsum += e;
         }
         const pace = this.speed(oL[c]) / P.V0, copy = P.COPY * pace * dens(c);
         const luck = luckC ? 1 + (luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
@@ -2820,7 +2838,7 @@ export class People {
       const know = sig((zc[c] - (P.Z_IND - 1)) / 0.25);
       if (know > 1e-3) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
         const d = E.nb[o];
-        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * softMin(this.speed(zc[c]) / P.V0, P.IND_PACE, 4);
+        if (i0[d] > i0[c]) v += P.C_IND * know * (E.hop[o] ? 0.5 * Math.exp(-E.km[o] / Math.max(this.seaReach(zc[d]), 1e-9)) : 1) * (i0[d] - i0[c]) * softMin(this.speed(zc[c]) / P.V0, P.IND_PACE, 4) * this.apart(c, d);
       }
       ind[c] = Math.min(1, i0[c] + v * dt);
     }

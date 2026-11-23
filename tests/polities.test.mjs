@@ -104,13 +104,14 @@ test("power projected past a state's own people holds to LP ln(coh F/B), and a s
   // cohesion's floor, the nation's, the state's then is).
   const n = 120, c0 = 100, LP = 3000, F = 0.5, B = 0.05, s = 0.5;
   for (const zl of [0, 20]) {
-    const pp = line({ n, c0, L: 10, params: { POL_G: 12, F_PROJ: F, L_PROJ: LP, Z_PROJ: -10 } }), pol = pp.pol, ids = pp.ids, P = pp.P;
+    const pp = line({ n, c0, L: 10, params: { POL_G: 12, F_PROJ: F, L_PROJ: LP } }), pol = pp.pol, ids = pp.ids, P = pp.P;
     pp.zl.fill(zl);
     for (let c = 0; c < n; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = c ? P.D_SIM : 0; }   // likeness 1/(1 + 1) to the capital's
+    pp.ind.fill(1);   // all industry, so the projection's reach is L_PROJ/(1 + I_PROJ) (and everyone delivers)
     seat(pol, 0, 0);
     for (let k = 0; k < 300; k++) { pol.advance(10); pp.t += 10; }
     const nat = 1 / (1 + Math.exp(-(zl - P.Z_NAT) / P.W_NAT)), k = (1 + P.K_KIN * s) / (1 + P.K_KIN) * Math.exp(-P.K_SELF * nat * (1 - s));
-    const want = LP * Math.log(pol.list[0].coh * F * k / B) / c0, got = half(held(pol, 0, n), 1, 1);
+    const want = LP / (1 + P.I_PROJ) * Math.log(pol.list[0].coh * F * k / B) / c0, got = half(held(pol, 0, n), 1, 1);
     assert.ok(Math.abs(got - want) < 0.2, `schooled ${zl}: ${got} against ${want}`);
   }
 });

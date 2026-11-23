@@ -42,8 +42,9 @@
 // Empires (batch 2b, landing 1; synthesis):
 //   projection  a state's power at a place adds F_PROJ of the place's region's arms (garrisons and the
 //               troops raised there, armed at the state's wealth: × (1 + K_ARM y_state/ȳ)/(1 + K_ARM y_place/ȳ))
-//               × e^{−cost/LP}, LP = L_PROJ × sig((z_cap − Z_PROJ)/W_PROJ) (steam navies, at industry's
-//               knowledge; steam cheapens the routes too), so a small state far ahead in knowledge, wealth or
+//               × e^{−cost/LP}, LP = L_PROJ × i/(i + I_PROJ), i its core's industry (steam navies, which
+//               a little industry builds; steam cheapens the routes too), so a small state far ahead in
+//               knowledge, wealth or
 //               cohesion holds a large region far away (Headrick's Tools of Empire, from memory). Arms
 //               everywhere × (1 + K_ARM × industrial income a person over the world's mean ȳ): a great
 //               power's is its wealth against the others' (Kennedy), the gap widest while industry is young.
@@ -72,6 +73,7 @@ export const KP = 3;      // the polities a place keeps
 const KC = 4;             // the candidates a place weighs a step
 const HUES = 8, ANGS = 3; // the States map's looks: hues round the peoples' wheel × hatch angles 60° apart
 const SEA_TOUCH = 300;    // km: states facing each other across less sea than this meet, for their looks
+const SPECK = 4;          // places: a drawn owner's piece smaller than this is folded into its surroundings
 
 /** How far apart two looks are: their hues' steps round the wheel over four, plus 0.6 for another angle. */
 const look = (o, h, an) => Math.min(Math.abs(o.hue - h), HUES - Math.abs(o.hue - h)) / (HUES / 2) + (o.ang === an ? 0 : 0.6);
@@ -121,6 +123,7 @@ export class Polities {
     this.arm = new Float64Array(nL);              // its arms a person (the horse)
     this.pi0 = new Float64Array(nL);              // its own resistance
     this.rA = new Float64Array(nL);               // its region's arms (the kernel's sum)
+    this.rY = new Float64Array(nL);               // its region's industrial income a person
     this.nat = new Float64Array(nL);              // how far its people are schooled into a nation (0–1)
     this.S = new Float64Array(nL).fill(pp.P.COH0); // each place's cohesion (asabiya)
     this.fr = new Float64Array(nL);               // its metaethnic frontier's weight
@@ -183,12 +186,12 @@ export class Polities {
     const wE = this.wE && this.wE.length === cix.length ? this.wE : (this.wE = new Float64Array(cix.length));
     for (let c = 0; c < nL; c++) {
       const Lc = this.reachAt(zc[c]), si = ind[c];
-      let r = 0;
+      let r = 0, ry = 0, rn = 0;
       for (let e = cof[c]; e < cof[c + 1]; e++) {
         const b = cix[e], w = N[b] > 0 ? Math.exp(-((1 - si) * cS[e] + si * cI[e]) / Lc) : 0;
-        wE[e] = w; r += w * N[b] * arm[b];
+        wE[e] = w; r += w * N[b] * arm[b]; ry += w * pp.goods[b]; rn += w * N[b];
       }
-      pi0[c] *= r; this.rA[c] = r;
+      pi0[c] *= r; this.rA[c] = r; this.rY[c] = rn > 0 ? ry / rn : 0;
       this.nat[c] = 1 / (1 + Math.exp(-(pp.zl[c] - P.Z_NAT) / P.W_NAT));
     }
     // Each polity: its cohesion's weight, its reach, and the costs from its capital (its catchment's
@@ -198,7 +201,7 @@ export class Polities {
       const q = list[k], cap = q.cap, zk = zc[cap];
       q.w = q.coh * Math.exp(Math.min(zk / P.Z_MIL, 600));
       q.L = this.reachAt(zk); q.sI = ind[cap]; q.m0 = mo[cap]; q.o0 = own[node[cap]];
-      q.LP = P.F_PROJ > 0 ? P.L_PROJ / (1 + Math.exp(-(zk - P.Z_PROJ) / P.W_PROJ)) : 0;
+      q.LP = P.F_PROJ > 0 ? P.L_PROJ * (q.ind || 0) / ((q.ind || 0) + P.I_PROJ) : 0;   // steam navies: some industry builds them
       const near = q.near || (q.near = new Map());
       near.clear();
       for (let e = cof[cap]; e < cof[cap + 1]; e++) near.set(cix[e], (1 - q.sI) * cS[e] + q.sI * cI[e]);
@@ -210,7 +213,7 @@ export class Polities {
       return q.o0 + xm + own[node[c]];
     };
     // The polities projecting power past their own people (landing 1 of batch 2b; synthesis): those whose
-    // capitals know the open sea's navigation, Z_PROJ.
+    // core has industry (steam navies).
     const proj = live.filter(k => list[k].LP > 1e-3 * P.L_PROJ), rA = this.rA, nat = this.nat;
     // The candidates: the polities holding among each place's region, each by its arms there × its
     // cohesion × its capital's reach (Boulding's gradient), and those projecting power to it: F_PROJ of
@@ -247,8 +250,9 @@ export class Polities {
       const o = KC * c;
       for (let h = 0; h < nk; h++) {
         const q = list[lk[h]], sm = ids.sim(c, q.cap), x = capCost(q, c);
-        // The troops raised there are armed as their rulers are: the region's arms at the state's wealth.
-        const yc = N[c] > 0 ? pp.goods[c] / N[c] : 0, lift = (1 + ky * (q.y || 0)) / (1 + ky * yc);
+        // The troops raised there are armed as their rulers are: the region's arms at the state's wealth
+        // against the region's (a place's own, a city's or a village's, flipped neighbours apart).
+        const lift = (1 + ky * (q.y || 0)) / (1 + ky * this.rY[c]);
         const arms = la[h] * Math.exp(-x / q.L) + (q.LP > 1e-3 * P.L_PROJ ? P.F_PROJ * rA[c] * lift * Math.exp(-x / q.LP) : 0);
         const v = q.w * arms * (1 + kin * sm) / (1 + kin) * Math.exp(-P.K_SELF * nat[c] * (1 - sm));
         if (!(v > cpi[o + KC - 1])) continue;
@@ -333,19 +337,19 @@ export class Polities {
     // A state's cohesion is its people's, each by how alike they are to its capital's: the ruling
     // people's asabiya, not its subjects' (Turchin's core; an empire's colonies, subjects decaying
     // behind no frontier of their own, had drained its home's).
-    for (const k of live) { const q = list[k]; q.area = 0; q.cw = 0; q.y = 0; }
+    for (const k of live) { const q = list[k]; q.area = 0; q.cw = 0; q.y = 0; q.ind = 0; }
     for (let c = 0; c < nL; c++) {
       if (own2[c] >= 0) list[own2[c]].area += H.area[c];
       for (let j = 0; j < KP; j++) {
         const k = id[KP * c + j];
         if (k < 0) break;
         const q = list[k], w = s[KP * c + j] * N[c], wk = w * ids.sim(c, q.cap);
-        q.N += w; q.A += w * arm[c]; q.coh += wk * Sc[c]; q.cw += wk; q.f += w * fr[c]; q.y += wk * pp.goods[c] / Math.max(N[c], 1e-9);
+        q.N += w; q.A += w * arm[c]; q.coh += wk * Sc[c]; q.cw += wk; q.f += w * fr[c]; q.y += wk * pp.goods[c] / Math.max(N[c], 1e-9); q.ind += wk * ind[c];
       }
     }
     for (const k of live) {
       const q = list[k];
-      q.coh = q.cw > 0 ? q.coh / q.cw : P.COH0; q.f = q.N > 0 ? q.f / q.N : 0; q.y = q.cw > 0 ? q.y / q.cw : 0;   // its core's income a person
+      q.coh = q.cw > 0 ? q.coh / q.cw : P.COH0; q.f = q.N > 0 ? q.f / q.N : 0; q.y = q.cw > 0 ? q.y / q.cw : 0; q.ind = q.cw > 0 ? q.ind / q.cw : 0;   // its core's income a person, its industry
       q.P = q.coh * q.A; q.rb = 0; q.ra = 0;
     }
     // Rivalry (a9; contested, so weak: Hoffman's tournament, the fragmented Europe of Jones, Mokyr and
@@ -529,9 +533,8 @@ export class Polities {
 
   /** The share of place c's deliverers its states hold (0–1). */
   held(c) { const d = this.d[c]; if (!(d > 0)) return 0; let h = 0; for (let j = 0; j < KP; j++) { if (this.id[KP * c + j] < 0) break; h += this.s[KP * c + j]; } return Math.min(1, h / d); }
-  /** How much of trade between places a and b a border leaves: 1 within one state or between the stateless, B_TRADE across one, mixed by their shares. */
-  border(a, b) {
-    const B = this.pp.P.B_TRADE;
+  /** How much of trade (or, at B, of another flow) between places a and b a border leaves: 1 within one state or between the stateless, B across one, mixed by their shares. */
+  border(a, b, B = this.pp.P.B_TRADE) {
     if (!(B < 1)) return 1;
     const id = this.id, s = this.s, da = this.d[a], db = this.d[b];
     let same = 0, ha = 0, hb = 0;
@@ -575,21 +578,66 @@ export class Polities {
   owner(c) { const k = this.id[KP * c]; return k >= 0 && this.s[KP * c] >= 0.5 * this.d[c] && this.d[c] > 0 ? k : -1; }
 
   /**
-   * The borders, for drawing: the Voronoi edges between peopled places whose owners differ, as chains
+   * Each peopled place's owner for drawing its borders (`borders`): the holder of the most of its own and
+   * its land neighbours' deliverers (itself twice), stateless where none holds half; then specks under
+   * SPECK places folded into what most surrounds them. A contested march's shares flicker about a half
+   * place by place, and the owner's lines had drawn it as a froth of specks (Xinjiang's, late in industry).
+   */
+  drawOwners() {
+    const pp = this.pp, nL = pp.nL, E = pp.E, N = pp.Ntot, id = this.id, s = this.s, d = this.d;
+    const own = this.dOwn && this.dOwn.length === nL ? this.dOwn : (this.dOwn = new Int32Array(nL)), sc = new Map();
+    for (let c = 0; c < nL; c++) {
+      own[c] = -2;
+      if (!(N[c] > 0)) continue;
+      sc.clear();
+      let tw = 0;
+      const take = (b, w) => {
+        if (!(d[b] > 0)) { tw += w; return; }
+        tw += w;
+        for (let j = 0; j < KP; j++) { const k = id[KP * b + j]; if (k < 0) break; sc.set(k, (sc.get(k) || 0) + w * s[KP * b + j] / d[b]); }
+      };
+      take(c, 2);
+      for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e] && N[E.nb[e]] > 0) take(E.nb[e], 1);
+      let best = -1, bv = 0;
+      for (const [k, v] of sc) if (v > bv) { bv = v; best = k; }
+      own[c] = best >= 0 && bv >= 0.5 * tw ? best : -1;
+    }
+    // Specks: components (land edges) of under SPECK places take their surroundings' commonest owner.
+    const comp = this.dComp && this.dComp.length === nL ? this.dComp : (this.dComp = new Int32Array(nL)), stack = [], members = [];
+    comp.fill(-1);
+    for (let c = 0; c < nL; c++) {
+      if (own[c] === -2 || comp[c] >= 0) continue;
+      stack.length = 0; members.length = 0; stack.push(c); comp[c] = c;
+      while (stack.length) {
+        const u = stack.pop(); members.push(u);
+        for (let e = E.off[u]; e < E.off[u + 1]; e++) { if (E.hop[e]) continue; const b = E.nb[e]; if (comp[b] < 0 && own[b] === own[c]) { comp[b] = c; stack.push(b); } }
+      }
+      if (members.length >= SPECK) continue;
+      const around = new Map();
+      for (const u of members) for (let e = E.off[u]; e < E.off[u + 1]; e++) { if (E.hop[e]) continue; const b = E.nb[e]; if (own[b] !== -2 && own[b] !== own[c]) around.set(own[b], (around.get(own[b]) || 0) + 1); }
+      let best = null, bv = 0;
+      for (const [k, v] of around) if (v > bv) { bv = v; best = k; }
+      if (best !== null) for (const u of members) own[u] = best;
+    }
+    return own;
+  }
+
+  /**
+   * The borders, for drawing: the Voronoi edges between peopled places whose drawn owners differ (`drawOwners`), as chains
    * relaxed as the peoples' tears were (a network smoothed with its ends held, then each chain cut):
    * weight 1 between two states, 0 between a state and the stateless. And the capitals of the states
    * holding at least N_MARK people (positions, people).
    */
   borders(relax = 4, cuts = 2, net = 6) {
     const pp = this.pp, P = pp.P, g = pp.planet.grid, loc = pp.loc, cells = pp.cells, N = pp.Ntot;
-    const adj = new Map(), add = (u, v, w) => { if (!adj.has(u)) adj.set(u, []); adj.get(u).push([v, w]); };
+    const adj = new Map(), add = (u, v, w) => { if (!adj.has(u)) adj.set(u, []); adj.get(u).push([v, w]); }, own = this.drawOwners();
     for (let c = 0; c < pp.nL; c++) {
       if (!(N[c] > 0)) continue;
-      const kc = this.owner(c), i = cells[c], o = g.nbrOff[i], deg = g.nbrOff[i + 1] - o;
+      const kc = own[c], i = cells[c], o = g.nbrOff[i], deg = g.nbrOff[i + 1] - o;
       for (let k = 0; k < deg; k++) {
         const b = loc[g.nbr[o + k]];
         if (b < 0 || b <= c || !(N[b] > 0)) continue;
-        const kb = this.owner(b);
+        const kb = own[b];
         if (kb === kc) continue;
         const w = kb >= 0 && kc >= 0 ? 1 : 0;
         const f0 = g.corner[o + (k + deg - 1) % deg], f1 = g.corner[o + k];
