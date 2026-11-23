@@ -42,7 +42,7 @@ import { gpuDevice } from './src/gpu/device.js';
 import { GpuWeather, weatherForcing } from './src/gpu/weather.js';
 import { GpuSeason } from './src/gpu/season.js';
 import { drawKey } from './src/render/key.js';
-import { STREAM_GAP } from './src/render/streamlines.js';
+import { STREAM_GAP, currentWidth } from './src/render/streamlines.js';
 import { Year } from './src/engine/year.js';
 import { linkCharts, chartFrame } from './src/render/chart.js';
 
@@ -104,7 +104,7 @@ const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-m
 let playing = !reducedMotion;
 let view = 'relief';
 let wxMode = 'pressure';            // the Weather view's chart: pressure, temperature or humidity
-let clMode = 'zones';               // the Climate view's map: its zones, or the air (winds, dust, the veil)
+let clMode = 'zones';               // the Climate view's map: its zones, the air (winds, dust, the veil) or the sea (its temperature, currents and overturning)
 let pmMode = 'settlement';          // the People view's map: where people have reached, their and the robots' density, their knowledge and works, or who they are
 // The Moon as the engine last reported it, and the tide's last solve (per unit equilibrium tide).
 const moon = { a: 3.844e8, Omega: 7.2921e-5, omega: 1.4052e-4, P: 0, day: 23.93 };
@@ -481,6 +481,7 @@ let chartGone = null, chartArrive = 0, chartSpan = 150;
 chartWorker.onmessage = e => {
   const c = e.data, now = performance.now();
   if (c.type === 'air') { onAir(c); return; }
+  if (c.type === 'currents') { onCurrents(c); return; }
   if (chart) chartSpan = 0.7 * chartSpan + 0.3 * Math.max(60, Math.min(1000, now - chartArrive));
   c.prevT = chart ? chart.t : c.t;
   chartGone = linkCharts(chart, c);
@@ -592,6 +593,32 @@ function airFrame() {
   if (f < 1) drawDirty = true;
   return { sets: [{ lines: air.prev && air.prev.lines, alpha: 1 - f, gap: air.prev && STREAM_GAP * air.prev.dsep }, { lines: air.cur.lines, alpha: f, gap: STREAM_GAP * air.cur.dsep }] };
 }
+// The Sea chart's currents: the gyres' surface current (the year's mean, src/engine/ocean.js) traced as
+// streamlines off the page's thread on the ocean's grid, again when the climate has cycled or the zoom
+// crosses an octave, each new set crossfading from the last as the Air chart's do.
+const sea = { cur: null, prev: null, at: -1e9, busy: false, sent: null, id: 0 };
+const seaShown = () => view === 'climate' && clMode === 'sea';
+function refreshCurrents() {
+  const S = climate.sea;
+  if (!seaShown() || sea.busy || !S) return;
+  const k = Math.max(0, Math.min(1, Math.round(Math.log2(camera.radius(cssW, cssH) / 380))));
+  if (sea.sent && sea.sent.version === climate.version && sea.sent.k === k) return;
+  sea.sent = { version: climate.version, k }; sea.busy = true;
+  chartWorker.postMessage({ type: 'currents', id: ++sea.id, level: S.level, vel: Float32Array.from(S.vel), dsep: DSEP / 2 ** k });
+}
+function onCurrents(m) {
+  sea.busy = false;
+  const now = performance.now();
+  if (!(sea.cur && now - sea.at < 0.5 * AIR_FADE)) sea.prev = sea.cur;
+  sea.cur = m; sea.at = now;
+  drawDirty = true;
+}
+function currentsFrame() {
+  if (!seaShown() || !sea.cur) return null;
+  const f = smooth(0, 1, (performance.now() - sea.at) / AIR_FADE);
+  if (f < 1) drawDirty = true;
+  return { sets: [{ lines: sea.prev && sea.prev.lines, alpha: 1 - f, gap: sea.prev && STREAM_GAP * sea.prev.dsep, width: currentWidth }, { lines: sea.cur.lines, alpha: f, gap: STREAM_GAP * sea.cur.dsep, width: currentWidth }] };
+}
 
 // ── Canvas sizing ──
 // The globe draws at the page's resolution × gpuScale, which follows the GPU's time a frame (`gpuTime`):
@@ -653,7 +680,7 @@ function setDial(v) { els.dial.value = String(v); clampDial(); syncDial(); }
 const WX_TOP = -2.1;          // log₁₀ yr/s: ~2.9 days a second
 const EARTH_DIAL = -0.3;      // log₁₀ yr/s: today's Earth opens at half a year a second
 const GROUP = { relief: 'relief', climate: 'relief', weather: 'weather', tides: 'weather', people: 'people' };
-const MAPS = { relief: ['relief', 'zones', 'air'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'knowledge', 'culture', 'states'] };
+const MAPS = { relief: ['relief', 'zones', 'air', 'sea'], weather: ['pressure', 'temperature', 'humidity', 'tides'], people: ['settlement', 'density', 'knowledge', 'culture', 'states'] };
 const lastMap = { relief: 'relief', weather: 'pressure', people: 'settlement' };
 const mapOf = () => view === 'climate' ? clMode : view === 'weather' ? wxMode : view === 'tides' ? 'tides' : view === 'people' ? pmMode : 'relief';
 function clampDial() { if (GROUP[view] === 'weather' && +els.dial.value > WX_TOP) els.dial.value = String(WX_TOP); }
@@ -702,7 +729,7 @@ function setView(v) {
     if (wx && Math.abs(wx.Omega / moon.Omega - 1) > 0.003) wx.setSpin(moon.Omega);
     refreshWeather(true);
   }
-  if (v === 'climate') refreshAir();
+  if (v === 'climate') { refreshAir(); refreshCurrents(); }
   syncControls();
   drawDirty = true;
   caption(true);
@@ -711,7 +738,7 @@ function setView(v) {
 function peopleC() { if (globe && people.ids) globe.setPeopleC(pmMode === 'states' && people.st ? people.st : people.ids, people.grid); }
 /** Show a map by name (MAPS). */
 function setMap(m) {
-  if (m === 'zones' || m === 'air') { clMode = m; setView('climate'); }
+  if (m === 'zones' || m === 'air' || m === 'sea') { clMode = m; setView('climate'); }
   else if (m === 'pressure' || m === 'temperature' || m === 'humidity') { wxMode = m; setView('weather'); }
   else if (m === 'tides') setView('tides');
   else if (m === 'settlement' || m === 'density' || m === 'knowledge' || m === 'culture' || m === 'states') { pmMode = m; setView('people'); peopleC(); }
@@ -846,6 +873,13 @@ function caption(force) {
     if (view === 'people' && pmMode === 'culture' && h.peoples > 0) parts.push(`≈ ${Math.round(+h.peoples.toPrecision(2)).toLocaleString('en')} peoples`);
     // The States map counts the states (src/engine/polities.js, `count`).
     if (view === 'people' && pmMode === 'states' && h.states > 0) parts.push(`≈ ${Math.round(+h.states.toPrecision(2)).toLocaleString('en')} ${Math.round(h.states) === 1 ? 'state' : 'states'}`);
+  }
+  // The Sea map: the overturning, and the deep's uptake while it takes or gives (src/engine/deepsea.js).
+  const S = seaShown() && climate.sea ? climate.sea.stats : null;
+  if (S) {
+    parts.push(`overturning ${S.sv.toFixed(S.sv < 10 ? 1 : 0)} Sv`);
+    const d = S.deep;
+    if (d && Math.abs(d.uptake) >= 0.05) parts.push(`the deep ${d.uptake > 0 ? 'taking' : 'giving'} ${Math.abs(d.uptake).toFixed(1)} W/m²`);
   }
   setCaption(parts.join(' · '), true);
 }
@@ -1223,6 +1257,7 @@ function tick(now) {
   lap('season');
   if (view === 'weather' && wx && (playing || !wx.started || wx.t < SPINUP)) { if (!playing) stepWeather(0); refreshWeather(); }
   if (airShown()) refreshAir();
+  if (seaShown()) refreshCurrents();
   if (playing && rate() < 20) drawDirty = true;   // the sky, the Sun, the Moon, the tide and the rivers' months move at a slow dial
   if (playing && year.live > 0 && year.eruptions.length) drawDirty = true;   // eruptions come and fade
   if (playing) caption(false);
@@ -1271,7 +1306,7 @@ function tick(now) {
     globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, fronts: people.zf, sun: sf.day });
     gpuTime(globe.device);
     lap('globe');
-    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null, borders: view === 'people' && pmMode === 'states' ? people.borders : null }, pal);
+    drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame() || currentsFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null, borders: view === 'people' && pmMode === 'states' ? people.borders : null }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
     lap('overlay');
   }
@@ -1287,6 +1322,7 @@ engine.onmessage = e => {
   } else if (m.type === 'surface') onSurface(m);
   else if (m.type === 'climate') {
     climate.update(m); engineOpened = !!m.opened; climateDirty = true; figuresDirty = true; caption(false);
+    if (globe && climate.sea) globe.setSea(climate.sea.up, climate.sea.sink);
     if (peopleOn() && !people.worker && climate.stats.settled > 0) startPeople();   // the dry run over
   }
   else if (m.type === 'fast') onFast(m);
@@ -1317,6 +1353,7 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
   if (coverDrawn) g.setCover(coverDrawn);
   if (people.drawn) { g.setPeople(people.drawn, people.grid); g.setPeopleB(people.past, people.grid); peopleC(); }
   if (sulfPattern) g.setSulfate(sulfPattern);
+  if (climate.sea) g.setSea(climate.sea.up, climate.sea.sink);
   if (view === 'weather') refreshWeather(true);
   if (shown) uploadSurface(shown, 'reset');
   climateDirty = true;

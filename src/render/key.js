@@ -128,7 +128,18 @@ const GLYPHS = {
     for (const [r, o] of [[3, 0], [6, 3], [9, 0]]) for (let t = o + 1; t < 25; t += 6) line(c, x + t, y + r, x + t + 4.2, y + r);
   },
   isotherm: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
-  current: (c, x, y, P) => { c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 1; c.beginPath(); c.ellipse(x + 13, y + 6, 11, 4.5, 0, 0, 7); c.stroke(); },
+  // The Sea chart's isotherms, in its wash's ink: prussian where cold, sienna where warm.
+  seaiso: (c, x, y, P) => { c.lineWidth = 1; c.strokeStyle = rgba(P.ocean, 0.75); line(c, x, y + 6, x + 13, y + 6); c.strokeStyle = rgba(P.inks.sienna, 0.75); line(c, x + 13, y + 6, x + 26, y + 6); },
+  // A current: a streamline, as the wind's (the Sea chart's).
+  current: (c, x, y, P) => GLYPHS.wind(c, x, y, P),
+  // The water's vertical motion in indigo: upwelling a stipple, the overturning's sinking a hatch (the shader's).
+  upwell: (c, x, y, P) => { c.fillStyle = rgba(P.inks.indigo, 0.8); for (let a = 0; a < 6; a++) for (let b = 0; b < 3; b++) { c.beginPath(); c.arc(x + 2.5 + a * 4.2 + (b % 2) * 2.1, y + 2 + b * 3.8, 0.85, 0, 7); c.fill(); } },
+  sink: (c, x, y, P) => {
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.strokeStyle = rgba(P.inks.indigo, 0.8); c.lineWidth = 0.9;
+    c.beginPath(); for (let t = -12; t < 30; t += 4.5) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 12, y); } c.stroke();
+    c.restore();
+  },
   // Export production: short viridian strokes on a staggered lattice, as the shader's `dashes`.
   export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; c.lineCap = 'round'; for (let b = 0; b < 3; b++) for (let a = 0; a < 4; a++) { const cx = x + 3.5 + a * 6.4 + (b % 2) * 3.2; line(c, cx - 1.5, y + 2 + b * 4, cx + 1.5, y + 2 + b * 4); } c.lineCap = 'butt'; },
   // People: the accent by log density, the farms' densities over the first two thirds and the cities' step after.
@@ -275,9 +286,9 @@ const FRONTS = [['cold', 'Cold front'], ['warm', 'Warm front'], ['stationary', '
 const ITEMS = {
   relief: [['ridge', 'Ridge'], ['trench', 'Trench'], ['collision', 'Collision'], ['transform', 'Transform'], ['inactive', 'Inactive'], ['hotspot', 'Hotspot'],
     ['volcano', 'Eruption'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['icestream', 'Ice stream']],
-  'climate-zones': [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['isotherm', 'Isotherm, 5 °C'],
-    ['current', 'Current, 3 Sv'], ['export', 'Export production'], ['volcano', 'Eruption']],
+  'climate-zones': [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['export', 'Export production'], ['volcano', 'Eruption']],
   'climate-air': [['wind', 'Wind'], ['dust', 'Dust'], ['veil', 'Sulfate veil'], ['volcano', 'Eruption']],
+  'climate-sea': [['current', 'Current'], ['seaiso', 'Isotherm, 5 °C'], ['upwell', 'Upwelling'], ['sink', 'Sinking'], ['volcano', 'Eruption']],
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],

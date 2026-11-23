@@ -123,6 +123,6 @@ export class DeepSea {
     }
     this.stats.uptake = up / (4 * Math.PI);
     this.stats.lag = sea > 0 ? lag / sea : 0;
-    this.stats.heat = -C.C_D * lag / (4 * Math.PI);
+    this.stats.heat = C.C_D * lag / (4 * Math.PI);
   }
 }

@@ -19,12 +19,14 @@ export class ClimateView {
     this.snowAnn = f(0); this.elevPos = f(0); this.landMask = new Uint8Array(n);
     this.zones = new Float32Array(NZ * n);
     this.ocean = { sst: f(0), psi: f(0), stats: { maxSv: 0 } };
+    this.sea = null;       // the Sea map's fields and numbers (the worker's seaFields): upwelling, sinking, the currents, the overturning, the deep
     this.dust = null;      // the dust's stats (src/engine/aeolian.js)
     this.permafrost = f(0);   // the ground's share frozen all year, as drawn (the worker's drawnPermafrost)
   }
   update(m) {
     for (const k of ['version', 'stats', 'zonal', 'Tf', 'Pf', 'presPhase', 'W', 'snowAnn', 'landMask', 'elevPos', 'zones']) this[k] = m[k];
     this.ocean = { sst: m.sst, psi: m.psi, stats: m.oceanStats };
+    if (m.sea) this.sea = m.sea;
     // The sea's export production (g C m⁻² yr⁻¹) rides in the zones' first free slot, which the globe draws.
     if (m.prod) for (let i = 0, n = m.prod.length; i < n; i++) this.zones[NZ * i + 14] = m.prod[i];
     // The dust's load (kg/m², the year's mean) in the second.

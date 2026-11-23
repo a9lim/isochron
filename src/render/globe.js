@@ -40,10 +40,14 @@
 //   ice streams      where the ice slides faster than it deforms (on soft,
 //                    thawed beds: src/engine/regolith.js), fine dashes along
 //                    its flow, as glaciological velocity maps draw them (Relief)
-// In the Climate view the sea carries isotherms of its surface temperature
-// every 5 °C, the gyres' streamlines every 3 Sv and short viridian strokes
-// whose density is the export production (the sea carbon's boxes spread by
-// what feeds them: upwelling, rivers, the cold sea). Its Air chart is a
+// In the Zones map the sea is a plain wash under short viridian strokes whose
+// density is the export production (the sea carbon's boxes spread by what
+// feeds them: upwelling, rivers, the cold sea). The Sea chart is a chart's
+// base on land; on the sea its surface temperature as the temperature chart's
+// wash with isotherms every 5 °C, the sea's ice, and the water's vertical
+// motion in indigo: upwelling a stipple by the cooling it brings the surface,
+// the overturning's sinking a hatch by its rate; the currents are streamlines
+// on the overlay (src/render/streamlines.js). The Air chart is a
 // chart's base (pale land with half the relief, the paper for sea) under an
 // ochre stipple whose density is the dust the air carries (the year's mean
 // load, src/engine/aeolian.js) and, after an eruption, the sulfate veil as
@@ -102,7 +106,7 @@ struct U {
   frame2: vec4f,     // polarity N, ocean tint floor, ocean tint span, land tint floor
   canvas: vec4f, text: vec4f, accent: vec4f, ocean: vec4f, land: vec4f,
   light: vec4f,      // xyz toward the light (view space); w the land tint span
-  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's knowledge, 10 people's culture, 11 people's states), mosaic frequency, device px per CSS px, globe radius in device px
+  mode: vec4f,       // view (0 relief, 1 climate's zones, 2–4 weather's charts, 5 tides, 6 climate's air, 7 people's settlement, 8 people's density, 9 people's knowledge, 10 people's culture, 11 people's states, 12 climate's sea), mosaic frequency, device px per CSS px, globe radius in device px
   // inkA.w: 1 in the dark theme
   inkA: vec4f, inkB: vec4f, inkC: vec4f, inkD: vec4f, inkE: vec4f,
   inkF: vec4f,       // sienna (the temperature chart's warmth)
@@ -118,7 +122,7 @@ struct U {
 @group(0) @binding(2) var<storage, read> cover: array<vec4f>;   // the cover's eight colour weights a vertex
 @group(0) @binding(3) var<storage, read> folk: array<vec4f>;
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
-@group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // coal's sulfate: x its burden's pattern (mean 1, src/engine/peoplelink.js)
+@group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // x coal's sulfate's burden's pattern (mean 1, src/engine/peoplelink.js); y the upwelling's cooling of the sea's surface (K), z the overturning's sinking (m/yr) (src/engine/ocean.js, seaheat.js)
 @group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²
 @group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // Peoples.drawn, three a vertex: the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels; on the States map Polities.drawn, the largest state's and the second's alike, × their shares
 
@@ -166,7 +170,8 @@ fn toView(p: vec3f) -> vec3f {
   // tides' varying, the second's in Knowledge's and the pasture's (none of them drawn there); the
   // States map's states alike (Polities.drawn); on Settlement and Density the fishers' parcels in the
   // tides' x.
-  let cult = u.mode.x > 9.5;
+  let cult = u.mode.x > 9.5 && u.mode.x < 11.5;
+  let seaV = u.mode.x > 11.5;
   let id1 = ident[3u * vi + 1u];
   o.wp = vec4f(p, select(past[vi].x, id1.w, cult));
   o.c = c;
@@ -174,9 +179,10 @@ fn toView(p: vec3f) -> vec3f {
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
   // sulfate's optical depth, its haze where the winds carry it, and the knowledge, its lag and the
-  // works (People.drawnB; the vertex has no varyings to spare).
-  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(past[vi].yzw, id1.xyz, cult)), u.mode.x > 5.5);
-  o.td = select(select(td, vec4f(ident[3u * vi + 2u].x, td.yzw), u.mode.x > 6.5 && u.mode.x < 8.5), ident[3u * vi], cult);
+  // works (People.drawnB; the vertex has no varyings to spare). In the Sea map (no tide) the tide's
+  // carries the upwelling and the sinking.
+  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(past[vi].yzw, id1.xyz, cult)), u.mode.x > 5.5 && u.mode.x < 11.5);
+  o.td = select(select(select(td, vec4f(ident[3u * vi + 2u].x, td.yzw), u.mode.x > 6.5 && u.mode.x < 8.5), ident[3u * vi], cult), vec4f(sulf[vi].yz, 0.0, td.w), seaV);
   // The lakes eased from the last drawn to the new here (linear, so as the fragments would), which
   // leaves room beside them for the sea's ice (c holds the land's snow) and their tint.
   o.lw = vec4f(mix(lw.x, lw.z, u.tide2.w), mix(lw.y, lw.w, u.tide2.w), c2.x, mix(lt.x, lt.y, u.tide2.w));
@@ -442,7 +448,6 @@ fn hair(d: f32, w: f32) -> f32 {
   let iceS = i.lw.z;       // the sea's ice (0..1), carried onto the land's cells beside it
   let lakeQ = i.lw.w;      // the lakes' tint: √(depth / 6 km)
   let sst = i.c.y;         // sea-surface temperature, °C
-  let psi = i.c.z;         // the gyres' streamfunction, Sv
   let age = u.frame.z - tf;
   let iceH = i.c.w;        // ice sheet thickness, m
   let dark = u.inkA.w > 0.5;
@@ -471,7 +476,6 @@ fn hair(d: f32, w: f32) -> f32 {
   let fwT = fwidth(wT);
   let wH = i.wx.w;         // the column's relative humidity (0..1)
   let fwH = fwidth(wH);
-  let fpsi = fwidth(psi);
   let fsnow = max(fwidth(snowL), 1e-3);
   let fseaice = max(fwidth(iceS), 1e-3);
   let fice = max(fwidth(iceH), 1.0);
@@ -491,10 +495,11 @@ fn hair(d: f32, w: f32) -> f32 {
   let wxHum = u.mode.x > 3.5 && u.mode.x < 4.5;
   let tides = u.mode.x > 4.5 && u.mode.x < 5.5;
   let air = u.mode.x > 5.5 && u.mode.x < 6.5;
-  let folkV = u.mode.x > 6.5;       // the People view: its Settlement map (7), Density map (8), Knowledge map (9), Culture map (10) or States map (11)
+  let folkV = u.mode.x > 6.5 && u.mode.x < 11.5;   // the People view: its Settlement map (7), Density map (8), Knowledge map (9), Culture map (10) or States map (11)
   let folkD = u.mode.x > 7.5 && u.mode.x < 8.5;
   let folkK = u.mode.x > 8.5 && u.mode.x < 9.5;
-  let folkU = u.mode.x > 9.5;       // Culture or States: each drawn as a strain is (hue × hatch angle)
+  let folkU = u.mode.x > 9.5 && u.mode.x < 11.5;   // Culture or States: each drawn as a strain is (hue × hatch angle)
+  let seaM = u.mode.x > 11.5;       // the Climate view's Sea chart
   let folkC = folkD || folkK || folkU;   // the People maps on a chart's base
   // The tide: its harmonic per unit equilibrium tide, scaled (η = C cos ωt + S sin ωt, m).
   let tz = i.td.xy * u.tide2.x;
@@ -522,13 +527,10 @@ fn hair(d: f32, w: f32) -> f32 {
   let pbar = (polC(tf + w) - polC(tf - w)) / (2.0 * w);
   sea = mix(sea, u.text.rgb, 0.075 * (0.5 + 0.5 * pbar) * oceanic * (1.0 - iceS));
   sea = mix(sea, u.text.rgb, 0.09 * hair(abs(d - round(d)), fe) * step(0.5, d));
-  // In the Climate view the sea is a plain wash, with isotherms every 5 °C and
-  // the gyres' streamlines every 3 Sv (the currents run along them).
+  // In the Zones map the sea is a plain wash (its temperature and currents are the Sea map's).
   var wash = mix(u.canvas.rgb, u.ocean.rgb, 0.16);
   let iso = sst / 5.0;
-  wash = mix(wash, u.text.rgb, 0.22 * hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4)));
-  let st = psi / 3.0;
-  wash = mix(wash, u.ocean.rgb, 0.75 * hair(abs(st - round(st)), max(fpsi / 3.0, 1e-4)) * step(0.5, abs(psi)));
+  let isoS = hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4));
   // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian strokes, denser where more sinks.
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
   let exMarks = strokes(T, mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
@@ -668,6 +670,27 @@ fn hair(d: f32, w: f32) -> f32 {
   land = select(land, aland, air);
   sea = select(sea, asea, air);
 
+  // The Climate view's Sea chart: a chart's base on land; on the sea its surface's temperature as the
+  // temperature chart's wash (prussian cold, sienna warm) with isotherms every 5 °C in its ink, the sea's ice, and
+  // the water's vertical motion in indigo: the upwelling a stipple whose density is the cooling it
+  // brings the surface (K, the coasts' and the equator's: src/engine/ocean.js), the overturning's
+  // sinking a hatch whose density is its rate (2 to 100 m/yr, by log: src/engine/seaheat.js). The
+  // currents are streamlines on the overlay.
+  let sT = clamp((sst - 10.0) / 25.0, -1.0, 1.0);
+  let sInk = select(u.ocean.rgb, u.inkF.rgb, sT > 0.0);
+  var ssea = mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), sInk, 0.3 * abs(sT));
+  ssea = mix(ssea, sInk, 0.55 * isoS);
+  ssea = mix(ssea, iceInk, seaIce);
+  ssea = mix(ssea, u.ocean.rgb, 0.55 * hair(abs(iceS - 0.5), fseaice));
+  let upK = i.td.x;
+  let upDots = stipple(T, mix(10.0, 4.8, smoothstep(1.5, 8.0, upK)) * u.mode.z, 0.8 * u.mode.z) * smoothstep(0.8, 1.6, upK);
+  let sinkW = smoothstep(0.3, 2.0, log(max(i.td.y, 1e-3)) / 2.302585);
+  let sinkL = hatch(T, vec2f(0.7071, 0.7071), mix(9.0, 3.6, sinkW) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.08, sinkW);
+  ssea = mix(ssea, u.inkE.rgb, 0.8 * max(upDots, sinkL));
+  let sland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
+  land = select(land, sland, seaM);
+  sea = select(sea, ssea, seaM);
+
   // The Tides view: co-range wash (or, at the slowest dials, the sea's height now), co-tidal
   // lines every lunar hour fading into each amphidrome, the line of high water now, and a
   // sienna stipple where the tide's energy goes (its density the dissipation per area).
@@ -805,7 +828,7 @@ fn hair(d: f32, w: f32) -> f32 {
   pland = mix(pland, u.text.rgb, select(0.55, 0.4, folkC) * sheetEdge);
   land = select(land, pland, folkV);
   sea = select(sea, mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), snowInk, sheet), folkC);
-  let chart = weather || tides || air || folkC;
+  let chart = weather || tides || air || folkC || seaM;
 
   // A lake's surface, open or frozen, takes the sea's hillshade, its bed's relief at a third (the
   // normals are the land's, at full exaggeration, so a third of their shading).
@@ -889,8 +912,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   // The peoples' identities and the fishers' parcels, three vec4s a vertex (Peoples.drawn), refined as the folk are.
   const identBuf = storage(device, nm * 48);
   let identS = null;
-  // Coal's sulfate's pattern a vertex (the People scenario: src/engine/peoplelink.js), one vec4 for the refiner.
-  const sulfBuf = storage(device, nm * 16), sulfS = refining ? storage(device, n * 16) : sulfBuf;
+  // Coal's sulfate's pattern a vertex (the People scenario: src/engine/peoplelink.js) and the Sea map's upwelling and sinking, one vec4 for the refiner.
+  const sulfBuf = storage(device, nm * 16), sulfS = refining ? storage(device, n * 16) : sulfBuf, aux = new Float32Array(4 * n);
   let folkS = null, folkRef = null;
   // The fields' sources on the engine's grid: their own buffers when refining, else the vertex buffers.
   const S = (size, own) => refining ? storage(device, size) : own;
@@ -1053,9 +1076,13 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     },
     /** Per cell of the engine's grid: coal's sulfate's burden, its pattern (mean 1), or null for none. */
     setSulfate(p) {
-      const v = new Float32Array(4 * n);
-      if (p) for (let i = 0; i < n; i++) v[4 * i] = p[i];
-      device.queue.writeBuffer(sulfS, 0, v); refine(sulfS, sulfBuf, 1);
+      for (let i = 0; i < n; i++) aux[4 * i] = p ? p[i] : 0;
+      device.queue.writeBuffer(sulfS, 0, aux); refine(sulfS, sulfBuf, 1);
+    },
+    /** Per cell of the engine's grid: the upwelling's cooling of the sea's surface (K) and the overturning's sinking (m/yr), the Sea map's. */
+    setSea(up, sink) {
+      for (let i = 0; i < n; i++) { aux[4 * i + 1] = up[i]; aux[4 * i + 2] = sink[i]; }
+      device.queue.writeBuffer(sulfS, 0, aux); refine(sulfS, sulfBuf, 1);
     },
     /** Per cell: the ice's flow direction (3) and speed (m/yr). */
     setIce(v) { device.queue.writeBuffer(iceS, 0, v); refine(iceS, iceBuf, 1); },
@@ -1085,7 +1112,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       const dprNow = w / Math.max(1, canvas.clientWidth || w);
       const freq = 2 ** Math.round(Math.log2(Math.max(8, rPx / dprNow / 14)));
       const wxm = { pressure: 2, temperature: 3, humidity: 4 }[mode.wx || 'pressure'];
-      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : mode.pm === 'culture' ? 10 : mode.pm === 'states' ? 11 : 7) : 0, freq, dprNow, rPx], 44);
+      uni.set([mode.view === 'climate' ? (mode.cl === 'air' ? 6 : mode.cl === 'sea' ? 12 : 1) : mode.view === 'weather' ? wxm : mode.view === 'tides' ? 5 : mode.view === 'people' ? (mode.pm === 'density' ? 8 : mode.pm === 'knowledge' ? 9 : mode.pm === 'culture' ? 10 : mode.pm === 'states' ? 11 : 7) : 0, freq, dprNow, rPx], 44);
       put(48, palette.inks.viridian); put(52, palette.inks.ochre); put(56, palette.inks.sap); put(60, palette.inks.verdigris); put(64, palette.inks.indigo);
       uni[51] = palette.dark ? 1 : 0;
       put(68, palette.inks.sienna); put(72, palette.inks.violet);

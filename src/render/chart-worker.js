@@ -9,16 +9,17 @@
 // It also traces the Climate view's Air chart (src/render/streamlines.js): the
 // page sends the template's pressure at the shown date (or the year's mean) on
 // a grid no finer than 110 km, and this derives the surface wind by the
-// climate's own formula and returns its streamlines.
+// climate's own formula and returns its streamlines. And the Sea chart's: the
+// page sends the gyres' surface current on the ocean's grid (src/engine/ocean.js).
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, restrict } from '../grid/transfer.js';
 import { chartLines } from './chart.js';
 import { surfaceWind } from '../engine/climate.js';
-import { traceStreamlines } from './streamlines.js';
+import { traceStreamlines, CURRENT } from './streamlines.js';
 
 const A_M = 6.371e6, OMEGA = 7.292e-5, NB = 60;
 let g = null, T = null, lat = null, band = null, state = {}, zeta2, vel, pc;
-let airGrid = null, airWind = null, airGp = null;
+let airGrid = null, airWind = null, airGp = null, seaGrid = null;
 
 self.onmessage = e => {
   const m = e.data;
@@ -38,6 +39,14 @@ self.onmessage = e => {
     const transfer = [];
     for (const l of lines) transfer.push(l.P.buffer, l.V.buffer, l.S.buffer);
     self.postMessage({ type: 'air', id: m.id, dsep: m.dsep, lines, maxWind }, transfer);
+    return;
+  }
+  if (m.type === 'currents') {
+    const sg = seaGrid && seaGrid.level === m.level ? seaGrid : (seaGrid = buildGrid(m.level));
+    const { lines, maxWind } = traceStreamlines(sg, m.vel, m.dsep, CURRENT.calm);
+    const transfer = [];
+    for (const l of lines) transfer.push(l.P.buffer, l.V.buffer, l.S.buffer);
+    self.postMessage({ type: 'currents', id: m.id, dsep: m.dsep, lines, maxSpeed: maxWind }, transfer);
     return;
   }
   let { psi2, theta, qv } = m;

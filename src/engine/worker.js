@@ -343,17 +343,37 @@ function riverAnomaly() {
   return out;
 }
 
+/**
+ * The Sea map's fields on the engine's grid: the upwelling's cooling of the surface (K, positive) and the
+ * overturning's sinking (m/yr of its sea), from the ocean's grid; and its numbers: the overturning's parts
+ * (Sv), the heat the sea carries poleward at its most each way (PW), the strongest gyre (Sv) and the deep's.
+ */
+function seaFields() {
+  const c = P.climate, o = P.ocean, sh = c.seaHeat, cg = o.grid, nc = cg.n, n = c.grid.n, R2 = 6.371e6 * 6.371e6;
+  const a = new Float64Array(nc), up = new Float32Array(n), sink = new Float32Array(n), f = new Float64Array(n);
+  if (o.upwell) for (let I = 0; I < nc; I++) a[I] = -o.upwell[I];
+  prolong(c.T, a, f); for (let i = 0; i < n; i++) up[i] = c.landMask[i] ? 0 : Math.max(0, f[i]);
+  const K = sh && sh.on && sh.flowSea ? sh.K : null;
+  for (let I = 0; I < nc; I++) a[I] = K ? K[I] * 3.15576e7 / (cg.area[I] * R2 * Math.max(0.05, 1 - c.landFracC[I])) : 0;
+  prolong(c.T, a, f); for (let i = 0; i < n; i++) sink[i] = c.landMask[i] ? 0 : Math.max(0, f[i]);
+  const lats = [-60, -50, -40, -30, -20, -10, 0, 10, 20, 26, 30, 40, 50, 60], h = sh && sh.on ? sh.transport(lats) : lats.map(() => 0);
+  const stats = { sv: sh ? sh.stats.sv : 0, S: sh ? sh.psi.S : 0, N: sh ? sh.psi.N : 0, mix: sh ? sh.psi.mix : 0,
+    north: Math.max(0, ...h), south: Math.max(0, ...h.map(x => -x)), gyre: o.stats.maxSv, deep: c.deep ? { ...c.deep.stats } : null };
+  return { up, sink, vel: Float32Array.from(o.vel), level: cg.level, stats };
+}
+
 function sendClimate() {
   const c = P.climate, o = P.ocean, f32 = a => Float32Array.from(a);
+  const sea = seaFields();
   const m = {
     type: 'climate', version: c.version, stats: { ...c.stats, cycleMs }, opened, zonal: c.zonal,
     Tf: c.Tf.map(f32), Pf: c.Pf.map(f32), presPhase: c.presPhase.map(f32), W: c.W.map(f32),
     snowAnn: f32(c.snowAnn), landMask: Uint8Array.from(c.landMask), elevPos: f32(c.elevPos), zones: f32(c.zones),
     sst: f32(o.fine.sst), psi: f32(o.fine.psi), oceanStats: { ...o.stats }, prod: f32(P.life.export),
     dust: P.aeolian ? f32(P.aeolian.load) : null, dustStats: P.aeolian ? { ...P.aeolian.stats } : null,
-    permafrost: drawnPermafrost(c.soil),
+    permafrost: drawnPermafrost(c.soil), sea,
   };
-  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod, m.permafrost, ...(m.dust ? [m.dust] : [])].map(a => a.buffer);
+  const transfer = [...m.Tf, ...m.Pf, ...m.presPhase, ...m.W, m.snowAnn, m.landMask, m.elevPos, m.zones, m.sst, m.psi, m.prod, m.permafrost, sea.up, sea.sink, sea.vel, ...(m.dust ? [m.dust] : [])].map(a => a.buffer);
   post(m, transfer);
 }
 
