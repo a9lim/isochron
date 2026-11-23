@@ -50,10 +50,11 @@ const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
 const WEATHER_GPU_MS = 12;    // the weather's share of the GPU's frame, when it runs live
-// The engine's grid: 55 km (level 7), or 110 km on phones and tablets (a quarter of the work;
-// ?level= overrides), and the drawn mesh and the weather's (55 km), onto which a coarser
-// engine's fields are refined.
-const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || (matchMedia('(pointer: coarse)').matches ? 6 : 7))));
+// The engine's grid: 55 km (level 7), or 110 km on phones and tablets and on machines of four cores
+// or 4 GB or fewer (a quarter of the work, and ~200 MB of the engine's arrays against ~650; ?level=
+// overrides), and the drawn mesh and the weather's (55 km), onto which a coarser engine's fields are refined.
+const LIGHT = matchMedia('(pointer: coarse)').matches || (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4;
+const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || (LIGHT ? 6 : 7))));
 const MESH_LEVEL = 7;
 const SPINUP_DAYS = 5;        // the weather's spin-up from the climate's state (its storms reach their equilibrium in ~4)
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
@@ -593,19 +594,47 @@ function airFrame() {
 }
 
 // ── Canvas sizing ──
-let cssW = 1, cssH = 1, dpr = 1;
+// The globe draws at the page's resolution × gpuScale, which follows the GPU's time a frame (`gpuTime`):
+// down by a fifth while the median of the last eight frames timed runs past GPU_SLOW ms, to an effective
+// 0.75 px a CSS px, and back up while it stays under GPU_FAST (on a weak GPU, a 2× screen's fragments
+// cost several times a frame). The overlay's lines keep the page's.
+const GPU_SLOW = 22, GPU_FAST = 9;
+let cssW = 1, cssH = 1, dpr = 1, gpuScale = 1;
 const octx = els.overlay.getContext('2d');
 function resize() {
   const r = els.stage.getBoundingClientRect();
   dpr = Math.min(window.devicePixelRatio || 1, 2);
+  gpuScale = Math.max(gpuScale, Math.min(1, 0.75 / dpr));
   cssW = Math.max(1, r.width); cssH = Math.max(1, r.height);
   for (const c of [els.gpu, els.overlay]) {
-    c.width = Math.round(cssW * dpr);
-    c.height = Math.round(cssH * dpr);
+    const k = c === els.gpu ? gpuScale : 1;
+    c.width = Math.max(1, Math.round(cssW * dpr * k));
+    c.height = Math.max(1, Math.round(cssH * dpr * k));
   }
   drawDirty = true; figuresDirty = true;
 }
 new ResizeObserver(resize).observe(els.stage);
+// Every eighth frame drawn, the time from the globe's submission until the GPU's queue is done (an upper
+// bound: it waits on whatever came before, the weather's steps among it), and the scale moved by its median.
+const gpuTimes = [];
+let gpuFrame = 0, gpuPending = false, gpuScaled = 0;
+function gpuTime(device) {
+  if (gpuPending || ++gpuFrame % 8 || document.hidden) return;
+  gpuPending = true;
+  const t0 = performance.now();
+  device.queue.onSubmittedWorkDone().then(() => {
+    gpuPending = false;
+    gpuTimes.push(performance.now() - t0);
+    if (gpuTimes.length > 8) gpuTimes.shift();
+    const now = performance.now();
+    if (gpuTimes.length < 8 || now - gpuScaled < 2000) return;
+    const med = gpuTimes.slice().sort((a, b) => a - b)[4];
+    const lo = Math.min(1, 0.75 / dpr), k = med > GPU_SLOW ? Math.max(lo, gpuScale * 0.8) : med < GPU_FAST ? Math.min(1, gpuScale * 1.15) : gpuScale;
+    if (Math.abs(k - gpuScale) < 0.01) return;
+    gpuScale = k; gpuScaled = now; gpuTimes.length = 0;
+    resize();
+  }, () => { gpuPending = false; });
+}
 resize();
 
 // ── The dial ──
@@ -1243,6 +1272,7 @@ function tick(now) {
     const sf = lastSky = skyFrame(), yf = yearFrame();
     if (yf.marks.length) drawDirty = true;
     globe.draw(camera, tShow, pal, { view, wx: wxMode, cl: clMode, pm: pmMode, blend: phi, tides: sf.tides, veil: yf.veil, sulf: yf.coal, steam: runaway ? 0.8 * (1 - Math.exp(-runaway.steam / 30)) : 0, fronts: people.zf, sun: sf.day });
+    gpuTime(globe.device);
     lap('globe');
     drawOverlay(octx, cssW, cssH, dpr, camera, { boundaries: lines, rivers: rivers && riversGone.length ? rivers.concat(riversGone) : rivers, plumes, view, chart: view === 'weather' && chart && wx ? chartFrame(chart, chartGone, Math.min(1, (performance.now() - chartArrive) / chartSpan), wx.t) : null, chartFade: wxLive, wxNow: null, sky: sf.sky, riverMonth: riverMonth(), eruptions: yf.marks, air: airFrame(), routes: view === 'people' && pmMode === 'knowledge' ? people.routes : null, borders: view === 'people' && pmMode === 'states' ? people.borders : null }, pal);
     if (phi >= 1 && !globe.lakesEasing && !riversFading) drawDirty = false;
@@ -1302,4 +1332,4 @@ gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {
 });
 requestAnimationFrame(frame);
 
-window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null, held }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; }, get sulfate() { return sulfPattern; } };
+window.__isochron = { P, engine, grid, tec, land, climate, ice, carbon, plumes, polarity, camera, scheduler, setPlaying, setView, setMap, setDial, get wx() { return wx; }, get globe() { return globe; }, get tau() { return tau; }, get pace() { return { engineRate, pace, arrivals: arrivals.length, shownFrom, shownT: shown && shown.t, newest: queue.length ? queue[queue.length - 1].t : null, held }; }, get engineProf() { return engineProf; }, get queued() { return queue.length; }, tick, prof, get chart() { return chart; }, get sky() { return lastSky; }, get moon() { return moon; }, year, get lakes() { return lakesDrawn; }, get air() { return air; }, get lines() { return lines; }, get rivers() { return rivers; }, people, follow, get runaway() { return runaway; }, get econ() { return people.msg && people.msg.last ? economyInputs() : null; }, get sulfate() { return sulfPattern; }, get gpuScale() { return gpuScale; }, get gpuTimes() { return gpuTimes.slice(); }, LEVEL };

@@ -252,22 +252,24 @@ export class Routes {
       }
       this.nodeOf[c] = node; this.marketOf[c] = owner[node] >= 0 ? owner[node] : 0;
     }
-    // Every market's costs to every other, and its paths, on both layers.
-    this.D = { S: new Float32Array(nm * nm), I: new Float32Array(nm * nm) };
-    this.pred = { S: new Uint16Array(nm * n), I: new Uint16Array(nm * n) };
+    // Every market's costs to every other (D), its paths (pred) and the round trips' mean costs (R, `cost`),
+    // by sail now and by steam when first read (D.I, pred.I, R.I: industry's, read only where it is, so the
+    // agrarian world's rebuilds run half the Dijkstras, ~1 s of 2.4 at level 6, and hold half the paths).
     // The sail's part by land each way (what roads and canals cheapen, `trade`).
     const DL = new Float32Array(nm * nm), acc = new Float64Array(n);
-    for (const [L, cost] of [['S', eS], ['I', eI]]) {
-      const D = this.D[L];
+    const layer = (cost, extra) => {
+      const D = new Float32Array(nm * nm), pred = new Uint16Array(nm * n), Rm = new Float32Array(nm * nm);
       for (let a = 0; a < nm; a++) {
-        const pr = this.pred[L].subarray(a * n, (a + 1) * n);
-        dijkstra(G, cost, mk[a], dist, pr, heap, null, null, L === 'S' ? eL : null, acc);
-        for (let b = 0; b < nm; b++) { D[a * nm + b] = dist[mk[b]]; if (L === 'S') DL[a * nm + b] = acc[mk[b]]; }
+        dijkstra(G, cost, mk[a], dist, pred.subarray(a * n, (a + 1) * n), heap, null, null, extra, acc);
+        for (let b = 0; b < nm; b++) { D[a * nm + b] = dist[mk[b]]; if (extra) DL[a * nm + b] = acc[mk[b]]; }
       }
-    }
-    // The round trips' mean costs, both layers (`cost`), and the sail's share of them by land.
-    this.R = { S: new Float32Array(nm * nm), I: new Float32Array(nm * nm) };
-    for (const L of ['S', 'I']) { const D = this.D[L], Rm = this.R[L]; for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]); }
+      for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]);
+      return { D, pred, R: Rm };
+    };
+    const sail = layer(eS, eL), parts = [[this.D = { S: sail.D }, 'D'], [this.pred = { S: sail.pred }, 'pred'], [this.R = { S: sail.R }, 'R']];
+    const steam = () => { const st = layer(eI, null); for (const [o, k] of parts) Object.defineProperty(o, 'I', { value: st[k], writable: true, enumerable: true, configurable: true }); return st; };
+    for (const [o, k] of parts) Object.defineProperty(o, 'I', { get: () => steam()[k], enumerable: true, configurable: true });
+    // And the sail's share of them by land.
     const LS = this.LS = new Float32Array(nm * nm), DS = this.D.S;
     for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) { const t = DS[a * nm + b] + DS[b * nm + a]; LS[a * nm + b] = t > 0 && Number.isFinite(t) ? (DL[a * nm + b] + DL[b * nm + a]) / t : 0; }
     // The weather's correlation between markets.
@@ -415,14 +417,15 @@ export class Routes {
     const part = this.part || (this.part = { k: new Int32Array(nm * C.K_PART).fill(-1), w: new Float32Array(nm * C.K_PART) });
     part.k.fill(-1); part.w.fill(0);
     // The kernel, symmetric, once a pair.
-    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, RI = this.R.I, LS = this.LS, ids = pp.ids;
+    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, LS = this.LS, ids = pp.ids;
+    let RI = null;   // the steam's, where a pair has industry
     for (let x = 0; x < na; x++) {
       const i = act[x], ri = reach[x], si = S[i], wri = Wr[i], wci = Wc[i];
       KM[x * na + x] = 1;
       for (let y = x + 1; y < na; y++) {
         const j = act[y], r = ri > reach[y] ? ri : reach[y], s = si > S[j] ? si : S[j], o = i * nm + j;
         const gw = 1 / (1 + C.R_ROAD * 0.5 * (wri + Wr[j]) + C.K_CANAL * 0.5 * (wci + Wc[j])), cs = RS[o] * (1 - LS[o] * (1 - gw));
-        const k0 = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-RI[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-RI[o] / r);
+        const k0 = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-(RI || (RI = this.R.I))[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-(RI || (RI = this.R.I))[o] / r);
         // A common language eases trade (src/engine/peoples.js, `tradeW`).
         // And a border between their towns' states (src/engine/polities.js, `border`).
         const k = ids && k0 > 0 && lead[i] >= 0 && lead[j] >= 0 ? k0 * ids.tradeW(lead[i], lead[j]) * (pp.pol ? pp.pol.border(lead[i], lead[j]) : 1) : k0;

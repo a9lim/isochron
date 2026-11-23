@@ -85,6 +85,7 @@
 
 import { Refiner } from '../gpu/refine.js';
 import { storage } from '../gpu/device.js';
+import { patchesOf, visibleRuns } from './patches.js';
 
 const SHADER = /* wgsl */ `
 const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal (verdigris) where the sea blooms most
@@ -896,8 +897,10 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const fieldS = S(n * 32, fieldBuf), normS = S(n * 32, normBuf), climS = S(n * 32, climBuf), zoneS = S(n * 64, zoneBuf), iceS = S(n * 16, iceBuf), tideS = S(n * 48, tideBuf), coverS = S(n * 32, coverBuf);
   const refiner = refining ? new Refiner(device, mesh, coarse) : null;
   const refine = (src, dst, m, enc) => { if (refiner) refiner.run(src, dst, m, enc); };
-  const idxBuf = device.createBuffer({ size: mesh.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-  device.queue.writeBuffer(idxBuf, 0, mesh.tris);
+  // The triangles by patch, each frame drawing only those facing the viewer and on screen (src/render/patches.js).
+  const patches = patchesOf(mesh);
+  const idxBuf = device.createBuffer({ size: patches.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(idxBuf, 0, patches.tris);
   const uniBuf = device.createBuffer({ size: 32 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
@@ -918,7 +921,10 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       ],
     },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
-    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    // The grid's triangles wind counter-clockwise seen from outside (and the view is a rotation), so the
+    // far hemisphere's are culled before they're shaded: drawn in the index's order, about half of them
+    // reached the depth test ahead of the near side's and paid the whole fragment shader.
+    primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
@@ -1109,7 +1115,8 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       pass.setVertexBuffer(6, wxBuf);
       pass.setVertexBuffer(7, tideBuf);
       pass.setIndexBuffer(idxBuf, 'uint32');
-      pass.drawIndexed(mesh.tris.length);
+      const runs = visibleRuns(patches, m, w / (2 * rPx), h / (2 * rPx));
+      for (let k = 0; k < runs.k; k++) pass.drawIndexed(runs.count[k], 1, runs.first[k]);
       pass.end();
       device.queue.submit([enc.finish()]);
     },

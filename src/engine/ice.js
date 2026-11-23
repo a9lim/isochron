@@ -259,10 +259,14 @@ export class Ice {
   frontFactor() {
     const c = this.climate, n = this.grid.n, sst = c.ocean && c.ocean.fine ? c.ocean.fine.sst : null;
     const mph = c.monthPhases || (c.monthPhases = Array.from({ length: 12 }, (_, m) => monthPhaseLocal(m)));
+    // The months' harmonics once (climate.tAt's, the same arithmetic), not each cell's.
+    const hc = new Float64Array(12), hs = new Float64Array(12), hc2 = new Float64Array(12), hs2 = new Float64Array(12);
+    for (let m = 0; m < 12; m++) { const co = Math.cos(2 * Math.PI * mph[m]), si = Math.sin(2 * Math.PI * mph[m]); hc[m] = co; hs[m] = si; hc2[m] = co * co - si * si; hs2[m] = 2 * si * co; }
+    const [T0, T1, T2, T3, T4] = c.Tf;
     for (let i = 0; i < n; i++) {
       const a = sst ? sst[i] : 0;
       let tf = 0;
-      for (let m = 0; m < 12; m++) tf += Math.max(0, c.tAt(i, mph[m]) + a - ICE.T_FREEZE);
+      for (let m = 0; m < 12; m++) tf += Math.max(0, T0[i] + T1[i] * hc[m] - T2[i] * hs[m] + T3[i] * hc2[m] - T4[i] * hs2[m] + a - ICE.T_FREEZE);
       this.tf[i] = tf / 12; this.cf[i] = calveOf(tf / 12);
     }
   }

@@ -2067,31 +2067,49 @@ export class People {
     // (the same sums as over every edge); their cells are within nsub rings.
     const { cells: act, nc: na, edges: ae, ne } = this.reach(N, nsub);
     for (let q = 0; q < na; q++) { const c = act[q]; kd[c] = K2[c] / H.area[c]; }
+    // Each edge's coefficient, kScale × k × ρ, with its ends: every substep, or with industry's many
+    // (past NSUB_MAX) once a step, at its start (a substep's mixing barely moves the knowledge the law
+    // reads, and its laws cost ~10× the flux), when the settlers' states also cross once, by what crossed.
+    const lump = nsub > this.P.NSUB_MAX, pol = this.pol, T = ids.T, eps = this.P.ID_EPS;
+    const xs = this.dEdges || (this.dEdges = { e: new Int32Array(F.m), c: new Int32Array(F.m), d: new Int32Array(F.m), k: new Float64Array(F.m), fw: new Float64Array(F.m), bk: new Float64Array(F.m) });
+    const xe = xs.e, xc = xs.c, xd = xs.d, xk = xs.k, fw = xs.fw, bk = xs.bk, Fa = F.a, Fb = F.b, Fk = F.k, Fh = F.hop;
+    let nx = 0;
     for (let s = 0; s < nsub; s++) {
-      for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; dL[c] = 0; }
-      // Each cell's dispersal at its own knowledge; an edge's is the geometric mean of its ends' (the
-      // law at the ends' mean knowledge wherever it is exponential in z, below its cap: a root a
-      // edge in place of the law's exponential and powers).
-      for (let q = 0; q < na; q++) { const c = act[q]; u[c] = K2[c] > 1e-12 ? N[c] / K2[c] : 0; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
-      for (let x = 0; x < ne; x++) {
-        const e = ae[x], c = F.a[e], d = F.b[e], uc = u[c], ud = u[d];
-        if (uc === ud) continue;
-        const kc = kd[c], kk = kd[d], rho = kc > 0 && kk > 0 ? 2 * kc * kk / (kc + kk) : 0;
-        if (!(rho > 0)) continue;
-        let k;
-        // Across the sea, only between coasts both settled: a crossing to an empty shore is a voyage (`voyages`).
-        if (F.hop[e]) {
-          if (!(N[c] >= nmin[c] && N[d] >= nmin[d])) continue;
-          const r = this.seaReach(0.5 * (Z[c] + Z[d])); if (!(r > 0)) continue;
-          k = Math.sqrt(Dc[c] * Dc[d]) * Math.exp(-F.k[e] / r);
+      for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; dL[c] = 0; u[c] = K2[c] > 1e-12 ? N[c] / K2[c] : 0; }
+      if (s === 0 || !lump) {
+        // Each cell's dispersal at its own knowledge; an edge's is the geometric mean of its ends' (the
+        // law at the ends' mean knowledge wherever it is exponential in z, below its cap: a root a
+        // edge in place of the law's exponential and powers).
+        for (let q = 0; q < na; q++) { const c = act[q]; Dc[c] = N[c] > 0 ? this.Dz(Z[c]) : D0; }
+        nx = 0;
+        for (let x = 0; x < ne; x++) {
+          const e = ae[x], c = Fa[e], d = Fb[e], kc = kd[c], kk = kd[d], rho = kc > 0 && kk > 0 ? 2 * kc * kk / (kc + kk) : 0;
+          if (!(rho > 0)) continue;
+          let k;
+          if (Fh[e]) { const r = this.seaReach(0.5 * (Z[c] + Z[d])); if (!(r > 0)) continue; k = Math.sqrt(Dc[c] * Dc[d]) * Math.exp(-Fk[e] / r); }
+          else k = Math.sqrt(Dc[c] * Dc[d]) * Fk[e];
+          xe[nx] = e; xc[nx] = c; xd[nx] = d; xk[nx] = kScale * k * rho; fw[nx] = 0; bk[nx] = 0; nx++;
         }
-        else k = Math.sqrt(Dc[c] * Dc[d]) * F.k[e];
-        const flux = kScale * k * rho * (ud - uc) * h;    // people from d to c
-        const zc = flux > 0 ? Z[d] : Z[c], zl = flux > 0 ? ZL[d] : ZL[c];
-        // Migrants carry who they are (src/engine/peoples.js), where they're more than a trickle.
-        if (flux > 0 ? ids.carries(c, flux) : ids.carries(d, -flux)) { if (flux > 0) ids.carry(d, c, flux); else ids.carry(c, d, -flux); }
-        // Across the sea, settlers carry their state too (src/engine/polities.js, `carry`).
-        if (F.hop[e] && this.pol) { if (flux > 0) this.pol.carry(d, c, flux); else this.pol.carry(c, d, -flux); }
+      }
+      for (let x = 0; x < nx; x++) {
+        const c = xc[x], d = xd[x], uc = u[c], ud = u[d];
+        if (uc === ud) continue;
+        const hop = Fh[xe[x]];
+        // Across the sea, only between coasts both settled: a crossing to an empty shore is a voyage (`voyages`).
+        if (hop && !(N[c] >= nmin[c] && N[d] >= nmin[d])) continue;
+        const flux = xk[x] * (ud - uc) * h;    // people from d to c
+        let zc, zl;
+        // Migrants carry who they are (src/engine/peoples.js, `carries`), where they're more than a trickle;
+        // across the sea, settlers carry their state too (src/engine/polities.js, `carry`).
+        if (flux > 0) {
+          zc = Z[d]; zl = ZL[d];
+          const t = T[c]; if (flux > eps * t || !(t > 0)) ids.carry(d, c, flux);
+          if (hop && pol) { if (lump) fw[x] += flux; else pol.carry(d, c, flux); }
+        } else {
+          zc = Z[c]; zl = ZL[c];
+          const t = T[d]; if (-flux > eps * t || !(t > 0)) ids.carry(c, d, -flux);
+          if (hop && pol) { if (lump) bk[x] -= flux; else pol.carry(c, d, -flux); }
+        }
         dN[c] += flux; dN[d] -= flux; dZ[c] += flux * zc; dZ[d] -= flux * zc; dL[c] += flux * zl; dL[d] -= flux * zl;
       }
       for (let q = 0; q < na; q++) {
@@ -2103,6 +2121,7 @@ export class People {
         N[c] = Nn;
       }
     }
+    if (lump && pol) for (let x = 0; x < nx; x++) { if (fw[x] > 0) pol.carry(xd[x], xc[x], fw[x]); if (bk[x] > 0) pol.carry(xc[x], xd[x], bk[x]); }
   }
 
   /**
@@ -2516,8 +2535,8 @@ export class People {
    * within a century and its incomes converged as fast as they parted; read linearly (Q 1), a soft
    * border's march, sharing ~⅓ of its holders, let industry through at ~⅓ whatever B_IND.
    */
-  apart(c, d) {
-    const P = this.P, q = P.Q_IND, o = sig((this.zl[c] - P.Z_ABS) / P.W_ABS);
+  apart(c, d, o = sig((this.zl[c] - this.P.Z_ABS) / this.P.W_ABS)) {
+    const P = this.P, q = P.Q_IND;
     return o + (1 - o) * (P.B_IND < 1 ? P.B_IND + (1 - P.B_IND) * Math.pow(this.pol.border(c, d, 0), q) : 1) * (P.L_IND > 0 ? 1 - P.L_IND * (1 - Math.pow(this.ids.sim(c, d), q)) : 1);
   }
 
@@ -2584,6 +2603,8 @@ export class People {
         // RHO_COPY (synthesis; the Arctic's foragers had carried a farming Eurasia's ideas to the
         // Americas as fast as a farming plain does).
         let wsum = 0, up = 0;
+        // c's own share of `apart` (its schooling) and of `copyW` (its texts), once for its neighbours.
+        const oc = base ? sig((oL[c] - P.Z_ABS) / P.W_ABS) : 0, kc = base ? 0 : ids.copyK(c);
         for (let o = E.off[c]; o < E.off[c + 1]; o++) {
           const d = E.nb[o];
           if (!(Ntot[d] > 0)) continue;
@@ -2594,7 +2615,7 @@ export class People {
           // doesn't, but industry's techniques, tied to its works, cross borders and peoples slowly
           // (`apart`), as far as the neighbour's are industry's.
           const gI = base ? this.ind[d] : 0;
-          up += e * dens(d) * (zd - z0) * (base ? (gI > 1e-3 ? 1 - gI * (1 - this.apart(c, d)) : 1) : ids.copyW(c, d)); wsum += e;
+          up += e * dens(d) * (zd - z0) * (base ? (gI > 1e-3 ? 1 - gI * (1 - this.apart(c, d, oc)) : 1) : ids.copyW(c, d, kc)); wsum += e;
         }
         const pace = this.speed(oL[c]) / P.V0, copy = P.COPY * pace * dens(c);
         const luck = luckC ? 1 + (luckC[c] - 1) * sig((z0 - P.Z_LUCK0) / 0.25) : 1;   // settled peoples' luck (the foragers' tip is the mean field's)
@@ -3035,7 +3056,18 @@ export class People {
     const { off, idx, cS, cI } = rt.catch, K = P.K_NATION;
     const Wt = this.wbuf || (this.wbuf = new Float64Array(nL));
     for (let c = 0; c < nL; c++) Wt[c] = H.alive[c] ? site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_CITY) : 0;
-    const top = Array.from({ length: nL }, (_, c) => c).filter(c => H.alive[c]).sort((x, y) => Wt[y] - Wt[x]).slice(0, K);
+    // The K largest by weight, ties in their order (a stable sort's first K), by insertion.
+    const tb = this.topBuf && this.topBuf.length === K ? this.topBuf : (this.topBuf = new Int32Array(K));
+    let nt = 0;
+    for (let c = 0; c < nL; c++) {
+      if (!H.alive[c]) continue;
+      const w = Wt[c];
+      if (nt === K && !(w > Wt[tb[nt - 1]])) continue;
+      let i = nt < K ? nt++ : nt - 1;
+      while (i > 0 && w > Wt[tb[i - 1]]) { tb[i] = tb[i - 1]; i--; }
+      tb[i] = c;
+    }
+    const top = Array.from(tb.subarray(0, nt));
     this.top = Int32Array.from(top);
     const Wn = top.map(c => site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_NATION));
     const dl = this.dlv && this.dlv.length === idx.length ? this.dlv : (this.dlv = new Float32Array(idx.length));
@@ -3050,7 +3082,7 @@ export class People {
       let Zn = 0;
       for (let k = 0; k < top.length; k++) {
         const c = top[k], mc = mo[c], sc = Math.max(s, ind[c]);
-        const x = md === mc ? 0 : (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I');
+        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S');   // (steam's only where there's industry: Routes.R.I)
         cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.C_NAT0 + P.K_NAT * r)); Zn += wk[k];
       }
       // A state's share of it to its capitals (src/engine/polities.js); the stateless share to the largest cities.
@@ -3059,7 +3091,7 @@ export class People {
         const k = pol.id[KPOL * d + j];
         if (k < 0) break;
         const c = pol.list[k].cap, mc = mo[c], sc = Math.max(s, ind[c]);
-        const x = md === mc ? 0 : (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I'), y = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]) * Math.exp(-x / ll);
+        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]) * Math.exp(-x / ll);
         dP[KPOL * d + j] = y; cP[KPOL * d + j] = c;
         if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
       }

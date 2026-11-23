@@ -211,8 +211,10 @@ export class Peoples {
       const o = c * WAYS, l = this.idL(zl[c]), kap = 1 - Math.exp(-(l / dx) * (l / dx)), gam = P.R_MEDIA * (1 - Math.exp(-(l / P.L_WORLD) * (l / P.L_WORLD)));
       // The ring's share of contact, by its people and the land's ease (averaged over the land edges, a
       // strait's added: averaged over all, a coast's many crossings had thinned its contact with the land).
+      // (Each edge's ease once, for every way below.)
       let ring = 0, deg = 0;
-      for (let e = E.off[c]; e < E.off[c + 1]; e++) { const d = E.nb[e]; if (!E.hop[e]) deg++; if (N[d] > 0) ring += N[d] * (E.hop[e] ? Math.exp(-E.km[e] / l) : E.slope[e]); }
+      const e0 = E.off[c], fE = this.fE && this.fE.length >= E.off[c + 1] - e0 ? this.fE : (this.fE = new Float64Array(2 * (E.off[c + 1] - e0)));
+      for (let e = e0; e < E.off[c + 1]; e++) { const d = E.nb[e]; if (!E.hop[e]) deg++; const f = fE[e - e0] = E.hop[e] ? Math.exp(-E.km[e] / l) : E.slope[e]; if (N[d] > 0) ring += N[d] * f; }
       ring /= Math.max(1, deg);
       const kr = ring > 0 ? kap * ring / (ring + N[c]) : 0, ko = 1 - kr;
       for (let k = 0; k < WAYS; k++) {
@@ -228,7 +230,7 @@ export class Peoples {
         if (kr > 0) for (let e = E.off[c]; e < E.off[c + 1]; e++) {
           const d = E.nb[e];
           if (!(N[d] > 0)) continue;
-          const ew = kr * (E.hop[e] ? Math.exp(-E.km[e] / l) : E.slope[e]) / Math.max(1, deg) / ring;
+          const ew = kr * fE[e - e0] / Math.max(1, deg) / ring;
           if (!(ew > 0)) continue;
           for (let j = 0; j < WAYS; j++) { const b = d * WAYS + j; if (W[b] > 0.05 * N[d]) meet(b, ew * W[b] * across(k, j, xw)); }
         }
@@ -288,10 +290,9 @@ export class Peoples {
    * production's tacit copying is carried. (From the first, it held the foragers' mosaic apart and
    * farming came ~10 kyr later.)
    */
-  copyW(c, d) {
-    const P = this.pp.P, k = P.ID_COPY * (1 / (1 + Math.exp(-(this.pp.zl[c] - P.Z_ID0) / 0.25)));
-    return k > 1e-6 ? 1 - k * (1 - this.sim(c, d)) : 1;
-  }
+  copyW(c, d, k = this.copyK(c)) { return k > 1e-6 ? 1 - k * (1 - this.sim(c, d)) : 1; }
+  /** c's own part of `copyW`: how far its learning has come to texts, × ID_COPY. */
+  copyK(c) { const P = this.pp.P; return P.ID_COPY * (1 / (1 + Math.exp(-(this.pp.zl[c] - P.Z_ID0) / 0.25))); }
   /** Trade's kernel between two places, by a common language: × (1 + CL sim)/(1 + CL). */
   tradeW(c, d) { const k = this.pp.P.CL_TRADE; return k > 0 ? (1 + k * this.sim(c, d)) / (1 + k) : 1; }
 
