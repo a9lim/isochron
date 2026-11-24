@@ -117,13 +117,13 @@
 // W_WORKS of the works, the land's and industry's, by the share moved); rivalry with peer states lifts new ideas (K_RIVAL, `rv`;
 // contested, so weak, beside the border's cut in trade and the copying that rides on it).
 // Read back: each place's identity pulled toward its state's (src/engine/peoples.js; a9: softly).
-// Drawn on the States map (`drawn`): each polity a hue, free on the peoples' wheel and measured along its
-// path in OKLab so that equal steps look equally different (`HUE`), and a tone, one of three steps of
-// contrast with the paper (lighter and fainter, the wheel's, darker and stronger: `TONES`), picked together
-// where the look least resembles those of the states it meets, then of those near, then of the world's
-// (`pick`: a sum of Gaussians in the hues' and tones' distance; the accent avoided at every tone), at its
-// founding and again when it meets a larger state of nearly its hue and the same tone (`recolour`; states
-// outgrow the region they were founded in). A contested place is striped equally in both states' looks.
+// Drawn on the States map (`drawn`): each polity a hue, anywhere round a uniform circle of hue (`HUE`; the
+// accent's red among them, a9), and a tone, one of three steps of contrast with the paper (lighter and
+// fainter, the wheel's, darker and stronger: `TONES`), drawn together by chance, the more likely the less
+// the look resembles those of the states it meets, then of those near, then of the world's (`pick`: e^{−v/
+// LOOK_T}, v a sum of Gaussians in the hues' and tones' distance), at its founding and again when it meets a
+// larger state of nearly its hue and the same tone (`recolour`; states outgrow the region they were founded
+// in). A contested place is striped equally in both states' looks.
 // The capitals as marks (`capitals`); counted (`count`): the effective number of states.
 import { stream } from '../rng.js';
 import { CITY, wrap } from './peoples.js';
@@ -131,42 +131,20 @@ import { CITY, wrap } from './peoples.js';
 export const KP = 3;      // the polities a place keeps
 const KC = 4;             // the candidates a place weighs a step
 const SEA_TOUCH = 300;    // km: states facing each other across less sea than this meet, for their hues
-// The States map's hues, each a place u on the wheel's path (0–1 round it, the accent at 0):
+// The States map's hues, each a place u round the circle of hue (0–1):
 const HUE_SIG = 0.09;     // how near two hues look alike: e^{−(Δu/σ)²}
 const HUE_NEAR = 0.3;     // a state not met: its weight, e-fold over HUE_L of arc between the capitals
 const HUE_L = 0.25;       // rad (~1,600 km on Earth)
 const HUE_ALL = 0.3;      // the world's hues: this weight spread over them all
-const HUE_RED = 0.5;      // the accent, weighed as a state met by half: the people's red stays theirs
-const HUE_CLASH = 0.06;   // a state this near in hue to a larger one it meets takes another
+const HUE_CLASH = 0.06;   // a state this near in hue to a larger one it meets, at its tone, takes another
 const HUE_N = 240;        // the hues a pick weighs
-const TONES = [0, 1, -1]; // the tones a pick weighs, the wheel's own first: contrast with the paper (src/render/globe.js, idWheel)
+const TONES = [-1, 0, 1]; // the tones a pick weighs: contrast with the paper (src/render/globe.js, idWheel)
 const TONE_SIG = 0.8;     // how near two tones look alike: e^{−(Δt/σ)²} (a step apart, a fifth as alike)
+const LOOK_T = 0.1;       // a look's odds e^{−v/LOOK_T}: a met state's own look ~e^{−10} against open hue, the open hues near even
 const MARCH = [0.2, 0.4]; // the second state's share over which a place turns to equal stripes
 
-/**
- * A hue's angle on the peoples' wheel (src/render/globe.js, idWheel, which reads v = h/2π + ½) from its
- * place u along the wheel's path in OKLab. The wheel warps its hue by 0.35 sin and halves its chroma
- * toward the accent, so equal steps in v were ~60° of hue apart beside the accent and ~30° across from it,
- * where two teals looked alike; equal steps in u look equally different. The path's shape in v is the
- * same in both themes.
- */
-const HUE = (() => {
-  const M = 4096, sp = new Float64Array(M + 1), TAU = 2 * Math.PI;
-  const ab = v => {
-    const t = TAU * v + 0.35 * Math.sin(TAU * v), dh = Math.abs(Math.atan2(Math.sin(t), Math.cos(t)));
-    const C = 1 - 0.5 * Math.exp(-((dh / 0.5236) ** 2));
-    return [C * Math.cos(t), C * Math.sin(t)];
-  };
-  let [a0, b0] = ab(0);
-  for (let i = 1; i <= M; i++) { const [a, b] = ab(i / M); sp[i] = sp[i - 1] + Math.hypot(a - a0, b - b0); a0 = a; b0 = b; }
-  const N = 1024, tab = new Float64Array(N + 1);
-  for (let k = 0, i = 0; k <= N; k++) {
-    const g = k / N * sp[M];
-    while (i < M - 1 && sp[i + 1] < g) i++;
-    tab[k] = TAU * ((i + (g - sp[i]) / (sp[i + 1] - sp[i])) / M - 0.5);
-  }
-  return u => { const x = (u - Math.floor(u)) * N, k = Math.min(N - 1, x | 0); return tab[k] + (x - k) * (tab[k + 1] - tab[k]); };
-})();
+/** A hue's angle (src/render/globe.js, idWheel, which reads v = h/2π + ½, the States map's circle uniform) from its place u round it. */
+const HUE = u => 2 * Math.PI * (u - Math.floor(u) - 0.5);
 /** How far apart two hues are round the wheel (0–½). */
 const hueGap = (a, b) => { const d = Math.abs(a - b) % 1; return Math.min(d, 1 - d); };
 const smooth = x => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -232,6 +210,7 @@ export class Polities {
     this.mass = null;                             // each place's landmass by land alone (`massOf`)
     this.live = [];
     this.rng = stream(pp.planet.seed, 'people:polities');
+    this.looks = stream(pp.planet.seed, 'people:looks');   // the States map's looks (`pick`), apart from the run's
     this.owed = 0; this.nStates = 0; this.topShare = 0; this.heldN = 0; this.topN = 0; this.topArea = 0; this.first = null;
     this.ver = 0;                                 // bumped each step (for drawing)
   }
@@ -677,14 +656,15 @@ export class Polities {
   }
 
   /**
-   * The hue where a state seated at place c least resembles the others: the least of HUE_N hues from u0
-   * of Σ w e^{−(Δu/HUE_SIG)²} over the live states but `self`, each weighed by its weight in `meet` (those
-   * it meets), HUE_NEAR e^{−θ/HUE_L} by the arc θ between their capitals and HUE_ALL over the number
-   * live, and the accent by HUE_RED.
+   * A look for a state seated at place c, drawn by chance (the looks' own stream, so the run is the same)
+   * among HUE_N hues × TONES, each at odds e^{−v/LOOK_T}, v = Σ w e^{−(Δu/HUE_SIG)² − (Δt/TONE_SIG)²} over the
+   * live states but `self`, each weighed by its weight in `meet` (those it meets), HUE_NEAR e^{−θ/HUE_L} by
+   * the arc θ between their capitals and HUE_ALL over the number live: any look well apart from those near
+   * about as likely as another, one near a met state's all but never.
    */
-  pick(c, meet, self, u0) {
+  pick(c, meet, self) {
     const pp = this.pp, g = pp.planet.grid, cells = pp.cells, list = this.list, live = this.live;
-    const hs = [0], ts = [NaN], ws = [HUE_RED], all = HUE_ALL / Math.max(1, live.length), a = g && cells ? 3 * cells[c] : -1;
+    const hs = [], ts = [], ws = [], all = HUE_ALL / Math.max(1, live.length), a = g && cells ? 3 * cells[c] : -1;
     for (const o of live) {
       if (o === self) continue;
       const q = list[o];
@@ -695,22 +675,25 @@ export class Polities {
       }
       hs.push(q.hue); ts.push(q.tone || 0); ws.push(w);
     }
-    let best = u0, bt = 0, bv = Infinity;
-    for (const t of TONES) for (let n = 0; n < HUE_N; n++) {
-      const u = (u0 + n / HUE_N) % 1;
+    const r = this.looks, u0 = r.uniform(), nC = TONES.length * HUE_N, p = this.lookP || (this.lookP = new Float64Array(nC));
+    let sum = 0;
+    for (let i = 0; i < nC; i++) {
+      const t = TONES[(i / HUE_N) | 0], u = (u0 + (i % HUE_N) / HUE_N) % 1;
       let v = 0;
-      for (let m = 0; m < hs.length; m++) { const x = hueGap(u, hs[m]) / HUE_SIG, y = Number.isNaN(ts[m]) ? 0 : (t - ts[m]) / TONE_SIG; v += ws[m] * Math.exp(-x * x - y * y); }
-      if (v < bv - 1e-12) { bv = v; best = u; bt = t; }
+      for (let m = 0; m < hs.length; m++) { const x = hueGap(u, hs[m]) / HUE_SIG, y = (t - ts[m]) / TONE_SIG; v += ws[m] * Math.exp(-x * x - y * y); }
+      sum += p[i] = Math.exp(-v / LOOK_T);
     }
-    return { u: best, t: bt };
+    let x = r.uniform() * sum, i = 0;
+    while (i < nC - 1 && (x -= p[i]) > 0) i++;
+    return { u: (u0 + (i % HUE_N) / HUE_N) % 1, t: TONES[(i / HUE_N) | 0] };
   }
 
   /**
    * Keep states that meet apart in look. Two meet across a border, in a place both hold (a contested
    * march, drawn striped) or across less than SEA_TOUCH km of sea; largest first, each state within
-   * HUE_CLASH of a larger one it meets at the same tone takes the look where it least resembles the others
-   * (`pick`, those it meets weighed 1 if larger and ½ if smaller), so the large keep theirs and a change
-   * lands where it's smallest. Drawing only: it draws nothing from the stream, so the run is the same.
+   * HUE_CLASH of a larger one it meets at the same tone draws another look (`pick`, those it meets weighed
+   * 1 if larger and ½ if smaller), so the large keep theirs and a change lands where it's smallest. Drawing
+   * only: it draws on the looks' own stream, so the run is the same.
    */
   recolour() {
     const pp = this.pp, nL = pp.nL, E = pp.E, id = this.id, s = this.s, d = this.d, list = this.list;
@@ -732,7 +715,7 @@ export class Polities {
       if (!clash) continue;
       const w = new Map();
       for (const o of near) w.set(o, rank.get(o) < rk ? 1 : 0.5);
-      const look = this.pick(q.cap, w, k, q.hue);
+      const look = this.pick(q.cap, w, k);
       q.hue = look.u; q.tone = look.t;
     }
   }
@@ -750,9 +733,9 @@ export class Polities {
       for (let j = 0; j < KP; j++) { const q = id[KP * b + j]; if (q < 0) break; meet.set(q, 1); }
     }
     // Two draws a founding, the stream's count from when a look was a hue and an angle, so the run is the
-    // same: the first starts the search.
-    const u0 = this.rng.uniform(); this.rng.uniform();
-    const { u: hue, t: tone } = this.pick(c, meet, -1, u0);
+    // same (the look is drawn on its own stream).
+    this.rng.uniform(); this.rng.uniform();
+    const { u: hue, t: tone } = this.pick(c, meet, -1);
     if (this.first === null) this.first = pp.t;
     const ids = pp.ids, a = ids.T[c] > 0 ? (ids.lead[c] >= 0 ? ids.lead[c] : ids.main(c)) : -1;
     const X = a >= 0 ? [ids.X[2 * a], ids.X[2 * a + 1]] : [0, 0];

@@ -304,15 +304,17 @@ fn stripes(T: Tri, dir: vec2f, periodPx: f32) -> f32 {
 }
 // The peoples' hue wheel (Miasma's strain wheel, its src/strain-style.js): OKLCH at one lightness and
 // chroma a theme, fitted like the inks, its zero opposite the accent's hue, hurried through the accent
-// with its chroma dipping there so no people reads as the people's red; h the hue angle, gamma sRGB; t a
-// state's tone (src/engine/polities.js, TONES), its lightness TONE_L a step away from the paper.
+// with its chroma dipping there so no people reads as the people's red (warp 1, the Culture map's); the
+// States map's a uniform circle of hue at full chroma, the accent's red among its hues (warp 0, a9); h the
+// hue angle, gamma sRGB; t a state's tone (src/engine/polities.js, TONES), its lightness TONE_L a step
+// away from the paper.
 const TONE_L = 0.08;
-fn idWheel(h: f32, t: f32, dark: bool) -> vec3f {
+fn idWheel(h: f32, t: f32, dark: bool, warp: f32) -> vec3f {
   let L = select(0.525, 0.62, dark) + select(-TONE_L, TONE_L, dark) * t; let C0 = select(0.08, 0.10, dark); let ah = select(0.4346, 0.3473, dark);
   let v = fract(h / 6.2831853 + 0.5);
-  let hh = ah + 6.2831853 * v + 0.35 * sin(6.2831853 * v);
+  let hh = ah + 6.2831853 * v + warp * 0.35 * sin(6.2831853 * v);
   let dh = abs(atan2(sin(hh - ah), cos(hh - ah)));
-  let C = C0 * (1.0 - 0.5 * exp(-(dh / 0.5236) * (dh / 0.5236)));
+  let C = C0 * (1.0 - warp * 0.5 * exp(-(dh / 0.5236) * (dh / 0.5236)));
   let ca = C * cos(hh); let cb = C * sin(hh);
   let l_ = L + 0.3963377774 * ca + 0.2158037573 * cb;
   let m_ = L - 0.1055613458 * ca - 0.0638541728 * cb;
@@ -804,8 +806,8 @@ fn hair(d: f32, w: f32) -> f32 {
       let t0 = clamp(i.wx.z / F, -1.0, 1.0);
       let t1 = clamp(i.wx.w / F, -1.0, 1.0);
       let sp = stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z);
-      let c0 = idWheel(atan2(b0.y, b0.x), t0, dark);
-      let c1 = idWheel(atan2(b1.y, b1.x), t1, dark);
+      let c0 = idWheel(atan2(b0.y, b0.x), t0, dark, 0.0);
+      let c1 = idWheel(atan2(b1.y, b1.x), t1, dark, 0.0);
       pland = mix(pland, mix(c0, c1, sp), a * (1.0 + 0.3 * mix(t0, t1, sp)) * smoothstep(0.3, 0.8, F) * had);
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
@@ -820,13 +822,13 @@ fn hair(d: f32, w: f32) -> f32 {
       let had = explored * (1.0 - sheet);
       let w0 = smoothstep(0.3, 0.8, min(length(d0.xy), length(d0.zw))) * had;
       let q0 = floor(atan2(d0.y, d0.x) / 0.5235988 + rank) * 0.2617994;
-      let c0 = idWheel(atan2(d0.w, d0.z), 0.0, dark);
+      let c0 = idWheel(atan2(d0.w, d0.z), 0.0, dark, 1.0);
       pland = mix(pland, c0, 0.2 * w0);
       pland = mix(pland, c0, 0.6 * w0 * hatch(T, vec2f(cos(q0), sin(q0)), 6.0 * u.mode.z, 0.9 * u.mode.z));
       let w1 = smoothstep(0.2, 0.4, min(length(d1.xy), length(d1.zw))) * had;
       if (w1 > 0.0) {
         let q1 = floor(atan2(d1.y, d1.x) / 0.5235988 + fract(rank * 7.31)) * 0.2617994;
-        pland = mix(pland, idWheel(atan2(d1.w, d1.z), 0.0, dark), 0.6 * w1 * hatchP(T, vec2f(cos(q1), sin(q1)), 6.0 * u.mode.z, 0.9 * u.mode.z, 0.5));
+        pland = mix(pland, idWheel(atan2(d1.w, d1.z), 0.0, dark, 1.0), 0.6 * w1 * hatchP(T, vec2f(cos(q1), sin(q1)), 6.0 * u.mode.z, 0.9 * u.mode.z, 0.5));
       }
     } else {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));

@@ -539,7 +539,7 @@ export function drawStates(canvas, st, fig, pal) {
   for (let r = 0; r < R; r++) {
     let any = false;
     for (let c = 0; c < m; c++) if (st.n[c * R + r] > 0) { any = true; break; }
-    if (any) { const b0 = Float32Array.from(base); band(c => b0[c], c => b0[c] + st.n[c * R + r], alpha(idHue(st.rows[r], pal.dark, st.tones ? st.tones[r] : 0), Math.min(1, 0.62 * (1 + 0.3 * (st.tones ? st.tones[r] : 0))))); }
+    if (any) { const b0 = Float32Array.from(base); band(c => b0[c], c => b0[c] + st.n[c * R + r], alpha(idHue(st.rows[r], pal.dark, st.tones ? st.tones[r] : 0, 0), Math.min(1, 0.62 * (1 + 0.3 * (st.tones ? st.tones[r] : 0))))); }
     for (let c = 0; c < m; c++) base[c] += st.n[c * R + r];
     if (any) tops.push(Float32Array.from(base));
   }

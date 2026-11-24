@@ -158,8 +158,8 @@ test("industry's works stay where they're built: the places' stocks are the worl
 
 test('states that meet keep apart in look, the smaller giving way', () => {
   // Three states of one look (hue and tone): 0–80 and 81–140 meet, 160–199 past a stateless gap meets
-  // neither. The middle one, smaller than its neighbour, takes another tone and a hue across the wheel
-  // from it (short of the accent, at 0); the others keep theirs.
+  // neither. The middle one, smaller than its neighbour, draws a look apart from it (another tone, or a hue
+  // well round the circle); the others keep theirs.
   const pp = line({}), pol = pp.pol;
   seat(pol, 40, 40); seat(pol, 110, 29); seat(pol, 180, 19);
   pol.d.fill(1);
@@ -167,7 +167,7 @@ test('states that meet keep apart in look, the smaller giving way', () => {
   pol.recolour();
   const [a, b, c] = pol.list, gap = x => { const d = Math.abs(x - 0.3) % 1; return Math.min(d, 1 - d); };
   assert.deepEqual([a.hue, a.tone, c.hue, c.tone], [0.3, 0, 0.3, 0]);
-  assert.ok(b.tone !== 0 && gap(b.hue) > 0.3 && b.hue < 0.9, `${b.hue}, ${b.tone}`);
+  assert.ok(b.tone !== 0 || gap(b.hue) > 0.15, `${b.hue}, ${b.tone}`);
 });
 
 test("the media pull a nation's places toward its capital, whatever the distance", () => {

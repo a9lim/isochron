@@ -26,13 +26,14 @@ function blocks(c, x, y, P, ink) {
   c.globalAlpha = 1;
 }
 // The peoples' hue wheel (src/render/globe.js, idWheel; Miasma's strain wheel): OKLCH at one lightness and
-// chroma a theme, its zero opposite the accent, hurried through the accent with its chroma dipping there;
-// t a state's tone, its lightness TONE_L a step away from the paper.
+// chroma a theme, its zero opposite the accent, hurried through the accent with its chroma dipping there
+// (warp 1, the peoples'; warp 0 a uniform circle, the states'); t a state's tone, its lightness TONE_L a
+// step away from the paper.
 export const TONE_L = 0.08;
-export function idHue(h, dark, t = 0) {
+export function idHue(h, dark, t = 0, warp = 1) {
   const L = (dark ? 0.62 : 0.525) + (dark ? TONE_L : -TONE_L) * t, C0 = dark ? 0.10 : 0.08, ah = dark ? 0.3473 : 0.4346;
-  const v = ((h / (2 * Math.PI) + 0.5) % 1 + 1) % 1, hh = ah + 2 * Math.PI * v + 0.35 * Math.sin(2 * Math.PI * v);
-  const dh = Math.abs(Math.atan2(Math.sin(hh - ah), Math.cos(hh - ah))), C = C0 * (1 - 0.5 * Math.exp(-((dh / 0.5236) ** 2)));
+  const v = ((h / (2 * Math.PI) + 0.5) % 1 + 1) % 1, hh = ah + 2 * Math.PI * v + warp * 0.35 * Math.sin(2 * Math.PI * v);
+  const dh = Math.abs(Math.atan2(Math.sin(hh - ah), Math.cos(hh - ah))), C = C0 * (1 - warp * 0.5 * Math.exp(-((dh / 0.5236) ** 2)));
   const a = C * Math.cos(hh), b = C * Math.sin(hh);
   const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, q = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
   const lin = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * q];
@@ -187,12 +188,12 @@ const GLYPHS = {
   // Peoples (src/render/globe.js, the Culture map): each its hue and its hatch's angle, three apart.
   peoples: (c, x, y, P) => { [[0.3, 0.4], [2.4, 1.6], [4.4, 2.7]].forEach(([h, a], k) => idPatch(c, x + 9 * k, y, k < 2 ? 9 : 8, 12, idHue(h, P.dark), a)); },
   // States (the States map): each a wash of its hue, set apart from its neighbours'.
-  states: (c, x, y, P) => { [[0.4, 1], [3.5, -1], [2.0, 0]].forEach(([h, t], k) => { c.fillStyle = rgba(idHue(h, P.dark, t), 0.45 * (1 + 0.3 * t)); c.fillRect(x + 9 * k, y, k < 2 ? 9 : 8, 12); }); },
+  states: (c, x, y, P) => { [[0.4, 1], [3.5, -1], [2.0, 0]].forEach(([h, t], k) => { c.fillStyle = rgba(idHue(h, P.dark, t, 0), 0.45 * (1 + 0.3 * t)); c.fillRect(x + 9 * k, y, k < 2 ? 9 : 8, 12); }); },
   // A contested place: equal stripes of its two states' hues.
   contested: (c, x, y, P) => {
     c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
-    c.fillStyle = rgba(idHue(0.4, P.dark), 0.45); c.fillRect(x, y, 26, 12);
-    c.strokeStyle = rgba(idHue(3.5, P.dark), 0.9); c.lineWidth = 4 / Math.SQRT2;
+    c.fillStyle = rgba(idHue(0.4, P.dark, 0, 0), 0.45); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(idHue(3.5, P.dark, 0, 0), 0.9); c.lineWidth = 4 / Math.SQRT2;
     c.beginPath(); for (let t = -12; t <= 38; t += 8) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 12, y); } c.stroke();
     c.restore();
   },
