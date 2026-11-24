@@ -55,6 +55,21 @@
 //               and the breakup of empires by nation.
 //   core        a state's cohesion is its people's by how alike they are to its capital's (Turchin's
 //               core): subjects decaying behind no frontier of their own don't drain their rulers'.
+// Secession (batch 3b; synthesis, the values speculation): a held city in a region its state is losing (its
+// resistance π₀ against the state's candidate power v there, as allegiance weighs them: ρ = π₀/v) may, as far
+// as the region is organized (its cohesion A: a province's elite, a settler frontier, a schooled nation,
+// whose floor rises to A_NAT), found a successor instead of drifting stateless, at R_SEC × x²/(1 + x²) ×
+// ρ^G/(1 + ρ^G) × A²/(A² + A_ORG²) × (1 + K_SECP ψ) a year (G = SEC_G), x its city's people (or, once
+// schooled, its nation's) over N_STATE, ψ its stress (src/engine/classes.js). ρ grows with the cost from the
+// capital, the place's unlikeness and schooling (kin and K_SELF cut v) and the state's loss of heart; a
+// subject people with no cohesion of its own only slips toward statelessness, as before. The successor takes its parent's holdings in
+// its region, each place's by how much nearer it lies to the new seat than to the old capital, e^{−x_new/L} /
+// (e^{−x_new/L} + e^{−x_old/L_old}) (uti possidetis: the parent's borders, not the nation's), with its founders'
+// cohesion. One rule for a dynasty broken into its provinces, settler colonies breaking away while alike, and
+// a schooled colony founding its own state. A schooled stateless place founds as its nation's people stand in
+// for a city, × (1 + K_NATF × its schooling). The border norm (a9; Zacher's territorial integrity, from memory;
+// speculation as a mechanism): once the media span the world, a state gains a place it doesn't hold at
+// T_WAR × (1 + K_NORM × the media's span, the people's mean), so conquest slows and borders freeze.
 // What states do (landing 2): each place's national share of its cities' food goes to its states'
 // capitals and the capitals' works labour back to it (People.foodshed, feed: roads and works out from
 // the centre); the state's granaries widen its places' stores (G_STATE); a border in trade's kernel
@@ -142,6 +157,8 @@ export class Polities {
     this.cid = new Int32Array(KC * nL); this.cpi = new Float64Array(KC * nL);
     this.list = [];                               // every polity yet: { cap, coh, born, died, hue, N, A, P, L, f; peakN, peakT, peakA, parent; O, pos, rev (office: src/engine/classes.js) }
     this.hist = []; this.tHist = null;            // the Histomap's record: each state's people every DT_HIST years (`snapshot`)
+    this.secs = [];                               // every secession: { t, parent, child, c, alike, overseas, nat, ind } (the states survey)
+    this.mass = null;                             // each place's landmass by land alone (`massOf`)
     this.live = [];
     this.rng = stream(pp.planet.seed, 'people:polities');
     this.owed = 0; this.nStates = 0; this.topShare = 0; this.heldN = 0; this.topN = 0; this.topArea = 0; this.first = null;
@@ -276,8 +293,12 @@ export class Polities {
         cpi[o + r] = v; cid[o + r] = lk[h];
       }
     }
-    // Allegiance: each place's shares toward their targets over T_WAR.
-    const g = P.POL_G, a = 1 - Math.exp(-dt / P.T_WAR), flux = this.flux;
+    // Allegiance: each place's shares toward their targets over T_WAR; gains by a state that doesn't hold the
+    // place over T_WAR × (1 + K_NORM × the media's span: the border norm).
+    let mw = 0, mn = 0;
+    if (P.K_NORM > 0) for (let c = 0; c < nL; c++) { if (!(N[c] > 0)) continue; const l = ids.idL(pp.zl[c]) / P.L_WORLD; mw += N[c] * (1 - Math.exp(-l * l)); mn += N[c]; }
+    this.norm = mn > 0 ? mw / mn : 0;
+    const g = P.POL_G, a = 1 - Math.exp(-dt / P.T_WAR), aN = 1 - Math.exp(-dt / (P.T_WAR * (1 + P.K_NORM * this.norm))), flux = this.flux;
     const uk = new Int32Array(KP + KC), us = new Float64Array(KP + KC), up = new Float64Array(KP + KC), un = new Float64Array(KP + KC);
     for (let c = 0; c < nL; c++) {
       const o = KP * c, oc = KC * c;
@@ -295,9 +316,10 @@ export class Polities {
       let den = Math.pow(pi0[c], g);
       for (let i = 0; i < n; i++) den += Math.pow(up[i], g);
       let moved = 0;
+      const own0 = id[o] >= 0 && s[o] >= 0.5 * d[c] ? id[o] : -1;
       for (let i = 0; i < n; i++) {
         const tg = den > 0 && d[c] > 0 ? d[c] * Math.pow(up[i], g) / den : 0;
-        un[i] = us[i] + (tg - us[i]) * a;
+        un[i] = us[i] + (tg - us[i]) * (tg > us[i] && uk[i] !== own0 ? aN : a);
         moved += Math.abs(un[i] - us[i]);
       }
       flux[c] = 0.5 * moved * N[c] / dt;
@@ -417,14 +439,34 @@ export class Polities {
       }
       this.live = live.filter(k => list[k].died === null);
     }
-    // Founding: a place mostly stateless with a fed city.
+    // Secession: each held city's region against its state's hold there, the likeliest first.
+    if (city && P.R_SEC > 0) {
+      const sec = [], cl = pp.classes;
+      for (let c = 0; c < nL; c++) {
+        const k = this.owner(c);
+        if (k < 0 || c === list[k].cap) continue;
+        const x = Math.max(city[c], nat[c] * N[c]) / P.N_STATE;
+        if (!(x > 0)) continue;
+        let v = 0;
+        for (let j = 0; j < KC; j++) if (cid[KC * c + j] === k) { v = cpi[KC * c + j]; break; }
+        const rg = v > 0 ? Math.pow(pi0[c] / v, P.SEC_G) : Infinity, A2 = Sc[c] * Sc[c];
+        const r = P.R_SEC * x * x / (1 + x * x) * (rg === Infinity ? 1 : rg / (1 + rg)) * A2 / (A2 + P.A_ORG * P.A_ORG) * (1 + P.K_SECP * (cl ? cl.psi[c] : 0));
+        if (r > 1e-9) sec.push([c, k, r]);
+      }
+      sec.sort((p, q) => q[2] - p[2]);
+      for (const [c, k, r] of sec) {
+        if (this.owner(c) !== k || list[k].died !== null || c === list[k].cap) continue;   // taken by a successor already
+        if (this.rng.uniform() < 1 - Math.exp(-r * dt)) this.secede(c, k, capCost);
+      }
+    }
+    // Founding: a place mostly stateless with a fed city, or once schooled its nation's people.
     if (city) for (let c = 0; c < nL; c++) {
-      if (!(d[c] > 0) || !(city[c] > 0)) continue;
+      if (!(d[c] > 0) || !(city[c] > 0 || nat[c] > 0.5)) continue;
       let held = 0;
       for (let j = 0; j < KP; j++) { if (id[KP * c + j] < 0) break; held += s[KP * c + j]; }
       const free = d[c] - held;
       if (!(free > 0.5 * d[c])) continue;
-      const x = city[c] / P.N_STATE, r = P.R_FORM * x * x / (1 + x * x) * free / d[c];
+      const x = Math.max(city[c], nat[c] * N[c]) / P.N_STATE, r = P.R_FORM * (1 + P.K_NATF * nat[c]) * x * x / (1 + x * x) * free / d[c];
       if (this.rng.uniform() < 1 - Math.exp(-r * dt)) this.found(c, free);
     }
     this.count();
@@ -561,6 +603,52 @@ export class Polities {
     for (let i = j; i > 0 && s[o + i] > s[o + i - 1]; i--) {
       [id[o + i], id[o + i - 1]] = [id[o + i - 1], id[o + i]]; [s[o + i], s[o + i - 1]] = [s[o + i - 1], s[o + i]];
     }
+  }
+
+  /**
+   * A successor founded at c out of polity k (secession, `advance`): a polity with k as its parent, its hue
+   * apart from those it meets, holding each place of k's in its region by how much nearer the new seat is
+   * than k's capital (`capCost`, the step's), its founders' cohesion brought to them. Recorded for the survey.
+   */
+  secede(c, k, capCost) {
+    const pp = this.pp, P = pp.P, rt = pp.routes, id = this.id, s = this.s, S = this.S, q0 = this.list[k];
+    const k2 = this.list.length;
+    this.found(c, 0);
+    const q = this.list[k2];
+    q.parent = k;
+    const L = this.reachAt(pp.zc[c]), si = pp.ind[c], { off, idx, cS, cI } = rt.catch;
+    for (let e = off[c]; e < off[c + 1]; e++) {
+      const b = idx[e], db = this.d[b];
+      if (!(db > 0)) continue;
+      let j0 = -1;
+      for (let j = 0; j < KP; j++) { if (id[KP * b + j] < 0) break; if (id[KP * b + j] === k) { j0 = j; break; } }
+      if (j0 < 0) continue;
+      const wn = Math.exp(-((1 - si) * cS[e] + si * cI[e]) / L), wo = Math.exp(-capCost(q0, b) / (q0.L || L)), f = s[KP * b + j0] * wn / (wn + wo);
+      if (!(f > 0.05 * db)) continue;
+      s[KP * b + j0] -= f;
+      this.claim(b, k2, f);
+      this.sortSlots(b);
+      S[b] += Math.max(0, P.COH0 - S[b]) * Math.min(1, f / db);
+    }
+    const ids = pp.ids, m = this.massOf(), cap0 = q0.cap;
+    this.secs.push({ t: pp.t, parent: k, child: k2, c, alike: ids.sim(c, cap0), overseas: m[c] !== m[cap0], nat: this.nat[c], ind: pp.econ && pp.econ.on ? 1 : 0 });
+  }
+
+  /** Place b's polities strongest first (a secession's split can leave them out of order). */
+  sortSlots(b) {
+    const id = this.id, s = this.s, o = KP * b;
+    for (let i = 1; i < KP && id[o + i] >= 0; i++) for (let j = i; j > 0 && s[o + j] > s[o + j - 1]; j--) {
+      [id[o + j], id[o + j - 1]] = [id[o + j - 1], id[o + j]]; [s[o + j], s[o + j - 1]] = [s[o + j - 1], s[o + j]];
+    }
+  }
+
+  /** Each place's landmass by land alone (the land graph's edges that aren't sea crossings), made once. */
+  massOf() {
+    if (this.mass) return this.mass;
+    const E = this.pp.E, nL = this.pp.nL, p = Int32Array.from({ length: nL }, (_, k) => k);
+    const root = k => { while (p[k] !== k) k = p[k] = p[p[k]]; return k; };
+    for (let c = 0; c < nL; c++) for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e]) { const a = root(c), b = root(E.nb[e]); if (a !== b) p[a] = b; }
+    return (this.mass = Int32Array.from({ length: nL }, (_, c) => root(c)));
   }
 
   /**

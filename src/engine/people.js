@@ -514,6 +514,11 @@ export const PEOPLE = {
   // D_PSI a year, internal war's deaths W_IW and works W_IWW a year, the elites culled K_CULL a year.
   TH_W: [0, 0.25, 0.15, 0.5, 0.2], X_EXIT: 0.1, K_COER: 2, C_E: 10, T_DOWN: 20, T_UP: 10, H_CLS: 10,
   Y_COMF: 1.15, K_FAM: 5, M0: 0.05, E0: 0.5, K_SFD: 0.5, D_PSI: 0.02, W_IW: 0.004, W_IWW: 0.01, K_CULL: 0.03,
+  // Secession (batch 3b, src/engine/polities.js; synthesis, the values speculation): a held city's successor at
+  // R_SEC a year at most, as its region's resistance passes its state's hold there (ρ^G/(1 + ρ^G), G = SEC_G),
+  // as far as it's organized (its cohesion about A_ORG) and × (1 + K_SECP ψ); a schooled stateless place founds × (1 + K_NATF × its schooling); the border norm slows a state's
+  // gains of places it doesn't hold × (1 + K_NORM × the media's span).
+  R_SEC: 0.02, SEC_G: 3, A_ORG: 0.3, K_SECP: 3, K_NATF: 10, K_NORM: 10,
   // The Histomap's record (Fig. 9, Polities.snapshot): every DT_HIST years (DT_HIST_IND with industry), the
   // states holding HIST_MIN of the world's people or more, the HIST_K largest; past HIST_MAX entries the
   // oldest half is thinned to every other.

@@ -181,3 +181,19 @@ test('industry crosses a contested march almost as it crosses a border, and free
   pp.zl.fill(P.Z_ABS + 3);
   assert.ok(apart(1, 2) > 0.99 && apart(0, 3) > 0.99, `schooled: ${apart(1, 2).toFixed(4)}, ${apart(0, 3).toFixed(4)}`);
 });
+
+test("a successor takes its parent's holdings nearer its seat, keeping everyone's allegiance", () => {
+  // A state seated at 60 holding the whole line; a city at 140 secedes. Each place the successor's catchment
+  // reaches splits by how much nearer it is to the new seat, e^{−x_new/L} / (e^{−x_new/L} + e^{−x_old/L}): half
+  // and half at the midpoint, 100, and nothing is made or lost.
+  const n = 200, c0 = 100, L = 4000, pp = line({ n, c0, L }), pol = pp.pol;
+  pol.d.fill(1);
+  const k = seat(pol, 60, 200);
+  pol.list[k].L = pol.reachAt(0);
+  pol.secede(140, k, (q, b) => Math.abs(q.cap - b) * c0);
+  const a = held(pol, k, n), b = held(pol, k + 1, n);
+  for (let c = 0; c < n; c++) assert.ok(Math.abs(a[c] + b[c] - 1) < 1e-12, `place ${c}: ${a[c]} + ${b[c]}`);
+  assert.ok(Math.abs(half(a, 60) - 100) < 0.5, `the split at ${half(a, 60)}, against 100`);
+  assert.equal(pol.list[k + 1].parent, k);
+  assert.equal(pol.secs.length, 1);
+});

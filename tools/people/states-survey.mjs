@@ -14,6 +14,10 @@
 //   classes         at 1 kyr before industry: each way's elite share of its people, and its two-class Gini
 //                   (the elite's share of the way's claims-weighted income less its share of the people: a
 //                   floor, with no inequality within a class)
+//   secession       the successors founded before industry (a kyr's), and from industry on the two waves of
+//                   decolonization: settler colonies breaking away while alike (overseas, likeness to the
+//                   parent's capital 0.5 or more) and the nations (likeness under 0.5), each wave's count and
+//                   median date (industry's start as 1760)
 //   the industrial era   the share under unlike rulers at 1870, 1913, 1950 (industry's start as 1760),
 //                   the effective states at early takeoff
 // usage: node tools/people/states-survey.mjs ['{PEOPLE overrides}'] [draws=8]
@@ -109,7 +113,11 @@ async function one(ov, run) {
   }
   const at = t => stress.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b), stress[0] || { psi: 0, hi: 0 });
   const un = t => unlike.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b), unlike[0] || { s: 0 }).s;
+  const secs = pol.secs, agr = secs.filter(x => x.t < tI), ind = secs.filter(x => x.t >= tI);
+  const span = pol.first !== null ? Math.max(1, tI - pol.first) : 1;
+  const wave = xs => ({ n: xs.length, at: xs.length ? xs.map(x => 1760 + x.t - tI).sort((a, b) => a - b)[xs.length >> 1] : null });
   return {
+    sec: { agrKyr: 1000 * agr.length / span, settler: wave(ind.filter(x => x.overseas && x.alike >= 0.5)), nation: wave(ind.filter(x => x.alike < 0.5)), other: ind.filter(x => !x.overseas && x.alike >= 0.5).length },
     great: great.length, life: lives.sort((a, b) => a - b), standing: standing.length, peakA: great.map(q => q.peakA).sort((a, b) => a - b),
     changes, cycles, stress: [tI - 3000, tI - 1000, tI, tP].map(t => { const s = at(t); return [s.psi, s.hi]; }),
     classes: c1, unlike: 'industry' in ev ? [110, 153, 190].map(d => un(tI + d)) : null, states: pol.nStates, yrs: 'industry' in ev ? tP - tI : null,
@@ -137,5 +145,7 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   const WN = ['', 'herders', 'fishers', 'farmers', 'city'], cr = runs.filter(r => r.classes);
   if (cr.length) console.log(`classes 1 kyr before industry, each way's elite share of its people · its two-class Gini (Borgerhoff Mulder and others: pastoralists ~0.42, farmers ~0.48, wealth): ${[1, 2, 3, 4].map(w => `${WN[w]} ${pc(md(cr.map(r => r.classes[w].share)))} · ${f2(md(cr.map(r => r.classes[w].gini)))}`).join(', ')}`);
   console.log(`stress (ψ · past 0.3) at 3 kyr and 1 kyr before industry, at industry, at early takeoff: ${[0, 1, 2, 3].map(i => `${f2(md(runs.map(r => r.stress[i][0])))} · ${pc(md(runs.map(r => r.stress[i][1])))}`).join('  ')}`);
+  const sr = runs.filter(r => r.sec);
+  if (sr.length) console.log(`secession: ${f2(md(sr.map(r => r.sec.agrKyr)))} successors a kyr before industry; from industry, settler colonies (overseas, alike) ${md(sr.map(r => r.sec.settler.n))} a draw, median ${f0(md(sr.map(r => r.sec.settler.at)))} (the Americas' 1776–1825), nations (unlike) ${md(sr.map(r => r.sec.nation.n))}, median ${f0(md(sr.map(r => r.sec.nation.at)))} (Asia's and Africa's 1945–75), others ${md(sr.map(r => r.sec.other))}`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);
 }
