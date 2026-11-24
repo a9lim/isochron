@@ -3620,26 +3620,21 @@ export class People {
   }
 
   /**
-   * What the People view draws besides `drawn`, eight values a cell of the people's grid (drawn only):
+   * What the People view draws besides `drawn`, four values a cell of the people's grid (drawn only):
    * the herders' pasture (a share of the cell, from `drawn`'s claims); production's and learning's
-   * knowledge there (where no one lives, carried from where people do); the works there a km²
-   * (learning's and the land's, person-years); and the land's area works, the share of the cell
-   * terraced and the share irrigated (each kind's built share of its room, the land its works could
-   * hold: `built` × terrPot, irrPot). Each domain's frontier (the most anyone knows) is kept as `zfP`,
-   * `zfL`. The Knowledge map reads the second to fourth, the Settlement and Density maps the fifth and
-   * sixth (their farms terraced or irrigated).
+   * knowledge there (where no one lives, carried from where people do); and the works there a km²
+   * (learning's and the land's, person-years). Each domain's frontier (the most anyone knows) is kept
+   * as `zfP`, `zfL`. The Knowledge map reads the last three.
    */
   drawnB(out = null) {
-    const n = this.planet.grid.n, nL = this.nL, wk = this.wk, A = this.H.area, H = this.H;
-    out = out || new Float32Array(8 * n); out.fill(0);
+    const n = this.planet.grid.n, nL = this.nL, wk = this.wk, A = this.H.area;
+    out = out || new Float32Array(4 * n); out.fill(0);
     let fP = 0, fL = 0;
     for (let c = 0; c < nL; c++) {
       if (this.Ntot[c] > 0) { if (this.zc[c] > fP) fP = this.zc[c]; if (this.zl[c] > fL) fL = this.zl[c]; }
-      const o = 8 * this.cells[c];
+      const o = 4 * this.cells[c];
       out[o] = this.past[c];
       out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
-      out[o + 4] = this.built(c, 'T') * H.terrPot[c];
-      out[o + 5] = this.built(c, 'C') * H.irrPot[c];
     }
     this.zfP = fP; this.zfL = fL;
     // Knowledge carried from where people live now onto every cell beyond, ring by ring, each its
@@ -3666,7 +3661,7 @@ export class People {
       for (const j of next) has[j] = 1;
       front = next;
     }
-    for (let i = 0; i < n; i++) { out[8 * i + 1] = vP[i]; out[8 * i + 2] = vL[i]; }
+    for (let i = 0; i < n; i++) { out[4 * i + 1] = vP[i]; out[4 * i + 2] = vL[i]; }
     return out;
   }
 

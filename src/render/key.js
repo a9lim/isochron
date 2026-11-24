@@ -180,20 +180,6 @@ const GLYPHS = {
   },
   // Farms: parcels, each furrowed its own way, in sap.
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
-  // The land's area works in the farms: terraces as close contours stepping up a hill; irrigated fields'
-  // furrows cut into plots by ditches in the water's blue.
-  terrace: (c, x, y, P) => {
-    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
-    c.fillStyle = rgba(P.inks.sap, 0.12); c.fillRect(x, y, 26, 12);
-    c.strokeStyle = rgba(mixHex(P.inks.sap, P.text, 0.2), 0.75); c.lineWidth = 0.8;
-    c.beginPath(); for (let k = -2; k < 7; k++) { const y0 = y + 1 + 2.4 * k; c.moveTo(x, y0 + 3); c.quadraticCurveTo(x + 13, y0 - 3, x + 26, y0 + 3); } c.stroke();
-    c.restore();
-  },
-  irrigated: (c, x, y, P) => {
-    parcels(c, x, y, P.inks.sap, 0.1, 0.65);
-    c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 0.9;
-    c.beginPath(); for (const a of [6.5, 15.5, 22.5]) { c.moveTo(x + a, y); c.lineTo(x + a, y + 12); } c.stroke();
-  },
   // Pasture: parcels as the farms', in ochre.
   pasture: (c, x, y, P) => parcels(c, x, y, P.inks.ochre, 0.1, 0.65),
   // The fishers' parcels, as the farms', in the sea's blue.
@@ -315,8 +301,8 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['terrace', 'Terraces'], ['irrigated', 'Irrigated'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['terrace', 'Terraces'], ['irrigated', 'Irrigated'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
   'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['eraL', 'AI'], ['works', 'Works'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['route', 'Routes']],
   'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories']],
   'people-states': [['states', 'States'], ['contested', 'Contested'], ['capital', 'Capital'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories']],

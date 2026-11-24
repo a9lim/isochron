@@ -132,7 +132,7 @@ struct U {
 @group(0) @binding(3) var<storage, read> folk: array<vec4f>;
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
 @group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // x coal's sulfate's burden's pattern (mean 1, src/engine/peoplelink.js); y the upwelling's cooling of the sea's surface (K), z the overturning's sinking (m/yr) (src/engine/ocean.js, seaheat.js)
-@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB, two a vertex: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²; x the share terraced, y the share irrigated
+@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²
 @group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // Peoples.drawn, three a vertex: the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels; on the States map Polities.drawn, the largest state's and the second's alike, × their shares
 
 struct VOut {
@@ -182,19 +182,15 @@ fn toView(p: vec3f) -> vec3f {
   let cult = u.mode.x > 9.5 && u.mode.x < 11.5;
   let seaV = u.mode.x > 11.5;
   let id1 = ident[3u * vi + 1u];
-  let pa = past[2u * vi];
-  let pb = past[2u * vi + 1u];
-  o.wp = vec4f(p, select(pa.x, id1.w, cult));
+  o.wp = vec4f(p, select(past[vi].x, id1.w, cult));
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
   // sulfate's optical depth, its haze where the winds carry it, and the knowledge, its lag and the
-  // works (People.drawnB; the vertex has no varyings to spare), on Settlement and Density (which draw no
-  // knowledge) the shares terraced and irrigated in knowledge's place. In the Sea map (no tide) the tide's
+  // works (People.drawnB; the vertex has no varyings to spare). In the Sea map (no tide) the tide's
   // carries the upwelling and the sinking.
-  let folkSD = u.mode.x > 6.5 && u.mode.x < 8.5;
-  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(select(pa.yzw, vec3f(pb.xy, pa.w), folkSD), id1.xyz, cult)), u.mode.x > 5.5 && u.mode.x < 11.5);
+  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(past[vi].yzw, id1.xyz, cult)), u.mode.x > 5.5 && u.mode.x < 11.5);
   o.td = select(select(select(td, vec4f(ident[3u * vi + 2u].x, td.yzw), u.mode.x > 6.5 && u.mode.x < 8.5), ident[3u * vi], cult), vec4f(sulf[vi].yz, 0.0, td.w), seaV);
   // The lakes eased from the last drawn to the new here (linear, so as the fragments would), which
   // leaves room beside them for the sea's ice (c holds the land's snow) and their tint.
@@ -284,18 +280,6 @@ fn lineAA(c: f32, fwc: f32, wpx: f32) -> f32 {
 fn hatch1(uv: vec2f, fw: f32, dir: vec2f, o: vec2f, wpx: f32) -> f32 {
   let c = dot(uv, dir) * o.x;
   return max(lineAA(c, fw * o.x, wpx), o.y * lineAA(2.0 * c, 2.0 * fw * o.x, wpx));
-}
-// A hatch whose lines lie across a direction d on the globe (its frame's), each projection's lines across d
-// as that plane sees it (the terraces' contours, across the land's slope), its angle in 15° steps dithered
-// between the two nearest by dz (a tessera's own), so a tessera's lines run straight (the slope's
-// direction turning within one had bent them into a maze, as the Culture map's angles had into whorls).
-fn across(v: vec2f, dz: f32) -> vec2f {
-  let q = floor(atan2(v.y, v.x) / 0.2617994 + dz) * 0.2617994;
-  return vec2f(cos(q), sin(q));
-}
-fn hatchAcross(T: Tri, d: vec3f, periodPx: f32, wpx: f32, dz: f32) -> f32 {
-  let o = octave(periodPx);
-  return T.w.x * hatch1(T.x, T.f.x, across(d.yz, dz), o, wpx) + T.w.y * hatch1(T.y, T.f.y, across(d.zx, dz), o, wpx) + T.w.z * hatch1(T.z, T.f.z, across(d.xy, dz), o, wpx);
 }
 // A hatch's lines shifted ph of a period (the Culture map's second identity between the first's lines).
 fn hatchP(T: Tri, dir: vec2f, periodPx: f32, wpx: f32, ph: f32) -> f32 {
@@ -859,21 +843,6 @@ fn hair(d: f32, w: f32) -> f32 {
     let blocks = max(hatch(T, vec2f(1.0, 0.0), 3.4 * u.mode.z, 0.7 * u.mode.z), hatch(T, vec2f(0.0, 1.0), 3.4 * u.mode.z, 0.7 * u.mode.z));
     let furrowA = 3.14159265 * fract(tess * 97.31);
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
-    // The land's area works on Settlement and Density (People.drawnB): of a place's farms, the share
-    // terraced and the share irrigated (each the land its works hold against the farms' land), a farm
-    // tessera taking each by its own draw. Terraces as contours: close lines across the land's slope (the
-    // relief's normal less the sphere's, in the globe's frame), stepping up the hill; irrigated fields as
-    // the furrows cut into plots by ditches in the water's blue.
-    let folkSD = folkV && !folkK && !folkU;
-    let farmShare = max(i.pp.y, 1e-3);
-    let terr = select(0.0, clamp(i.wx.y / farmShare, 0.0, 1.0), folkSD);
-    let irr = select(0.0, clamp(i.wx.z / farmShare, 0.0, 1.0), folkSD);
-    let sv = N - S * dot(N, S);
-    let slopeG = u.view0.xyz * sv.x + u.view1.xyz * sv.y + u.view2.xyz * sv.z;
-    let terraced = fract(tess * 53.17) < terr && length(sv) > 0.02;
-    let irrigated = !terraced && fract(tess * 29.71) < irr;
-    let contours = hatchAcross(T, slopeG, 3.0 * u.mode.z, 0.8 * u.mode.z, fract(tess * 13.37));
-    let ditches = hatch(T, vec2f(-sin(furrowA), cos(furrowA)), 7.2 * u.mode.z, 1.0 * u.mode.z);
     if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (rank < c2) {
@@ -884,12 +853,7 @@ fn hair(d: f32, w: f32) -> f32 {
       // The Knowledge, Culture and States maps keep only the works where minds and machines gather (cities,
       // datacenters and factories), not the fields.
     } else if (rank < c4) {
-      if (terraced) {
-        pland = mix(pland, mix(u.inkC.rgb, u.text.rgb, 0.15), 0.1 + 0.6 * contours);
-      } else {
-        pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
-        if (irrigated) { pland = mix(pland, u.ocean.rgb, 0.85 * ditches); }
-      }
+      pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
     } else if (rank < c5) {
       // Solar farms in AI's verdigris (the datacenters' ink, a parcel's pattern).
       pland = mix(pland, u.inkD.rgb, 0.12 + 0.6 * furrows);
@@ -990,7 +954,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   // The people's eight values a vertex (the People scenario), refined from their grid (src/engine/people-worker.js).
   const folkBuf = storage(device, nm * 32);
   // The herders' pasture, one vec4 a vertex (People.pasture), refined from their grid as the folk are.
-  const pastBuf = storage(device, nm * 32);
+  const pastBuf = storage(device, nm * 16);
   let pastS = null;
   // The peoples' identities and the fishers' parcels, three vec4s a vertex (Peoples.drawn), refined as the folk are.
   const identBuf = storage(device, nm * 48);
@@ -1143,12 +1107,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
       device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 2);
     },
-    /** Per cell of the people's grid `pg`, eight values (People.drawnB): the herders' pasture (a share of the cell), production's and learning's knowledge there, the works a km²; the shares terraced and irrigated. */
+    /** Per cell of the people's grid `pg`, four values (People.drawnB): the herders' pasture (a share of the cell), production's and learning's knowledge there, the works a km². */
     setPeopleB(l, pg) {
       if (pg === mesh) { device.queue.writeBuffer(pastBuf, 0, l); return; }
-      if (!pastS) pastS = storage(device, pg.n * 32);
+      if (!pastS) pastS = storage(device, pg.n * 16);
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
-      device.queue.writeBuffer(pastS, 0, l); folkRef.run(pastS, pastBuf, 2);
+      device.queue.writeBuffer(pastS, 0, l); folkRef.run(pastS, pastBuf, 1);
     },
     /** Per cell of the people's grid `pg`, three vec4s (Peoples.drawn): the largest way's identity, the second's × its share, the fishers' parcels. */
     setPeopleC(d, pg) {
