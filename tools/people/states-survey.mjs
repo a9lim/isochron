@@ -18,6 +18,12 @@
 //                   decolonization: settler colonies breaking away while alike (overseas, likeness to the
 //                   parent's capital 0.5 or more) and the nations (likeness under 0.5), each wave's count and
 //                   median date (industry's start as 1760)
+//   the steppe      the herders' states founded (camps) and those of 100k people at their peak, their median
+//                   lives, the largest's peak area (the
+//                   Mongols' ~24 M km², the Xiongnu's ~9: from memory), the conquest dynasties (a camp taking a
+//                   tributary's city), their median date and the share unlike the city they took; fiscal
+//                   capacity κ (people-weighted) and tribute against the states' tax at 3 and 1 kyr before
+//                   industry and at industry
 //   the industrial era   the share under unlike rulers at 1870, 1913, 1950 (industry's start as 1760),
 //                   the effective states at early takeoff
 // usage: node tools/people/states-survey.mjs ['{PEOPLE overrides}'] [draws=8]
@@ -49,10 +55,13 @@ async function one(ov, run) {
       const n = N[c]; if (!(n > 0)) continue;
       all += n; if (regOf[c] >= 0) r[regOf[c]] += n;
       ps += n * cl.psi[c]; if (cl.psi[c] > 0.3) hi += n;
-      const k = pp.pol.owner(c); if (k >= 0 && pp.ids.sim(c, pp.pol.list[k].cap) < 0.5) un += n;
+      const k = pp.pol.owner(c); if (k >= 0 && pp.ids.simX(c, pp.pol.list[k].X) < 0.5) un += n;
     }
     series.push({ t: pp.t, r: Array.from(r) });
-    stress.push({ t: pp.t, psi: all > 0 ? ps / all : 0, hi: all > 0 ? hi / all : 0 });
+    let kw = 0, kn = 0, trib = 0, tax = 0;
+    for (const k of pp.pol.live) { const q = pp.pol.list[k]; kw += q.N * q.kap; kn += q.N; }
+    if (pp.tribP && pp.uSent) for (let c = 0; c < nL; c++) { const q = pp.uSent[c] * pp.Kown[c]; trib += q * pp.tribP[c]; for (let j = 0; j < 3; j++) tax += q * pp.dlvP[3 * c + j]; }
+    stress.push({ t: pp.t, psi: all > 0 ? ps / all : 0, hi: all > 0 ? hi / all : 0, kap: kn > 0 ? kw / kn : 0, trib: tax > 0 ? trib / tax : 0 });
     unlike.push({ t: pp.t, s: all > 0 ? un / all : 0 });
   };
   // Each way's elites at a moment: their share of its people and their two-class Gini.
@@ -111,7 +120,8 @@ async function one(ov, run) {
       cycles.push({ region: REGIONS[g][0], period, rms: Math.sqrt(v0) });
     }
   }
-  const at = t => stress.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b), stress[0] || { psi: 0, hi: 0 });
+  const at = t => stress.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b), stress[0] || { psi: 0, hi: 0, kap: 0, trib: 0 });
+  const camps = list.filter(q => q.steppe), dy = pol.dyns.filter(x => x.t < tI);
   const un = t => unlike.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b), unlike[0] || { s: 0 }).s;
   const secs = pol.secs, agr = secs.filter(x => x.t < tI), ind = secs.filter(x => x.t >= tI);
   const span = pol.first !== null ? Math.max(1, tI - pol.first) : 1;
@@ -120,6 +130,8 @@ async function one(ov, run) {
     sec: { agrKyr: 1000 * agr.length / span, settler: wave(ind.filter(x => x.overseas && x.alike >= 0.5)), nation: wave(ind.filter(x => x.alike < 0.5)), other: ind.filter(x => !x.overseas && x.alike >= 0.5).length },
     great: great.length, life: lives.sort((a, b) => a - b), standing: standing.length, peakA: great.map(q => q.peakA).sort((a, b) => a - b),
     changes, cycles, stress: [tI - 3000, tI - 1000, tI, tP].map(t => { const s = at(t); return [s.psi, s.hi]; }),
+    steppe: { n: camps.length, big: camps.filter(q => q.peakN >= 1e5).length, bigLife: camps.filter(q => q.peakN >= 1e5 && q.died !== null).map(q => q.died - q.born), life: camps.filter(q => q.died !== null).map(q => q.died - q.born).sort((a, b) => a - b), peakA: camps.reduce((m, q) => Math.max(m, q.peakA), 0), dyn: dy.length, dynAt: dy.length ? dy.map(x => 1760 + x.t - tI).sort((a, b) => a - b)[dy.length >> 1] : null, dynUnlike: dy.length ? dy.filter(x => x.alike < 0.5).length / dy.length : null },
+    fiscal: [tI - 3000, tI - 1000, tI].map(t => { const s = at(t); return [s.kap, s.trib]; }),
     classes: c1, unlike: 'industry' in ev ? [110, 153, 190].map(d => un(tI + d)) : null, states: pol.nStates, yrs: 'industry' in ev ? tP - tI : null,
   };
 }
@@ -145,6 +157,9 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   const WN = ['', 'herders', 'fishers', 'farmers', 'city'], cr = runs.filter(r => r.classes);
   if (cr.length) console.log(`classes 1 kyr before industry, each way's elite share of its people · its two-class Gini (Borgerhoff Mulder and others: pastoralists ~0.42, farmers ~0.48, wealth): ${[1, 2, 3, 4].map(w => `${WN[w]} ${pc(md(cr.map(r => r.classes[w].share)))} · ${f2(md(cr.map(r => r.classes[w].gini)))}`).join(', ')}`);
   console.log(`stress (ψ · past 0.3) at 3 kyr and 1 kyr before industry, at industry, at early takeoff: ${[0, 1, 2, 3].map(i => `${f2(md(runs.map(r => r.stress[i][0])))} · ${pc(md(runs.map(r => r.stress[i][1])))}`).join('  ')}`);
+  const st = runs.map(r => r.steppe);
+  console.log(`the steppe: ${md(st.map(x => x.n))} herders' states a draw (median life ${f0(md(st.flatMap(x => x.life)))} yr), ${md(st.map(x => x.big))} of 100k people at their peak (median life ${f0(md(st.flatMap(x => x.bigLife)))} yr), the largest's peak area ${f2(md(st.map(x => x.peakA)) / 1e6)} M km² (the Mongols' ~24, the Xiongnu's ~9); conquest dynasties ${md(st.map(x => x.dyn))} a draw before industry, median ${f0(md(st.map(x => x.dynAt)))}, ${pc(md(st.map(x => x.dynUnlike)))} unlike the city they took`);
+  console.log(`fiscal capacity κ · tribute against the states' tax, at 3 and 1 kyr before industry and at industry: ${[0, 1, 2].map(i => `${f2(md(runs.map(r => r.fiscal[i][0])))} · ${pc(md(runs.map(r => r.fiscal[i][1])))}`).join('  ')}`);
   const sr = runs.filter(r => r.sec);
   if (sr.length) console.log(`secession: ${f2(md(sr.map(r => r.sec.agrKyr)))} successors a kyr before industry; from industry, settler colonies (overseas, alike) ${md(sr.map(r => r.sec.settler.n))} a draw, median ${f0(md(sr.map(r => r.sec.settler.at)))} (the Americas' 1776–1825), nations (unlike) ${md(sr.map(r => r.sec.nation.n))}, median ${f0(md(sr.map(r => r.sec.nation.at)))} (Asia's and Africa's 1945–75), others ${md(sr.map(r => r.sec.other))}`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);

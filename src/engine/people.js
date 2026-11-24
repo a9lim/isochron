@@ -519,6 +519,20 @@ export const PEOPLE = {
   // as far as it's organized (its cohesion about A_ORG) and × (1 + K_SECP ψ); a schooled stateless place founds × (1 + K_NATF × its schooling); the border norm slows a state's
   // gains of places it doesn't hold × (1 + K_NORM × the media's span).
   R_SEC: 0.02, SEC_G: 3, A_ORG: 0.3, K_SECP: 3, K_NATF: 10, K_NORM: 10,
+  // Capacity and tribute (batch 3c, src/engine/polities.js; synthesis, the values speculation): a state's fiscal
+  // capacity κ from KAP0 at founding, raised by war's pressure over T_KUP toward a ceiling KAP0 + (1 − KAP0)
+  // σ((z − Z_KAP)/W_KAP) by its capital's learning (Z_KAP between writing's and schooling's), falling in
+  // peace over T_KDN; what it doesn't administer sends F_TRIB of what direct rule would (vassals keep their
+  // rent and pay tribute), and K_RENT of the land elites' rent becomes tax where it does. The steppe: a
+  // herders' state founded as x² = (1 + the horse) × its region's herders × its settled people / N_CAMP²
+  // passes 1, F_RIDE of its riders' arms massed anywhere in its reach (as its own arms there),
+  // administering its herders alone, its power past them tribute, at most T_TRIB of what the place's
+  // administrators take, and raids killing W_RAID × the tribute's share of the stateless a year; a
+  // tributary's city falls to it at R_SEC × ψ × the tribute's saturation a year (conquest); the horse's edge
+  // fades as the world's best production passes Z_GUN over W_GUN (gunpowder). A state's identity drawn
+  // toward its capital's people over T_DYN.
+  KAP0: 0.2, T_KUP: 100, T_KDN: 300, Z_KAP: 5, W_KAP: 0.75, F_TRIB: 0.3, K_RENT: 0.5,
+  N_CAMP: 1e5, F_RIDE: 0.3, T_TRIB: 0.2, W_RAID: 0.01, Z_GUN: 6.6, W_GUN: 0.15, T_DYN: 150,
   // The Histomap's record (Fig. 9, Polities.snapshot): every DT_HIST years (DT_HIST_IND with industry), the
   // states holding HIST_MIN of the world's people or more, the HIST_K largest; past HIST_MAX entries the
   // oldest half is thinned to every other.
@@ -2289,15 +2303,15 @@ export class People {
       const y = (Y - rent) * o[c] / so, f0 = fs > 0 ? fos[c] / fs : 0, rc = rent * f0;
       fos[c] -= drawn * f0;
       if (!(y > 0) && !(rc > 0)) continue;
-      let held = 0;
+      let held = 0, taxed = 0;
       for (let j = 0; j < KPL; j++) {
         const k = id[KPL * c + j];
         if (k < 0) break;
-        const sh = s[KPL * c + j], cap = list[k].cap;
-        held += sh; goods[cap] += sh * (P.N_TAX * y + rc);
+        const sh = s[KPL * c + j], cap = list[k].cap, tk = pol.take ? pol.take(k) : 1;
+        held += sh; taxed += sh * tk; goods[cap] += sh * (P.N_TAX * tk * y + rc);
       }
-      held = Math.min(1, held);
-      goods[c] += y * (1 - P.N_TAX * held) + (1 - held) * rc;
+      held = Math.min(1, held); taxed = Math.min(1, taxed);
+      goods[c] += y * (1 - P.N_TAX * taxed) + (1 - held) * rc;
     }
     for (let c = 0; c < nL; c++) Out[c] += goods[c];
     // Saving by state, invested where it earns within the state (index L: the stateless, one pool).
@@ -3148,7 +3162,8 @@ export class People {
     const dl = this.dlv && this.dlv.length === idx.length ? this.dlv : (this.dlv = new Float32Array(idx.length));
     const dn = this.dlvN && this.dlvN.length === nL * K ? this.dlvN : (this.dlvN = new Float32Array(nL * K));
     const dP = this.dlvP || (this.dlvP = new Float32Array(nL * KPOL)), cP = this.capP || (this.capP = new Int32Array(nL * KPOL)), kP = this.kP || (this.kP = new Int32Array(nL * KPOL)), pol = this.pol;
-    dl.fill(0); dn.fill(0); dP.fill(0); cP.fill(-1); kP.fill(-1);
+    const tP = this.tribP || (this.tribP = new Float32Array(nL)), tC = this.tribC || (this.tribC = new Int32Array(nL)), kT = this.tribKk || (this.tribKk = new Int32Array(nL));
+    dl.fill(0); dn.fill(0); dP.fill(0); cP.fill(-1); kP.fill(-1); tP.fill(0); tC.fill(-1); kT.fill(-1);
     const mo = rt.marketOf, cost = new Float64Array(top.length), wk = new Float64Array(top.length), far = new Map();
     for (let d = 0; d < nL; d++) {
       if (!(u[d] > 0)) continue;
@@ -3160,18 +3175,30 @@ export class People {
         const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S');   // (steam's only where there's industry: Routes.R.I)
         cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.C_NAT0 + P.K_NAT * r)); Zn += wk[k];
       }
-      // A state's share of it to its capitals (src/engine/polities.js); the stateless share to the largest cities.
+      // A state's share of it to its capitals (src/engine/polities.js), what it administers as tax and the
+      // rest as its vassals' tribute (Polities.take: one flow), the rest of the vassals' share kept in the
+      // region; the stateless share to the largest cities. A herders' state's tribute (Polities.tribT) is
+      // its share of what the place's administrators take, to its camp.
       const h = pol.held(d), nat = Zn > 0 || h > 0 ? P.N_CITY : 0, q = u[d] * Math.max(0, this.Out[d] - this.goods[d]), natG = Zn > 0 ? nat * (1 - h) : 0;
+      const kt = pol.tribK[d], tau = kt >= 0 ? pol.tribT[d] : 0, pay = 1 - tau;
+      let kept = 0, taken = natG;
       if (h > 0) for (let j = 0; j < KPOL; j++) {
         const k = pol.id[KPOL * d + j];
         if (k < 0) break;
-        const c = pol.list[k].cap, mc = mo[c], sc = Math.max(s, ind[c]);
-        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]) * Math.exp(-x / ll);
+        const c = pol.list[k].cap, mc = mo[c], sc = Math.max(s, ind[c]), sh = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]), tk = pol.take(k);
+        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = sh * tk * pay * Math.exp(-x / ll);
+        kept += sh * (1 - tk); taken += sh * tk;
         dP[KPOL * d + j] = y; cP[KPOL * d + j] = c; kP[KPOL * d + j] = k;
         if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
       }
+      if (tau > 0 && taken > 0) {
+        const c = pol.list[kt].cap, mc = mo[c], sc = Math.max(s, ind[c]);
+        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = tau * taken * Math.exp(-x / ll);
+        tP[d] = y; tC[d] = c; kT[d] = kt;
+        if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
+      }
       if (natG > 0) for (let k = 0; k < top.length; k++) {
-        const x = natG * wk[k] / Zn * Math.exp(-cost[k] / ll);
+        const x = natG * pay * wk[k] / Zn * Math.exp(-cost[k] / ll);
         dn[d * K + k] = x;
         const mc = mo[top[k]];
         if (mc !== md && q * x > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * x); }
@@ -3180,7 +3207,8 @@ export class People {
       let Z = 0;
       const rd = this.built(d, 'R'), cost2 = this.cost2 || (this.cost2 = new Float64Array(rt.C.M_CATCH + 1));
       for (let k = off[d]; k < off[d + 1]; k++) { const x = ((1 - s) * cS[k] + s * cI[k]) / (1 + P.R_X * 0.5 * (rd + this.built(idx[k], 'R'))), w = Wt[idx[k]] * Math.exp(-x / (P.C_CITY0 + P.K_CITY * r)); cost2[k - off[d]] = x; dl[k] = w; Z += w; }
-      for (let k = off[d]; k < off[d + 1]; k++) { const x = cost2[k - off[d]]; dl[k] = Z > 0 ? (1 - nat) * dl[k] / Z * Math.exp(-x / ll) : k === off[d] ? 1 - nat : 0; }
+      const rg = 1 - nat + kept;
+      for (let k = off[d]; k < off[d + 1]; k++) { const x = cost2[k - off[d]]; dl[k] = Z > 0 ? rg * dl[k] / Z * Math.exp(-x / ll) : k === off[d] ? rg : 0; }
     }
     rt.feedFlows = [...far].map(([key, q]) => [Math.floor(key / 65536), key % 65536, q]).sort((a, b) => b[2] - a[2]).slice(0, rt.C.N_FLOW);
   }
@@ -3208,6 +3236,7 @@ export class People {
       for (let k = off[d]; k < off[d + 1]; k++) imp[idx[k]] += q * dl[k];
       for (let k = 0; k < nt; k++) imp[top[k]] += q * dn[d * K + k];
       if (dP) for (let j = 0; j < KPOL; j++) { const c = cP[KPOL * d + j]; if (c < 0) break; imp[c] += q * dP[KPOL * d + j]; }
+      if (this.tribC && this.tribC[d] >= 0) imp[this.tribC[d]] += q * this.tribP[d];
     }
     const cs = this.cityShare, wl = this.econ.on ? 0 : P.S_WORK;
     for (let c = 0; c < nL; c++) { const k = own[c] * (1 - ex[c]) + imp[c]; cs[c] = k > 0 ? imp[c] / k : 0; }

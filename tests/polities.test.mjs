@@ -197,3 +197,80 @@ test("a successor takes its parent's holdings nearer its seat, keeping everyone'
   assert.equal(pol.list[k + 1].parent, k);
   assert.equal(pol.secs.length, 1);
 });
+
+test("a state's identity is its rulers': kept when its capital moves, drawn toward its new capital's people over T_DYN", () => {
+  // A state founded at 60 among people at (0, 0) on the torus; the right half's people are at (1, 0). Its
+  // capital moved to 140 (a dynasty in a conquered city), its point keeps the founders' and is drawn toward
+  // its new capital's people as 1 − e^{−t/T_DYN}, one step or two, and the places it holds read it.
+  const pp = line({}), pol = pp.pol, ids = pp.ids, P = pp.P;
+  for (let c = 0; c < 200; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = c >= 100 ? 1 : 0; }
+  const k = seat(pol, 60, 90), q = pol.list[k];
+  assert.deepEqual(q.X, [0, 0]);
+  q.cap = 140;
+  pol.advance(P.T_DYN / 2); pol.advance(P.T_DYN / 2);
+  const want = 1 - Math.exp(-1);
+  assert.ok(Math.abs(q.X[0] - want) < 1e-12 && q.X[1] === 0, `${q.X} against ${want}`);
+  const sim = d2 => 1 / (1 + d2 / (P.D_SIM * P.D_SIM));
+  assert.ok(Math.abs(ids.simX(140, q.X) - sim((1 - want) ** 2)) < 1e-12 && Math.abs(ids.simX(60, q.X) - sim(want * want)) < 1e-12);
+});
+
+test("a herders' state holds its herders wholly, and its power over the settled is what it administers and its tribute", () => {
+  // Herders on the left of the line camped at 30, farmers past them, a mixed march 100–119 (herders' share h
+  // falling from 0.8 to 0), and farmers again held by a settled state seated at 160. A settled state could hold
+  // at most DL_HERD of a herders' place; the camp holds nearly all, and none of the farmers. In the march it
+  // administers its herders, h of the place (whose deliverers to it are all its people), by that share of its
+  // power v: so, below its cap, its share settles at s = (h v)^γ/D, D the place's π₀^γ and every candidate's
+  // power^γ, and the rest, (1 − h) v, is tribute: T_TRIB ρ^γ/(1 + ρ^γ), ρ^γ = ((1 − h) v)^γ/(D − (h v)^γ), so
+  // ρ^γ = ((1 − h)/h)^γ s/(1 − s): one power read twice. (No raids: the line has no births to make up their dead.)
+  const n = 200, N = 1e4, pp = line({ n, N, c0: 100, L: 1500, params: { W_RAID: 0 } }), pol = pp.pol, ids = pp.ids, P = pp.P;
+  const hOf = c => (c < 60 ? 1 : c < 100 ? 0 : c < 120 ? 0.8 * (119 - c) / 19 : 0);
+  for (let c = 0; c < n; c++) { const h = hOf(c); ids.W[5 * c + 1] = h * N; ids.W[5 * c + 3] = (1 - h) * N; pp.wol[5 * c + 1] = h; pp.wol[5 * c + 3] = 1 - h; }
+  const ks = seat(pol, 160, 40), k = pol.list.length;
+  pol.found(30, 1, true);
+  for (let b = 0; b < 60; b++) if (b !== 30) pol.claim(b, k, 1);
+  for (let t = 0; t < 400; t++) { pol.advance(10); pp.t += 10; }
+  const s = held(pol, k, n), g = P.POL_G, cap = pol.list[k].cap;
+  assert.ok(pol.list[k].camp && s[cap] > 0.9 && pol.d[cap] === P.DL_HERD, `the camp's share ${s[cap]} against a settled state's ${pol.d[cap]} at most`);
+  assert.ok(s.slice(60, 100).every(x => x === 0) && pol.tribT.slice(60, 100).every(x => x > 0), 'no farmers held, and tribute from them');
+  let tested = 0;
+  for (let c = 100; c < 120; c++) {
+    const h = hOf(c);
+    if (pol.tribK[c] !== k || !(s[c] > 1e-3 && s[c] < 0.99 * h)) continue;
+    const rg = ((1 - h) / h) ** g * s[c] / (1 - s[c]), want = P.T_TRIB * rg / (1 + rg);
+    assert.ok(Math.abs(pol.tribT[c] / want - 1) < 1e-3, `place ${c}: tribute ${pol.tribT[c]} against ${want} (share ${s[c]} of ${h})`);
+    tested++;
+  }
+  assert.ok(tested >= 3, `${tested} places tested`);
+  assert.ok(held(pol, ks, n)[160] > 0.9, 'the settled state keeps its own');
+});
+
+test("a herders' state conquers a tributary's city where stress breaks it, taking its holdings nearer the city", () => {
+  // The same steppe beside a settled state seated at 160 whose city at 110 pays tribute, stress at its height and
+  // the hazard certain: the camp takes the city and moves its seat there, a dynasty from the steppe. (Secession
+  // held off: A_ORG past any cohesion.) Its take, as a successor's: each place of the settled state's in the city's
+  // region by how much nearer the city is than the state's capital, half and half midway, nothing made or lost.
+  const n = 200, N = 1e4, c0 = 100, L = 4000, mk = () => {
+    const pp = line({ n, N, c0, L, params: { W_RAID: 0, R_SEC: 1e6, A_ORG: 1e9 } }), pol = pp.pol, ids = pp.ids;
+    for (let c = 0; c < 100; c++) { ids.W[5 * c + 3] = 0; ids.W[5 * c + 1] = N; pp.wol[5 * c + 3] = 0; pp.wol[5 * c + 1] = 1; }
+    pp.city = new Float64Array(n); pp.city[110] = 3e4;
+    pp.classes = { psi: new Float64Array(n).fill(1), advance() {} };
+    const ks = seat(pol, 160, 60), k = pol.list.length;
+    pol.found(80, 1, true);
+    for (let b = 50; b < 100; b++) if (b !== 80) pol.claim(b, k, 1);
+    return { pp, pol, ks, k };
+  };
+  {
+    const { pol, ks, k } = mk();
+    pol.advance(10);
+    const q = pol.list[k];
+    assert.ok(pol.dyns.length === 1 && pol.dyns[0].ks === ks && !q.camp && q.cap === 110, `${pol.dyns.length} conquests, seat ${q.cap}, a camp ${q.camp}`);
+  }
+  const { pol, ks, k } = mk();
+  pol.d.fill(1);
+  pol.list[ks].L = pol.reachAt(0);
+  const before = held(pol, ks, n);
+  pol.conquer(110, k, ks, (q, b) => Math.abs(q.cap - b) * c0);
+  const a = held(pol, ks, n), b = held(pol, k, n);
+  for (let c = 100; c < n; c++) assert.ok(Math.abs(a[c] + b[c] - before[c]) < 1e-12, `place ${c}: ${a[c]} + ${b[c]} against ${before[c]}`);
+  assert.ok(Math.abs(half(b, 110) - 135) < 0.5, `the split at ${half(b, 110)}, against 135`);
+});

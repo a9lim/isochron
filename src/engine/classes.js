@@ -22,10 +22,14 @@
 //               hold. Domar's hypothesis (1970): free land, free peasants and idle landlords can't all
 //               three stand, so open land keeps the take low unless a state backs the landlords
 //               (serfdom). The city's elite takes TH_W of its food and capital's ALPHA of its goods.
+//               Where a state administers the place (its fiscal capacity κ, src/engine/polities.js), K_RENT
+//               of the land elites' rent is its tax instead (centralization); its vassals keep theirs.
 //   positions   the livelihoods a claim keeps: claim/(C_E ȳ), an elite living at C_E times the place's
 //               mean income ȳ (status is relative, so the elite's share holds as incomes grow). Office's
 //               are its state's revenue over C_E × the state's mean: the food its places deliver to its
-//               capitals (People.foodshed's national share) and, with industry, N_TAX of their goods.
+//               capitals (People.foodshed's national share: tax where it administers, its vassals'
+//               tribute where it doesn't), with industry N_TAX of their goods, and a herders' state's
+//               tribute from the settled.
 //   numbers     each way's elite share ε of its people, d ε/dt = (δ − K_CULL ψ) ε − μ (ε − p), p the
 //               positions' share of the way's people, μ = 1/T_DOWN above it (elites past their positions
 //               fall back over a generation and more) and 1/T_UP below (positions empty fill fast),
@@ -102,9 +106,12 @@ export class Classes {
         if (k < 0) break;
         let r = 0;
         if (u && dP && kP) for (let i = 0; i < KP; i++) if (kP[KP * c + i] === k) r += u[c] * Kown[c] * dP[KP * c + i];
-        if (pp.econ.on && pol.d[c] > 0) r += P.N_TAX * goods[c] * Math.min(1, pol.s[KP * c + j] / pol.d[c]);
+        if (pp.econ.on && pol.d[c] > 0) r += P.N_TAX * pol.take(k) * goods[c] * Math.min(1, pol.s[KP * c + j] / pol.d[c]);
         take[KP * c + j] = r; rev[c] += r; list[k].rev += r;
       }
+      // A herders' state's tribute from the place (People.foodshed), to its office alone.
+      const kt = pp.tribKk ? pp.tribKk[c] : -1;
+      if (kt >= 0 && u && list[kt].died === null) { const r = u[c] * Kown[c] * pp.tribP[c]; rev[c] += r; list[kt].rev += r; }
     }
     // Each place: its ways' claims and positions, its income a person, its stress.
     const psi = this.psi, mmp = this.mmp, emp = this.emp;
@@ -113,10 +120,14 @@ export class Classes {
       if (!(n > 0) || !(t > 0)) { psi[c] = 0; mmp[c] = 0; emp[c] = 0; for (let w = 0; w < WAYS; w++) { e[o + w] = 0; pos[o + w] = 0; claim[o + w] = 0; } continue; }
       const y = (K[c] + goods[c]) / n, h = pol.held(c);
       const tk = 1 / (1 + (pol.ex ? pol.ex[c] : 0) / (P.X_EXIT * (1 + P.K_COER * h)));
+      // Where its states administer it (their fiscal capacity κ by their shares), K_RENT of the land's rent is tax.
+      let dr = 0;
+      if (pol.d[c] > 0) for (let j = 0; j < KP; j++) { const k = pol.id[KP * c + j]; if (k < 0) break; dr += Math.min(1, pol.s[KP * c + j] / pol.d[c]) * (list[k].kap ?? 1); }
+      const rent = 1 - P.K_RENT * Math.min(1, dr);
       let E = 0, Pw = 0;
       for (let w = 1; w < WAYS; w++) {
         const out = w === CITY ? (imp ? imp[c] : 0) : wol[o + w];
-        const cl = TH[w] * tk * out + (w === CITY && pp.econ.on ? P.ALPHA * goods[c] : 0);
+        const cl = TH[w] * tk * (w === CITY ? 1 : rent) * out + (w === CITY && pp.econ.on ? P.ALPHA * goods[c] : 0);
         claim[o + w] = cl; pos[o + w] = cl / (P.C_E * Math.max(y, 1e-6));
         const nw = n * W[o + w] / t;
         E += e[o + w] * nw; Pw += pos[o + w];

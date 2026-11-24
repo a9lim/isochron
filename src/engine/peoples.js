@@ -27,12 +27,12 @@
 //               Z_IDL (writing's, print's, broadcast's reach: speculation); past it the media pull every
 //               point toward the world's mean, R_MEDIA × 1 − e^{−(ℓ_id/L_WORLD)²}, whatever the
 //               distance: the world blends once learning spans it (a9), or where a state holds the
-//               place, its nation does: the media's pull is toward the holders' capitals' identity by
-//               their shares (a9: national broadcasting), each × how alike the place is to its capital
-//               (a nation's media reach those who share its tongue: a colony's aren't its rulers'), the
-//               world's mean for the rest. States also
-//               pull the places they hold toward their capitals' identity, R_STATE × the share held ×
-//               the falloff (src/engine/polities.js; a9: softly). With drift, the
+//               place, its nation does: the media's pull is toward the holders' own identity by their
+//               shares (a9: national broadcasting), each × how alike the place is to its rulers (a
+//               nation's media reach those who share its tongue: a colony's aren't its rulers'), the
+//               world's mean for the rest. States also pull the places they hold toward their own
+//               identity (each state's point, its rulers', drawn toward its capital's people:
+//               src/engine/polities.js), R_STATE × the share held × the falloff (a9: softly). With drift, the
 //               nearest-neighbour pull is a stepping-stone field, whose identity distance grows as the
 //               log of the distance between places in two dimensions (Séguy's curve for dialects,
 //               1971; Nerbonne; from memory).
@@ -234,20 +234,19 @@ export class Peoples {
           if (!(ew > 0)) continue;
           for (let j = 0; j < WAYS; j++) { const b = d * WAYS + j; if (W[b] > 0.05 * N[d]) meet(b, ew * W[b] * across(k, j, xw)); }
         }
-        // The states holding the place pull it toward their capitals' identity (src/engine/polities.js;
-        // a9: softly), R_STATE × the share held × contact's falloff.
+        // The states holding the place pull it toward their own identity (each state's point: its rulers',
+        // src/engine/polities.js; a9: softly), R_STATE × the share held × contact's falloff, the capital's
+        // people too, as the state's point is drawn toward them.
         // The media's pull is the nation's where a state holds the place (a9: national broadcasting, its
-        // schools and press), each holder's capital by its share of those who deliver × how alike the people
-        // are to its capital's, and the world's mean for the rest: whatever the distance.
+        // schools and press), each holder's by its share of those who deliver × how alike the people are to
+        // its rulers, and the world's mean for the rest: whatever the distance.
         let rs = 0, sx = 0, sy = 0, hm = 0, mx = 0, my = 0;
         if (pol) for (let j = 0; j < KPOL; j++) {
           const q = pol.id[KPOL * c + j];
           if (q < 0) break;
-          const b = pol.capSlot(q);
-          if (b < 0) continue;
-          const ddx = wrap(X[2 * b] - xa, S), ddy = wrap(X[2 * b + 1] - ya, S), sh = pol.s[KPOL * c + j];
+          const qx = pol.list[q].X;
+          const ddx = wrap(qx[0] - xa, S), ddy = wrap(qx[1] - ya, S), sh = pol.s[KPOL * c + j];
           if (gam > 0 && pol.d[c] > 0) { const f = Math.min(1 - hm, sh / pol.d[c] / (1 + (ddx * ddx + ddy * ddy) / (P.D_SIM * P.D_SIM))); hm += f; mx += f * ddx; my += f * ddy; }
-          if (b === a) continue;
           const w = P.R_STATE * sh * pull(ddx * ddx + ddy * ddy, Dc, g0);
           rs += w; sx += w * ddx; sy += w * ddy;
         }
@@ -283,6 +282,13 @@ export class Peoples {
   sim(c, d) {
     const a = this.lead[c], b = this.lead[d];
     return a < 0 || b < 0 ? 1 : 1 / (1 + this.d2(a, b) / (this.pp.P.D_SIM * this.pp.P.D_SIM));
+  }
+  /** How alike cell c's learned identity is to a point x on the torus (a state's own: src/engine/polities.js), as `sim`. */
+  simX(c, x) {
+    const a = this.lead[c];
+    if (a < 0) return 1;
+    const S = this.pp.P.TOR, dx = wrap(this.X[2 * a] - x[0], S), dy = wrap(this.X[2 * a + 1] - x[1], S), D = this.pp.P.D_SIM;
+    return 1 / (1 + (dx * dx + dy * dy) / (D * D));
   }
   /**
    * Learning's copying from d into c, by how alike they are (ID_COPY of the way to none), as c's learning

@@ -49,7 +49,7 @@ async function one(ov, run) {
     for (let c = 0; c < pp.nL; c++) {
       all += N[c]; out += pp.Out[c]; ind += N[c] * pp.ind[c];
       if (regOf[c] >= 0) { inc[regOf[c]] += pp.Out[c]; pop[regOf[c]] += N[c]; }
-      const k = pol.owner(c), sm = k >= 0 ? pp.ids.sim(c, pol.list[k].cap) : 1;
+      const k = pol.owner(c), sm = k >= 0 ? pp.ids.simX(c, pol.list[k].X) : 1;
       if (sm < 0.5) unl += N[c];
     }
     const y = [...pop.keys()].filter(r => pop[r] > 0.01 * all).map(r => inc[r] / pop[r]);
