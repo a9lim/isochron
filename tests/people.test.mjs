@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography, fertility } from '../src/engine/people.js';
+import { People, PEOPLE, taskLabor, industrialStep, newEconomy, demography, fertility, wetBulb } from '../src/engine/people.js';
 
 const R = 6371;
 /** Every cell land, warm, wet, savanna-like and alike (zones all Aw). */
@@ -258,3 +258,43 @@ test('the check names where a number stops being finite (the page reports the fi
   assert.throws(() => p.step(10), new RegExp(`zl\\[${c}\\] = NaN`));
 });
 
+
+test("migration settles where crowding against real income is even, a schooled border cuts it B_MIG-fold, and refugees are kept", () => {
+  // One potential (batch 3d): people move down crowding against real income, N/(K + goods). The east earning
+  // as much again as its food, the people settle at N ∝ K + goods. Then, west and east two states, both schooled,
+  // the people crossing between them in a short step are B_MIG of those crossing where neither is a state.
+  const P0 = { ...quiet, A_INV: 0, D0: 3e4, D_Z: 0, D_MAX: 1e9, K_CHAIN: 0, NSUB_MAX: 1000 };
+  const p = new People(uniformPlanet(3), P0), L = pop(p), nL = p.nL, g = p.planet.grid, east = c => g.pos[3 * p.cells[c]] > 0;
+  p.capacity();
+  for (let c = 0; c < nL; c++) { L.N[c] = 0.5 * L.K[c]; p.goods[c] = east(c) ? L.K2[c] : 0; }
+  for (let k = 0; k < 150; k++) p.diffuse(50);
+  const u = Array.from({ length: nL }, (_, c) => L.N[c] / (L.K2[c] + p.goods[c]));
+  assert.ok(Math.max(...u) / Math.min(...u) - 1 < 1e-3, `crowding against income from ${Math.min(...u)} to ${Math.max(...u)}`);
+  const crossed = schooled => {
+    const q = new People(uniformPlanet(3), P0), M = pop(q);
+    q.capacity();
+    for (let c = 0; c < nL; c++) { M.N[c] = (east(c) ? 0.2 : 0.8) * M.K[c]; q.goods[c] = 0; }
+    if (schooled) { q.pol.d.fill(1); q.pol.nat.fill(1); for (let c = 0; c < nL; c++) { q.pol.id[3 * c] = east(c) ? 1 : 0; q.pol.s[3 * c] = 1; } }
+    let e0 = 0; for (let c = 0; c < nL; c++) if (east(c)) e0 += M.N[c];
+    q.diffuse(0.02);
+    let e1 = 0; for (let c = 0; c < nL; c++) if (east(c)) e1 += M.N[c];
+    return { q, moved: e1 - e0 };
+  };
+  const free = crossed(false).moved, { q, moved } = crossed(true);
+  assert.ok(free > 0 && Math.abs(moved / free / PEOPLE.B_MIG - 1) < 0.02, `across the border ${moved.toFixed(1)} against ${free.toFixed(1)} free (× ${PEOPLE.B_MIG})`);
+  // Refugees: those fleeing a place go to its land neighbours by their room, and no one is made or lost.
+  const N0 = q.Ntot.reduce((a, b) => a + b, 0), c0 = 5, got = q.flee(c0, 100);
+  assert.ok(got === 100 && Math.abs(q.Ntot.reduce((a, b) => a + b, 0) - N0) < 1e-6 * N0, `${got} housed`);
+});
+
+test('the wet bulb is the psychrometer\'s within Stull\'s ~1 K', () => {
+  // The psychrometer's equation solved exactly, e_s(T_w) − γ p (T − T_w) = rh e_s(T) at sea level's pressure
+  // (e_s Bolton's 1980 form, γ 6.6e-4 /K: standard), against Stull's fit over its range.
+  const es = T => 6.112 * Math.exp(17.67 * T / (T + 243.5)), gp = 6.6e-4 * 1013.25;
+  for (const T of [10, 20, 30, 40]) for (const rh of [0.2, 0.5, 0.9]) {
+    let lo = -40, hi = T;
+    for (let k = 0; k < 80; k++) { const m = 0.5 * (lo + hi); if (es(m) - gp * (T - m) > rh * es(T)) hi = m; else lo = m; }
+    const want = 0.5 * (lo + hi), got = wetBulb(T, rh);
+    assert.ok(Math.abs(got - want) < 1.1, `T ${T}, rh ${rh}: ${got.toFixed(2)} against ${want.toFixed(2)}`);
+  }
+});

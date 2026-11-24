@@ -24,6 +24,11 @@
 //                   tributary's city), their median date and the share unlike the city they took; fiscal
 //                   capacity κ (people-weighted) and tribute against the states' tax at 3 and 1 kyr before
 //                   industry and at industry
+//   migration and heat (3d, 3e)  the people at 1 CE, 1870, 1950 and 2000; refugees a kyr before industry and a
+//                   year after it; the people-weighted weight of those of an age to migrate against their
+//                   stable pyramid's (the emigration hump) at 1870, 1913, 1950 and its most; at industry and early
+//                   takeoff the people-weighted hottest month's wet bulb, the share past 28 °C, heat's deaths
+//                   a year, cooling's power and Earth's habitability
 //   the industrial era   the share under unlike rulers at 1870, 1913, 1950 (industry's start as 1760),
 //                   the effective states at early takeoff
 // usage: node tools/people/states-survey.mjs ['{PEOPLE overrides}'] [draws=8]
@@ -61,7 +66,10 @@ async function one(ov, run) {
     let kw = 0, kn = 0, trib = 0, tax = 0;
     for (const k of pp.pol.live) { const q = pp.pol.list[k]; kw += q.N * q.kap; kn += q.N; }
     if (pp.tribP && pp.uSent) for (let c = 0; c < nL; c++) { const q = pp.uSent[c] * pp.Kown[c]; trib += q * pp.tribP[c]; for (let j = 0; j < 3; j++) tax += q * pp.dlvP[3 * c + j]; }
-    stress.push({ t: pp.t, psi: all > 0 ? ps / all : 0, hi: all > 0 ? hi / all : 0, kap: kn > 0 ? kw / kn : 0, trib: tax > 0 ? trib / tax : 0 });
+    let tw = 0, hot = 0, dh = 0, mw = 0, mx = 0;
+    for (let c = 0; c < nL; c++) { const n = N[c]; if (!(n > 0)) continue; tw += n * pp.tw[c]; if (pp.tw[c] > 28) hot += n; dh += n * pp.dHeat[c]; const m = pp.migA ? pp.migA[c] : 1; mw += n * m; if (m > mx && n > 1e5) mx = m; }
+    stress.push({ t: pp.t, psi: all > 0 ? ps / all : 0, hi: all > 0 ? hi / all : 0, kap: kn > 0 ? kw / kn : 0, trib: tax > 0 ? trib / tax : 0,
+      N: all, tw: all > 0 ? tw / all : 0, hot: all > 0 ? hot / all : 0, dh: all > 0 ? dh / all : 0, cool: pp.Ecool || 0, hE: pp.hE, mig: all > 0 ? mw / all : 1, migMax: mx, fled: pp.fled || 0 });
     unlike.push({ t: pp.t, s: all > 0 ? un / all : 0 });
   };
   // Each way's elites at a moment: their share of its people and their two-class Gini.
@@ -132,6 +140,9 @@ async function one(ov, run) {
     changes, cycles, stress: [tI - 3000, tI - 1000, tI, tP].map(t => { const s = at(t); return [s.psi, s.hi]; }),
     steppe: { n: camps.length, big: camps.filter(q => q.peakN >= 1e5).length, bigLife: camps.filter(q => q.peakN >= 1e5 && q.died !== null).map(q => q.died - q.born), life: camps.filter(q => q.died !== null).map(q => q.died - q.born).sort((a, b) => a - b), peakA: camps.reduce((m, q) => Math.max(m, q.peakA), 0), dyn: dy.length, dynAt: dy.length ? dy.map(x => 1760 + x.t - tI).sort((a, b) => a - b)[dy.length >> 1] : null, dynUnlike: dy.length ? dy.filter(x => x.alike < 0.5).length / dy.length : null },
     fiscal: [tI - 3000, tI - 1000, tI].map(t => { const s = at(t); return [s.kap, s.trib]; }),
+    mig: 'industry' in ev ? { N: [-1760, 110, 190, 240].map(d => at(tI + d).N), hump: [110, 153, 190].map(d => at(tI + d).mig), humpMax: Math.max(...stress.filter(s => s.t >= tI).map(s => s.migMax)),
+      fledAgr: 1000 * (at(tI).fled || 0) / span, fledInd: Math.max(0, (at(tP).fled || 0) - (at(tI).fled || 0)) / Math.max(1, tP - tI) } : null,
+    heat: [tI, tP].map(t => { const s = at(t); return { tw: s.tw, hot: s.hot, dh: s.dh, cool: s.cool, hE: s.hE }; }),
     classes: c1, unlike: 'industry' in ev ? [110, 153, 190].map(d => un(tI + d)) : null, states: pol.nStates, yrs: 'industry' in ev ? tP - tI : null,
   };
 }
@@ -160,6 +171,11 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   const st = runs.map(r => r.steppe);
   console.log(`the steppe: ${md(st.map(x => x.n))} herders' states a draw (median life ${f0(md(st.flatMap(x => x.life)))} yr), ${md(st.map(x => x.big))} of 100k people at their peak (median life ${f0(md(st.flatMap(x => x.bigLife)))} yr), the largest's peak area ${f2(md(st.map(x => x.peakA)) / 1e6)} M km² (the Mongols' ~24, the Xiongnu's ~9); conquest dynasties ${md(st.map(x => x.dyn))} a draw before industry, median ${f0(md(st.map(x => x.dynAt)))}, ${pc(md(st.map(x => x.dynUnlike)))} unlike the city they took`);
   console.log(`fiscal capacity κ · tribute against the states' tax, at 3 and 1 kyr before industry and at industry: ${[0, 1, 2].map(i => `${f2(md(runs.map(r => r.fiscal[i][0])))} · ${pc(md(runs.map(r => r.fiscal[i][1])))}`).join('  ')}`);
+  const mr = runs.filter(r => r.mig), gB = x => (Number.isFinite(x) ? (x / 1e9).toFixed(2) : '–');
+  if (mr.length) {
+    console.log(`migration: people at 1 CE, 1870, 1950, 2000 ${[0, 1, 2, 3].map(i => gB(md(mr.map(r => r.mig.N[i])))).join(', ')} B (0.17–0.26, 1.27, 2.52, 6.07); refugees ${f0(md(mr.map(r => r.mig.fledAgr)))} a kyr before industry, ${f0(md(mr.map(r => r.mig.fledInd)))} a year after it; the hump (those of an age to migrate against the stable pyramid's, people-weighted) at 1870, 1913, 1950 ${[0, 1, 2].map(i => f2(md(mr.map(r => r.mig.hump[i])))).join(', ')}, its most ${f2(md(mr.map(r => r.mig.humpMax)))}`);
+  }
+  console.log(`heat at industry · at early takeoff: the people's hottest month's wet bulb ${[0, 1].map(i => f2(md(runs.map(r => r.heat[i].tw)))).join(' · ')} °C, past 28 °C ${[0, 1].map(i => pc(md(runs.map(r => r.heat[i].hot)))).join(' · ')}, heat's deaths ${[0, 1].map(i => (1e6 * md(runs.map(r => r.heat[i].dh))).toFixed(1)).join(' · ')} a million a year, cooling ${[0, 1].map(i => (md(runs.map(r => r.heat[i].cool)) / 1e9).toFixed(0)).join(' · ')} GW, Earth's habitability ${[0, 1].map(i => f2(md(runs.map(r => r.heat[i].hE)))).join(' · ')}`);
   const sr = runs.filter(r => r.sec);
   if (sr.length) console.log(`secession: ${f2(md(sr.map(r => r.sec.agrKyr)))} successors a kyr before industry; from industry, settler colonies (overseas, alike) ${md(sr.map(r => r.sec.settler.n))} a draw, median ${f0(md(sr.map(r => r.sec.settler.at)))} (the Americas' 1776–1825), nations (unlike) ${md(sr.map(r => r.sec.nation.n))}, median ${f0(md(sr.map(r => r.sec.nation.at)))} (Asia's and Africa's 1945–75), others ${md(sr.map(r => r.sec.other))}`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);

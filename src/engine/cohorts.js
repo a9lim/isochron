@@ -120,6 +120,24 @@ export function stableLookup(b, r, out, o = 0) {
   for (let k = 0; k < K; k++) out[o + k] /= s;
 }
 
+let MIGT = null;
+/**
+ * The migrants' age weight of the stable population at births b and growth r, Σ c(a) MIG(a) (MIG sums to 1):
+ * `stableLookup`'s table, each entry weighted once, bilinear between. A pyramid's own weight against it is its
+ * bulge of those of an age to migrate (People.diffuse: the emigration hump), 1 for any population at its rates.
+ */
+export function stableMig(b, r) {
+  const T = table();
+  if (!MIGT) {
+    MIGT = new Float64Array(TB.nb * TB.nr);
+    for (let q = 0; q < TB.nb * TB.nr; q++) { let s = 0, w = 0; for (let k = 0; k < K; k++) { s += T[q * K + k]; w += T[q * K + k] * MIG[k]; } MIGT[q] = w / s; }
+  }
+  const x = Math.min(TB.nb - 1.0001, Math.max(0, (b - TB.b0) / (TB.b1 - TB.b0) * (TB.nb - 1)));
+  const y = Math.min(TB.nr - 1.0001, Math.max(0, (r - TB.r0) / (TB.r1 - TB.r0) * (TB.nr - 1)));
+  const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+  return (1 - fx) * (1 - fy) * MIGT[i * TB.nr + j] + fx * (1 - fy) * MIGT[(i + 1) * TB.nr + j] + (1 - fx) * fy * MIGT[i * TB.nr + j + 1] + fx * fy * MIGT[(i + 1) * TB.nr + j + 1];
+}
+
 /**
  * The cohorts' clock (all cells age together): a step of dt years from a clock at `clock` (years
  * into the current cohort's span) moves every cohort on by `shift` whole cohorts. A boxcar: cohorts

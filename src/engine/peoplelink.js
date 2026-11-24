@@ -37,7 +37,7 @@ import { LIFE } from './life.js';
 export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1, rh: 1 };
 /** A lake's shore: its cells wet past this share of their area, and their neighbours. */
 export const LAKE_SHORE = 0.05;
 
@@ -62,7 +62,8 @@ export const peopleLevel = level => Math.min(6, level);
  * which feed the fishers; for the routes
  * (src/engine/routes.js), the surface wind at the year's six points (m/s, 3-vectors in each cell's
  * tangent plane: 18 a cell, the point-major triples), the sea's surface current (m/s, a 3-vector;
- * the gyres', prolonged from their grid) and the share of the year under sea ice.
+ * the gyres', prolonged from their grid) and the share of the year under sea ice; and the column's
+ * humidity at the year's warmest point (0–1, for the people's heat).
  */
 export function fieldsOf(P, f = null, T = null) {
   const g = T ? T.coarse : P.grid, n = g.n, N = P.grid.n, c = P.climate, tec = P.tec, s = tec.seaLevel;
@@ -79,6 +80,7 @@ export function fieldsOf(P, f = null, T = null) {
     sigT: i => sigT[i], sigTy: i => sigT[i] * Math.sqrt(sp.mem[i]), sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
     sea: coastSea, lakeEx: shoreLake, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
     arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
+    rh: i => c.humidHot(i),   // the column's humidity at the year's warmest point (the people's wet bulb)
   };
   const np = c.windPhase.length, wind = new Float32Array(18 * N), cur = new Float32Array(3 * N), oc = P.ocean;
   for (let i = 0; i < N; i++) for (let p = 0; p < 6; p++) { const w = c.windPhase[Math.min(np - 1, Math.floor(p * np / 6))]; for (let k = 0; k < 3; k++) wind[18 * i + 3 * p + k] = w[3 * i + k]; }

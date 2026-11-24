@@ -535,6 +535,12 @@ export class Climate {
   }
   /** Surface temperature: the sea-level value less the lapse rate over land. */
   surfaceT(i, tau) { return this.tAt(i, tau) - CLIMATE.LAPSE * this.elevPos[i]; }
+  /** The column's humidity (its water over saturation's at the surface's temperature) at the year's warmest point at cell i: the people's heat (src/engine/people.js, the wet bulb). */
+  humidHot(i) {
+    let best = -Infinity, r = 0;
+    for (let p = 0; p < NP; p++) { const T = this.surfaceT(i, (p + 0.5) / NP); if (T > best) { best = T; r = this.W[p][i] / wsat(T); } }
+    return Math.max(0, Math.min(1, r));
+  }
 
   /** Snapshot of the geography the climate sees. */
   geography() {

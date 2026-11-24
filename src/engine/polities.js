@@ -244,11 +244,14 @@ export class Polities {
       // Herders deliver wholly to a herders' state (every herder a rider), DL_HERD to a settled one.
       d[c] = dc; dH[c] = Math.min(1, dc + (1 - P.DL_HERD) * W[o + 1] / t * (1 - ind[c]));
       arm[c] = (1 + mH * W[o + 1] / t) * (1 + ky * pp.goods[c] / n);
+      // Exit: the spare room among its land neighbours by the one potential (People.diffuse: crowding
+      // against real income, N/(K + goods); before industry the land's room): Domar's free land, Carneiro's.
       let ex = 0, deg = 0;
+      const gd = pp.goods;
       for (let e = E.off[c]; e < E.off[c + 1]; e++) {
         if (E.hop[e]) continue;
-        const b = E.nb[e]; deg++;
-        if (K[b] > 0) ex += Math.max(0, 1 - N[b] / K[b]);
+        const b = E.nb[e], Yb = K[b] + (gd ? Math.max(0, gd[b]) : 0); deg++;
+        if (Yb > 0) ex += Math.max(0, 1 - N[b] / Yb);
       }
       ex = deg ? ex / deg : 0;
       this.ex[c] = ex;
@@ -410,7 +413,9 @@ export class Polities {
       // let go, the libraries burned).
       const mv = d[c] > 0 ? Math.min(1, 0.5 * moved / d[c]) : 0;
       if (mv > 1e-6) {
-        N[c] *= 1 - P.W_DEATH * 0.5 * moved;
+        // (F_FLEE of the toll flee to the neighbours' room, carrying who they are, not their state: People.flee)
+        const lost = N[c] * P.W_DEATH * 0.5 * moved, fled = P.F_FLEE > 0 && pp.flee ? pp.flee(c, P.F_FLEE * lost) : 0;
+        N[c] -= lost - fled;
         const kw = 1 - P.W_WORKS * mv;
         pp.works[c] *= kw;
         for (const kind of Object.values(pp.wk)) kind[c] *= kw;
