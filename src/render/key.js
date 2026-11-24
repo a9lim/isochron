@@ -9,13 +9,14 @@
 // groups.
 import { zonePattern } from './figures.js';
 import { streamWidth } from './streamlines.js';
+import { EXPORT_TINT } from './globe.js';
 
 const FONT = "'Newsreader', 'STIX Two Text', serif";
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
-const mixHex = (a, b, t) => {
+const mixHex = (a, b, t, hex = false) => {
   const p = x => [1, 3, 5].map(k => parseInt(x.slice(k, k + 2), 16));
-  const A = p(a), B = p(b);
-  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(', ')})`;
+  const A = p(a), B = p(b), m = A.map((v, i) => Math.round(v + (B[i] - v) * t));
+  return hex ? '#' + m.map(v => v.toString(16).padStart(2, '0')).join('') : `rgb(${m.join(', ')})`;
 };
 
 // Blocks: a grid in the colour darkened, over a light wash of it (residences).
@@ -134,16 +135,18 @@ const GLYPHS = {
   // The Sea chart's isotherms, in its wash's ink: prussian where cold, sienna where warm.
   // A current: a streamline, as the wind's (the Sea chart's).
   current: (c, x, y, P) => GLYPHS.wind(c, x, y, P),
-  // The water's vertical motion in indigo: upwelling a stipple, the overturning's sinking a hatch (the shader's).
-  upwell: (c, x, y, P) => { c.fillStyle = rgba(P.inks.indigo, 0.8); for (let a = 0; a < 6; a++) for (let b = 0; b < 3; b++) { c.beginPath(); c.arc(x + 2.5 + a * 4.2 + (b % 2) * 2.1, y + 2 + b * 3.8, 0.85, 0, 7); c.fill(); } },
-  sink: (c, x, y, P) => {
-    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
-    c.strokeStyle = rgba(P.inks.indigo, 0.8); c.lineWidth = 0.9;
-    c.beginPath(); for (let t = -12; t < 30; t += 4.5) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 12, y); } c.stroke();
-    c.restore();
+  // The water's vertical motion as hatching crossed one way for each (the shader's): upwelling in madder,
+  // the overturning's sinking in indigo.
+  upwell: (c, x, y, P) => ruled(c, x, y, P.inks.madder, -1),
+  sink: (c, x, y, P) => ruled(c, x, y, P.inks.indigo, 1),
+  // Export production: the sea's wash tinted viridian, from none (the gyres) to the most (the shader's EXPORT_TINT).
+  export: (c, x, y, P) => {
+    const g = c.createLinearGradient(x, 0, x + 26, 0);
+    g.addColorStop(0, mixHex(P.canvas, P.ocean, 0.16));
+    g.addColorStop(1, mixHex(mixHex(P.canvas, P.ocean, 0.16, true), P.inks.viridian, EXPORT_TINT));
+    c.fillStyle = g; c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
   },
-  // Export production: short viridian strokes on a staggered lattice, as the shader's `dashes`.
-  export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; c.lineCap = 'round'; for (let b = 0; b < 3; b++) for (let a = 0; a < 4; a++) { const cx = x + 3.5 + a * 6.4 + (b % 2) * 3.2; line(c, cx - 1.5, y + 2 + b * 4, cx + 1.5, y + 2 + b * 4); } c.lineCap = 'butt'; },
   // People: the accent by log density, the farms' densities over the first two thirds and the cities' step after.
   folk: (c, x, y, P) => {
     const ss = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -263,6 +266,13 @@ const GLYPHS = {
 };
 
 function line(c, x0, y0, x1, y1) { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
+// Hatching across the swatch, rising (s 1) or falling (s −1).
+function ruled(c, x, y, ink, s) {
+  c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+  c.strokeStyle = rgba(ink, 0.8); c.lineWidth = 0.9;
+  c.beginPath(); for (let t = -12; t < 30; t += 4.5) { c.moveTo(x + t, s > 0 ? y + 12 : y); c.lineTo(x + t + 12, s > 0 ? y : y + 12); } c.stroke();
+  c.restore();
+}
 function front(c, x, y, ink, kind) {
   c.strokeStyle = ink; c.fillStyle = ink; c.lineWidth = 1.6; line(c, x, y + 8, x + 26, y + 8);
   for (const t of [7, 19]) {

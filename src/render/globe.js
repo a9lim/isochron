@@ -10,7 +10,8 @@
 //                    polarity's running integral over the pixel's span of
 //                    formation times, so chrons finer than a pixel read as the
 //                    mid-tone rather than shimmering.
-//   hairlines        the coastline, and every kilometre of depth and height
+//   hairlines        the coastline, and every kilometre of depth (the sea's
+//                    and the lakes') and height
 //   vegetation       land is coloured by the plants' cover (src/engine/life.js:
 //                    trees, grass and bare ground by warmth, as forests,
 //                    savanna, steppe, desert, boreal forest, tundra and rock),
@@ -25,8 +26,9 @@
 //   lakes            from their water (src/engine/lakes.js), in the sea's tint
 //                    by depth, blooming as the sea does by their algae's
 //                    production (src/engine/life.js, lakeAlgae), with a hard
-//                    shore; eased when they change. In the Zones map the sea's
-//                    wash with their shore and the production's strokes
+//                    shore and isobaths every kilometre, as the sea's; eased
+//                    when they change. In the Zones map the sea's wash with
+//                    their shore, tinted by their production as the sea is
 //   salt flats       where a closed lake has dried: a pale crust, hard-edged,
 //                    under short graphite strokes (Relief)
 //   permafrost       ground frozen all year (src/engine/soil.js): a violet hatch
@@ -36,21 +38,23 @@
 //                    scattered patches; over snow, under lakes and the ice
 //                    sheets (Relief)
 //   ice sheets       a light fill with a hard outline and contours of the
-//                    ice's surface every 500 m
+//                    ice's surface every kilometre (the ice model's: the bed
+//                    plus the ice where grounded, its freeboard afloat); plain
+//                    in the Zones, Air and Sea maps
 //   ice streams      where the ice slides faster than it deforms (on soft,
 //                    thawed beds: src/engine/regolith.js), fine dashes along
 //                    its flow, as glaciological velocity maps draw them (Relief)
-// In the Zones map the sea is a plain wash under short viridian strokes whose
-// density is the export production (the sea carbon's boxes spread by what
-// feeds them: upwelling, rivers, the cold sea). The Sea chart is a chart's
+// In the Zones map the sea is a plain wash tinted viridian by the export
+// production (the sea carbon's boxes spread by what feeds them: upwelling,
+// rivers, the cold sea). The Sea chart is a chart's
 // base on land; on the sea its surface temperature as the temperature chart's
-// wash, the sea's ice, and the water's vertical
-// motion in indigo: upwelling a stipple by the cooling it brings the surface,
-// the overturning's sinking a hatch by its rate; the currents are streamlines
+// wash, the sea's ice, the ice sheets plain, and the water's vertical
+// motion as hatching crossed one way for each: upwelling in madder by the
+// cooling it brings the surface, the overturning's sinking in indigo by its rate; the currents are streamlines
 // on the overlay (src/render/streamlines.js); lakes are the chart's water
 // with their ice and their shore's hairline. The Air chart is a
 // chart's base (pale land with half the relief, the paper for sea and lakes, a
-// lake's shore a hairline) under an
+// lake's shore a hairline, the sea's ice and the ice sheets plain) under an
 // ochre stipple whose density is the dust the air carries (the year's mean
 // load, src/engine/aeolian.js) and, after an eruption, the sulfate veil as
 // graphite hatching along the circles of latitude, denser where its optical
@@ -97,12 +101,18 @@
 // white with the robots' share.
 
 import { Refiner } from '../gpu/refine.js';
+import { ICE } from '../engine/ice.js';
+
+/** The Zones map's viridian where the sea exports most, over its wash (a tint by log production; the key's too). */
+export const EXPORT_TINT = 0.32;
 import { storage } from '../gpu/device.js';
 import { patchesOf, visibleRuns } from './patches.js';
 
 const SHADER = /* wgsl */ `
 const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal (verdigris) where the sea blooms most
 const PLANKTON_WASH = 0.3;    // and a pale, milky turquoise laid over it there (blooms scatter light: so shelves, lightly tinted, show it too)
+const FREEBOARD = ${1 - ICE.RHO_I / ICE.RHO_W};   // 1 − ρᵢ/ρw: floating ice's share above the sea (src/engine/ice.js)
+const EXPORT_TINT = ${EXPORT_TINT};
 const NIGHT_K = 0.24;         // how far night takes a map toward graphite (light theme)
 const NIGHT_K_DARK = 0.55;    // and toward black (dark theme)
 const LIGHT_FOLK = vec3f(0.95, 0.79, 0.33);   // the night's lights where people make them: lamplight's yellow
@@ -125,6 +135,7 @@ struct U {
   sun: vec4f,        // xyz toward the Sun in the globe's frame; w how much the night side is shown (where the dial resolves the day)
   zmP: vec4f,        // the eras' thresholds in production's knowledge (farming, industry: src/engine/people.js, ERAS), 1e6 past the last
   zmL: vec4f,        // and in learning's (AI)
+  inkH: vec4f,       // madder (the Sea map's upwelling)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -509,8 +520,13 @@ fn hair(d: f32, w: f32) -> f32 {
   let dlat = fwidth(lat);
   let sunUp = dot(wpn, u.sun.xyz);   // the sine of the Sun's elevation
   let fsun = max(fwidth(sunUp), 1e-5);
-  let iceSurf = max(e, 0.0) + iceH / 1000.0;
-  let fsurf = fwidth(iceSurf);
+  // The ice's surface, km, as the ice model's (src/engine/ice.js, surface): the bed plus the ice where
+  // grounded, its freeboard where afloat (on a dry basin below sea level the model takes the bed plus
+  // the ice alone; the two differ only under ice thinner than the basin is deep).
+  let iceSurf = max(e + iceH / 1000.0, FREEBOARD * iceH / 1000.0);
+  let fsurf = max(fwidth(iceSurf), 1e-4);
+  let lakeD = 6.0 * lakeQ * lakeQ;   // a lake's depth, km (its tint is √(depth / 6 km))
+  let flakeD = max(fwidth(lakeD), 1e-4);
   let oceanic = 1.0 - smoothstep(0.35, 0.65, phi);
   let climate = u.mode.x > 0.5 && u.mode.x < 1.5;
   let weather = u.mode.x > 1.5 && u.mode.x < 4.5;
@@ -553,10 +569,10 @@ fn hair(d: f32, w: f32) -> f32 {
   sea = mix(sea, u.text.rgb, 0.09 * hair(abs(d - round(d)), fe) * step(0.5, d));
   // In the Zones map the sea is a plain wash (its temperature and currents are the Sea map's).
   var wash = mix(u.canvas.rgb, u.ocean.rgb, 0.16);
-  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian strokes, denser where more sinks.
+  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): a viridian tint by log production, from
+  // none at ~4 (the gyres) to full past ~80.
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
-  let exMarks = strokes(T, mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
-  wash = mix(wash, u.inkA.rgb, 0.6 * exMarks);
+  wash = mix(wash, u.inkA.rgb, EXPORT_TINT * ex);
   sea = select(sea, wash, climate);
   // Snow and sea ice: a light fill with a hard edge, as a map draws them.
   let iceInk = select(mix(u.canvas.rgb, u.ocean.rgb, 0.05), mix(u.canvas.rgb, u.text.rgb, 0.16), dark);
@@ -603,6 +619,7 @@ fn hair(d: f32, w: f32) -> f32 {
   let lk = clamp(0.5 + lake / flake, 0.0, 1.0);
   var lakeWater = mix(u.canvas.rgb, mix(u.ocean.rgb, u.inkD.rgb, PLANKTON_HUE * bloom), u.frame2.y + u.frame2.z * lakeQ);
   lakeWater = mix(lakeWater, mix(u.canvas.rgb, mix(u.inkD.rgb, u.ocean.rgb, 0.3), 0.4), PLANKTON_WASH * bloom);
+  lakeWater = mix(lakeWater, u.text.rgb, 0.09 * hair(abs(lakeD - round(lakeD)), flakeD) * step(0.5, lakeD));   // isobaths every kilometre, as the sea's
   let lakeInk = mix(mix(lakeWater, iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
   land = mix(land, lakeInk, lk);
   land = mix(land, u.text.rgb, 0.55 * hair(abs(lake), flake));
@@ -621,9 +638,9 @@ fn hair(d: f32, w: f32) -> f32 {
     acc += probs[k] / max(tot, 1e-6);
     if (h < acc) { cls = k; break; }
   }
-  // A lake in the Zones map is the sea's wash, frozen as the sea is there, with its production's
-  // strokes as the sea's and its shore's hairline.
-  let lakeWash = mix(mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.16), u.inkA.rgb, 0.6 * exMarks), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
+  // A lake in the Zones map is the sea's wash, frozen as the sea is there, tinted by its production as
+  // the sea is, with its shore's hairline.
+  let lakeWash = mix(mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.16), u.inkA.rgb, EXPORT_TINT * ex), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
   var zone = mix(zoneColor(cls, T), lakeWash, lk);
   zone = mix(zone, u.text.rgb, 0.5 * hair(abs(lake), flake));
   land = select(land, zone, climate);
@@ -631,10 +648,10 @@ fn hair(d: f32, w: f32) -> f32 {
   let seaShade = select(relief, 1.0, climate);
 
   // Ice sheets: a light fill with a hard outline, and contours of the ice's
-  // surface every 500 m (the ice flows across them, downhill).
+  // surface every kilometre (the ice flows across them, downhill); plain in the Zones map.
   let sheet = clamp(0.5 + (iceH - 50.0) / fice, 0.0, 1.0);
-  let sc = iceSurf * 2.0;
-  var iceC = mix(snowInk, u.ocean.rgb, 0.35 * hair(abs(sc - round(sc)), max(2.0 * fsurf, 1e-4)) * step(0.3, iceSurf));
+  let iceLines = hair(abs(iceSurf - round(iceSurf)), fsurf) * step(0.5, iceSurf) * select(1.0, 0.0, climate);
+  var iceC = mix(snowInk, u.ocean.rgb, 0.35 * iceLines);
   land = mix(land, iceC, sheet);
   sea = mix(sea, iceC, sheet);
   let sheetEdge = hair(abs(iceH - 50.0), fice) * step(0.0, cst + iceH / 1000.0);
@@ -682,39 +699,48 @@ fn hair(d: f32, w: f32) -> f32 {
   land = select(land, wland, weather);
   sea = select(sea, wsea, weather);
 
-  // The Climate view's Air chart: a chart's base, under an ochre stipple whose density is the dust the
-  // air carries (kg/m², the year's mean load, in the zones' last slot; ~0.01 g/m² to ~2), over land,
-  // sea and ice alike.
+  // The Air and Sea charts' water (the paper, faintly blue) and their lakes in it, frozen as the Relief
+  // view's are.
+  let chartWater = mix(u.canvas.rgb, u.ocean.rgb, 0.05);
+  let chartLake = mix(mix(chartWater, iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
+
+  // The Climate view's Air chart: a chart's base with the sea's ice and the ice sheets (plain, with their
+  // outline), under an ochre stipple whose density is the dust the air carries (kg/m², the year's mean
+  // load, in the zones' last slot; ~0.01 g/m² to ~2), over land, sea and ice alike.
   let dl = smoothstep(-2.0, 0.3, log(max(i.z3.w * 1000.0, 1e-6)) / 2.302585);
   let dustDots = stipple(T, mix(16.0, 4.2, dl) * u.mode.z, 0.75 * u.mode.z) * smoothstep(0.0, 0.1, dl);
-  var aland = mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), u.inkB.rgb, 0.75 * dustDots);
-  let asea = mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), u.inkB.rgb, 0.75 * dustDots);
-  // Lakes as the chart's sea, under the dust, with their shore's hairline.
-  aland = mix(mix(aland, asea, lk), u.text.rgb, 0.5 * hair(abs(lake), flake));
+  var aland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
+  var asea = mix(mix(chartWater, iceInk, seaIce), u.ocean.rgb, 0.55 * hair(abs(iceS - 0.5), fseaice));
+  aland = mix(mix(aland, chartLake, lk), u.text.rgb, 0.5 * hair(abs(lake), flake));
+  aland = mix(mix(aland, snowInk, sheet), u.text.rgb, 0.4 * sheetEdge);
+  asea = mix(mix(asea, snowInk, sheet), u.text.rgb, 0.4 * sheetEdge);
+  aland = mix(aland, u.inkB.rgb, 0.75 * dustDots);
+  asea = mix(asea, u.inkB.rgb, 0.75 * dustDots);
   land = select(land, aland, air);
   sea = select(sea, asea, air);
 
   // The Climate view's Sea chart: a chart's base on land; on the sea its surface's temperature as the
-  // temperature chart's wash (prussian cold, sienna warm), the sea's ice, and
-  // the water's vertical motion in indigo: the upwelling a stipple whose density is the cooling it
+  // temperature chart's wash (prussian cold, sienna warm), the sea's ice, and the water's vertical
+  // motion as hatching crossed one way for each: the upwelling in madder, its density the cooling it
   // brings the surface (K, the coasts' and the equator's: src/engine/ocean.js), the overturning's
-  // sinking a hatch whose density is its rate (2 to 100 m/yr, by log: src/engine/seaheat.js). The
-  // currents are streamlines on the overlay.
+  // sinking in indigo, its density its rate (2 to 100 m/yr, by log: src/engine/seaheat.js); the ice
+  // sheets plain with their outline, over land and shelf. The currents are streamlines on the overlay.
   let sT = clamp((sst - 10.0) / 25.0, -1.0, 1.0);
   let sInk = select(u.ocean.rgb, u.inkF.rgb, sT > 0.0);
-  var ssea = mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), sInk, 0.3 * abs(sT));
+  var ssea = mix(chartWater, sInk, 0.3 * abs(sT));
   ssea = mix(ssea, iceInk, seaIce);
   ssea = mix(ssea, u.ocean.rgb, 0.55 * hair(abs(iceS - 0.5), fseaice));
   let upK = i.td.x;
-  let upDots = stipple(T, mix(10.0, 4.8, smoothstep(1.5, 8.0, upK)) * u.mode.z, 0.8 * u.mode.z) * smoothstep(0.8, 1.6, upK);
+  let upL = hatch(T, vec2f(0.7071, -0.7071), mix(9.0, 3.6, smoothstep(1.5, 8.0, upK)) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.8, 1.6, upK);
   let sinkW = smoothstep(0.3, 2.0, log(max(i.td.y, 1e-3)) / 2.302585);
   let sinkL = hatch(T, vec2f(0.7071, 0.7071), mix(9.0, 3.6, sinkW) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.08, sinkW);
-  ssea = mix(ssea, u.inkE.rgb, 0.8 * max(upDots, sinkL));
+  ssea = mix(ssea, u.inkH.rgb, 0.8 * upL);
+  ssea = mix(ssea, u.inkE.rgb, 0.8 * sinkL);
   var sland = mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5);
-  // Lakes as the chart's water (no temperature of their own), frozen as the Relief view's are, with
-  // their shore's hairline.
-  let slake = mix(mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), iceInk, ice), u.ocean.rgb, 0.55 * iceEdge);
-  sland = mix(mix(sland, slake, lk), u.text.rgb, 0.5 * hair(abs(lake), flake));
+  // Lakes as the chart's water (no temperature of their own), with their shore's hairline.
+  sland = mix(mix(sland, chartLake, lk), u.text.rgb, 0.5 * hair(abs(lake), flake));
+  sland = mix(mix(sland, snowInk, sheet), u.text.rgb, 0.4 * sheetEdge);
+  ssea = mix(mix(ssea, snowInk, sheet), u.text.rgb, 0.4 * sheetEdge);
   land = select(land, sland, seaM);
   sea = select(sea, ssea, seaM);
 
@@ -973,7 +999,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const patches = patchesOf(mesh);
   const idxBuf = device.createBuffer({ size: patches.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, patches.tris);
-  const uniBuf = device.createBuffer({ size: 34 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 35 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -1000,7 +1026,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(136);
+  const uni = new Float32Array(140);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -1176,6 +1202,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       // The eras' thresholds (the Knowledge map's lines): 4 slots for production's, 4 for learning's.
       const mk = mode.marks || {}, slots = (o, a = []) => { for (let k = 0; k < 4; k++) uni[o + k] = k < a.length ? a[k] : 1e6; };
       slots(128, mk.production); slots(132, mk.learning);
+      put(136, palette.inks.madder);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();
