@@ -9,14 +9,13 @@
 // groups.
 import { zonePattern } from './figures.js';
 import { streamWidth } from './streamlines.js';
-import { EXPORT_TINT } from './globe.js';
 
 const FONT = "'Newsreader', 'STIX Two Text', serif";
 const rgba = (hex, a) => { const h = hex.replace('#', ''); return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`; };
-const mixHex = (a, b, t, hex = false) => {
+const mixHex = (a, b, t) => {
   const p = x => [1, 3, 5].map(k => parseInt(x.slice(k, k + 2), 16));
-  const A = p(a), B = p(b), m = A.map((v, i) => Math.round(v + (B[i] - v) * t));
-  return hex ? '#' + m.map(v => v.toString(16).padStart(2, '0')).join('') : `rgb(${m.join(', ')})`;
+  const A = p(a), B = p(b);
+  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(', ')})`;
 };
 
 // Blocks: a grid in the colour darkened, over a light wash of it (residences).
@@ -139,14 +138,8 @@ const GLYPHS = {
   // the overturning's sinking in indigo.
   upwell: (c, x, y, P) => ruled(c, x, y, P.inks.madder, -1),
   sink: (c, x, y, P) => ruled(c, x, y, P.inks.indigo, 1),
-  // Export production: the sea's wash tinted viridian, from none (the gyres) to the most (the shader's EXPORT_TINT).
-  export: (c, x, y, P) => {
-    const g = c.createLinearGradient(x, 0, x + 26, 0);
-    g.addColorStop(0, mixHex(P.canvas, P.ocean, 0.16));
-    g.addColorStop(1, mixHex(mixHex(P.canvas, P.ocean, 0.16, true), P.inks.viridian, EXPORT_TINT));
-    c.fillStyle = g; c.fillRect(x, y, 26, 12);
-    c.strokeStyle = rgba(P.text, 0.2); c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 25, 11);
-  },
+  // Export production: viridian lines across the sea, as the shader's.
+  export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; for (let b = 0; b < 3; b++) line(c, x, y + 2 + b * 4, x + 26, y + 2 + b * 4); },
   // People: the accent by log density, the farms' densities over the first two thirds and the cities' step after.
   folk: (c, x, y, P) => {
     const ss = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
