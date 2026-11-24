@@ -11,9 +11,10 @@
 //            a share of the wind's speed by the angle off it (fastest running before it, a beat's
 //            G_UP close-hauled), at the year's six points of the planet's own surface wind, plus the
 //            gyres' current along the edge, never below an oar's V_ROW, over the open share of the
-//            year (sea ice closes it); by land, a road's C_LAND a km × (1 + climb/H_CLIMB), a river
-//            boats ply (both ends past Q_NAV) at C_DOWN downstream, C_UP up, a lake's C_DOWN; a port
-//            (land to sea) C_PORT. Sea : river : road ≈ 1 : 5 : 30 is the pre-industrial ratio
+//            year (sea ice closes it); by land, a road's C_LAND a km × (1 + climb/H_CLIMB) ÷ (1 +
+//            R_ROAD × the roads built at its ends + K_CANAL × the land their canals water: routes follow
+//            works, batch 3f), a river boats ply (both ends past Q_NAV) at C_DOWN downstream, C_UP up, a
+//            lake's C_DOWN; a port (land to sea) C_PORT. Sea : river : road ≈ 1 : 5 : 30 is the pre-industrial ratio
 //            (Diocletian's price edict of 301 as historians read it, from memory); the ship's
 //            polar and the port's cost are synthesis. Each leg sails when its wind serves, so where
 //            the wind reverses (a monsoon) both ways cost about twice a fair run, and where it
@@ -22,7 +23,11 @@
 //   steam    industry's: steamships at C_STEAM a km at V_STEAM, the current along the edge and
 //            K_STEAM of the wind's adding to it (so the lanes gather where the sea helps, as
 //            shipping's do, rather than scattering over equal paths), rail at C_RAIL ×
-//            (1 + climb/H_RAIL), barges at C_BARGE, ports at C_PORT_IND.
+//            (1 + climb/H_RAIL) only as far as railways were built at the edge's ends (People.railShare;
+//            the rest as by sail), barges at C_BARGE, ports at C_PORT_IND.
+// Reread with the world (`reprice`, at most every People's T_ROUTES, T_ROUTES_IND with industry): every
+// edge re-costed from the winds, currents, sea ice, rivers and works as they are, each layer solved again
+// where TOL_ROUTES of its edges have moved by TOL_EDGE in log, the markets kept unless the land moved.
 // Markets are the grandparent grid's land cells (~450 km apart: level 4), with any land the
 // sail can't reach from one within C_FILL given its own. Each node belongs to the market nearest it
 // by the sail (`owner`); each people's cell to its node. From every market, Dijkstra on each layer
@@ -31,8 +36,7 @@
 // Trade (`trade`, synthesis on the gravity model of trade, standard: Tinbergen 1962, from memory):
 // between active markets (those with fields: trade comes with farming), a kernel e^{−c/reach},
 // c the round trip's mean ((out + home)/2) on the layer the pair sails (steam by the more
-// industrial end's share; the sail's part by land cheaper by the two markets' roads and canals,
-// People's works), reach rising with the more advanced end's knowledge (`reach`), and eased by a
+// industrial end's share), reach rising with the more advanced end's knowledge (`reach`), and eased by a
 // common language (the markets' towns' learned identities, src/engine/peoples.js `tradeW`) and cut by
 // a border between their states (src/engine/polities.js `border`).
 // Each market buys from the others in proportion to kernel × their food (its supply basket, w):
@@ -55,7 +59,8 @@ export const ROUTES = {
   V_SHIP: 2.5, W_REF: 7, W_HALF: 4, G_UP: 0.15, V_ROW: 0.3, ICE_OPEN: 0.05,   // m/s: a merchant sailing ship's speed before a fair wind of W_REF (~5 knots, from memory), the wind's speed that halves it, a beat's share close-hauled, an oar's or a drift's; the least open share of a sea under ice
   C_STEAM: 0.3, C_RAIL: 3, H_RAIL: 1, C_BARGE: 1.5, C_PORT_IND: 30, V_STEAM: 6, K_STEAM: 0.05,   // industry's: steamship, rail (×(1 + climb/H_RAIL)), barge, port (sea-km a km; a ton-km by steam a third of sail's, by rail a tenth of the wagon's: from memory)
   C_FILL: 3000,                    // land whose nearest market costs more is given its own
-  R_ROAD: 1, K_CANAL: 5,           // the land's works on the markets' routes: the sail's part by land ÷ (1 + R_ROAD × the pair's roads + K_CANAL × its canals' share of the land), both its two markets' mean (roads at their full room halve it; canals over a fifth of the land halve it, the boats going where the water does: the Grand Canal's, Mesopotamia's; synthesis)
+  R_ROAD: 1, K_CANAL: 5,           // the land's works on each edge by land (batch 3f: routes follow works): its cost ÷ (1 + R_ROAD × its ends' roads + K_CANAL × the land their canals water), roads at their full room halving it, canals over a fifth of the land halving it, the boats going where the water does (the Grand Canal's, Mesopotamia's; synthesis); railways carry steam's share of it by their built share
+  TOL_EDGE: 0.1, TOL_ROUTES: 1e-3, // a layer is solved again once this share of its edges have moved this far in log since it was (`reprice`: ~120 edges at level 5, a region of ~10 nodes; a share of a percent waited on a continent's railways)
   R_T0: 300, Z_RT: 1.1, R_TMAX: 1e5,   // the trade's reach (sea-km of cost that cuts it e-fold): R_T0 at farming's knowledge, ×e per Z_RT of knowledge past it (grain by sea from Egypt to Rome, ~3,000 sea-km, at ~0.3 of the local market's weight by Rome's; the Atlantic's ~10,000 at ~0.1 by 1600; synthesis), at most R_TMAX
   TAU_AG: 0.15, TAU_IND: 0.9,      // the share of a farming people's food that goes through markets (rents, taxes, the towns' food), and an industrial people's
   L_CORR: 1500,                    // km: the weather's correlation length (a year's harvest anomalies, ρ = e^{−d/L_CORR}; rough, from memory)
@@ -165,25 +170,122 @@ export class Routes {
     this.build(f);
   }
 
+  /**
+   * The whole graph anew (the first time, and when the land under it has changed, `keyOf`): its nodes,
+   * the markets on them, then the costs and the paths (`price`, `solve`).
+   */
   build(f) {
     const C = this.C, pp = this.pp, g6 = pp.planet.grid, lv = Math.max(2, g6.level - 1);
-    const g = this.g = buildGrid(lv), n = g.n, m = g.nbrOff[n], gm = buildGrid(Math.max(1, lv - 1));
+    const g = this.g = buildGrid(lv), n = g.n, gm = buildGrid(Math.max(1, lv - 1));
     // Nodes: each coarse cell is the fine vertex of the same index (the grids nest).
-    const land = this.land = new Uint8Array(n), alive = new Uint8Array(n), ice = new Float32Array(n), elev = new Float32Array(n), Q = new Float32Array(n), lake = new Float32Array(n);
+    const land = this.land = new Uint8Array(n), alive = new Uint8Array(n), sheet = this.sheet = new Uint8Array(n), elev = this.elev = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      land[i] = f.elev[i] > 0 ? 1 : 0; elev[i] = Math.max(0, f.elev[i]); Q[i] = f.discharge[i]; lake[i] = f.lake[i];
-      ice[i] = land[i] ? (f.ice[i] >= pp.P.ICE_MAX ? 1 : 0) : (f.seaIce ? f.seaIce[i] : 0);
+      land[i] = f.elev[i] > 0 ? 1 : 0; elev[i] = Math.max(0, f.elev[i]); sheet[i] = land[i] && f.ice[i] >= pp.P.ICE_MAX ? 1 : 0;
       alive[i] = land[i] && pp.loc[i] >= 0 && pp.H.alive[pp.loc[i]] ? 1 : 0;
     }
+    const T = this.T = g6.level > lv ? makeTransfer(g6, g) : null;
+    this.G = twelve(g);
+    // Each people's cell to its node (its own vertex, else a parent, land first).
+    const nL = pp.nL;
+    this.nodeOf = new Int32Array(nL);
+    for (let c = 0; c < nL; c++) {
+      const i = pp.cells[c];
+      let node = i;
+      if (i >= n) {
+        const a = T.par[2 * (i - T.nc)], b = T.par[2 * (i - T.nc) + 1];
+        node = alive[a] ? a : alive[b] ? b : land[a] ? a : land[b] ? b : a;
+      }
+      this.nodeOf[c] = node;
+    }
+    this.price(f);
+    // Markets: the grandparent's living land, then any land the sail can't reach from one cheaply.
+    const m2 = this.G.nbrOff[n], heap = this.heap = new Heap(m2 + n + 1), dist = new Float64Array(n), owner = new Int32Array(n).fill(-1);
+    const mk = [];
+    for (let i = 0; i < gm.n; i++) if (alive[i]) mk.push(i);
+    for (;;) {
+      if (!mk.length) { for (let i = 0; i < n; i++) if (alive[i]) { mk.push(i); break; } if (!mk.length) break; }
+      dijkstra(this.G, this.eS, mk, dist, null, heap, owner);
+      let far = -1, fd = C.C_FILL;
+      for (let i = 0; i < n; i++) if (alive[i] && dist[i] > fd) { fd = dist[i]; far = i; }
+      if (far < 0) break;
+      mk.push(far);
+    }
+    const nm = this.nm = mk.length;
+    this.mnode = Int32Array.from(mk);
+    this.owner = owner; this.ownCost = Float32Array.from(dist);
+    this.mpos = new Float64Array(3 * nm);
+    for (let k = 0; k < nm; k++) for (let j = 0; j < 3; j++) this.mpos[3 * k + j] = g.pos[3 * mk[k] + j];
+    this.marketOf = new Int32Array(nL);
+    for (let c = 0; c < nL; c++) { const o = owner[this.nodeOf[c]]; this.marketOf[c] = o >= 0 ? o : 0; }
+    // The weather's correlation between markets.
+    const rho = this.rho = new Float32Array(nm * nm), P = this.mpos;
+    for (let a = 0; a < nm; a++) for (let b = a; b < nm; b++) {
+      const dot = P[3 * a] * P[3 * b] + P[3 * a + 1] * P[3 * b + 1] + P[3 * a + 2] * P[3 * b + 2];
+      rho[a * nm + b] = rho[b * nm + a] = Math.exp(-R * Math.acos(Math.max(-1, Math.min(1, dot))) / C.L_CORR);
+    }
+    this.rhoDraw = Math.exp(-C.D_DRAW / C.L_CORR);   // markets farther apart than D_DRAW have ρ below it
+    // Every market's costs to every other (D), its paths (pred) and the round trips' mean costs (R, `cost`),
+    // by sail now and by steam when first read (D.I, pred.I, R.I: industry's, read only where it is, so the
+    // agrarian world's rebuilds run half the Dijkstras, ~1 s of 2.4 at level 6, and hold half the paths).
+    this.D = {}; this.pred = {}; this.R = {}; this.st = null;
+    for (const k of ['D', 'pred', 'R']) Object.defineProperty(this[k], 'I', { get: () => this.steam()[k], enumerable: true, configurable: true });
+    this.solve('S');
+    this.catchments(f);
+    this.key = this.keyOf(f);
+    this.tTrade = null; this.active = null; this.flows = [];
+  }
+
+  /**
+   * Each node's works (`People.wk`, `People.wi`), its people's cells' by area: the roads' built share, the
+   * canals' (the land they water) and the railways'. Zero before anyone builds.
+   */
+  nodeWorks() {
+    const pp = this.pp, n = this.g.n, nL = pp.nL, A = pp.H.area;
+    const rd = this.nRd = sized(this, 'nRd', Float32Array, n), cn = this.nCn = sized(this, 'nCn', Float32Array, n), rl = this.nRl = sized(this, 'nRl', Float32Array, n), a = new Float64Array(n);
+    rd.fill(0); cn.fill(0); rl.fill(0);
+    if (!pp.wk) return;
+    for (let c = 0; c < nL; c++) {
+      const u = this.nodeOf[c], w = A[c];
+      a[u] += w; rd[u] += w * pp.built(c, 'R'); cn[u] += w * pp.H.irrPot[c] * pp.built(c, 'C'); rl[u] += w * pp.railShare(c);
+    }
+    for (let u = 0; u < n; u++) if (a[u] > 0) { rd[u] /= a[u]; cn[u] /= a[u]; rl[u] /= a[u]; }
+  }
+
+  /**
+   * One land edge's costs, sail's and steam's, km long, climbing `climb` km, between ends with roads r,
+   * canals' share c and railways l (each their two ends' mean), boats where both ends ply a river
+   * (`river`: 1 downstream, −1 up, 0 none) or a lake: the road's cost ÷ (1 + R_ROAD r + K_CANAL c), and
+   * by steam the railways' share l at C_RAIL and the rest as by sail, barges where the boats go.
+   */
+  landCost(km, climb, r, c, l, river, lake, out) {
+    const C = this.C;
+    let s = km * C.C_LAND * (1 + climb / C.H_CLIMB) / (1 + C.R_ROAD * r + C.K_CANAL * c);
+    if (river) s = Math.min(s, km * (river > 0 ? C.C_DOWN : C.C_UP));
+    if (lake) s = Math.min(s, km * C.C_DOWN);
+    let i = l * km * C.C_RAIL * (1 + climb / C.H_RAIL) + (1 - l) * s;
+    if (river || lake) i = Math.min(i, km * C.C_BARGE);
+    out[0] = s; out[1] = i;
+    return out;
+  }
+
+  /**
+   * Every edge's cost on both layers from the planet's fields as they are (the winds, the currents, the
+   * sea ice, the rivers and lakes boats ply) and the works people have built (`nodeWorks`). Into eS, eI.
+   */
+  price(f) {
+    const C = this.C, pp = this.pp, g = this.g, n = g.n, m = g.nbrOff[n], land = this.land, sheet = this.sheet, elev = this.elev, T = this.T;
+    const ice = new Float32Array(n), Q = new Float32Array(n), lake = new Float32Array(n);
+    for (let i = 0; i < n; i++) { Q[i] = f.discharge[i]; lake[i] = f.lake[i]; ice[i] = land[i] ? sheet[i] : (f.seaIce ? f.seaIce[i] : 0); }
     // A coarse node's river is the most of the fine cells about it (a river crossing it waters it).
-    const T = g6.level > lv ? makeTransfer(g6, g) : null;
-    if (T && !T.chain) for (let k = T.nc; k < g6.n; k++) {
+    if (T && !T.chain) for (let k = T.nc; k < pp.planet.grid.n; k++) {
       const a = T.par[2 * (k - T.nc)], b = T.par[2 * (k - T.nc) + 1], q = f.discharge[k], l = f.lake[k];
       if (q > Q[a]) Q[a] = q; if (q > Q[b]) Q[b] = q; if (l > lake[a]) lake[a] = l; if (l > lake[b]) lake[b] = l;
     }
+    this.nodeWorks();
+    const rd = this.nRd, cn = this.nCn, rl = this.nRl;
     // Directed costs on both layers.
-    const cS = this.cS = new Float32Array(m), cI = this.cI = new Float32Array(m);
-    const h = [0, 0, 0], w = new Float64Array(18), cu = [0, 0, 0];
+    const cS = new Float32Array(m), cI = new Float32Array(m);
+    const h = [0, 0, 0], w = new Float64Array(18), cu = [0, 0, 0], lc = [0, 0];
     for (let u = 0; u < n; u++) for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) {
       const v = g.nbr[o], km = g.dist[o] * R;
       if (!land[u] && !land[v]) {
@@ -195,11 +297,9 @@ export class Routes {
         let wa = 0; for (let p = 0; p < 6; p++) wa += (w[3 * p] * h[0] + w[3 * p + 1] * h[1] + w[3 * p + 2] * h[2]) / 6;
         cI[o] = km * C.C_STEAM * C.V_STEAM / Math.max(0.5 * C.V_STEAM, C.V_STEAM + cu[0] * h[0] + cu[1] * h[1] + cu[2] * h[2] + C.K_STEAM * wa) / Math.max(C.ICE_OPEN, open);
       } else if (land[u] && land[v]) {
-        const climb = Math.abs(elev[u] - elev[v]), iced = ice[u] || ice[v] ? C.ICE_LAND : 1;
-        let s = km * C.C_LAND * (1 + climb / C.H_CLIMB), r = km * C.C_RAIL * (1 + climb / C.H_RAIL);
-        if (Q[u] > C.Q_NAV && Q[v] > C.Q_NAV) { s = Math.min(s, km * (Q[v] >= Q[u] ? C.C_DOWN : C.C_UP)); r = Math.min(r, km * C.C_BARGE); }
-        if (lake[u] > C.LAKE_NAV && lake[v] > C.LAKE_NAV) { s = Math.min(s, km * C.C_DOWN); r = Math.min(r, km * C.C_BARGE); }
-        cS[o] = s * iced; cI[o] = r * iced;
+        const iced = ice[u] || ice[v] ? C.ICE_LAND : 1, nav = Q[u] > C.Q_NAV && Q[v] > C.Q_NAV ? (Q[v] >= Q[u] ? 1 : -1) : 0;
+        this.landCost(km, Math.abs(elev[u] - elev[v]), 0.5 * (rd[u] + rd[v]), 0.5 * (cn[u] + cn[v]), 0.5 * (rl[u] + rl[v]), nav, lake[u] > C.LAKE_NAV && lake[v] > C.LAKE_NAV, lc);
+        cS[o] = lc[0] * iced; cI[o] = lc[1] * iced;
       } else {   // a port: the coast's half of the edge at sea
         const iced = ice[land[u] ? u : v] ? C.ICE_LAND : 1;
         cS[o] = (C.C_PORT + 0.5 * km * C.C_SEA) * iced; cI[o] = (C.C_PORT_IND + 0.5 * km * C.C_STEAM) * iced;
@@ -210,86 +310,68 @@ export class Routes {
     // straight length. On the ring's six alone, the shortest paths ran one straight leg and turned
     // once (a hexagonal grid's metric is ~15% long off its axes), and flows sharing a first leg and
     // parting at the turn drew triangles.
-    const G = this.G = twelve(g), m2 = G.nbrOff[n];
-    const eS = this.eS = new Float32Array(m2), eI = this.eI = new Float32Array(m2), eL = new Float32Array(m2);
-    const edge = (u, v) => { for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) if (g.nbr[o] === v) return o; return -1; };
+    const G = this.G, m2 = G.nbrOff[n];
+    const eS = this.eS = new Float32Array(m2), eI = this.eI = new Float32Array(m2);
+    const edge = this.edgeOf || (this.edgeOf = (u, v) => { for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) if (g.nbr[o] === v) return o; return -1; });
     for (let u = 0; u < n; u++) for (let o = G.nbrOff[u]; o < G.nbrOff[u + 1]; o++) {
       const v = G.nbr[o], d = edge(u, v);
-      if (d >= 0) { eS[o] = cS[d]; eI[o] = cI[d]; eL[o] = land[u] && land[v] ? cS[d] : 0; continue; }
+      if (d >= 0) { eS[o] = cS[d]; eI[o] = cI[d]; continue; }
       const kmUV = R * Math.acos(Math.min(1, g.pos[3 * u] * g.pos[3 * v] + g.pos[3 * u + 1] * g.pos[3 * v + 1] + g.pos[3 * u + 2] * g.pos[3 * v + 2]));
-      let bs = Infinity, bi = Infinity, bl = 0;
+      let bs = Infinity, bi = Infinity;
       for (const a of G.via[o]) {
         const o1 = edge(u, a), o2 = edge(a, v), r = kmUV / (g.dist[o1] * R + g.dist[o2] * R);
-        const s1 = (cS[o1] + cS[o2]) * r, i1 = (cI[o1] + cI[o2]) * r;
-        if (s1 < bs) { bs = s1; bl = ((land[u] && land[a] ? cS[o1] : 0) + (land[a] && land[v] ? cS[o2] : 0)) * r; }
-        if (i1 < bi) bi = i1;
+        bs = Math.min(bs, (cS[o1] + cS[o2]) * r); bi = Math.min(bi, (cI[o1] + cI[o2]) * r);
       }
-      eS[o] = bs; eI[o] = bi; eL[o] = bl;
+      eS[o] = bs; eI[o] = bi;
     }
-    // Markets: the grandparent's living land, then any land the sail can't reach from one cheaply.
-    const heap = this.heap = new Heap(m2 + n + 1), dist = new Float64Array(n), owner = new Int32Array(n).fill(-1);
-    const mk = [];
-    for (let i = 0; i < gm.n; i++) if (alive[i]) mk.push(i);
-    for (;;) {
-      if (!mk.length) { for (let i = 0; i < n; i++) if (alive[i]) { mk.push(i); break; } if (!mk.length) break; }
-      dijkstra(G, eS, mk, dist, null, heap, owner);
-      let far = -1, fd = C.C_FILL;
-      for (let i = 0; i < n; i++) if (alive[i] && dist[i] > fd) { fd = dist[i]; far = i; }
-      if (far < 0) break;
-      mk.push(far);
+  }
+
+  /** One layer's Dijkstras from every market on edge costs `cost`: { D, pred, R (the round trips' mean) }. */
+  layer(cost) {
+    const n = this.g.n, nm = this.nm, mk = this.mnode, dist = new Float64Array(n);
+    const D = new Float32Array(nm * nm), pred = new Uint16Array(nm * n), Rm = new Float32Array(nm * nm);
+    for (let a = 0; a < nm; a++) {
+      dijkstra(this.G, cost, mk[a], dist, pred.subarray(a * n, (a + 1) * n), this.heap);
+      for (let b = 0; b < nm; b++) D[a * nm + b] = dist[mk[b]];
     }
-    const nm = this.nm = mk.length;
-    this.mnode = Int32Array.from(mk);
-    this.owner = owner; this.ownCost = Float32Array.from(dist);
-    this.mpos = new Float64Array(3 * nm);
-    for (let k = 0; k < nm; k++) for (let j = 0; j < 3; j++) this.mpos[3 * k + j] = g.pos[3 * mk[k] + j];
-    // Each people's cell to its node (its own vertex, else a parent, land first) and market.
-    const nL = pp.nL;
-    this.nodeOf = new Int32Array(nL); this.marketOf = new Int32Array(nL);
-    for (let c = 0; c < nL; c++) {
-      const i = pp.cells[c];
-      let node = i;
-      if (i >= n) {
-        const a = T.par[2 * (i - T.nc)], b = T.par[2 * (i - T.nc) + 1];
-        node = alive[a] ? a : alive[b] ? b : land[a] ? a : land[b] ? b : a;
-      }
-      this.nodeOf[c] = node; this.marketOf[c] = owner[node] >= 0 ? owner[node] : 0;
-    }
-    // Every market's costs to every other (D), its paths (pred) and the round trips' mean costs (R, `cost`),
-    // by sail now and by steam when first read (D.I, pred.I, R.I: industry's, read only where it is, so the
-    // agrarian world's rebuilds run half the Dijkstras, ~1 s of 2.4 at level 6, and hold half the paths).
-    // The sail's part by land each way (what roads and canals cheapen, `trade`).
-    const DL = new Float32Array(nm * nm), acc = new Float64Array(n);
-    const layer = (cost, extra) => {
-      const D = new Float32Array(nm * nm), pred = new Uint16Array(nm * n), Rm = new Float32Array(nm * nm);
-      for (let a = 0; a < nm; a++) {
-        dijkstra(G, cost, mk[a], dist, pred.subarray(a * n, (a + 1) * n), heap, null, null, extra, acc);
-        for (let b = 0; b < nm; b++) { D[a * nm + b] = dist[mk[b]]; if (extra) DL[a * nm + b] = acc[mk[b]]; }
-      }
-      for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]);
-      return { D, pred, R: Rm };
+    for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]);
+    return { D, pred, R: Rm };
+  }
+
+  /** The sail's layer solved on its costs as they are ('S'), or the steam's dropped, to be solved when next read ('I'). */
+  solve(L) {
+    if (L === 'S') { const s = this.layer(this.eS); this.D.S = s.D; this.pred.S = s.pred; this.R.S = s.R; this.eS0 = this.eS.slice(); }
+    else this.st = null;
+  }
+  /** The steam's layer, solved on its costs the first time it's read after they've moved. */
+  steam() { if (!this.st) { this.st = this.layer(this.eI); this.eI0 = this.eI.slice(); } return this.st; }
+
+  /**
+   * The routes reread with the world (batch 3f; synthesis): the land changed under them (`keyOf`), built
+   * anew; else every edge re-costed from the fields and the works as they are (`price`), and each layer
+   * solved again where TOL_ROUTES of its edges have moved by TOL_EDGE in log since it was solved, the
+   * markets kept. The catchments follow the costs. True where anything was solved again.
+   */
+  reprice(f) {
+    if (this.keyOf(f) !== this.key) { this.build(f); return true; }
+    this.price(f);
+    const C = this.C, moved = (a, b) => {
+      if (!b) return 0;
+      let k = 0;
+      for (let o = 0; o < a.length; o++) { const x = a[o], y = b[o]; if (x === y) continue; if (!(Math.abs(Math.log(x / y)) <= C.TOL_EDGE)) k++; }
+      return k / a.length;
     };
-    const sail = layer(eS, eL), parts = [[this.D = { S: sail.D }, 'D'], [this.pred = { S: sail.pred }, 'pred'], [this.R = { S: sail.R }, 'R']];
-    const steam = () => { const st = layer(eI, null); for (const [o, k] of parts) Object.defineProperty(o, 'I', { value: st[k], writable: true, enumerable: true, configurable: true }); return st; };
-    for (const [o, k] of parts) Object.defineProperty(o, 'I', { get: () => steam()[k], enumerable: true, configurable: true });
-    // And the sail's share of them by land.
-    const LS = this.LS = new Float32Array(nm * nm), DS = this.D.S;
-    for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) { const t = DS[a * nm + b] + DS[b * nm + a]; LS[a * nm + b] = t > 0 && Number.isFinite(t) ? (DL[a * nm + b] + DL[b * nm + a]) / t : 0; }
-    // The weather's correlation between markets.
-    const rho = this.rho = new Float32Array(nm * nm), P = this.mpos;
-    for (let a = 0; a < nm; a++) for (let b = a; b < nm; b++) {
-      const dot = P[3 * a] * P[3 * b] + P[3 * a + 1] * P[3 * b + 1] + P[3 * a + 2] * P[3 * b + 2];
-      rho[a * nm + b] = rho[b * nm + a] = Math.exp(-R * Math.acos(Math.max(-1, Math.min(1, dot))) / C.L_CORR);
-    }
-    this.rhoDraw = Math.exp(-C.D_DRAW / C.L_CORR);   // markets farther apart than D_DRAW have ρ below it
-    this.catchments(f);
-    this.key = this.keyOf(f);
-    this.tTrade = null; this.active = null; this.flows = [];
+    let did = false;
+    if (moved(this.eS, this.eS0) > C.TOL_ROUTES) { this.solve('S'); did = true; }
+    if (this.st && moved(this.eI, this.eI0) > C.TOL_ROUTES) { this.solve('I'); did = true; }
+    if (did) { this.catchments(f); this.tTrade = null; }
+    return did;
   }
 
   /**
    * Each people's cell's catchment (synthesis): the cells nearest it by the local routes on the
-   * people's own grid (`People.graph`'s edges: roads at C_LAND × (1 + climb/H_CLIMB), a river both
+   * people's own grid (`People.graph`'s edges: roads at C_LAND × (1 + climb/H_CLIMB), cheaper by the
+   * roads and canals built at their ends and by steam by their railways (`landCost`), a river both
    * cells ply at C_DOWN or C_UP, a short crossing (up to HOPS sea cells) at two ports and the sea's
    * C_SEA a km), up to M_CATCH cells within C_CATCH; with each one's cost by sail and by steam
    * (rail, barge, steamship). Into this.catch = { off, idx, cS, cI }, the cell itself first at none.
@@ -299,6 +381,9 @@ export class Routes {
     const off = new Int32Array(nL + 1), idx = [], cS = [], cI = [];
     const dist = new Float64Array(nL).fill(Infinity), seen = new Int32Array(nL).fill(-1), heap = new Heap(200 * C.M_CATCH + 64);
     const Q = c => f.discharge[cells[c]];
+    // Each cell's works: roads' built share, the land canals water, railways'.
+    const rd = new Float32Array(nL), cn = new Float32Array(nL), rl = new Float32Array(nL), lc = [0, 0];
+    if (pp.wk) for (let c = 0; c < nL; c++) { rd[c] = pp.built(c, 'R'); cn[c] = H.irrPot[c] * pp.built(c, 'C'); rl[c] = pp.railShare(c); }
     // Both layers' edge costs (per directed edge of E).
     const m = E.off[nL], eS = new Float32Array(m), eI = new Float32Array(m);
     for (let c = 0; c < nL; c++) for (let o = E.off[c]; o < E.off[c + 1]; o++) {
@@ -307,10 +392,9 @@ export class Routes {
         if (E.hop[o] > P.HOPS) { eS[o] = eI[o] = Infinity; continue; }
         eS[o] = 2 * C.C_PORT + km * C.C_SEA; eI[o] = 2 * C.C_PORT_IND + km * C.C_STEAM;
       } else {
-        const climb = Math.abs(H.elev[c] - H.elev[d]);
-        let s = km * C.C_LAND * (1 + climb / C.H_CLIMB), r = km * C.C_RAIL * (1 + climb / C.H_RAIL);
-        if (Q(c) > C.Q_NAV && Q(d) > C.Q_NAV) { s = Math.min(s, km * (Q(d) >= Q(c) ? C.C_DOWN : C.C_UP)); r = Math.min(r, km * C.C_BARGE); }
-        eS[o] = s; eI[o] = r;
+        const nav = Q(c) > C.Q_NAV && Q(d) > C.Q_NAV ? (Q(d) >= Q(c) ? 1 : -1) : 0;
+        this.landCost(km, Math.abs(H.elev[c] - H.elev[d]), 0.5 * (rd[c] + rd[d]), 0.5 * (cn[c] + cn[d]), 0.5 * (rl[c] + rl[d]), nav, false, lc);
+        eS[o] = lc[0]; eI[o] = lc[1];
       }
     }
     const dI = new Float64Array(nL);
@@ -344,16 +428,8 @@ export class Routes {
     return h;
   }
 
-  /**
-   * The round trip's mean cost between markets a and b on a layer ('S' sail, 'I' steam); the sail's
-   * part by land cheapened by the pair's roads and canals (`trade` sets them).
-   */
-  cost(a, b, L = 'S') {
-    const o = a * this.nm + b, x = this.R[L][o];
-    if (L !== 'S' || !this.mWr) return x;
-    const C = this.C, g = 1 / (1 + C.R_ROAD * 0.5 * (this.mWr[a] + this.mWr[b]) + C.K_CANAL * 0.5 * (this.mWc[a] + this.mWc[b]));
-    return x * (1 - this.LS[o] * (1 - g));
-  }
+  /** The round trip's mean cost between markets a and b on a layer ('S' sail, 'I' steam). */
+  cost(a, b, L = 'S') { return this.R[L][a * this.nm + b]; }
 
   /** The nodes from market a's node to node `to` along a layer's path, `to` first. */
   path(a, to, L = 'S') {
@@ -397,15 +473,6 @@ export class Routes {
         if (pp.pkg[c] >= 0) { const key = k * 4096 + pp.pkg[c]; byPkg.set(key, (byPkg.get(key) || 0) + a); }
       }
     }
-    // Each market's roads (their built share) and canals (the land they water), by area.
-    const Wr = sized(this, 'mWr', Float64Array, nm), Wc = sized(this, 'mWc', Float64Array, nm);
-    Wr.fill(0); Wc.fill(0);
-    if (pp.wk) for (let c = 0; c < nL; c++) {
-      const k = mo[c], a = pp.H.area[c];
-      if (pp.wk.R[c] > 0) Wr[k] += a * pp.built(c, 'R');
-      if (pp.wk.C[c] > 0) Wc[k] += a * pp.H.irrPot[c] * pp.built(c, 'C');
-    }
-    for (let k = 0; k < nm; k++) if (A[k] > 0) { Wr[k] /= A[k]; Wc[k] /= A[k]; }
     pk.fill(-1);
     const best = new Float64Array(nm);
     for (const [key, a] of byPkg) { const k = Math.floor(key / 4096); if (a > best[k]) { best[k] = a; pk[k] = key % 4096; } }
@@ -422,14 +489,14 @@ export class Routes {
     const part = this.part && this.part.k.length === nm * C.K_PART ? this.part : (this.part = { k: new Int32Array(nm * C.K_PART), w: new Float32Array(nm * C.K_PART) });
     part.k.fill(-1); part.w.fill(0);
     // The kernel, symmetric, once a pair.
-    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, LS = this.LS, ids = pp.ids;
+    const KM = this.KM && this.KM.length >= na * na ? this.KM : (this.KM = new Float32Array(na * na)), RS = this.R.S, ids = pp.ids;
     let RI = null;   // the steam's, where a pair has industry
     for (let x = 0; x < na; x++) {
-      const i = act[x], ri = reach[x], si = S[i], wri = Wr[i], wci = Wc[i];
+      const i = act[x], ri = reach[x], si = S[i];
       KM[x * na + x] = 1;
       for (let y = x + 1; y < na; y++) {
         const j = act[y], r = ri > reach[y] ? ri : reach[y], s = si > S[j] ? si : S[j], o = i * nm + j;
-        const gw = 1 / (1 + C.R_ROAD * 0.5 * (wri + Wr[j]) + C.K_CANAL * 0.5 * (wci + Wc[j])), cs = RS[o] * (1 - LS[o] * (1 - gw));
+        const cs = RS[o];
         const k0 = !(r > 0) ? 0 : s < 1e-6 ? Math.exp(-cs / r) : s > 1 - 1e-6 ? Math.exp(-(RI || (RI = this.R.I))[o] / r) : (1 - s) * Math.exp(-cs / r) + s * Math.exp(-(RI || (RI = this.R.I))[o] / r);
         // A common language eases trade (src/engine/peoples.js, `tradeW`).
         // And a border between their towns' states (src/engine/polities.js, `border`).

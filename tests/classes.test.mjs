@@ -1,7 +1,7 @@
 // Classes (src/engine/classes.js): the elite share's exact step, and where it settles on one place.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Classes, eliteStep } from '../src/engine/classes.js';
+import { Classes, eliteStep, coord } from '../src/engine/classes.js';
 import { KP } from '../src/engine/polities.js';
 import { PEOPLE } from '../src/engine/people.js';
 
@@ -30,8 +30,10 @@ test('the elites settle past their positions by their growth over the commoners:
   const wol = new Float32Array(5); wol[3] = N;
   const pol = { live: [], list: [], id: new Int32Array(KP).fill(-1), s: new Float64Array(KP), d: new Float64Array([1]), ex: new Float64Array(1), held: () => 0 };
   const pp = { P, nL: 1, pol, ids: { W, T: new Float64Array([N]) }, Ntot: new Float64Array([N]), K: new Float64Array([N]), goods: new Float64Array(1), wol, imp: null,
-    uSent: null, dlvP: null, kP: null, Kown: new Float64Array([N]), econ: { on: false }, works: new Float64Array(1), wk: { T: new Float64Array(1) } };
-  const cl = new Classes(pp), p = P.TH_W[3] / P.C_E, mD = 1 / P.T_DOWN;
+    uSent: null, dlvP: null, kP: null, Kown: new Float64Array([N]), econ: { on: false }, works: new Float64Array(1), wk: { T: new Float64Array(1) }, wi: {},
+    H: { irrPot: [0], terrPot: [0] }, built: () => 0, ind: [0] };
+  // The claim: the functional μ of the harvest (coordination) and the rent's TH_W of the rest.
+  const cl = new Classes(pp), mu = P.MU[3], p = (mu + P.TH_W[3] * (1 - mu)) / P.C_E, mD = 1 / P.T_DOWN;
   for (const d of [0, 0.01, 0.02]) {
     for (let k = 0; k < 200; k++) { cl.accrue(0, d, 0, 10); cl.tAcc += 10; cl.advance(10); }
     const want = p * mD / (mD - d);
@@ -39,4 +41,16 @@ test('the elites settle past their positions by their growth over the commoners:
     assert.equal(cl.psi[0], 0, 'no stress at subsistence');
     assert.equal(pp.Ntot[0], N, 'no internal war without stress');
   }
+});
+
+test("coordination's output is at its best where the elite's share is μ, falling either side as Cobb–Douglas does", () => {
+  // Y = A E^μ L^{1−μ} at E = εN, L = (1 − ε)N, against its best: (ε/μ)^μ ((1 − ε)/(1 − μ))^{1−μ}.
+  const mu = 0.05, s0 = 0.25;
+  assert.ok(Math.abs(coord(mu, mu, s0) - 1) < 1e-12);
+  for (const e of [0.02, 0.1, 0.3]) {
+    const want = Math.pow(e / mu, mu) * Math.pow((1 - e) / (1 - mu), 1 - mu);
+    assert.ok(Math.abs(coord(e, mu, s0) / want - 1) < 1e-12 && want < 1, `ε ${e}: ${coord(e, mu, s0)} against ${want}`);
+  }
+  // No elite: the people's own organizing, at s0 μ; and nothing to organize, whole.
+  assert.ok(Math.abs(coord(0, mu, s0) - coord(s0 * mu, mu, s0)) < 1e-15 && coord(0.1, 0, s0) === 1);
 });

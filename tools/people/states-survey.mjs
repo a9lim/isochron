@@ -31,6 +31,12 @@
 //                   a year, cooling's power and Earth's habitability
 //   the industrial era   the share under unlike rulers at 1870, 1913, 1950 (industry's start as 1760),
 //                   the effective states at early takeoff
+//   classes' economy (3f)  at 1 CE, 1500, 1820, 1913, 1980 and early takeoff: the cities' share of the people
+//                   (Cantillon's), the world's Gini over its places' two classes (Bourguignon and Morrisson:
+//                   ~0.5 in 1820, ~0.65 late in the twentieth century), the top decile's share of income in the
+//                   world and among industrial places (Piketty, the WID: ~0.35–0.5); from industry, K/Y, the
+//                   saving rate and railways' built share of their room; where industry began (its knowledge,
+//                   learning and elite share)
 // usage: node tools/people/states-survey.mjs ['{PEOPLE overrides}'] [draws=8]
 //   env: ENGINE=7 as the scorer's
 import { spawn } from 'node:child_process';
@@ -47,11 +53,11 @@ async function one(ov, run) {
   pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples'); pp.pol.rng = stream(`earth/${run}`, 'people:polities');
   const H = pp.H, deg = 180 / Math.PI, nL = pp.nL, regOf = new Int16Array(nL);
   for (let c = 0; c < nL; c++) { const la = H.lat[c] * deg, lo = H.lon[c] * deg; regOf[c] = REGIONS.findIndex(([, a, b, x, y]) => la >= a && la < b && lo >= x && lo < y); }
-  const ev = {};
-  pp.onEvent = (t, k) => { if (!(k in ev)) ev[k] = t; };
+  const ev = {}, evText = {};
+  pp.onEvent = (t, k, x) => { if (!(k in ev)) { ev[k] = t; evText[k] = x; } };
   pp.seed();
   // The regions' people every EVERY years once any state stands; stress and the unlike rule's share alongside.
-  const series = [], stress = [], unlike = [];
+  const series = [], stress = [], unlike = [], econ = [];
   let next = null;
   const sample = () => {
     const r = new Float64Array(REGIONS.length), N = pp.Ntot, cl = pp.classes;
@@ -71,6 +77,30 @@ async function one(ov, run) {
     stress.push({ t: pp.t, psi: all > 0 ? ps / all : 0, hi: all > 0 ? hi / all : 0, kap: kn > 0 ? kw / kn : 0, trib: tax > 0 ? trib / tax : 0,
       N: all, tw: all > 0 ? tw / all : 0, hot: all > 0 ? hot / all : 0, dh: all > 0 ? dh / all : 0, cool: pp.Ecool || 0, hE: pp.hE, mig: all > 0 ? mw / all : 1, migMax: mx, fled: pp.fled || 0 });
     unlike.push({ t: pp.t, s: all > 0 ? un / all : 0 });
+    // Classes' economy: the cities' share, the world's Gini and top decile over its places' two classes.
+    let city = 0;
+    const g = [], gi = [];
+    for (let c = 0; c < nL; c++) {
+      const n = N[c]; if (!(n > 0)) continue;
+      city += pp.city ? pp.city[c] : 0;
+      const Y = pp.K[c] + pp.goods[c], sh = cl.shares(c), e = Math.min(0.999, sh.people), sI = Math.min(1, sh.income), ind = pp.ind[c] > 0.5;
+      if (e > 0) g.push([sI * Y / (e * n), e * n, ind]);
+      g.push([(1 - sI) * Y / ((1 - e) * n), (1 - e) * n, ind]);
+    }
+    const dist = gs => {
+      const a = gs.slice().sort((x, y) => x[0] - y[0]);
+      let P = 0, I = 0; for (const [y, n] of a) { P += n; I += y * n; }
+      if (!(P > 0) || !(I > 0)) return { gini: NaN, top: NaN };
+      let L = 0, G = 1;
+      for (const [y, n] of a) { const s = y * n / I; G -= (n / P) * (2 * L + s); L += s; }
+      let left = 0.1 * P, top = 0;
+      for (let i = a.length - 1; i >= 0 && left > 0; i--) { const take = Math.min(left, a[i][1]); top += take * a[i][0]; left -= take; }
+      return { gini: G, top: top / I };
+    };
+    const E = pp.econ, w = dist(g), wI = dist(g.filter(x => x[2]));
+    let rl = 0, rr = 0;
+    if (E.on) for (let c = 0; c < nL; c++) { rl += pp.wi.L[c]; rr += pp.railRoom(c); }
+    econ.push({ t: pp.t, urb: all > 0 ? city / all : 0, gini: w.gini, top: w.top, topI: wI.top, KY: E.on && E.Y > 0 ? E.Kf / E.Y : NaN, sv: E.on ? E.sReal : NaN, rail: rr > 0 ? rl / rr : NaN });
   };
   // Each way's elites at a moment: their share of its people and their two-class Gini.
   const classes = () => {
@@ -143,6 +173,7 @@ async function one(ov, run) {
     mig: 'industry' in ev ? { N: [-1760, 110, 190, 240].map(d => at(tI + d).N), hump: [110, 153, 190].map(d => at(tI + d).mig), humpMax: Math.max(...stress.filter(s => s.t >= tI).map(s => s.migMax)),
       fledAgr: 1000 * (at(tI).fled || 0) / span, fledInd: Math.max(0, (at(tP).fled || 0) - (at(tI).fled || 0)) / Math.max(1, tP - tI) } : null,
     heat: [tI, tP].map(t => { const s = at(t); return { tw: s.tw, hot: s.hot, dh: s.dh, cool: s.cool, hE: s.hE }; }),
+    econ: [-1759, -260, 60, 153, 220].map(d => econ.reduce((b, s) => (Math.abs(s.t - (tI + d)) < Math.abs(b.t - (tI + d)) ? s : b), econ[0] || {})).concat([econ.at(-1) || {}]), spark: evText.industry || null,
     classes: c1, unlike: 'industry' in ev ? [110, 153, 190].map(d => un(tI + d)) : null, states: pol.nStates, yrs: 'industry' in ev ? tP - tI : null,
   };
 }
@@ -178,5 +209,9 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   console.log(`heat at industry · at early takeoff: the people's hottest month's wet bulb ${[0, 1].map(i => f2(md(runs.map(r => r.heat[i].tw)))).join(' · ')} °C, past 28 °C ${[0, 1].map(i => pc(md(runs.map(r => r.heat[i].hot)))).join(' · ')}, heat's deaths ${[0, 1].map(i => (1e6 * md(runs.map(r => r.heat[i].dh))).toFixed(1)).join(' · ')} a million a year, cooling ${[0, 1].map(i => (md(runs.map(r => r.heat[i].cool)) / 1e9).toFixed(0)).join(' · ')} GW, Earth's habitability ${[0, 1].map(i => f2(md(runs.map(r => r.heat[i].hE)))).join(' · ')}`);
   const sr = runs.filter(r => r.sec);
   if (sr.length) console.log(`secession: ${f2(md(sr.map(r => r.sec.agrKyr)))} successors a kyr before industry; from industry, settler colonies (overseas, alike) ${md(sr.map(r => r.sec.settler.n))} a draw, median ${f0(md(sr.map(r => r.sec.settler.at)))} (the Americas' 1776–1825), nations (unlike) ${md(sr.map(r => r.sec.nation.n))}, median ${f0(md(sr.map(r => r.sec.nation.at)))} (Asia's and Africa's 1945–75), others ${md(sr.map(r => r.sec.other))}`);
+  const ec = runs.map(r => r.econ), EY = ['1 CE', '1500', '1820', '1913', '1980', 'early takeoff'], col = (i, k, f) => f(md(ec.map(e => e[i] && e[i][k])));
+  console.log(`classes' economy at ${EY.join(', ')}: the cities' share ${EY.map((_, i) => col(i, 'urb', pc)).join(', ')}; the world's Gini ${EY.map((_, i) => col(i, 'gini', f2)).join(', ')} (~0.5 in 1820, ~0.65 late in the twentieth century); the top decile's share ${EY.map((_, i) => col(i, 'top', pc)).join(', ')}, among industrial places ${EY.slice(3).map((_, j) => col(j + 3, 'topI', pc)).join(', ')} (~35–50%)`);
+  console.log(`capital at 1913, 1980, early takeoff: K/Y ${[3, 4, 5].map(i => col(i, 'KY', f2)).join(', ')} (Earth's ~3–4), saving ${[3, 4, 5].map(i => col(i, 'sv', pc)).join(', ')}, railways built ${[3, 4, 5].map(i => col(i, 'rail', pc)).join(', ')} of their room`);
+  for (const [k, r] of runs.entries()) if (r.spark) console.log(`draw ${k}: ${r.spark}`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);
 }

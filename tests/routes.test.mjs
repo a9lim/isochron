@@ -90,3 +90,22 @@ test('a rebuild that adds markets (an ice sheet gone) trades among all of them, 
   for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) if (Number.isFinite(rt.R.S[a * nm + b])) assert.ok(Number.isFinite(rt.cost(a, b, 'S')), `the cost ${a} → ${b} is ${rt.cost(a, b, 'S')}`);
   for (const k of rt.active) assert.ok(Number.isFinite(pp.yrM[k]), `market ${k}'s pooled years ${pp.yrM[k]}`);
 });
+
+test('reread with the world: the same winds solve nothing again; turned about, the way out and home trade places, the markets kept', () => {
+  const f = islands([1, 1, 1, 1, 1, 1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f);
+  const a = nearest(rt, 0), b = nearest(rt, Math.PI / 2), nm = rt.nm, out = rt.D.S[a * nm + b], home = rt.D.S[b * nm + a], mk = Array.from(rt.mnode);
+  assert.equal(rt.reprice(f), false, 'nothing moved');
+  const g = { ...f, wind: Float32Array.from(f.wind, x => -x) };
+  assert.equal(rt.reprice(g), true, 'the winds turned');
+  assert.deepEqual(Array.from(rt.mnode), mk, 'the markets kept');
+  assert.ok(Math.abs(rt.D.S[a * nm + b] / home - 1) < 0.02 && Math.abs(rt.D.S[b * nm + a] / out - 1) < 0.02, `out ${rt.D.S[a * nm + b].toFixed(0)} against the old way home ${home.toFixed(0)}; home ${rt.D.S[b * nm + a].toFixed(0)} against the old way out ${out.toFixed(0)}`);
+});
+
+test('routes follow works: railways carry steam by land as far as they are built, roads halve the road at their room', () => {
+  const f = islands([1, 1, 1, 1, 1, 1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f), C = rt.C, km = 100, o = [0, 0];
+  rt.landCost(km, 0, 0, 0, 0, 0, false, o);
+  assert.equal(o[0], km * C.C_LAND); assert.equal(o[1], km * C.C_LAND, 'no railways: steam by land goes by the road');
+  rt.landCost(km, 0, 1, 0, 0.5, 0, false, o);
+  assert.equal(o[0], km * C.C_LAND / (1 + C.R_ROAD));
+  assert.ok(Math.abs(o[1] - (0.5 * km * C.C_RAIL + 0.5 * o[0])) < 1e-9, 'half the room built: half the freight by rail');
+});

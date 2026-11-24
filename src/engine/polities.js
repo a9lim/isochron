@@ -110,7 +110,7 @@
 // capitals and the capitals' works labour back to it (People.foodshed, feed: roads and works out from
 // the centre); the state's granaries widen its places' stores (G_STATE); a border in trade's kernel
 // (B_TRADE, `border`); war's costs where allegiance moves (W_DEATH of the people changing hands,
-// W_WORKS of the works by the share moved); rivalry with peer states lifts new ideas (K_RIVAL, `rv`;
+// W_WORKS of the works, the land's and industry's, by the share moved); rivalry with peer states lifts new ideas (K_RIVAL, `rv`;
 // contested, so weak, beside the border's cut in trade and the copying that rides on it).
 // Read back: each place's identity pulled toward its state's (src/engine/peoples.js; a9: softly).
 // Drawn on the States map (`drawn`): each polity a hue, free on the peoples' wheel and measured along its
@@ -419,6 +419,8 @@ export class Polities {
         const kw = 1 - P.W_WORKS * mv;
         pp.works[c] *= kw;
         for (const kind of Object.values(pp.wk)) kind[c] *= kw;
+        for (const kind of Object.values(pp.wi)) kind[c] *= kw;   // industry's works too: a city fought over loses its factories (batch 3f)
+        if (pp.classes && pp.classes.e) for (let w = 1; w < 5; w++) pp.classes.e[5 * c + w] *= kw;   // and its organizers (coordination, batch 3f: war's toll on works has an organizational half)
       }
       // Keep the strongest KP.
       for (let j = 0; j < KP; j++) {

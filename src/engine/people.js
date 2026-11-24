@@ -13,7 +13,8 @@
 //             reach, industry and the economy) and learning (`zl`, writing, numeracy, science:
 //             contact, copying's pace, research's yield), bound together only by production's
 //             epistemic base: its ideas fall away once it runs D_BASE ahead of learning (Mokyr's
-//             argument). Ideas come from the minds a cell
+//             argument). Learning is where the elite's and the cities' ideas lean (TILT; an elite's
+//             minds R_ELITE a commoner's: ideas by class, batch 3f). Ideas come from the minds a cell
 //             can learn from, M (the collective brain: Henrich 2004, from memory), at A M^ψ a year,
 //             and are lost at λ z (imperfect copying; Tasmania's loss over ~10 kyr sets λ), less
 //             where a cell's works keep them (`works`: monuments, writing, schools; the land's
@@ -78,6 +79,8 @@
 //             unlivable outdoors (Sherwood and Huber 2010), but for those who can buy cooling (industry ×
 //             (1 − e^{−y/Y_COOL})), whose power, W_COOL a person by the cooling degree-days, is bought as
 //             food is; heat's deaths D_HEAT × the hottest month's expected excess over TW_D, × e^{−y/Y_COOL}.
+//             Each way's food, and industry's output, × its elite's organizing of it (coordination, batch
+//             3f: Y = A E^μ L^{1−μ} against its best, src/engine/classes.js `coord`).
 //   soil      a renewable stock: the regolith h, made by Heimsath's production and stripped by the
 //             rivers and by tillage; within a cell the land is ranked (deep, flat bottoms first),
 //             so the fields hold h̄ (1 − ln f) less a deficit of their own, and their tillage is
@@ -108,14 +111,15 @@
 //             via Diamond, from memory), as far as no crops at hand suit the place; packages (each
 //             its origin's climate) spread by contact and are taken up where they suit better,
 //             farmers breeding them toward each place over T_ADAPT (`suit`, `suitHere`).
-//   industry  starts where z passes Z_IND near coal and ore (the fossil map seeded on the opening's
+//   industry  starts where z passes Z_IND, and learning Z_UP (the upper tail), near coal and ore (the fossil map seeded on the opening's
 //             lowland basins and shelves, a9, 2026-11-15; the ore map on its arcs, old crust and
 //             cut relief, `oreMap`), then spreads by contact at up to IND_PACE times its own pace,
 //             slowly across borders and between peoples until schooling comes (`apart`); medicine and
 //             industry's fertilizer reach farther, with learning (`modern`). One world economy
 //             (`industrialStep`): Y = A(z) K^α L^{1−α} (standard forms; α ⅓, saving ¼), held to the
 //             energy it gets (a CES of low elasticity against the capital–labour bundle, the
-//             intensity falling with z); fixed capital (δ 5%/yr), energy capital for fossil carbon
+//             intensity falling with z); saving by class (S_CAP of capital's income, AI's work among
+//             it, S_WAGE of the rest: Kaldor's, from memory); fixed capital (δ 5%/yr), energy capital for fossil carbon
 //             (its return falling as it's drawn down), surface renewables (soft-capped at F_SUN of
 //             absorbed sunlight), fusion and space solar, and compute (δ 25%/yr); investment to
 //             energy first, then among fixed capital, compute and robots by their marginal
@@ -126,6 +130,11 @@
 //             its shares of the world's capital φ and work ℓ; fossil carbon drawn by what each place
 //             has left, its rent R_FOS to the holders' capitals; N_TAX of each place's output to its
 //             states' capitals; each state's saving invested across its own places where it earns.
+//             Industry's works are each place's own (batch 3f, `wi`: factories, railways, power plants,
+//             datacenters, robots), worn where they stand and broken where war is fought; a state builds
+//             the land's works where it has industry, then railways toward their room (W_RAIL a km²
+//             where people are dense enough), then factories; steam by land runs on the railways
+//             (src/engine/routes.js), and the factories and datacenters are drawn where they stand.
 //   AI        capital that does labour (synthesis on Aghion, Jones and Jones; Davidson; from memory):
 //             compute × χ(z) labour-equivalents (rising e-fold per unit of z to X_MAX, speculation),
 //             drawing power. Capability follows effective compute (`capability`: the stock × its
@@ -152,8 +161,9 @@
 //             forcing at none and farms return. Misaligned, humans' control and their births follow
 //             AI's share of the work down; aligned, people leave for space as Earth fails or by
 //             choice. Food is bought with energy for those the land can't feed (speculation all).
-//   cities    `places`, `foodshed`, `feed`: farmers' and industry's urban shares of their food
-//             sent along the routes to cities that grow by their sites and their size, less what
+//   cities    `places`, `foodshed`, `feed`: farmers' urban share of their food, U_SPEND of their land
+//             elites' take (Cantillon's landlords spending their rents in the towns, batch 3f), and
+//             industry's, sent along the routes to cities that grow by their sites and their size, less what
 //             the carriers eat; the people follow the food, and die faster in cities until
 //             sanitation; the cities' sizes weigh their dwellers' minds (urban scaling, the world's
 //             minds kept). Industry's machines on its workers' footprint (drawn).
@@ -297,10 +307,10 @@ export const PEOPLE = {
   // the steep land to the fields and cut tillage's erosion by TERR_ERO; canals water dry land past the
   // floodplain, over a strip K_CMD times the floodplain's width, as far as ETA_IRR of the river's
   // water meets the year's deficit of rain (at most IRR_MAX of the dry land); granaries raise the reserve × (1 + G_X) and cut the store's losses by
-  // G_K; roads cut the cities' local routes' cost by 1/(1 + R_X). Each decays over T_WORK unkept,
-  // canals over T_CANAL.
+  // G_K; roads and canals cut the routes' land costs where they're built (src/engine/routes.js R_ROAD,
+  // K_CANAL). Each decays over T_WORK unkept, canals over T_CANAL.
   F_LEARN: 0.5, W_TERR: 300, W_CANAL: 30, W_GRAN: 0.1, W_ROAD: 10,   // terraces ~1,000 person-days a hectare, canals ~100 (the Andes' and Mesopotamia's, from memory)
-  TERR_ERO: 0.8, ETA_IRR: 0.3, IRR_MAX: 0.8, K_CMD: 1, D_MIN: 0.1, G_X: 1, G_K: 0.5, R_X: 1,
+  TERR_ERO: 0.8, ETA_IRR: 0.3, IRR_MAX: 0.8, K_CMD: 1, D_MIN: 0.1, G_X: 1, G_K: 0.5,
   T_CANAL: 100,                    // years canals take to silt up unkept (dredged every year or lost within a lifetime or two: Mesopotamia's, from memory; the other works T_WORK)
   // Salt (standard in outline: irrigation in a dry land raises the water table and leaves the salts
   // the evaporation concentrates; Jacobsen and Adams 1958 on southern Mesopotamia's wheat giving way to
@@ -376,6 +386,10 @@ export const PEOPLE = {
   // year, so a sharper onset sparks industry later in the world's growth. Earth: 0.06 (0.1 before the
   // equator's upwelling wetted the model's Sahel, whose dense farmers then sparked industry in six draws
   // of eight at a smaller world: 2000 at 4.0 B against history's 6.07; at 0.06 two of eight, as before)
+  // The spark reads learning too (batch 3f: Mokyr's upper tail, Squicciarini and Voigtländer, from memory): ×
+  // σ((z_L − Z_UP)/W_UP), learning where the elite's and the cities' ideas go (TILT, R_ELITE), so a dense
+  // farming people's techniques alone don't spark it.
+  Z_UP: 6, W_UP: 0.25,
   Z_IND: 7, W_IND: 0.06, COAL_MIN: 5, H_IND: 0.02, C_IND: 2e-3, R_IND: 0.05, FOSSIL: 5000, COAL_SHARE: 0.6, CO2_0: 280,
   ORE_MIN: 0.5, ORE_REF: [0.0623, 0.264, 0.0178],  // ore within reach, against the land's mean, where industry can start (a soft threshold); the default planet's mean arc, old-crust and placer weights over its land (X_CRUST's reference)
   J_PGC: 4e19,                     // J per Pg C of fossil carbon (~40 MJ per kg C)
@@ -384,7 +398,16 @@ export const PEOPLE = {
   // a century on and its frontier ~10× that by the takeoff, ~1.5%/yr, as Maddison's (western Europe 4.9 sy
   // in 1870, the US 70 in 2000, at $400 1990 GK$ a sy; Maddison 2003); TFP at knowledge 10.35 as before the
   // regional economies (0.7 × e^{0.85 × 3.35}); capital's share, saving, workers' share
-  A_I0: 4, THETA_I: 0.33, ALPHA: 1 / 3, SAVE: 0.25, LFP: 0.5,
+  A_I0: 4, THETA_I: 0.33, ALPHA: 1 / 3, LFP: 0.5,
+  // Saving by class (batch 3f; classical, after Kaldor, from memory): S_CAP of capital's income saved and
+  // S_WAGE of the rest, capital's the share α + (1 − α) × the machines' share of the work (AI's work earns
+  // its owners), so the saving rate is ¼ before AI and rises toward S_CAP as AI does the work.
+  S_CAP: 0.5, S_WAGE: 0.125,
+  // Railways (batch 3f; works as capital): W_RAIL sy a km² for a full network (~0.1 km of track a km², the
+  // densest of 1910's Europe, at ~2,000 sy a km; from memory) where people are dense enough to pay for it
+  // (1 − e^{−ρ/RHO_RAIL}), built from at most F_RAIL of a state's fixed investment (the railway booms took a
+  // quarter to a third of it, from memory) over T_RAIL; steam's land legs run on them (src/engine/routes.js).
+  W_RAIL: 200, RHO_RAIL: 20, F_RAIL: 0.3, T_RAIL: 30,
   N_TAX: 0.1, R_FOS: 0.3,          // regional economies (batch 2b, landing 2): a state's share of each place's output to its capital (taxes, and a colony's drain; ~10% of output before 1914, from memory), fossil carbon's rent as a share of the fuel's worth (synthesis)
   DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
   E_SUB: 200, Z_EFF: 5.5, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~100 at the takeoff, as Earth's ~19 TW over ~8 B × ~22 sy now), falling toward E_MIN_Y e-fold per Z_EFF
@@ -470,7 +493,7 @@ export const PEOPLE = {
   B_EBM: 2.09, HEAT_MAX: 11.8,     // B (W m⁻² K⁻¹); the heat fossil carbon and fusion may add (W/m²)
   P_SITES: 1, P_HEAT: 4,           // soft ceilings: sites of uneven quality (harmonic), and the heat budget (a choice, so sharp; the ending's)
   // Where people and machines are (drawn only: `places`; synthesis)
-  U_AG: 0.08, U_IND: 0.8,          // the urban share of farming peoples (agrarian empires' cities, ~5–10%) and where industry is whole (rich countries now ~80%); both from memory
+  U_SPEND: 0.5, U_IND: 0.8,        // Cantillon's cities (batch 3f): the share of the land elites' take, rent and tax alike, spent in the towns, so a farming place's urban share is U_SPEND × its take (src/engine/classes.js `take`; agrarian empires' cities ~5–10%; 0.2 drew 2.8% of the people into cities at 1 CE, the mean take of the fields' food ~0.14), toward U_IND where industry is whole (rich countries now ~80%); both from memory
   // Peoples (src/engine/peoples.js, docs/MODEL.md; synthesis, the values speculation): identity's torus (TOR
   // around: a language apart is 1, a family ~2.3); its drift (σ² a dimension a year: a language apart in ~1.25 kyr
   // parted, Romance's, from memory) and a founder's kick (a dimension) where migrants settle an empty place;
@@ -537,6 +560,12 @@ export const PEOPLE = {
   // D_PSI a year, internal war's deaths W_IW and works W_IWW a year, the elites culled K_CULL a year.
   TH_W: [0, 0.25, 0.15, 0.5, 0.2], X_EXIT: 0.1, K_COER: 2, C_E: 10, T_DOWN: 20, T_UP: 10, H_CLS: 10,
   Y_COMF: 1.15, K_FAM: 5, M0: 0.05, E0: 0.5, K_SFD: 0.5, D_PSI: 0.02, W_IW: 0.004, W_IWW: 0.01, K_CULL: 0.03,
+  // Coordination (batch 3f; a9; speculation): the elite as a factor, Y = A E^μ L^{1−μ} by way of life
+  // (src/engine/classes.js `coord`, `mu`), μ the functional share: near none for foragers, herders and
+  // fishers, the fields' × (1 + K_MU × their canals' and terraces' share), the cities' toward MU_IND with
+  // industry (managers' and owners' share of the work, a few percent to a tenth, from memory); the people
+  // organize themselves to S0_MU of μ without one.
+  MU: [0, 0.005, 0.005, 0.02, 0.04], K_MU: 2, MU_IND: 0.08, S0_MU: 0.25,
   // Secession (batch 3b, src/engine/polities.js; synthesis, the values speculation): a held city's successor at
   // R_SEC a year at most, as its region's resistance passes its state's hold there (ρ^G/(1 + ρ^G), G = SEC_G),
   // as far as it's organized (its cohesion about A_ORG) and × (1 + K_SECP ψ); a schooled stateless place founds × (1 + K_NATF × its schooling); the border norm slows a state's
@@ -575,6 +604,7 @@ export const PEOPLE = {
   // cell's by its city dwellers' share of its minds; each domain gains 2 × its share of the ideas, so
   // the world's ideas are kept and an even split is one number's.
   TILT: 0.15,
+  R_ELITE: 4,                      // an elite's minds against a commoner's (ideas by class, batch 3f: agrarian elites mostly lettered against a few in a hundred of their commoners, the leisure besides; from memory), fed by others as city dwellers are, so their ideas lean to learning
   G_CITY: 1.25, S0_CITY: 1,       // agglomeration's exponent on a city's density (>1: the largest win, Zipf's way); the density (per km²) every site starts from
   K_CITY: 1.5, K_LOSS: 10, C_CITY0: 3000, C_NAT0: 15000,   // a city's pull on a cell's food falls e-fold over C_CITY0 + K_CITY × the trade's reach of route cost (src/engine/routes.js: ~100 km by road at farming's start, ~200 km and ~6,000 by sea at the Iron Age's knowledge; the country's scale over C_NAT0 + K_NAT × it, ~500 km by road: at the trade's reach alone, farming's largest city was a tenth of history's, ~25,000 at 65 million people), and e^{−cost/(K_LOSS reach)} of it arrives (the carriers eat the rest: grain hauled ~100 km by cart lost ~15%, from memory)
   T_URB: 40,                       // years the cities' share of a cell's food takes to follow its urban share (people move to the towns as fast as the work does, over about a generation: the nineteenth century's urbanization ran at ~0.5–1 point a year, from memory); moved at once, the countryside starved faster than it could walk to the cities
@@ -585,9 +615,9 @@ export const PEOPLE = {
   SOL_FARM: 0.2, SOL_ROOM: 0.9,    // solar farms' preference for farmland against open land of the same sun (fields are worth more standing); the most of a cell's land they may cover (roads, rock, water)
   P_STEAM: 270, P_DIM: 30,         // the boiled sea's steam (bar, all of it: src/engine/runaway.js) and the pressure that dims the sunlight at the ground e-fold (the globe's steam wash; synthesis: Venus's ground, under 92 bar, is lit at a few %, from memory)
   T_WILD: 30,                      // years abandoned fields take to go back to the wild (old fields reforest in decades, from memory)
-  T_MACH: 30, MACH_FLOOR: 1e-3,    // years industry's footprint takes to follow its workers; the footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
+  MACH_FLOOR: 1e-3,                // the machines' footprint everywhere on living land (mines, roads, then machines wherever there is room), against its mean
   // Stepping
-  T_ROUTES: 1000,                  // years between the routes' rebuilds as the land changes under them
+  T_ROUTES: 1000, T_ROUTES_IND: 25,   // years between the routes' rereadings (src/engine/routes.js `reprice`: the land, the winds, currents, sea ice and rivers, the works), and once industry builds railways
   DT_MAX: 500, DZ_MAX: 0.05, DT_MIN: 1e-5, NSUB_MAX: 4, NSUB_IND: 48,   // the spread's most substeps a step, before industry and after (its mobility needs them in the economy's 10-year steps)
   DT_EARLY: 2000,                  // the step's most before the people tip (the forager era, where nothing moves faster; after it, longer steps let several farming origins fire at once)
   T_FINE: 300,                     // years past the dial over which a step is at most a year (the ending's slow parts resolve)
@@ -857,6 +887,9 @@ export function migration(N, S, room, RE, open, hE, dt, P) {
   return out - back;
 }
 
+/** The saving rate by class (batch 3f): S_CAP of capital's income, S_WAGE of the rest, capital's the share α + (1 − α) sA (AI's work its owners'). */
+export function saveRate(P, sA = 0) { const k = P.ALPHA + (1 - P.ALPHA) * sA; return P.S_CAP * k + P.S_WAGE * (1 - k); }
+
 /** A fresh industrial economy (before industry: off). */
 export function newEconomy(P) {
   return { on: false, Kf: 0, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0, 0], S: P.FOSSIL, sA: 0, Es: 0, EfoodGot: 0, EcdrGot: 0, capU: P.HEAT_MAX * AREA_M2, X: 0, I: 0, Y: 0, Ypot: 0, avail: 1, A: 0, chi: 0, beta: 0, betaP: 0, AAI: 0, AIr: 0, Ap: 0, bodies: 0,
@@ -872,7 +905,7 @@ export function newEconomy(P) {
 export function industrialStep(E, { Lh, z, za = z, Efood = 0, Ecdr = 0, ending = null, sA = 0, capR: capR0 = null, capS: capS0 = null, keepF: keep = 1, heatB: heat0 = null }, dt, P) {
   const rr = P.R_ER0 * sig((z - P.Z_REN) / P.W_REN), ru = P.R_EU0 * sig((z - P.Z_FUS) / P.W_FUS);
   const rf = E.S > 0 ? P.R_EF0 * Math.sqrt(E.S / P.FOSSIL) : 0;
-  const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND));
+  const A = P.A_I0 * ex(P.THETA_I * (z - P.Z_IND)), sv = saveRate(P, sA);
   // The robots this step can field: the paid-for bodies, as far as the fleet's ramp has grown.
   const bmax = Math.max(P.B_SEED, E.Bc || 0) * Math.exp(dt / P.T_ROB), bodyCost = P.C_R0 * Math.exp(-Math.min(Math.max(0, z - P.Z_AI) / P.Z_RC, 300));
   const T0 = labour(Lh, E.Kc, E.Kr, z, 1, P, E.Kq, bmax, za);
@@ -969,13 +1002,13 @@ export function industrialStep(E, { Lh, z, za = z, Efood = 0, Ecdr = 0, ending =
     const q = Ypot > 0 ? Eo / (eYM * Ypot) : 0;
     const sKL = q > 0 ? (1 - P.W_E) / (1 - P.W_E + P.W_E * Math.exp(Math.min(rho * Math.log(q), 700))) : 0;
     const lamE = (q > 0 ? energyCES(q, P.SIGMA_E, P.W_E) / q : Math.pow(P.W_E, 1 / rho)) * (1 - sKL) / eYM, emb = 1 + em * P.M_K * lamE;
-    // Investment: of the saving SAVE·Y, energy first (wear, and the shortfall closed over T_BUILD,
+    // Investment: of the saving sv·Y (by class: `saveRate`), energy first (wear, and the shortfall closed over T_BUILD,
     // to the best returns among sources with room), research's compute, then fixed capital,
     // compute and robots by their marginal products. Each part only as far as its return covers
     // its cost (wear, R_MIN, and its materials' energy; a smooth switch in log return over cost,
     // so each stock settles where its margin's return meets its cost): the rest is consumed.
     // Where energy binds, capital that can't be powered earns nothing and isn't built.
-    const I = P.SAVE * Y, gap = Math.max(0, need * (1 + P.MARGIN) - (cf + cr + cu + cs));
+    const I = sv * Y, gap = Math.max(0, need * (1 + P.MARGIN) - (cf + cr + cu + cs));
     let Ie = 0, gE = 0, Ies = [0, 0, 0, 0];
     if (ws > 0) {
       gE = sig(Math.log(Math.max(lamE * rbar / ((P.DELTA_E + P.R_MIN) * emb), 1e-300)) / P.W_INV);
@@ -1035,9 +1068,9 @@ export function industrialStep(E, { Lh, z, za = z, Efood = 0, Ecdr = 0, ending =
     const Iall = Ie + Iq + Ir + Irob;
     return { s, sReal: Y > 0 ? Iall / Y : 0, eYM, need, Er, Es, Eu, Ef, sup0, sF, sC, sup, T, Ypot, Eo, Y, run, sKL, lamE, gE, gK, Ie, Ies, Iq, Ir, Irob, wf, wc, Iall, ApE, ApS };
   };
-  let st = plan(E.sInv ?? P.SAVE);
+  let st = plan(Math.min(E.sInv ?? sv, sv));
   if (Math.abs(st.sReal - st.s) > 1e-5) {
-    let a = 0, b = P.SAVE;
+    let a = 0, b = sv;
     for (let k = 0; k < 24; k++) { const m = 0.5 * (a + b), x = plan(m); if (x.sReal > m) a = m; else b = m; }
     st = plan(0.5 * (a + b));
   }
@@ -1118,9 +1151,11 @@ export class People {
     this.pyrTmp = new Float64Array(KC + 1); this.Ng = new Float64Array(nL); this.pyrSum = new Float64Array(nL).fill(1); this.pyrOut = { sen: 0, work: 0 };
     this.econ = newEconomy(this.P);
     this.econ.oreRich = this.oreRich;
-    // The regional economies (`regional`): each place's shares of the world's fixed capital and machines,
-    // and its fossil carbon left (PgC; the coal map's shares of the whole).
-    this.kF = new Float64Array(nL); this.kM = new Float64Array(nL);
+    // The regional economies (`regional`): industry's works each place holds (sy: factories, railways,
+    // power plants, datacenters, robots), the land's works its capital builds (sy a year), and its fossil
+    // carbon left (PgC; the coal map's shares of the whole).
+    this.wi = { F: new Float64Array(nL), L: new Float64Array(nL), P: new Float64Array(nL), D: new Float64Array(nL), B: new Float64Array(nL) };
+    this.landCap = new Float64Array(nL);
     this.fos = Float64Array.from(this.coal, x => x / this.P.COAL_SHARE);
     this.env = new CachedEnv(this);
     this.flags = {}; this.co2 = this.P.CO2_0; this.O = 0; this.people = 0; this.lastRate = 0; this.emitted = 0;
@@ -1188,7 +1223,7 @@ export class People {
       gapFP: new Float64Array(nL).fill(1), gapUp: new Float64Array(nL).fill(1), rot: new Float64Array(nL).fill(1), gapY: new Float64Array(nL).fill(1), kap: new Float64Array(nL).fill(1), lean: new Int8Array(nL).fill(-1), snowy: new Float64Array(nL), habA: new Float64Array(nL),
     };
     this.sol = new Float64Array(nL);   // the share of each cell under solar farms (People.placeSolar)
-    this.X = { cells: new Int32Array(0), area: new Float64Array(0), sun: new Float64Array(0), sol: new Float64Array(0), mach: new Float64Array(0) };
+    this.X = { cells: new Int32Array(0), area: new Float64Array(0), sun: new Float64Array(0), sol: new Float64Array(0) };
     const H = this.H;
     for (let c = 0; c < nL; c++) {
       const i = cells[c];
@@ -1347,10 +1382,10 @@ export class People {
     for (let i = 0; i < g.n; i++) if (this.loc[i] < 0 && f.elev[i] > 0 && f.ice[i] < P.ICE_MAX) xs.push(i);
     if (xs.length !== this.X.cells.length || xs.some((i, k) => i !== this.X.cells[k])) {
       const old = new Map(Array.from(this.X.cells, (i, k) => [i, k]));
-      const X = { cells: Int32Array.from(xs), area: new Float64Array(xs.length), sun: new Float64Array(xs.length), sol: new Float64Array(xs.length), mach: new Float64Array(xs.length) };
+      const X = { cells: Int32Array.from(xs), area: new Float64Array(xs.length), sun: new Float64Array(xs.length), sol: new Float64Array(xs.length) };
       xs.forEach((i, k) => {
         X.area[k] = g.area[i] * R * R;
-        const o = old.get(i); if (o !== undefined) { X.sol[k] = this.X.sol[o]; X.mach[k] = this.X.mach[o]; }
+        const o = old.get(i); if (o !== undefined) X.sol[k] = this.X.sol[o];
       });
       this.X = X;
     }
@@ -1390,9 +1425,10 @@ export class People {
         this.salt[c] = sx + (this.salt[c] - sx) * Math.exp(-(a + b) * dt);
       }
       // Works: learning's by F_LEARN of the city people's labour; the land's by the cities' labour
-      // sent back to it (`feed`), each kind as far as its room is unfilled; each decaying over T_WORK
-      // (exact; a kind past its room isn't built). Labour the land can't use goes to learning.
-      const ew = Math.exp(-dt / P.T_WORK), ec = Math.exp(-dt / P.T_CANAL), wk = this.wk, lab = this.landLab[c];
+      // sent back to it (`feed`) and, with industry, by its capital (`regional`), each kind as far as its
+      // room is unfilled; each decaying over T_WORK (exact; a kind past its room isn't built). Labour the
+      // land can't use goes to learning.
+      const ew = Math.exp(-dt / P.T_WORK), ec = Math.exp(-dt / P.T_CANAL), wk = this.wk, lab = this.landLab[c] + this.landCap[c];
       let build = this.city ? P.F_LEARN * P.S_WORK * this.city[c] : 0;
       if (lab > 0 || wk.T[c] > 0 || wk.C[c] > 0 || wk.G[c] > 0 || wk.R[c] > 0) {
         let gs = 0;
@@ -1511,14 +1547,20 @@ export class People {
   }
   /**
    * The routes (built the first time anyone farms: before, nobody trades food), and the trade's
-   * kernel over them (every ROUTES.DT_TRADE years). Rebuilt when the land under them has changed
-   * (the sea's level, an ice sheet), at most every T_ROUTES years.
+   * kernel over them (every ROUTES.DT_TRADE years). Reread with the world at most every T_ROUTES years
+   * (T_ROUTES_IND with industry, as railways are built): built anew where the land under them changed
+   * (the sea's level, an ice sheet), else re-costed from the winds, currents, sea ice, rivers and works
+   * and solved again where they've moved (`Routes.reprice`); the cities' foodsheds then follow the new
+   * catchments within the step (`places`).
    */
   trading() {
     if (!this.packages.length) return null;
     const f = this.fields;
     if (!this.routes) { this.routes = new Routes(this, f, this.routeParams || {}); this.tRoutes = this.t; }
-    else if (this.t - this.tRoutes >= this.P.T_ROUTES && this.routes.keyOf(f) !== this.routes.key) { this.routes.build(f); this.tRoutes = this.t; }
+    else if (this.t - this.tRoutes >= (this.econ.on ? this.P.T_ROUTES_IND : this.P.T_ROUTES)) {
+      this.tRoutes = this.t;
+      if (this.routes.reprice(f)) { this.tPlaces = null; this.nRoutes = (this.nRoutes || 0) + 1; }
+    }
     this.routes.trade();
     return this.routes;
   }
@@ -1922,14 +1964,18 @@ export class People {
         const zh = z - P.Z_HERD, xh = ex(P.THETA * Math.max(0, zh));
         herd = sig(zh / P.W_HERD) * H.herd[c] * an * xh / (1 + (xh - 1) / P.CAP_H) * (1 - this.rewild);
       }
-      K[c] = this.hEc[c] * this.labH[c] * H.area[c] * this.coldOK(c, z) * ((1 - fc) * Math.max(forage, herd) + H.bS[c] * this.fish[c] * PF * eg + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
+      // Each way's food as its elite organizes it (coordination: src/engine/classes.js `coord`).
+      const fC = this.classes.fC, o5 = 5 * c;
+      herd *= fC[o5 + 1]; farm *= fC[o5 + 3];
+      const sea = H.bS[c] * this.fish[c] * PF * eg * fC[o5 + 2];
+      K[c] = this.hEc[c] * this.labH[c] * H.area[c] * this.coldOK(c, z) * ((1 - fc) * Math.max(forage, herd) + sea + farm / sick) + this.Ksyn[c] * (1 - this.boiled);
       // Herders' hold on the unfarmed land, as a share of the cell they'd graze at the food capacity
       // (drawn: the pasture, by how near the capacity the people are).
       if (Zs) {
         this.herdS[c] = herd > 0 ? (1 - fc) * sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) * this.hEc[c] * this.labH[c] * this.coldOK(c, z) : 0; this.Kown[c] = K[c];
         // Each way of life's food (peoples' ways): the land's, foraged or herded as herders hold it.
         const a = this.hEc[c] * this.labH[c] * H.area[c] * this.coldOK(c, z), L = (1 - fc) * Math.max(forage, herd), hs = herd > 0 ? sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) : 0, w = this.wol, o = 5 * c;
-        w[o] = a * L * (1 - hs); w[o + 1] = a * L * hs; w[o + 2] = a * H.bS[c] * this.fish[c] * PF * eg; w[o + 3] = a * farm / sick; w[o + 4] = this.Ksyn[c] * (1 - this.boiled);
+        w[o] = a * L * (1 - hs); w[o + 1] = a * L * hs; w[o + 2] = a * sea; w[o + 3] = a * farm / sick; w[o + 4] = this.Ksyn[c] * (1 - this.boiled);
       }
     }
   }
@@ -2101,23 +2147,24 @@ export class People {
     // Minds within reach, and knowledge; research's intensity by the cell's output a person.
     const sR = this.sR || (this.sR = new Float64Array(nL)), sL = this.sL || (this.sL = new Float64Array(nL));
     for (let c = 0; c < nL; c++) { sR[c] = Ntot[c] > 0 ? softMin(Math.pow(Math.max(this.Out[c] / Ntot[c], 1e-3), P.RHO_R), P.S_R_MAX, 4) : 0; sL[c] = 0.5 - P.TILT; }
-    // Cities' minds: a cell's city people's by their city's size, normalized so the world's are kept
-    // (`places`, every DT_PLACES years once anyone farms); and learning's share of the cell's ideas,
-    // by its city dwellers' share of its minds (TILT).
+    // Cities' minds: a cell's city people's by their city's size, and its elite's R_ELITE-fold (ideas by
+    // class: Mokyr's upper tail; Squicciarini and Voigtländer, from memory), normalized so the world's are
+    // kept (`places`, every DT_PLACES years once anyone farms); and learning's share of the cell's ideas,
+    // by the share of its minds fed by others, its city dwellers' and its elite's (TILT).
     if (this.packages.length) {
       if (this.tPlaces == null || this.t - this.tPlaces >= P.DT_PLACES) this.places();
-      const u = this.cityShare, S = this.city, sc = this.uScale || (this.uScale = new Float64Array(nL));
+      const u = this.cityShare, S = this.city, sc = this.uScale || (this.uScale = new Float64Array(nL)), eP = this.classes.eP;
       let wN = 0, nN = 0;
       for (let c = 0; c < nL; c++) {
         if (!(Ntot[c] > 0)) continue;
         sc[c] = u[c] * Math.pow(Math.max(S[c], 1) / P.S_CITY_REF, P.BETA_CITY - 1);
-        wN += ((1 - u[c]) + sc[c]) * sR[c] * Ntot[c]; nN += sR[c] * Ntot[c];
+        wN += ((1 - eP[c]) * ((1 - u[c]) + sc[c]) + eP[c] * P.R_ELITE) * sR[c] * Ntot[c]; nN += sR[c] * Ntot[c];
       }
       const k = wN > 0 ? nN / wN : 1;
       for (let c = 0; c < nL; c++) {
         if (!(Ntot[c] > 0)) continue;
-        const w = (1 - u[c]) + sc[c];
-        sR[c] *= k * w; sL[c] = 0.5 - P.TILT + 2 * P.TILT * sc[c] / w;
+        const fed = (1 - eP[c]) * sc[c] + eP[c] * P.R_ELITE, w = (1 - eP[c]) * (1 - u[c]) + fed;
+        sR[c] *= k * w; sL[c] = 0.5 - P.TILT + 2 * P.TILT * fed / w;
       }
     }
     this.lucky();
@@ -2349,33 +2396,57 @@ export class People {
   /**
    * The regional economies (batch 2b, landing 2; synthesis). The world's output (`industrialStep`: one
    * market for energy and materials, so one price for them) is shared among places by each one's own
-   * productivity (a9): A(z) φ^α ℓ^{1−α}, φ its share of the world's fixed capital and ℓ its share of the
-   * work, (1 − sA) its workers' and sA its machines' (ψ, AI's share sA). Fossil carbon is drawn from each
-   * place by what remains there, and its rent, R_FOS of the fuel's worth (the power it gives × energy's
-   * worth at the margin), goes to the place's states' capitals by the share each holds (concessions;
-   * the stateless share's to the place), paid out of every place's output alike. Of each place's output
-   * N_TAX goes to its states' capitals by their shares: a colony's goods drained as its grain is. Each
-   * place's saving is its people's states' (the stateless one pool), invested across the state's places
-   * where capital would earn most, φ ∝ A^{1/(1−α)} ℓ: capital mobile within a state and at home across
-   * them (Feldstein and Horioka's saving–investment correlation, from memory); machines alike. Writes
-   * each place's income (`goods`) and its shares.
+   * productivity (a9): A(z) φ^α ℓ^{1−α}, φ its share of the world's fixed capital (its factories and
+   * railways) and ℓ its share of the work, (1 − sA) its workers' and sA its machines' (its datacenters'
+   * and robots'). Fossil carbon is drawn from each place by what remains there, and its rent, R_FOS of the
+   * fuel's worth (the power it gives × energy's worth at the margin), goes to the place's states' capitals
+   * by the share each holds (concessions; the stateless share's to the place), paid out of every place's
+   * output alike. Of each place's output N_TAX goes to its states' capitals by their shares: a colony's
+   * goods drained as its grain is.
+   *
+   * Saving by class (batch 3f; classical, after Kaldor, from memory): each place saves S_CAP of capital's
+   * income and S_WAGE of the rest, capital's the share α + (1 − α) × its machines' share of its work (AI's
+   * work earns its owners: compute and robots are capital). A place's saving is its people's states' (the
+   * stateless one pool), and what the world built is shared among the states by their saving.
+   *
+   * Works as capital (batch 3f; a9): industry's works are each place's own stocks (`wi`: factories F and
+   * railways L at DELTA_F, power plants P (fossil and fusion) at DELTA_E, datacenters D at DELTA_C, robots
+   * B at DELTA_R), each worn where it stands and built where it's invested, so war breaks them where it's
+   * fought. Of a state's part of the fixed capital built, the land's works first where it has industry
+   * (each kind's room unfilled, over T_BUILD: industry's dams and roads), then railways (as far as their
+   * room is unfilled, over T_RAIL, at most F_RAIL of it, to its places by their gap and the freight they'd
+   * carry), the rest factories where capital would earn most, φ ∝ A^{1/(1−α)} ℓ: capital mobile within a
+   * state and at home across them (Feldstein and Horioka's saving–investment correlation, from memory);
+   * the machines and power plants alike. Writes each place's income (`goods`).
    */
-  regional(E, Lh, hs, Kf0, M0, dt) {
-    const P = this.P, nL = this.nL, N = this.Ntot, ind = this.ind, zc = this.zc, lfp = this.lfp, pol = this.pol;
-    const kF = this.kF, kM = this.kM, goods = this.goods, Out = this.Out, fos = this.fos, a = P.ALPHA, sA = E.sA || 0, Y = hs * E.Y;
+  regional(E, Lh, hs, K0, dt) {
+    const P = this.P, nL = this.nL, N = this.Ntot, ind = this.ind, zc = this.zc, lfp = this.lfp, pol = this.pol, H = this.H;
+    const wi = this.wi, goods = this.goods, Out = this.Out, fos = this.fos, a = P.ALPHA, sA = E.sA || 0, Y = hs * E.Y;
     const o = this.rOut || (this.rOut = new Float64Array(nL)), gw = this.rW || (this.rW = new Float64Array(nL)), inv = this.rInv || (this.rInv = new Float64Array(nL));
-    let zmax = -Infinity, so = 0, fs = 0;
-    for (let c = 0; c < nL; c++) if (ind[c] > 0 && N[c] > 0 && zc[c] > zmax) zmax = zc[c];
+    const kc = this.kCap || (this.kCap = new Float64Array(nL));
+    let zmax = -Infinity, so = 0, fs = 0, sF = 0, sM = 0;
+    for (let c = 0; c < nL; c++) { sF += wi.F[c] + wi.L[c]; sM += wi.D[c] + wi.B[c]; if (ind[c] > 0 && N[c] > 0 && zc[c] > zmax) zmax = zc[c]; }
     for (let c = 0; c < nL; c++) {
       fs += fos[c];
-      const l = (1 - sA) * lfp[c] * N[c] * ind[c] * (this.labH ? this.workH(c) : 1) / Lh + sA * kM[c];
+      const lw = (1 - sA) * lfp[c] * N[c] * ind[c] * (this.labH ? this.workH(c) : 1) / Lh, lm = sM > 0 ? sA * (wi.D[c] + wi.B[c]) / sM : 0, l = lw + lm;
+      kc[c] = l > 0 ? a + (1 - a) * lm / l : a;
       if (!(l > 0)) { o[c] = 0; gw[c] = 0; continue; }
-      const A = Math.exp(P.THETA_I * (zc[c] - zmax));   // against the best's: only the ratios count
-      o[c] = kF[c] > 0 ? A * Math.pow(kF[c], a) * Math.pow(l, 1 - a) : 0;
-      gw[c] = Math.pow(A, 1 / (1 - a)) * l;
+      const A = Math.exp(P.THETA_I * (zc[c] - zmax)), k = sF > 0 ? (wi.F[c] + wi.L[c]) / sF : 0;   // against the best's: only the ratios count
+      const fc = this.classes ? this.classes.fC[5 * c + 4] : 1;   // its cities' elite organizing it (coordination)
+      o[c] = k > 0 ? fc * A * Math.pow(k, a) * Math.pow(l, 1 - a) : 0;
+      gw[c] = Math.pow(fc * A, 1 / (1 - a)) * l;
       so += o[c];
     }
-    if (!(so > 0)) return;
+    // What was built over the step, by kind (worn as it was built).
+    const eF = Math.exp(-P.DELTA_F * dt), eC = Math.exp(-P.DELTA_C * dt), eR = Math.exp(-P.DELTA_R * dt), eE = Math.exp(-P.DELTA_E * dt);
+    const bF = Math.max(0, E.Kf - K0.F * eF), bD = Math.max(0, E.Kc + E.Kq - K0.D * eC), bB = Math.max(0, E.Kr - K0.B * eR), bP = Math.max(0, E.Ke[0] + E.Ke[2] - K0.P * eE);
+    // Nowhere earning (no output): each stock worn, and what was built where the stocks stand.
+    const still = () => {
+      const g = (e, b, t) => (t > 0 ? e + b / t : e), gF = g(eF, bF, K0.F), gD = g(eC, bD, K0.D), gB = g(eR, bB, K0.B), gP = g(eE, bP, K0.P);
+      for (let c = 0; c < nL; c++) { wi.F[c] *= gF; wi.L[c] *= gF; wi.D[c] *= gD; wi.B[c] *= gB; wi.P[c] *= gP; }
+      this.syncCapital(E);
+    };
+    if (!(so > 0)) return still();
     const id = pol.id, s = pol.s, list = pol.list, KPL = KPOL;
     const rent = fs > 0 ? Math.min(P.R_FOS * (E.Ef || 0) * (E.lamE || 0), 0.5 * Y) : 0, drawn = Math.min(E.burned || 0, fs);
     for (let c = 0; c < nL; c++) {
@@ -2393,43 +2464,88 @@ export class People {
       goods[c] += y * (1 - P.N_TAX * taxed) + (1 - held) * rc;
     }
     for (let c = 0; c < nL; c++) Out[c] += goods[c];
+    // Each place's gaps (sy): the land's works where it has industry (a person-year a sy), railways' where people live.
+    const gW = this.rGW || (this.rGW = new Float64Array(nL)), gL = this.rGL || (this.rGL = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) {
+      gW[c] = 0; gL[c] = 0;
+      if (!(N[c] > 0)) continue;
+      gL[c] = Math.max(0, this.railRoom(c) - wi.L[c]);
+      if (!(ind[c] > 0)) continue;
+      for (const k of KINDS) gW[c] += Math.max(0, this.workRoom(c, k) - this.wk[k][c]);
+      gW[c] *= ind[c];
+    }
     // Saving by state, invested where it earns within the state (index L: the stateless, one pool).
-    const L = list.length, Sk = this.rS && this.rS.length >= L + 1 ? this.rS : (this.rS = new Float64Array(2 * L + 64)), Wk = this.rWk && this.rWk.length >= L + 1 ? this.rWk : (this.rWk = new Float64Array(2 * L + 64));
-    Sk.fill(0); Wk.fill(0);
+    const L = list.length, need = L + 1;
+    if (!this.rS || this.rS.length < need) for (const k of ['rS', 'rWk', 'rGWk', 'rGLk', 'rFW', 'rFL', 'rFF']) this[k] = new Float64Array(2 * need + 64);
+    const Sk = this.rS, Wk = this.rWk, GWk = this.rGWk, GLk = this.rGLk, fW = this.rFW, fL = this.rFL, fF = this.rFF;
+    Sk.fill(0); Wk.fill(0); GWk.fill(0); GLk.fill(0);
     for (let c = 0; c < nL; c++) {
       let held = 0;
+      const S1 = (P.S_CAP * kc[c] + P.S_WAGE * (1 - kc[c])) * goods[c];
       for (let j = 0; j < KPL; j++) {
         const k = id[KPL * c + j];
         if (k < 0) break;
         const sh = s[KPL * c + j];
-        held += sh; Sk[k] += sh * goods[c]; Wk[k] += sh * gw[c];
+        held += sh; Sk[k] += sh * S1; Wk[k] += sh * gw[c]; GWk[k] += sh * gW[c]; GLk[k] += sh * gL[c];
       }
       const fr = Math.max(0, 1 - held);
-      Sk[L] += fr * goods[c]; Wk[L] += fr * gw[c];
+      Sk[L] += fr * S1; Wk[L] += fr * gw[c]; GWk[L] += fr * gW[c]; GLk[L] += fr * gL[c];
     }
     let St = 0;
     for (let k = 0; k <= L; k++) if (Wk[k] > 0) St += Sk[k];
+    if (!(St > 0)) return still();
+    // Each state's part of the fixed capital built, by its saving: the land's works' gaps (over T_BUILD),
+    // railways' (over T_RAIL, at most F_RAIL of the rest), then its factories. Per unit of each weight.
+    const xW = 1 - Math.exp(-dt / P.T_BUILD), xL = 1 - Math.exp(-dt / P.T_RAIL);
+    for (let k = 0; k <= L; k++) {
+      fW[k] = fL[k] = fF[k] = 0;
+      if (!(Wk[k] > 0)) continue;
+      const b = bF * Sk[k] / St, w = Math.min(b, xW * GWk[k]), r = Math.min(P.F_RAIL * (b - w), xL * GLk[k]);
+      fW[k] = GWk[k] > 0 ? w / GWk[k] : 0; fL[k] = GLk[k] > 0 ? r / GLk[k] : 0; fF[k] = (b - w - r) / Wk[k];
+    }
+    const lc = this.landCap || (this.landCap = new Float64Array(nL));
     let si = 0;
     for (let c = 0; c < nL; c++) {
-      inv[c] = 0;
-      if (!(gw[c] > 0) || !(St > 0)) continue;
-      let held = 0, v = 0;
+      let held = 0, v = 0, bw = 0, bl = 0, bf = 0;
       for (let j = 0; j < KPL; j++) {
         const k = id[KPL * c + j];
         if (k < 0) break;
         const sh = s[KPL * c + j];
-        held += sh; if (Wk[k] > 0) v += Sk[k] * sh / Wk[k];
+        held += sh; if (Wk[k] > 0) { v += Sk[k] * sh / Wk[k]; bw += sh * fW[k]; bl += sh * fL[k]; bf += sh * fF[k]; }
       }
       const fr = Math.max(0, 1 - held);
-      if (Wk[L] > 0) v += Sk[L] * fr / Wk[L];
+      if (Wk[L] > 0) { v += Sk[L] * fr / Wk[L]; bw += fr * fW[L]; bl += fr * fL[L]; bf += fr * fF[L]; }
       inv[c] = v * gw[c] / St; si += inv[c];
+      // The land's works built here (`stocks` takes them as labour, sy a year), its railways, and its factories by where capital earns.
+      lc[c] = dt > 0 ? bw * gW[c] / dt : 0;
+      wi.L[c] = wi.L[c] * eF + bl * gL[c];
+      wi.F[c] = wi.F[c] * eF + bf * gw[c];
     }
-    if (!(si > 0)) return;
-    // The stocks' shares: each place's worn, plus its share of what was built.
-    const eF = Math.exp(-P.DELTA_F * dt), eM = Math.exp(-P.DELTA_C * dt), bF = Math.max(0, E.Kf - Kf0 * eF), M1 = E.Kc + E.Kq + E.Kr, bM = Math.max(0, M1 - M0 * eM);
-    let tF = 0, tM = 0;
-    for (let c = 0; c < nL; c++) { kF[c] = kF[c] * Kf0 * eF + bF * inv[c] / si; kM[c] = kM[c] * M0 * eM + bM * inv[c] / si; tF += kF[c]; tM += kM[c]; }
-    for (let c = 0; c < nL; c++) { kF[c] = tF > 0 ? kF[c] / tF : 0; kM[c] = tM > 0 ? kM[c] / tM : kF[c]; }
+    // The machines and power plants where capital earns.
+    for (let c = 0; c < nL; c++) {
+      const x = si > 0 ? inv[c] / si : 0;
+      wi.D[c] = wi.D[c] * eC + bD * x; wi.B[c] = wi.B[c] * eR + bB * x; wi.P[c] = wi.P[c] * eE + bP * x;
+    }
+    this.syncCapital(E);
+  }
+
+  /** Railways' room at a place (sy): W_RAIL a km² of its land as far as its people are dense enough to pay for them (1 − e^{−ρ/RHO_RAIL}). */
+  railRoom(c) { const A = this.H.area[c], rho = this.Ntot[c] / A; return this.P.W_RAIL * A * (1 - Math.exp(-rho / this.P.RHO_RAIL)); }
+  /** The share of a place's railways' room built (0–1): steam's land legs run on it (src/engine/routes.js). */
+  railShare(c) { const w = this.wi.L[c]; if (!(w > 0)) return 0; const r = this.railRoom(c); return r > 0 ? Math.min(1, w / r) : 1; }
+
+  /**
+   * The world's industrial stocks as its places hold them (`wi`), after a war has broken some: fixed
+   * capital the factories and railways, compute (production's and research's alike) the datacenters,
+   * the robots their bodies, fossil and fusion's power the plants.
+   */
+  syncCapital(E) {
+    const wi = this.wi, nL = this.nL;
+    let F = 0, D = 0, B = 0, Pw = 0;
+    for (let c = 0; c < nL; c++) { F += wi.F[c] + wi.L[c]; D += wi.D[c]; B += wi.B[c]; Pw += wi.P[c]; }
+    E.Kf = F; E.Kr = B;
+    const kd = E.Kc + E.Kq; if (kd > 0) { const r = D / kd; E.Kc *= r; E.Kq *= r; }
+    const kp = E.Ke[0] + E.Ke[2]; if (kp > 0) { const r = Pw / kp; E.Ke[0] *= r; E.Ke[2] *= r; }
   }
 
   // Food (each cell's capacity), then the industrial economy over its
@@ -2532,7 +2648,8 @@ export class People {
       // Paused and kept (3b): people's own capture, ramping in as fossil carbon is phased out.
       const since = pause ? this.t - this.endAt : 0, phase = pause && pause.preserve ? 1 - Math.exp(-since / P.T_PHASE) : 0;
       const cdr = end && end.preserve ? sA * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR : phase * Math.max(0, (this.co2 - P.CO2_0) * 2.12) / P.T_CDR_P, Ecdr = cdr * P.J_CDR / YEAR_S;
-      const Kf0 = E.Kf, M0 = E.Kc + E.Kq + E.Kr;
+      this.syncCapital(E);   // the places' works as a war left them
+      const K0 = { F: E.Kf, D: E.Kc + E.Kq, B: E.Kr, P: E.Ke[0] + E.Ke[2] };
       industrialStep(E, { Lh, z, za, Efood, Ecdr, ending: end, sA, capR: this.solarRoom(), capS: this.swarmRoom(), keepF: 1 - phase, heatB: pause && pause.preserve ? P.HEAT_MAX * (1 - phase) + P.HEAT_HELD * phase : null }, dt, P);
       this.placeSolar(E.Er);
       this.offBots = Math.max(this.offBots, E.ApS || 0); this.swPeak = Math.max(this.swPeak, E.cs || 0);
@@ -2541,7 +2658,7 @@ export class People {
       for (let c = 0; c < nL; c++) Ks[c] = gF * wantC[c];
       this.space *= gF + (1 - gF) * Math.exp(-dt);   // off-world, short of power, fewer live
       const removed = Ecdr > 0 ? cdr * (E.EcdrGot / Ecdr) * dt : 0;
-      if (Lh > 0) this.regional(E, Lh, hs, Kf0, M0, dt);
+      if (Lh > 0) this.regional(E, Lh, hs, K0, dt);
       this.env.emit(E.burned - removed, dt);
       this.emitted += E.burned; this.removed += removed;
       // AI's share of the work it could do (at full power), handed over T_SA years; misaligned,
@@ -3069,23 +3186,23 @@ export class People {
   industry(dt) {
     const P = this.P, E = this.E, nL = this.nL, ind = this.ind, zc = this.zc;
     if (!this.flags.industry) {
-      // A hazard where knowledge, a dense farming people (its labour and markets: RHO_IND a km²) and
-      // coal and ore all suffice (each a logistic, not a gate; by the farmed share alone, it had
+      // A hazard where knowledge (production's, and learning's: the upper tail), a dense farming people
+      // (its labour and markets: RHO_IND a km²) and coal and ore all suffice (each a logistic, not a gate; by the farmed share alone, it had
       // begun on the Arctic's thin fields).
       for (let c = 0; c < nL; c++) {
         if (!(this.Ntot[c] > 0) || zc[c] < P.Z_IND - 1) continue;
-        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig(this.f[c] > 0 ? (this.Ntot[c] / this.H.area[c] - P.RHO_IND) / (0.3 * P.RHO_IND) : -50) * sig(this.coalReach[c] - P.COAL_MIN) * sig((this.oreReach[c] - P.ORE_MIN) / 0.15);
+        const haz = P.H_IND * sig((zc[c] - P.Z_IND) / P.W_IND) * sig((this.zl[c] - P.Z_UP) / P.W_UP) * sig(this.f[c] > 0 ? (this.Ntot[c] / this.H.area[c] - P.RHO_IND) / (0.3 * P.RHO_IND) : -50) * sig(this.coalReach[c] - P.COAL_MIN) * sig((this.oreReach[c] - P.ORE_MIN) / 0.15);
         if (this.rng.uniform() > 1 - Math.exp(-haz * dt)) continue;
         ind[c] = 0.01; this.flags.industry = true;
         // The first works: fixed capital at its Solow balance for the cell's workers, and the
         // fossil capacity to run it.
         const ec = this.econ, Lh = this.lfp[c] * this.Ntot[c] * ind[c], A = P.A_I0 * ex(P.THETA_I * (zc[c] - P.Z_IND));
         ec.on = true;
-        this.kF[c] = 1; this.kM[c] = 1;
-        ec.Kf = Math.pow(P.SAVE * A / P.DELTA_F, 1 / (1 - P.ALPHA)) * Lh;
+        ec.Kf = Math.pow(saveRate(P) * A / P.DELTA_F, 1 / (1 - P.ALPHA)) * Lh;
         const Y = A * Math.pow(ec.Kf, P.ALPHA) * Math.pow(Lh, 1 - P.ALPHA);
         ec.Ke[0] = 1.2 * P.E_SUB * Y / P.R_EF0;
-        this.event('industry', `industry begins at ${deg(this.H.lat[c]).toFixed(0)}°, ${deg(this.H.lon[c]).toFixed(0)}° (z ${zc[c].toFixed(2)}, coal within reach ${this.coalReach[c].toFixed(0)} Pg C, ore ${this.oreReach[c].toFixed(1)}× the land's)`);
+        this.wi.F[c] = ec.Kf; this.wi.P[c] = ec.Ke[0];
+        this.event('industry', `industry begins at ${deg(this.H.lat[c]).toFixed(0)}°, ${deg(this.H.lon[c]).toFixed(0)}° (z ${zc[c].toFixed(2)}, learning ${this.zl[c].toFixed(2)}, elite ${(100 * this.classes.eP[c]).toFixed(1)}%, coal within reach ${this.coalReach[c].toFixed(0)} Pg C, ore ${this.oreReach[c].toFixed(1)}× the land's)`);
         break;
       }
       return;
@@ -3201,49 +3318,36 @@ export class People {
       const w = this.Ntot[c] * this.ind[c];
       if (w > 0) { out.x[i] = w / area[i]; any = true; }
     }
-    if (!any && this.mach) for (let c = 0; c < this.nL; c++) out.x[this.cells[c]] = this.mach[c] / area[this.cells[c]];   // an empty Earth's machines: their footprint
+    if (!any) for (let c = 0; c < this.nL; c++) if (this.wi.F[c] > 0) out.x[this.cells[c]] = this.wi.F[c] / area[this.cells[c]];   // an empty Earth's machines: where its factories stand
     const X = this.X;
     for (let k = 0; k < X.cells.length; k++) out.s[X.cells[k]] = X.sol[k];
     return out;
   }
 
   /**
-   * Where the cities are and who feeds them, every DT_PLACES years (synthesis; docs/MODEL.md), and where the machines are (drawn). Each farming cell's urban share u
-   * (U_AG once it farms, rising to U_IND with industry) of its food goes to the cities it is drawn
+   * Where the cities are and who feeds them, every DT_PLACES years (synthesis; docs/MODEL.md). Each farming cell's urban share u
+   * (U_SPEND of its land elites' take once it farms, Cantillon's landlords spending their rents in the towns,
+   * src/engine/classes.js `take`; rising to U_IND with industry) of its food goes to the cities it is drawn
    * to (`foodshed`); `feed` moves it each step, and the people follow it by the spread. A city's
    * people are the share of its cell's food that came in (`cityShare`). With G_CITY > 1 the largest
    * grow at the others' expense (agglomeration; standard in spirit, Zipf's law the outcome).
-   * Industry's footprint follows its workers (the people × industry's share) over T_MACH while Earth
-   * has people, and holds when it has none; factories and datacenters are the world's on Earth (its
-   * share of the energy) spread over it, datacenters toward the cities; Earth's robots (earthBots)
-   * over it too, onto the farms and into the cities.
    */
   places() {
     const P = this.P, H = this.H, nL = this.nL;
     if (!this.city) {
       this.site = Float64Array.from(H.coast, (co, c) => 1 + P.SITE_COAST * co + P.SITE_RIVER * H.river[c]);
-      this.city = new Float64Array(nL); this.uShare = new Float64Array(nL); this.mach = new Float64Array(nL);
+      this.city = new Float64Array(nL); this.uShare = new Float64Array(nL);
       this.cityShare = new Float64Array(nL); this.imp = new Float64Array(nL);
       this.tPlaces = null;
     }
     const S = this.city, u = this.uShare, Ntot = this.Ntot;
-    const dt = this.tPlaces === null ? Infinity : Math.max(0, this.t - this.tPlaces);
     this.tPlaces = this.t;
     for (let c = 0; c < nL; c++) {
-      u[c] = H.alive[c] ? Math.min(1, (this.f[c] > 0 ? P.U_AG : 0) + (P.U_IND - P.U_AG) * this.ind[c]) : 0;
+      const ua = this.f[c] > 0 ? P.U_SPEND * this.classes.take[c] : 0;
+      u[c] = H.alive[c] ? Math.min(1, ua + (P.U_IND - ua) * this.ind[c]) : 0;
       S[c] = Ntot[c] * this.cityShare[c];
     }
     if (this.routes) this.foodshed(this.routes);
-    // Industry's footprint: its workers' share of the people, while there are people to work.
-    if (this.people > 1e6) {
-      const tgt = this.tbuf || (this.tbuf = new Float64Array(nL));
-      let s = 0;
-      for (let c = 0; c < nL; c++) { tgt[c] = Ntot[c] * this.ind[c]; s += tgt[c]; }
-      if (s > 0) {
-        const am = dt === Infinity ? 0 : Math.exp(-dt / P.T_MACH);
-        for (let c = 0; c < nL; c++) this.mach[c] = tgt[c] / s + (this.mach[c] - tgt[c] / s) * am;
-      }
-    }
   }
 
   /**
@@ -3318,10 +3422,10 @@ export class People {
         const mc = mo[top[k]];
         if (mc !== md && q * x > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * x); }
       }
-      // The region's: over the catchment by the local routes, cheaper by the roads at either end.
+      // The region's: over the catchment by the local routes (their works on each edge, Routes.catchments).
       let Z = 0;
-      const rd = this.built(d, 'R'), cost2 = this.cost2 || (this.cost2 = new Float64Array(rt.C.M_CATCH + 1));
-      for (let k = off[d]; k < off[d + 1]; k++) { const x = ((1 - s) * cS[k] + s * cI[k]) / (1 + P.R_X * 0.5 * (rd + this.built(idx[k], 'R'))), w = Wt[idx[k]] * Math.exp(-x / (P.C_CITY0 + P.K_CITY * r)); cost2[k - off[d]] = x; dl[k] = w; Z += w; }
+      const cost2 = this.cost2 || (this.cost2 = new Float64Array(rt.C.M_CATCH + 1));
+      for (let k = off[d]; k < off[d + 1]; k++) { const x = (1 - s) * cS[k] + s * cI[k], w = Wt[idx[k]] * Math.exp(-x / (P.C_CITY0 + P.K_CITY * r)); cost2[k - off[d]] = x; dl[k] = w; Z += w; }
       const rg = 1 - nat + kept;
       for (let k = off[d]; k < off[d + 1]; k++) { const x = cost2[k - off[d]]; dl[k] = Z > 0 ? rg * dl[k] / Z * Math.exp(-x / ll) : k === off[d] ? rg : 0; }
     }
@@ -3391,8 +3495,8 @@ export class People {
     const n = this.planet.grid.n, H = this.H, E = this.econ, P = this.P, nL = this.nL;
     out = out || new Float32Array(8 * n); out.fill(0);
     if (!this.city) this.places();
-    const S = this.city, m = this.mach, A = H.area;
-    // The machines on Earth: the world's by Earth's share of the energy.
+    const S = this.city, A = H.area, wi = this.wi;
+    // The machines on Earth: the world's by Earth's share of the energy, drawn where their works stand (`wi`).
     let Wf = 0, Wd = 0, Rb = 0;
     if (E.on) {
       const earth = E.Ef + E.Er + E.Eu, sE = earth > 0 ? earth / (earth + (E.Es || 0)) : 0, run = E.run || { c: 1, r: 1, q: 1 };
@@ -3403,19 +3507,19 @@ export class People {
       Wd = P.W_C * (E.Kc * run.c + E.Kq * run.q) * sE + P.W_DC_P * this.people * sig(((E.z || 0) - P.Z_SPACE) / P.W_SPACE);
       Rb = E.ApE ?? (E.Ap || 0) * sE;   // Earth's robots at work in worker-equivalents (earthBots: the bodies the AI drives on Earth; idle bodies past it aren't at work)
     }
-    // Weights: the footprint, toward the cities for datacenters and onto the farms and into the cities for robots, and a
-    // floor on the machines' land: living land people have reached, and land the people's cells don't
-    // hold (a9: factories had stood on a continent no one had reached). Solar farms are the model's
-    // (People.placeSolar).
+    // Weights: the works as they stand (batch 3f: factories and power plants, datacenters, the robots'
+    // bodies, which work onto the farms and into the cities too), and a floor on the machines' land: living
+    // land people have reached, and land the people's cells don't hold (a9: factories had stood on a
+    // continent no one had reached). Solar farms are the model's (People.placeSolar).
     const X = this.X, nX = X.cells.length;
-    let Aal = 0, sd = 0, sr = 0, sf = 0, sc = 0;
-    for (let c = 0; c < nL; c++) { if (H.alive[c] && this.reached[c]) { Aal += A[c]; sf += this.f[c] * A[c]; } sc += S[c]; }
+    let Aal = 0, sd = 0, sr = 0, sf = 0, sc = 0, tF = 0, tD = 0, tB = 0;
+    for (let c = 0; c < nL; c++) { if (H.alive[c] && this.reached[c]) { Aal += A[c]; sf += this.f[c] * A[c]; } sc += S[c]; tF += wi.F[c] + wi.P[c]; tD += wi.D[c]; tB += wi.B[c]; }
     for (let k = 0; k < nX; k++) Aal += X.area[k];
-    const wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL));
+    const m = this.mfb || (this.mfb = new Float64Array(nL)), wd = this.wdb || (this.wdb = new Float64Array(nL)), wr = this.wrb || (this.wrb = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
-      const people = this.Ntot[c];
-      wd[c] = m[c] * (1 + 4 * S[c] / Math.max(people, 1)); sd += wd[c];
-      wr[c] = m[c] + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0) + (sc > 0 ? 0.3 * S[c] / sc : 0); sr += wr[c];
+      m[c] = tF > 0 ? (wi.F[c] + wi.P[c]) / tF : 0;
+      wd[c] = tD > 0 ? wi.D[c] / tD : m[c]; sd += wd[c];
+      wr[c] = (tB > 0 ? wi.B[c] / tB : m[c]) + (sf > 0 ? 0.3 * this.f[c] * A[c] / sf : 0) + (sc > 0 ? 0.3 * S[c] / sc : 0); sr += wr[c];
     }
     // The floor: MACH_FLOOR of the machines spread evenly over their land, or as much as they'd need
     // of all of it at their densities (a spent Earth's heat budget, ~500 PW, is more than factories

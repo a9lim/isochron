@@ -10,10 +10,12 @@
 // inequality's origins). Office is each state's own elite (a9): a stock in the polity table, spread
 // across its places by where its take is gathered.
 //
-// In 3a the claims are accounts. The agrarian economy is a capacity (People.capAt: the people its food
-// keeps), and its people settle where food a person is one, so a claim sets how many elite
-// livelihoods it supports, not what anyone eats; the elites' consumption is made physical in 3f, when
-// the economy reads the classes. What the classes do here is stress, and famine's split.
+// The agrarian economy is a capacity (People.capAt: the people its food keeps), and its people settle
+// where food a person is one, so a claim sets how many elite livelihoods it supports. The economy reads
+// the classes (batch 3f): the land elites' take (rent and tax alike) is spent in the towns, so a farming
+// place's cities are U_SPEND of it (Cantillon's landlords; People.places), the elite's minds count
+// R_ELITE-fold and lean to learning as the cities' do (People.step), capital's class saves S_CAP of its
+// income and the rest S_WAGE (People.regional). Beside that, stress, and famine's split.
 //
 //   claims      each way's output, its food by source (People.wol: foraging, herding, the sea's, the
 //               fields'), the city's what it takes in (People.imp) and, with industry, the place's
@@ -21,9 +23,17 @@
 //               exit the spare room among the place's land neighbours (Polities.ex) and h its states'
 //               hold. Domar's hypothesis (1970): free land, free peasants and idle landlords can't all
 //               three stand, so open land keeps the take low unless a state backs the landlords
-//               (serfdom). The city's elite takes TH_W of its food and capital's ALPHA of its goods.
+//               (serfdom). The city's elite takes TH_W of its food and capital's share of its goods (ALPHA,
+//               and AI's work besides: compute and robots are capital, so their owners take what AI's work
+//               earns; People.regional's kCap).
 //               Where a state administers the place (its fiscal capacity κ, src/engine/polities.js), K_RENT
 //               of the land elites' rent is its tax instead (centralization); its vassals keep theirs.
+//   coordination (batch 3f; a9) the elite organizes: a way's output × (ε/μ)^μ ((1 − ε)/(1 − μ))^{1−μ} (Y = A E^μ
+//               L^{1−μ} against its best, ε = μ; `coord`), μ what there is to organize (`mu`: near none for
+//               herders and fishers, more for fields with works, most for cities and industry; Lucas's span of
+//               control), so below μ labour is under-organized and past it the elite doesn't work; its claim is
+//               the functional μ of the output beside the rent's θ of the rest. War's toll culls it with the
+//               works (src/engine/polities.js).
 //   positions   the livelihoods a claim keeps: claim/(C_E ȳ), an elite living at C_E times the place's
 //               mean income ȳ (status is relative, so the elite's share holds as incomes grow). Office's
 //               are its state's revenue over C_E × the state's mean: the food its places deliver to its
@@ -50,6 +60,17 @@
 //               revolt there.
 import { WAYS, CITY } from './peoples.js';
 import { KP } from './polities.js';
+
+/**
+ * Coordination's output (batch 3f; a9): Y = A E^μ L^{1−μ} with E the elite's share ε of a way's people and
+ * L the rest, against its best (ε = μ): (ε/μ)^μ ((1 − ε)/(1 − μ))^{1−μ}, ε no lower than S0 μ (the people
+ * organize themselves a little: households, villages, guilds).
+ */
+export function coord(e, mu, s0) {
+  if (!(mu > 0)) return 1;
+  const x = Math.max(e, s0 * mu);
+  return Math.exp(mu * Math.log(x / mu) + (1 - mu) * Math.log((1 - x) / (1 - mu)));
+}
 
 /** One elite share's exact step over h: dε/dt = (g − μ) ε + μ p, μ by ε's side of p, crossing p once at most. */
 export function eliteStep(e, p, g, mUp, mDown, h, eMax = 0.5) {
@@ -79,9 +100,24 @@ export class Classes {
     this.pos = new Float64Array(WAYS * nL);   // its positions (people)
     this.claim = new Float64Array(WAYS * nL); // its claim (sy/yr)
     this.psi = new Float64Array(nL);          // stress
+    this.take = new Float64Array(nL);         // the land elites' take of the place's food, rent and tax alike (People.places: Cantillon's cities)
+    this.eP = new Float64Array(nL);           // the elite's share of the place's people (People.step: ideas by class)
+    this.fC = new Float64Array(WAYS * nL).fill(1);   // coordination: each way's output as its elite organizes it (People.capAt, People.regional)
     this.mmp = new Float64Array(nL); this.emp = new Float64Array(nL);
     this.rev = new Float64Array(nL);          // what the place's states take from it (sy/yr)
     this.dAcc = new Float64Array(nL); this.fAcc = new Float64Array(nL); this.tAcc = 0;   // the elites' growth past the commoners' and famine's rate, time-summed since the last step (People.step)
+  }
+
+  /**
+   * What there is to organize at place c in way w (coordination, batch 3f; a9; speculation): μ, the elite's
+   * functional share of the way's output (Lucas's span of control, from memory): MU's, the fields' × (1 +
+   * K_MU × the land's works there, its canals' and terraces' share), the cities' toward MU_IND with industry.
+   */
+  mu(c, w) {
+    const pp = this.pp, P = pp.P;
+    if (w === 3) { const H = pp.H; return P.MU[3] * (1 + P.K_MU * Math.min(1, H.irrPot[c] * pp.built(c, 'C') + H.terrPot[c] * pp.built(c, 'T'))); }
+    if (w === CITY) return P.MU[CITY] + (P.MU_IND - P.MU[CITY]) * pp.ind[c];
+    return P.MU[w];
   }
 
   /** People.step's per-cell rates over its step: deaths past the well-fed floor, and famine's. */
@@ -117,7 +153,7 @@ export class Classes {
     const psi = this.psi, mmp = this.mmp, emp = this.emp;
     for (let c = 0; c < nL; c++) {
       const n = N[c], t = T[c], o = WAYS * c;
-      if (!(n > 0) || !(t > 0)) { psi[c] = 0; mmp[c] = 0; emp[c] = 0; for (let w = 0; w < WAYS; w++) { e[o + w] = 0; pos[o + w] = 0; claim[o + w] = 0; } continue; }
+      if (!(n > 0) || !(t > 0)) { psi[c] = 0; mmp[c] = 0; emp[c] = 0; this.take[c] = 0; this.eP[c] = 0; for (let w = 0; w < WAYS; w++) { e[o + w] = 0; pos[o + w] = 0; claim[o + w] = 0; } continue; }
       const y = (K[c] + goods[c]) / n, h = pol.held(c);
       const tk = 1 / (1 + (pol.ex ? pol.ex[c] : 0) / (P.X_EXIT * (1 + P.K_COER * h)));
       // Where its states administer it (their fiscal capacity κ by their shares), K_RENT of the land's rent is tax.
@@ -125,9 +161,11 @@ export class Classes {
       if (pol.d[c] > 0) for (let j = 0; j < KP; j++) { const k = pol.id[KP * c + j]; if (k < 0) break; dr += Math.min(1, pol.s[KP * c + j] / pol.d[c]) * (list[k].kap ?? 1); }
       const rent = 1 - P.K_RENT * Math.min(1, dr);
       let E = 0, Pw = 0;
+      const food = wol[o] + wol[o + 1] + wol[o + 2] + wol[o + 3];
+      this.take[c] = food > 0 ? TH[3] * tk * wol[o + 3] / food : 0;
       for (let w = 1; w < WAYS; w++) {
-        const out = w === CITY ? (imp ? imp[c] : 0) : wol[o + w];
-        const cl = TH[w] * tk * (w === CITY ? 1 : rent) * out + (w === CITY && pp.econ.on ? P.ALPHA * goods[c] : 0);
+        const out = w === CITY ? (imp ? imp[c] : 0) : wol[o + w], mu = this.mu(c, w);
+        const cl = (mu + TH[w] * tk * (w === CITY ? 1 : rent) * (1 - mu)) * out + (w === CITY && pp.econ.on ? (pp.kCap ? pp.kCap[c] : P.ALPHA) * goods[c] : 0);
         claim[o + w] = cl; pos[o + w] = cl / (P.C_E * Math.max(y, 1e-6));
         const nw = n * W[o + w] / t;
         E += e[o + w] * nw; Pw += pos[o + w];
@@ -142,6 +180,7 @@ export class Classes {
         const sh = pol.d[c] > 0 ? pol.s[KP * c + j] / pol.d[c] : 0;
         if (q.pos > 0 && q.O > q.pos) sfd += sh * Math.log(q.O / q.pos);
       }
+      this.eP[c] = E / n;
       const fam = this.fAcc[c] / tA;
       mmp[c] = Math.max(0, Math.log(P.Y_COMF / Math.max(y, 1e-6))) + P.K_FAM * fam;
       emp[c] = Pw + Po > 0 ? Math.max(0, Math.log((E + Eo) / (Pw + Po))) : 0;
@@ -169,6 +208,7 @@ export class Classes {
         for (let s = 0; s < nsub; s++) x = eliteStep(x, p, g, mU, mD, hh);
         e[o + w] = x;
       }
+      for (let w = 1; w < WAYS; w++) this.fC[o + w] = coord(e[o + w], this.mu(c, w), P.S0_MU);
     }
     // Office: each state's, in people, by the same law at its places' means; filled at its positions when founded.
     for (const k of pol.live) {
@@ -182,7 +222,7 @@ export class Classes {
       q.O = x * n;
     }
     // Internal war: deaths and works lost where the stress is, though no border moves.
-    const works = pp.works, wk = Object.values(pp.wk);
+    const works = pp.works, wk = [...Object.values(pp.wk), ...Object.values(pp.wi)];
     for (let c = 0; c < nL; c++) {
       if (!(psi[c] > 0) || !(N[c] > 0)) continue;
       N[c] *= Math.exp(-P.W_IW * psi[c] * dt);

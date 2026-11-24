@@ -21,7 +21,7 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
     nL: n, P, E, t: 0, packages: [1], planet: { seed: 'polities' }, Ntot: new Float64Array(n).fill(N), K: new Float64Array(n).fill(N),
     zc: new Float64Array(n), zl: new Float64Array(n), ind: new Float32Array(n), city: null, wol, cityShare: null, dx: 100,
     H: { slope: new Float64Array(n), area: new Float64Array(n).fill(1e4) },
-    goods: new Float64Array(n), works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) },
+    goods: new Float64Array(n), works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) }, wi: { F: new Float64Array(n), L: new Float64Array(n), P: new Float64Array(n), D: new Float64Array(n), B: new Float64Array(n) },
   };
   // Each place's catchment: the places within M of it along the line, itself first, the strait's cost J
   // added across it.
@@ -122,16 +122,38 @@ test('within one pool, capital goes where it earns: income a worker e^{θΔz/(1�
   // output to its capital, the first.
   const P = { ...PEOPLE }, dz = 0.4, nL = 2;
   const pp = { P, nL, Ntot: Float64Array.of(1e6, 1e6), ind: Float32Array.of(1, 1), zc: Float64Array.of(7 + dz, 7), lfp: Float64Array.of(0.5, 0.5),
-    kF: Float64Array.of(0.5, 0.5), kM: Float64Array.of(0.5, 0.5), goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL),
+    wi: { F: Float64Array.of(25, 25), L: new Float64Array(nL), P: new Float64Array(nL), D: new Float64Array(nL), B: new Float64Array(nL) },
+    goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL), wk: { T: new Float64Array(nL), C: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) }, railRoom: () => 0, workRoom: () => 0, syncCapital: People.prototype.syncCapital,
     pol: { id: new Int32Array(KP * nL).fill(-1), s: new Float64Array(KP * nL), list: [] } };
-  const E = { Y: 100, sA: 0, Ef: 0, lamE: 0, burned: 0, Kf: 50, Kc: 0, Kq: 0, Kr: 0 }, Lh = 1e6;
-  for (let k = 0; k < 400; k++) { pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, E.Kf, 0, 10); }
+  const E = { Y: 100, sA: 0, Ef: 0, lamE: 0, burned: 0, Kf: 50, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0, 0] }, Lh = 1e6, K0 = () => ({ F: E.Kf, D: 0, B: 0, P: 0 });
+  for (let k = 0; k < 400; k++) { pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, K0(), 10); }
   const want = Math.exp(P.THETA_I * dz / (1 - P.ALPHA));
   assert.ok(Math.abs(pp.goods[0] / pp.goods[1] / want - 1) < 1e-6, `${pp.goods[0] / pp.goods[1]} against ${want}`);
   const y0 = pp.goods[0], y1 = pp.goods[1];
   pp.pol.list.push({ cap: 0 }); pp.pol.id[KP * 1] = 0; pp.pol.s[KP * 1] = 1;
-  pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, E.Kf, 0, 10);
+  pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, K0(), 10);
   assert.ok(Math.abs(pp.goods[1] - (1 - P.N_TAX) * y1) < 1e-9 * y1 && Math.abs(pp.goods[0] - y0 - P.N_TAX * y1) < 1e-9 * y1);
+});
+
+test("industry's works stay where they're built: the places' stocks are the world's, railways among them, and what war breaks the world loses", () => {
+  // The world built 10 sy of fixed capital past its wear over the step: the places' factories and railways
+  // (railways first, at most F_RAIL of it, toward their room) take exactly that, and a factory broken is
+  // the world's capital less.
+  const P = { ...PEOPLE }, nL = 2, dt = 10;
+  const pp = { P, nL, Ntot: Float64Array.of(1e6, 1e6), ind: Float32Array.of(1, 1), zc: Float64Array.of(7.2, 7), lfp: Float64Array.of(0.5, 0.5), t: 0,
+    wi: { F: Float64Array.of(25, 25), L: new Float64Array(nL), P: new Float64Array(nL), D: new Float64Array(nL), B: new Float64Array(nL) },
+    goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL), wk: { T: new Float64Array(nL), C: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) },
+    railRoom: () => 40, workRoom: () => 0, syncCapital: People.prototype.syncCapital,
+    pol: { id: new Int32Array(KP * nL).fill(-1), s: new Float64Array(KP * nL), list: [] } };
+  const E = { Y: 100, sA: 0, Ef: 0, lamE: 0, burned: 0, Kf: 50 * Math.exp(-P.DELTA_F * dt) + 10, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0, 0] }, Kf = E.Kf;
+  People.prototype.regional.call(pp, E, 1e6, 1, { F: 50, D: 0, B: 0, P: 0 }, dt);
+  const sum = () => pp.wi.F[0] + pp.wi.F[1] + pp.wi.L[0] + pp.wi.L[1];
+  assert.ok(Math.abs(sum() - Kf) < 1e-9 * Kf && Math.abs(E.Kf - Kf) < 1e-9 * Kf, `the places' ${sum()} against the world's ${Kf}`);
+  const rail = pp.wi.L[0] + pp.wi.L[1];
+  assert.ok(rail > 0 && rail <= P.F_RAIL * 10 + 1e-9, `railways ${rail} of the 10 built, at most F_RAIL of it`);
+  const lost = 0.5 * pp.wi.F[1];
+  pp.wi.F[1] -= lost; pp.syncCapital(E);
+  assert.ok(Math.abs(E.Kf - (Kf - lost)) < 1e-9 * Kf, 'what war broke, the world lost');
 });
 
 test('states that meet keep apart in hue, the smaller giving way', () => {
