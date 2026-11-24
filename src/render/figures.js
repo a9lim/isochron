@@ -504,7 +504,7 @@ export function drawPeople(canvas, fig, pal) {
 
 /**
  * Fig. 9, the states (src/engine/peoplefit.js `histomapOf`; after Sparks's Histomap of 1931): each state's
- * share of the world's people as a band in its States-map hue, the bands stacked west to east by their
+ * share of the world's people as a band in its States-map hue and tone, the bands stacked west to east by their
  * capitals at founding, on Fig. 8's axis so the eras line up, each parted from the next by a hairline of
  * paper; the states too small to draw singly a graphite wash above them, up to the share any state holds;
  * the stateless share is the paper above that.
@@ -539,7 +539,7 @@ export function drawStates(canvas, st, fig, pal) {
   for (let r = 0; r < R; r++) {
     let any = false;
     for (let c = 0; c < m; c++) if (st.n[c * R + r] > 0) { any = true; break; }
-    if (any) { const b0 = Float32Array.from(base); band(c => b0[c], c => b0[c] + st.n[c * R + r], alpha(idHue(st.rows[r], pal.dark), 0.62)); }
+    if (any) { const b0 = Float32Array.from(base); band(c => b0[c], c => b0[c] + st.n[c * R + r], alpha(idHue(st.rows[r], pal.dark, st.tones ? st.tones[r] : 0), Math.min(1, 0.62 * (1 + 0.3 * (st.tones ? st.tones[r] : 0))))); }
     for (let c = 0; c < m; c++) base[c] += st.n[c * R + r];
     if (any) tops.push(Float32Array.from(base));
   }

@@ -146,8 +146,10 @@ function riverW(river, k, month) {
   // The year's anomaly this month (the worker's factor per cell of the river's chain, source to mouth).
   const A = river.anom;
   if (!A || !A.length) return q;
-  const n = river.W.length, j = n > 1 ? Math.round(k / (n - 1) * (A.length - 1)) : 0;
-  return q * (1 + month.aw * (A[j] - 1));
+  const n = river.W.length, j = n > 1 ? Math.round(k / (n - 1) * (A.length - 1)) : 0, x = q * (1 + month.aw * (A[j] - 1));
+  // A factor that isn't a number (seen on the page, intermittently, source not yet found) draws the month's
+  // climatology: a NaN width had thrown, and the overlay's rivers, routes and capitals went undrawn that frame.
+  return Number.isFinite(x) ? x : q;
 }
 
 const riverBucket = w => Math.min(RIVER_BUCKETS - 1, Math.floor(Math.log10(Math.max(1, w / RIVER_MIN)) * 2.2));

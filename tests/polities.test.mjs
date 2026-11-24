@@ -156,18 +156,18 @@ test("industry's works stay where they're built: the places' stocks are the worl
   assert.ok(Math.abs(E.Kf - (Kf - lost)) < 1e-9 * Kf, 'what war broke, the world lost');
 });
 
-test('states that meet keep apart in hue, the smaller giving way', () => {
-  // Three states of one hue: 0–80 and 81–140 meet, 160–199 past a stateless gap meets neither. The middle
-  // one, smaller than its neighbour, takes a hue across the wheel from it (short of the accent, at 0); the
-  // others keep theirs.
+test('states that meet keep apart in look, the smaller giving way', () => {
+  // Three states of one look (hue and tone): 0–80 and 81–140 meet, 160–199 past a stateless gap meets
+  // neither. The middle one, smaller than its neighbour, takes another tone and a hue across the wheel
+  // from it (short of the accent, at 0); the others keep theirs.
   const pp = line({}), pol = pp.pol;
   seat(pol, 40, 40); seat(pol, 110, 29); seat(pol, 180, 19);
   pol.d.fill(1);
-  pol.list.forEach((q, k) => Object.assign(q, { N: [3, 1, 2][k], hue: 0.3 }));
+  pol.list.forEach((q, k) => Object.assign(q, { N: [3, 1, 2][k], hue: 0.3, tone: 0 }));
   pol.recolour();
-  const [a, b, c] = pol.list.map(q => q.hue), gap = x => { const d = Math.abs(x - 0.3) % 1; return Math.min(d, 1 - d); };
-  assert.deepEqual([a, c], [0.3, 0.3]);
-  assert.ok(gap(b) > 0.3 && b < 0.9, `${b}`);
+  const [a, b, c] = pol.list, gap = x => { const d = Math.abs(x - 0.3) % 1; return Math.min(d, 1 - d); };
+  assert.deepEqual([a.hue, a.tone, c.hue, c.tone], [0.3, 0, 0.3, 0]);
+  assert.ok(b.tone !== 0 && gap(b.hue) > 0.3 && b.hue < 0.9, `${b.hue}, ${b.tone}`);
 });
 
 test("the media pull a nation's places toward its capital, whatever the distance", () => {

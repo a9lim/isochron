@@ -586,7 +586,7 @@ export const PEOPLE = {
   R_SEC: 0.02, SEC_G: 3, A_ORG: 0.3, K_SECP: 3, K_NATF: 10, K_NORM: 10,
   // Capacity and tribute (batch 3c, src/engine/polities.js; synthesis, the values speculation): a state's fiscal
   // capacity κ from KAP0 at founding, raised by war's pressure over T_KUP toward a ceiling KAP0 + (1 − KAP0)
-  // σ((z − Z_KAP)/W_KAP) by its capital's learning (Z_KAP between writing's and schooling's), falling in
+  // σ((z − Z_KAP)/W_KAP) by its capital's production (its techniques of rule; Z_KAP a little past riding's), falling in
   // peace over T_KDN; what it doesn't administer sends F_TRIB of what direct rule would (vassals keep their
   // rent and pay tribute), and K_RENT of the land elites' rent becomes tax where it does. The steppe: a
   // herders' state founded as x² = (1 + the horse) × its region's herders × its settled people / N_CAMP²
@@ -902,19 +902,13 @@ export function migration(N, S, room, RE, open, hE, dt, P) {
 
 /** The saving rate by class (batch 3f): S_CAP of capital's income, S_WAGE of the rest, capital's the share α + (1 − α) sA (AI's work its owners'). */
 /**
- * The inventions the model reads, each a threshold in knowledge (a hazard's start or a logistic's middle), by the
- * domain it needs: production's (techniques), the eras' (farming, industry, AI) and the rest (herding, riding,
- * fiscal capacity's ceiling, ocean ships, gunpowder, medicine at the frontier, renewables, synthetic food,
- * industry off-world, fusion), and learning's (writing, science, schooling, modern medicine, industry learnable
- * across borders). The Knowledge map draws each as a line where a place's knowledge crosses it (`marks`).
+ * The eras' thresholds in knowledge, by the domain each needs: farming's and industry's in production, AI's in
+ * learning (its knowledge `za` mostly its algorithms', on learning: ALG). The Knowledge map draws each as a
+ * line where a place's knowledge crosses it (`marks`).
  */
-export const INVENTIONS = {
-  eras: ['Z_FARM', 'Z_IND', 'Z_AI'],
-  production: ['Z_HERD', 'Z_RIDE', 'Z_KAP', 'Z_OCEAN', 'Z_GUN', 'Z_MEDF', 'Z_REN', 'Z_SYN', 'Z_SPACE', 'Z_FUS'],
-  learning: ['Z_ID0', 'Z_UP', 'Z_NAT', 'Z_MOD', 'Z_ABS'],
-};
-/** The inventions' thresholds under parameters P (`INVENTIONS`). */
-export function marks(P) { return Object.fromEntries(Object.entries(INVENTIONS).map(([k, v]) => [k, v.map(z => P[z])])); }
+export const ERAS = { production: ['Z_FARM', 'Z_IND'], learning: ['Z_AI'] };
+/** The eras' thresholds under parameters P (`ERAS`). */
+export function marks(P) { return Object.fromEntries(Object.entries(ERAS).map(([k, v]) => [k, v.map(z => P[z])])); }
 
 export function saveRate(P, sA = 0) { const k = P.ALPHA + (1 - P.ALPHA) * sA; return P.S_CAP * k + P.S_WAGE * (1 - k); }
 
@@ -3626,21 +3620,26 @@ export class People {
   }
 
   /**
-   * What the People view draws besides `drawn`, four values a cell of the people's grid (drawn only):
+   * What the People view draws besides `drawn`, eight values a cell of the people's grid (drawn only):
    * the herders' pasture (a share of the cell, from `drawn`'s claims); production's and learning's
-   * knowledge there (where no one lives, carried from where people do); and the works there a km²
-   * (learning's and the land's, person-years). Each domain's frontier (the most anyone knows) is kept
-   * as `zfP`, `zfL`. The Knowledge map reads the last three.
+   * knowledge there (where no one lives, carried from where people do); the works there a km²
+   * (learning's and the land's, person-years); and the land's area works, the share of the cell
+   * terraced and the share irrigated (each kind's built share of its room, the land its works could
+   * hold: `built` × terrPot, irrPot). Each domain's frontier (the most anyone knows) is kept as `zfP`,
+   * `zfL`. The Knowledge map reads the second to fourth, the Settlement and Density maps the fifth and
+   * sixth (their farms terraced or irrigated).
    */
   drawnB(out = null) {
-    const n = this.planet.grid.n, nL = this.nL, wk = this.wk, A = this.H.area;
-    out = out || new Float32Array(4 * n); out.fill(0);
+    const n = this.planet.grid.n, nL = this.nL, wk = this.wk, A = this.H.area, H = this.H;
+    out = out || new Float32Array(8 * n); out.fill(0);
     let fP = 0, fL = 0;
     for (let c = 0; c < nL; c++) {
       if (this.Ntot[c] > 0) { if (this.zc[c] > fP) fP = this.zc[c]; if (this.zl[c] > fL) fL = this.zl[c]; }
-      const o = 4 * this.cells[c];
+      const o = 8 * this.cells[c];
       out[o] = this.past[c];
       out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
+      out[o + 4] = this.built(c, 'T') * H.terrPot[c];
+      out[o + 5] = this.built(c, 'C') * H.irrPot[c];
     }
     this.zfP = fP; this.zfL = fL;
     // Knowledge carried from where people live now onto every cell beyond, ring by ring, each its
@@ -3667,7 +3666,7 @@ export class People {
       for (const j of next) has[j] = 1;
       front = next;
     }
-    for (let i = 0; i < n; i++) { out[4 * i + 1] = vP[i]; out[4 * i + 2] = vL[i]; }
+    for (let i = 0; i < n; i++) { out[8 * i + 1] = vP[i]; out[8 * i + 2] = vL[i]; }
     return out;
   }
 

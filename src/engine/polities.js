@@ -82,7 +82,7 @@
 //               its media's: src/engine/peoples.js), so a dynasty in a conquered city rules as strangers.
 //   capacity    κ, a state's: of what it holds, the share it administers. From KAP0 at founding, war's
 //               pressure (its borders' parity with peer states, as rivalry's) raises it over T_KUP toward a
-//               ceiling rising with its capital's learning, KAP0 + (1 − KAP0) σ((z − Z_KAP)/W_KAP); peace lets it
+//               ceiling rising with its capital's production, KAP0 + (1 − KAP0) σ((z − Z_KAP)/W_KAP); peace lets it
 //               fall over T_KDN toward KAP0, or once its people are schooled toward the ceiling (a written,
 //               schooled bureaucracy holds: Weber's). Tilly's war made the state; Besley and Persson's capacity
 //               as an investment (from memory). A successor keeps its parent's.
@@ -118,11 +118,13 @@
 // contested, so weak, beside the border's cut in trade and the copying that rides on it).
 // Read back: each place's identity pulled toward its state's (src/engine/peoples.js; a9: softly).
 // Drawn on the States map (`drawn`): each polity a hue, free on the peoples' wheel and measured along its
-// path in OKLab so that equal steps look equally different (`HUE`), picked where it least resembles the
-// hues of the states it meets, then of those near, then of the world's (`pick`: a sum of Gaussians in the
-// hues' distance), at its founding and again when it meets a larger state of nearly its hue (`recolour`;
-// states outgrow the region they were founded in). A contested place is striped equally in both states'
-// hues. The capitals as marks (`capitals`); counted (`count`): the effective number of states.
+// path in OKLab so that equal steps look equally different (`HUE`), and a tone, one of three steps of
+// contrast with the paper (lighter and fainter, the wheel's, darker and stronger: `TONES`), picked together
+// where the look least resembles those of the states it meets, then of those near, then of the world's
+// (`pick`: a sum of Gaussians in the hues' and tones' distance; the accent avoided at every tone), at its
+// founding and again when it meets a larger state of nearly its hue and the same tone (`recolour`; states
+// outgrow the region they were founded in). A contested place is striped equally in both states' looks.
+// The capitals as marks (`capitals`); counted (`count`): the effective number of states.
 import { stream } from '../rng.js';
 import { CITY, wrap } from './peoples.js';
 
@@ -137,6 +139,8 @@ const HUE_ALL = 0.3;      // the world's hues: this weight spread over them all
 const HUE_RED = 0.5;      // the accent, weighed as a state met by half: the people's red stays theirs
 const HUE_CLASH = 0.06;   // a state this near in hue to a larger one it meets takes another
 const HUE_N = 240;        // the hues a pick weighs
+const TONES = [0, 1, -1]; // the tones a pick weighs, the wheel's own first: contrast with the paper (src/render/globe.js, idWheel)
+const TONE_SIG = 0.8;     // how near two tones look alike: e^{−(Δt/σ)²} (a step apart, a fifth as alike)
 const MARCH = [0.2, 0.4]; // the second state's share over which a place turns to equal stripes
 
 /**
@@ -541,7 +545,7 @@ export class Polities {
     }
     // Fiscal capacity, each state's (Tilly's war made the state; Besley and Persson's investment in it,
     // from memory): war's pressure on its borders, w their parity's share (as rivalry's), raises it over
-    // T_KUP toward a ceiling rising with its capital's learning, KAP0 + (1 − KAP0) σ((z − Z_KAP)/W_KAP);
+    // T_KUP toward a ceiling rising with its capital's production, KAP0 + (1 − KAP0) σ((z − Z_KAP)/W_KAP);
     // peace lets it fall over T_KDN toward a floor, KAP0 until its people are schooled and then the
     // ceiling's (a written, schooled bureaucracy holds: Weber's). Stepped exactly (linear in κ).
     for (const k of live) {
@@ -665,10 +669,10 @@ export class Polities {
     if (this.hist.length > P.HIST_MAX) { const h = this.hist, half = h.length >> 1; this.hist = h.slice(0, half).filter((_, i) => i % 2 === 0).concat(h.slice(half)); this.histThin = (this.histThin || 0) + 1; }
   }
 
-  /** The Histomap's states: each one recorded, its hue's angle on the peoples' wheel and its capital's longitude (rad), for the figure's colours and order. */
+  /** The Histomap's states: each one recorded, its hue's angle on the peoples' wheel, its tone and its capital's longitude (rad), for the figure's colours and order. */
   histStates() {
     const pp = this.pp, H = pp.H, out = {};
-    for (const s of this.hist) for (const k of s.k) if (!(k in out)) { const q = this.list[k]; out[k] = { h: HUE(q.hue), lon: q.lon0 ?? (H.lon ? H.lon[q.cap] : 0), born: q.born, died: q.died }; }
+    for (const s of this.hist) for (const k of s.k) if (!(k in out)) { const q = this.list[k]; out[k] = { h: HUE(q.hue), t: q.tone || 0, lon: q.lon0 ?? (H.lon ? H.lon[q.cap] : 0), born: q.born, died: q.died }; }
     return out;
   }
 
@@ -680,7 +684,7 @@ export class Polities {
    */
   pick(c, meet, self, u0) {
     const pp = this.pp, g = pp.planet.grid, cells = pp.cells, list = this.list, live = this.live;
-    const hs = [0], ws = [HUE_RED], all = HUE_ALL / Math.max(1, live.length), a = g && cells ? 3 * cells[c] : -1;
+    const hs = [0], ts = [NaN], ws = [HUE_RED], all = HUE_ALL / Math.max(1, live.length), a = g && cells ? 3 * cells[c] : -1;
     for (const o of live) {
       if (o === self) continue;
       const q = list[o];
@@ -689,24 +693,24 @@ export class Polities {
         const b = 3 * cells[q.cap], x = g.pos[a] * g.pos[b] + g.pos[a + 1] * g.pos[b + 1] + g.pos[a + 2] * g.pos[b + 2];
         w += HUE_NEAR * Math.exp(-Math.acos(Math.max(-1, Math.min(1, x))) / HUE_L);
       }
-      hs.push(q.hue); ws.push(w);
+      hs.push(q.hue); ts.push(q.tone || 0); ws.push(w);
     }
-    let best = u0, bv = Infinity;
-    for (let n = 0; n < HUE_N; n++) {
+    let best = u0, bt = 0, bv = Infinity;
+    for (const t of TONES) for (let n = 0; n < HUE_N; n++) {
       const u = (u0 + n / HUE_N) % 1;
       let v = 0;
-      for (let m = 0; m < hs.length; m++) { const x = hueGap(u, hs[m]) / HUE_SIG; v += ws[m] * Math.exp(-x * x); }
-      if (v < bv - 1e-12) { bv = v; best = u; }
+      for (let m = 0; m < hs.length; m++) { const x = hueGap(u, hs[m]) / HUE_SIG, y = Number.isNaN(ts[m]) ? 0 : (t - ts[m]) / TONE_SIG; v += ws[m] * Math.exp(-x * x - y * y); }
+      if (v < bv - 1e-12) { bv = v; best = u; bt = t; }
     }
-    return best;
+    return { u: best, t: bt };
   }
 
   /**
-   * Keep states that meet apart in hue. Two meet across a border, in a place both hold (a contested
+   * Keep states that meet apart in look. Two meet across a border, in a place both hold (a contested
    * march, drawn striped) or across less than SEA_TOUCH km of sea; largest first, each state within
-   * HUE_CLASH of a larger one it meets takes the hue where it least resembles the others (`pick`, those it
-   * meets weighed 1 if larger and ½ if smaller), so the large keep theirs and a change lands where it's
-   * smallest. Drawing only: it draws nothing from the stream, so the run is the same.
+   * HUE_CLASH of a larger one it meets at the same tone takes the look where it least resembles the others
+   * (`pick`, those it meets weighed 1 if larger and ½ if smaller), so the large keep theirs and a change
+   * lands where it's smallest. Drawing only: it draws nothing from the stream, so the run is the same.
    */
   recolour() {
     const pp = this.pp, nL = pp.nL, E = pp.E, id = this.id, s = this.s, d = this.d, list = this.list;
@@ -724,11 +728,12 @@ export class Polities {
     for (const k of order) {
       const q = list[k], near = meet.get(k), rk = rank.get(k);
       let clash = false;
-      for (const o of near) if (rank.get(o) < rk && hueGap(list[o].hue, q.hue) < HUE_CLASH) { clash = true; break; }
+      for (const o of near) if (rank.get(o) < rk && hueGap(list[o].hue, q.hue) < HUE_CLASH && (list[o].tone || 0) === (q.tone || 0)) { clash = true; break; }
       if (!clash) continue;
       const w = new Map();
       for (const o of near) w.set(o, rank.get(o) < rk ? 1 : 0.5);
-      q.hue = this.pick(q.cap, w, k, q.hue);
+      const look = this.pick(q.cap, w, k, q.hue);
+      q.hue = look.u; q.tone = look.t;
     }
   }
 
@@ -747,11 +752,11 @@ export class Polities {
     // Two draws a founding, the stream's count from when a look was a hue and an angle, so the run is the
     // same: the first starts the search.
     const u0 = this.rng.uniform(); this.rng.uniform();
-    const hue = this.pick(c, meet, -1, u0);
+    const { u: hue, t: tone } = this.pick(c, meet, -1, u0);
     if (this.first === null) this.first = pp.t;
     const ids = pp.ids, a = ids.T[c] > 0 ? (ids.lead[c] >= 0 ? ids.lead[c] : ids.main(c)) : -1;
     const X = a >= 0 ? [ids.X[2 * a], ids.X[2 * a + 1]] : [0, 0];
-    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0, peakN: 0, peakT: pp.t, peakA: 0, parent: null, lon0: pp.H.lon ? pp.H.lon[c] : 0, lat0: pp.H.lat ? pp.H.lat[c] : 0, X, kap: P.KAP0, camp, steppe: camp });
+    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue, tone, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0, peakN: 0, peakT: pp.t, peakA: 0, parent: null, lon0: pp.H.lon ? pp.H.lon[c] : 0, lat0: pp.H.lat ? pp.H.lat[c] : 0, X, kap: P.KAP0, camp, steppe: camp });
     this.live.push(k);
     // It unites its region: the free share of each place in its catchment, e-fold over its reach (a
     // chiefdom's confederation; from one place, the region's resistance stopped every founding). Its
@@ -922,10 +927,10 @@ export class Polities {
   /**
    * The States map's fields, three vec4s a cell of the people's grid (as the Culture map's,
    * src/engine/peoples.js, `drawn`): the first the hues of the place's two bands, each (cos, sin) of its
-   * wheel angle × the share F its two largest states hold of those who deliver; the second's x F alone (so
-   * the shader can tell a band's hue turning from its share falling). A place one state holds is one hue
-   * in both bands; where the second holds past MARCH its band turns to the second's hue, so a contested
-   * place is striped equally in both. The bands go by the states' order, not their shares, so a march's
+   * wheel angle × the share F its two largest states hold of those who deliver; the second's x F alone, its
+   * y and z the bands' tones × F (so interpolated toward a place no state holds, a tone keeps its own). A
+   * place one state holds is one look in both bands; where the second holds past MARCH its band turns to
+   * the second's, so a contested place is striped equally in both. The bands go by the states' order, not their shares, so a march's
    * stripes keep their colours across it while the larger flickers place by place. The third's x the
    * fishers' parcels (Settlement, Density).
    */
@@ -937,18 +942,18 @@ export class Polities {
       out[o + 8] = pp.fishU ? pp.fishU[c] : 0;
       if (k0 < 0) continue;
       const f1 = k1 >= 0 ? Math.min(1, s[KP * c + 1] / d) : 0, F = Math.min(1, s[KP * c] / d + f1);
-      const h0 = HUE(list[k0].hue), x0 = Math.cos(h0), y0 = Math.sin(h0);
-      let x1 = x0, y1 = y0;
+      const h0 = HUE(list[k0].hue), x0 = Math.cos(h0), y0 = Math.sin(h0), t0 = list[k0].tone || 0;
+      let x1 = x0, y1 = y0, t1 = t0;
       if (k1 >= 0) {
         const t = smooth((f1 - MARCH[0]) / (MARCH[1] - MARCH[0])), h1 = HUE(list[k1].hue);
-        x1 = (1 - t) * x0 + t * Math.cos(h1); y1 = (1 - t) * y0 + t * Math.sin(h1);
+        x1 = (1 - t) * x0 + t * Math.cos(h1); y1 = (1 - t) * y0 + t * Math.sin(h1); t1 = (1 - t) * t0 + t * (list[k1].tone || 0);
       }
       const sw = k1 >= 0 && k1 < k0;
       out[o] = F * (sw ? x1 : x0); out[o + 1] = F * (sw ? y1 : y0);
       out[o + 2] = F * (sw ? x0 : x1); out[o + 3] = F * (sw ? y0 : y1);
-      out[o + 4] = F;
+      out[o + 4] = F; out[o + 5] = F * (sw ? t1 : t0); out[o + 6] = F * (sw ? t0 : t1);
     }
-    coastward(this.pp, out, 5);
+    coastward(this.pp, out, 7);
     return out;
   }
 

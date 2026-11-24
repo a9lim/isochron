@@ -26,9 +26,11 @@ function blocks(c, x, y, P, ink) {
   c.globalAlpha = 1;
 }
 // The peoples' hue wheel (src/render/globe.js, idWheel; Miasma's strain wheel): OKLCH at one lightness and
-// chroma a theme, its zero opposite the accent, hurried through the accent with its chroma dipping there.
-export function idHue(h, dark) {
-  const L = dark ? 0.62 : 0.525, C0 = dark ? 0.10 : 0.08, ah = dark ? 0.3473 : 0.4346;
+// chroma a theme, its zero opposite the accent, hurried through the accent with its chroma dipping there;
+// t a state's tone, its lightness TONE_L a step away from the paper.
+export const TONE_L = 0.08;
+export function idHue(h, dark, t = 0) {
+  const L = (dark ? 0.62 : 0.525) + (dark ? TONE_L : -TONE_L) * t, C0 = dark ? 0.10 : 0.08, ah = dark ? 0.3473 : 0.4346;
   const v = ((h / (2 * Math.PI) + 0.5) % 1 + 1) % 1, hh = ah + 2 * Math.PI * v + 0.35 * Math.sin(2 * Math.PI * v);
   const dh = Math.abs(Math.atan2(Math.sin(hh - ah), Math.cos(hh - ah))), C = C0 * (1 - 0.5 * Math.exp(-((dh / 0.5236) ** 2)));
   const a = C * Math.cos(hh), b = C * Math.sin(hh);
@@ -178,6 +180,20 @@ const GLYPHS = {
   },
   // Farms: parcels, each furrowed its own way, in sap.
   farm: (c, x, y, P) => parcels(c, x, y, P.inks.sap, 0.1, 0.65),
+  // The land's area works in the farms: terraces as close contours stepping up a hill; irrigated fields'
+  // furrows cut into plots by ditches in the water's blue.
+  terrace: (c, x, y, P) => {
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.fillStyle = rgba(P.inks.sap, 0.12); c.fillRect(x, y, 26, 12);
+    c.strokeStyle = rgba(mixHex(P.inks.sap, P.text, 0.2), 0.75); c.lineWidth = 0.8;
+    c.beginPath(); for (let k = -2; k < 7; k++) { const y0 = y + 1 + 2.4 * k; c.moveTo(x, y0 + 3); c.quadraticCurveTo(x + 13, y0 - 3, x + 26, y0 + 3); } c.stroke();
+    c.restore();
+  },
+  irrigated: (c, x, y, P) => {
+    parcels(c, x, y, P.inks.sap, 0.1, 0.65);
+    c.strokeStyle = rgba(P.ocean, 0.8); c.lineWidth = 0.9;
+    c.beginPath(); for (const a of [6.5, 15.5, 22.5]) { c.moveTo(x + a, y); c.lineTo(x + a, y + 12); } c.stroke();
+  },
   // Pasture: parcels as the farms', in ochre.
   pasture: (c, x, y, P) => parcels(c, x, y, P.inks.ochre, 0.1, 0.65),
   // The fishers' parcels, as the farms', in the sea's blue.
@@ -185,7 +201,7 @@ const GLYPHS = {
   // Peoples (src/render/globe.js, the Culture map): each its hue and its hatch's angle, three apart.
   peoples: (c, x, y, P) => { [[0.3, 0.4], [2.4, 1.6], [4.4, 2.7]].forEach(([h, a], k) => idPatch(c, x + 9 * k, y, k < 2 ? 9 : 8, 12, idHue(h, P.dark), a)); },
   // States (the States map): each a wash of its hue, set apart from its neighbours'.
-  states: (c, x, y, P) => { [0.4, 3.5].forEach((h, k) => { c.fillStyle = rgba(idHue(h, P.dark), 0.45); c.fillRect(x + 13 * k, y, 13, 12); }); },
+  states: (c, x, y, P) => { [[0.4, 1], [3.5, -1], [2.0, 0]].forEach(([h, t], k) => { c.fillStyle = rgba(idHue(h, P.dark, t), 0.45 * (1 + 0.3 * t)); c.fillRect(x + 9 * k, y, k < 2 ? 9 : 8, 12); }); },
   // A contested place: equal stripes of its two states' hues.
   contested: (c, x, y, P) => {
     c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
@@ -206,10 +222,9 @@ const GLYPHS = {
   // frontier's a place's is, far behind (left) to at the frontier (right).
   production: (c, x, y, P) => lag(c, x, y, P, P.accent),
   learning: (c, x, y, P) => lag(c, x, y, P, P.inks.verdigris),
-  // The inventions (the shader's lines where a place's knowledge crosses each threshold), in each domain's ink.
+  // The eras (the shader's lines where a place's knowledge crosses each threshold), in each domain's ink.
   era: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.accent, 0.8); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
-  eraP: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.accent, 0.7); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
-  eraL: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.inks.verdigris, 0.75); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  eraL: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.inks.verdigris, 0.8); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
   // Works: dots on a staggered lattice in the rules' colour, as the shader's `stipple`.
   works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
   // The routes (src/render/overlay.js, drawRoutes): by land, river and sea alike, in the rules' colour.
@@ -300,9 +315,9 @@ const ITEMS = {
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
-  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
-  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
-  'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry, AI'], ['eraP', 'Invention, production'], ['eraL', 'Invention, learning'], ['works', 'Works'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['route', 'Routes']],
+  'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['terrace', 'Terraces'], ['irrigated', 'Irrigated'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
+  'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['terrace', 'Terraces'], ['irrigated', 'Irrigated'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
+  'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['eraL', 'AI'], ['works', 'Works'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['route', 'Routes']],
   'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories']],
   'people-states': [['states', 'States'], ['contested', 'Contested'], ['capital', 'Capital'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],

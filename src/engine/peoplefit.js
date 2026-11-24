@@ -97,7 +97,7 @@ export function figureOf(p, n = 240) {
  * Fig. 9's data (the Histomap, after Sparks's of 1931): each state's share of the world's people on Fig. 8's
  * axis, log₁₀(t* − t), from the states' record (src/engine/polities.js, `snapshot`), at most n columns,
  * each the last snapshot before its x. The states as rows, west to east by their capitals at founding
- * (neighbours stack beside each other), each with its hue's angle on the peoples' wheel (the States map's);
+ * (neighbours stack beside each other), each with its hue's angle on the peoples' wheel and its tone (the States map's);
  * `n` row-major, a column's rows; `held` each column's share of the people any state holds (the rest of it the
  * states too small to draw singly). Null before a state has stood or before Fig. 8 has its axis.
  */
@@ -120,5 +120,5 @@ export function histomapOf(p, fig, n = 240) {
     for (let j = 0; j < s.k.length; j++) out[c * R + row.get(s.k[j])] = s.all > 0 ? s.n[j] / s.all : 0;
   });
   const last = p.history.at(-1) || {};
-  return { x, n: out, held, rows: ks.map(k => meta[k].h), R, states: last.states || 0, top: last.stTop || 0, heldNow: last.stHeld || 0 };
+  return { x, n: out, held, rows: ks.map(k => meta[k].h), tones: ks.map(k => meta[k].t || 0), R, states: last.states || 0, top: last.stTop || 0, heldNow: last.stHeld || 0 };
 }

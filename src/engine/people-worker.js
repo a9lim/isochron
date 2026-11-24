@@ -58,7 +58,7 @@ function onEngine(e) {
       people.debug = true;   // the numbers checked after each phase until one isn't finite (`step`, below)
       people.seed();
       lastStep = performance.now();
-      self.postMessage({ type: 'marks', ...marks(people.P) });   // the inventions' thresholds, for the Knowledge map's lines
+      self.postMessage({ type: 'marks', ...marks(people.P) });   // the eras' thresholds, for the Knowledge map's lines
       post(true);
     } else {
       people.rates(f);

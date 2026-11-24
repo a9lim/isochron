@@ -81,13 +81,13 @@
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
 // hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, production
 // as an accent wash and learning as a verdigris one by how near each is to its
-// frontier, a line where a place's knowledge crosses each invention's threshold
-// (production's in the accent, learning's in verdigris), a stipple by the works a km²
+// frontier, a heavy line where a place's knowledge crosses farming's and industry's
+// thresholds (production's, in the accent) and AI's (learning's, in verdigris), a stipple by the works a km²
 // (People.drawnB). Culture: each place's way of life as a
 // wash of its hue and a hatch at its angle, a second way's hatch between the
 // first's lines (Peoples.drawn). States: each place's state as a wash of its hue
-// as strong as the share its states hold, a hairline where two states meet, a
-// contested place in equal stripes of both states' hues (Polities.drawn). Of the
+// and tone (a step of lightness), as strong as the share its states hold, a
+// contested place in equal stripes of both states' looks (Polities.drawn). Of the
 // land's uses, these three keep the cities, datacenters and factories, not the
 // fields. The ice is plain on the People charts.
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
@@ -123,9 +123,8 @@ struct U {
   veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
   steam: vec4f,      // the runaway's steam (src/engine/runaway.js): x its wash's opacity, from the column's pressure; y coal's sulfate's optical depth where its pattern is 1; z, w the Knowledge map's frontiers (production's, learning's)
   sun: vec4f,        // xyz toward the Sun in the globe's frame; w how much the night side is shown (where the dial resolves the day)
-  zmE: vec4f,             // the eras' thresholds in production's knowledge (farming, industry, AI: src/engine/people.js, INVENTIONS), 1e6 past the last
-  zmP: array<vec4f, 3>,   // the other inventions' in production's
-  zmL: array<vec4f, 2>,   // and in learning's
+  zmP: vec4f,        // the eras' thresholds in production's knowledge (farming, industry: src/engine/people.js, ERAS), 1e6 past the last
+  zmL: vec4f,        // and in learning's (AI)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -133,7 +132,7 @@ struct U {
 @group(0) @binding(3) var<storage, read> folk: array<vec4f>;
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
 @group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // x coal's sulfate's burden's pattern (mean 1, src/engine/peoplelink.js); y the upwelling's cooling of the sea's surface (K), z the overturning's sinking (m/yr) (src/engine/ocean.js, seaheat.js)
-@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²
+@group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB, two a vertex: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²; x the share terraced, y the share irrigated
 @group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // Peoples.drawn, three a vertex: the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels; on the States map Polities.drawn, the largest state's and the second's alike, × their shares
 
 struct VOut {
@@ -183,15 +182,19 @@ fn toView(p: vec3f) -> vec3f {
   let cult = u.mode.x > 9.5 && u.mode.x < 11.5;
   let seaV = u.mode.x > 11.5;
   let id1 = ident[3u * vi + 1u];
-  o.wp = vec4f(p, select(past[vi].x, id1.w, cult));
+  let pa = past[2u * vi];
+  let pb = past[2u * vi + 1u];
+  o.wp = vec4f(p, select(pa.x, id1.w, cult));
   o.c = c;
   o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
   // sulfate's optical depth, its haze where the winds carry it, and the knowledge, its lag and the
-  // works (People.drawnB; the vertex has no varyings to spare). In the Sea map (no tide) the tide's
+  // works (People.drawnB; the vertex has no varyings to spare), on Settlement and Density (which draw no
+  // knowledge) the shares terraced and irrigated in knowledge's place. In the Sea map (no tide) the tide's
   // carries the upwelling and the sinking.
-  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(past[vi].yzw, id1.xyz, cult)), u.mode.x > 5.5 && u.mode.x < 11.5);
+  let folkSD = u.mode.x > 6.5 && u.mode.x < 8.5;
+  o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(select(pa.yzw, vec3f(pb.xy, pa.w), folkSD), id1.xyz, cult)), u.mode.x > 5.5 && u.mode.x < 11.5);
   o.td = select(select(select(td, vec4f(ident[3u * vi + 2u].x, td.yzw), u.mode.x > 6.5 && u.mode.x < 8.5), ident[3u * vi], cult), vec4f(sulf[vi].yz, 0.0, td.w), seaV);
   // The lakes eased from the last drawn to the new here (linear, so as the fragments would), which
   // leaves room beside them for the sea's ice (c holds the land's snow) and their tint.
@@ -282,6 +285,18 @@ fn hatch1(uv: vec2f, fw: f32, dir: vec2f, o: vec2f, wpx: f32) -> f32 {
   let c = dot(uv, dir) * o.x;
   return max(lineAA(c, fw * o.x, wpx), o.y * lineAA(2.0 * c, 2.0 * fw * o.x, wpx));
 }
+// A hatch whose lines lie across a direction d on the globe (its frame's), each projection's lines across d
+// as that plane sees it (the terraces' contours, across the land's slope), its angle in 15° steps dithered
+// between the two nearest by dz (a tessera's own), so a tessera's lines run straight (the slope's
+// direction turning within one had bent them into a maze, as the Culture map's angles had into whorls).
+fn across(v: vec2f, dz: f32) -> vec2f {
+  let q = floor(atan2(v.y, v.x) / 0.2617994 + dz) * 0.2617994;
+  return vec2f(cos(q), sin(q));
+}
+fn hatchAcross(T: Tri, d: vec3f, periodPx: f32, wpx: f32, dz: f32) -> f32 {
+  let o = octave(periodPx);
+  return T.w.x * hatch1(T.x, T.f.x, across(d.yz, dz), o, wpx) + T.w.y * hatch1(T.y, T.f.y, across(d.zx, dz), o, wpx) + T.w.z * hatch1(T.z, T.f.z, across(d.xy, dz), o, wpx);
+}
 // A hatch's lines shifted ph of a period (the Culture map's second identity between the first's lines).
 fn hatchP(T: Tri, dir: vec2f, periodPx: f32, wpx: f32, ph: f32) -> f32 {
   let o = octave(periodPx);
@@ -305,9 +320,11 @@ fn stripes(T: Tri, dir: vec2f, periodPx: f32) -> f32 {
 }
 // The peoples' hue wheel (Miasma's strain wheel, its src/strain-style.js): OKLCH at one lightness and
 // chroma a theme, fitted like the inks, its zero opposite the accent's hue, hurried through the accent
-// with its chroma dipping there so no people reads as the people's red; h the hue angle, gamma sRGB.
-fn idWheel(h: f32, dark: bool) -> vec3f {
-  let L = select(0.525, 0.62, dark); let C0 = select(0.08, 0.10, dark); let ah = select(0.4346, 0.3473, dark);
+// with its chroma dipping there so no people reads as the people's red; h the hue angle, gamma sRGB; t a
+// state's tone (src/engine/polities.js, TONES), its lightness TONE_L a step away from the paper.
+const TONE_L = 0.08;
+fn idWheel(h: f32, t: f32, dark: bool) -> vec3f {
+  let L = select(0.525, 0.62, dark) + select(-TONE_L, TONE_L, dark) * t; let C0 = select(0.08, 0.10, dark); let ah = select(0.4346, 0.3473, dark);
   let v = fract(h / 6.2831853 + 0.5);
   let hh = ah + 6.2831853 * v + 0.35 * sin(6.2831853 * v);
   let dh = abs(atan2(sin(hh - ah), cos(hh - ah)));
@@ -771,60 +788,41 @@ fn hair(d: f32, w: f32) -> f32 {
       let a = select(0.4, 0.45, dark);
       pland = mix(pland, u.accent.rgb, a * exp(-2.0 * max(u.steam.z - zp, 0.0)) * had);
       pland = mix(pland, u.inkD.rgb, a * exp(-2.0 * max(u.steam.w - zl, 0.0)) * had);
-      // Only the boundaries that act: each invention the model reads, where a place's knowledge crosses its
-      // threshold (src/engine/people.js, INVENTIONS), in its domain's ink, production's in the accent and
-      // learning's in verdigris; the eras' (farming, industry, AI) heavy, the rest light, so the eras read
-      // where the lines crowd (lines of every interval had stacked where knowledge falls steeply, as at the
-      // polar herders' edge).
-      let fzp = max(fwidth(zp), 1e-5);
-      let fzl = max(fwidth(zl), 1e-5);
-      let me = u.zmE;
-      let eraE = max(max(hair(abs(zp - me.x), 2.2 * fzp), hair(abs(zp - me.y), 2.2 * fzp)), max(hair(abs(zp - me.z), 2.2 * fzp), hair(abs(zp - me.w), 2.2 * fzp)));
-      var eraP = 0.0;
-      for (var k = 0; k < 3; k++) {
-        let m = u.zmP[k];
-        eraP = max(eraP, max(max(hair(abs(zp - m.x), fzp), hair(abs(zp - m.y), fzp)), max(hair(abs(zp - m.z), fzp), hair(abs(zp - m.w), fzp))));
-      }
-      var eraL = 0.0;
-      for (var k = 0; k < 2; k++) {
-        let m = u.zmL[k];
-        eraL = max(eraL, max(max(hair(abs(zl - m.x), fzl), hair(abs(zl - m.y), fzl)), max(hair(abs(zl - m.z), fzl), hair(abs(zl - m.w), fzl))));
-      }
-      pland = mix(pland, u.inkD.rgb, 0.75 * eraL * had);
-      pland = mix(pland, u.accent.rgb, 0.7 * eraP * had);
-      pland = mix(pland, u.accent.rgb, 0.8 * eraE * had);
+      // Only the boundaries that act, the eras' (src/engine/people.js, ERAS), heavy in their domain's ink:
+      // farming's and industry's in production, in the accent; AI's in learning (its knowledge mostly its
+      // algorithms', on learning), in verdigris. (Lines of every interval had stacked where knowledge falls
+      // steeply, as at the polar herders' edge; so had a line for every invention the model reads.)
+      let fzp = 2.2 * max(fwidth(zp), 1e-5);
+      let fzl = 2.2 * max(fwidth(zl), 1e-5);
+      let mp = u.zmP;
+      let ml = u.zmL;
+      let eraP = max(max(hair(abs(zp - mp.x), fzp), hair(abs(zp - mp.y), fzp)), max(hair(abs(zp - mp.z), fzp), hair(abs(zp - mp.w), fzp)));
+      let eraL = max(max(hair(abs(zl - ml.x), fzl), hair(abs(zl - ml.y), fzl)), max(hair(abs(zl - ml.z), fzl), hair(abs(zl - ml.w), fzl)));
+      pland = mix(pland, u.inkD.rgb, 0.8 * eraL * had);
+      pland = mix(pland, u.accent.rgb, 0.8 * eraP * had);
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
     } else if (folkS) {
-      // States: each place's state as a wash of its hue, as strong as the share F its states hold
-      // (Polities.drawn), so the wash fades to the chart only where no state holds the people. The hue is
-      // each band's direction: its vector is the hue × F, interpolated, turning where two states meet. Every
-      // border is one hairline, where both bands turn, at the turn's middle. (By the vector's length, as
-      // the wash was once, a border between far hues faded to a band of paper and one between near hues
-      // didn't, so states seemed parted by stateless land that wasn't.) A contested place is striped
-      // equally in its two states' hues (the second band turned to the second's).
+      // States: each place's state as a wash of its look, as strong as the share F its states hold
+      // (Polities.drawn), so the wash fades to the chart only where no state holds the people; no border
+      // drawn. The hue is each band's direction (its vector the hue × F, interpolated, turning where two
+      // states meet), the tone its share of F, a step of contrast with the paper in lightness and the
+      // wash's strength. (By the vector's length, as the wash was once, a border between far hues faded to
+      // a band of paper and one between near hues didn't, so states seemed parted by stateless land that
+      // wasn't.) A contested place is striped equally in its two states' looks (the second band turned to
+      // the second's).
       let had = explored * (1.0 - sheet);
       let a = select(0.42, 0.48, dark);
       let F = max(i.wx.y, 1e-3);
       let b0 = i.td.xy;
       let b1 = i.td.zw;
-      let c0 = idWheel(atan2(b0.y, b0.x), dark);
-      let c1 = idWheel(atan2(b1.y, b1.x), dark);
-      pland = mix(pland, mix(c0, c1, stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z)), a * smoothstep(0.3, 0.8, F) * had);
-      // The border's line: where both bands turn (each band over F runs along the chord between two hues'
-      // units, shorter than one in its middle), where band 0's, over F, passes its chord's middle: there
-      // its component along its change is zero, whatever the shares the two states hold. Its screen rate
-      // is the line's width, so the line is a pixel wide at any zoom.
-      let h0 = b0 / F;
-      let gx = dpdx(h0);
-      let gy = dpdy(h0);
-      let ge = select(gy, gx, dot(gx, gx) > dot(gy, gy));
-      let en = ge / max(length(ge), 1e-12);
-      let sb = dot(h0, en);
-      let ws = abs(dot(gx, en)) + abs(dot(gy, en));
-      let turn = smoothstep(0.996, 0.985, max(length(b0), length(b1)) / F) * smoothstep(0.15, 0.3, i.wx.y);
-      pland = mix(pland, u.text.rgb, 0.45 * hair(abs(sb), max(ws, 1e-9)) * turn * had);
+      let t0 = clamp(i.wx.z / F, -1.0, 1.0);
+      let t1 = clamp(i.wx.w / F, -1.0, 1.0);
+      let sp = stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z);
+      let c0 = idWheel(atan2(b0.y, b0.x), t0, dark);
+      let c1 = idWheel(atan2(b1.y, b1.x), t1, dark);
+      pland = mix(pland, mix(c0, c1, sp), a * (1.0 + 0.3 * mix(t0, t1, sp)) * smoothstep(0.3, 0.8, F) * had);
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
       // hatch at the torus's first angle (over 180°) in the hue of its second (a wheel), over a wash of
@@ -838,13 +836,13 @@ fn hair(d: f32, w: f32) -> f32 {
       let had = explored * (1.0 - sheet);
       let w0 = smoothstep(0.3, 0.8, min(length(d0.xy), length(d0.zw))) * had;
       let q0 = floor(atan2(d0.y, d0.x) / 0.5235988 + rank) * 0.2617994;
-      let c0 = idWheel(atan2(d0.w, d0.z), dark);
+      let c0 = idWheel(atan2(d0.w, d0.z), 0.0, dark);
       pland = mix(pland, c0, 0.2 * w0);
       pland = mix(pland, c0, 0.6 * w0 * hatch(T, vec2f(cos(q0), sin(q0)), 6.0 * u.mode.z, 0.9 * u.mode.z));
       let w1 = smoothstep(0.2, 0.4, min(length(d1.xy), length(d1.zw))) * had;
       if (w1 > 0.0) {
         let q1 = floor(atan2(d1.y, d1.x) / 0.5235988 + fract(rank * 7.31)) * 0.2617994;
-        pland = mix(pland, idWheel(atan2(d1.w, d1.z), dark), 0.6 * w1 * hatchP(T, vec2f(cos(q1), sin(q1)), 6.0 * u.mode.z, 0.9 * u.mode.z, 0.5));
+        pland = mix(pland, idWheel(atan2(d1.w, d1.z), 0.0, dark), 0.6 * w1 * hatchP(T, vec2f(cos(q1), sin(q1)), 6.0 * u.mode.z, 0.9 * u.mode.z, 0.5));
       }
     } else {
       pland = mix(pland, u.text.rgb, 0.4 * hair(abs(i.pq.w - 0.5), freach));
@@ -861,6 +859,21 @@ fn hair(d: f32, w: f32) -> f32 {
     let blocks = max(hatch(T, vec2f(1.0, 0.0), 3.4 * u.mode.z, 0.7 * u.mode.z), hatch(T, vec2f(0.0, 1.0), 3.4 * u.mode.z, 0.7 * u.mode.z));
     let furrowA = 3.14159265 * fract(tess * 97.31);
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
+    // The land's area works on Settlement and Density (People.drawnB): of a place's farms, the share
+    // terraced and the share irrigated (each the land its works hold against the farms' land), a farm
+    // tessera taking each by its own draw. Terraces as contours: close lines across the land's slope (the
+    // relief's normal less the sphere's, in the globe's frame), stepping up the hill; irrigated fields as
+    // the furrows cut into plots by ditches in the water's blue.
+    let folkSD = folkV && !folkK && !folkU;
+    let farmShare = max(i.pp.y, 1e-3);
+    let terr = select(0.0, clamp(i.wx.y / farmShare, 0.0, 1.0), folkSD);
+    let irr = select(0.0, clamp(i.wx.z / farmShare, 0.0, 1.0), folkSD);
+    let sv = N - S * dot(N, S);
+    let slopeG = u.view0.xyz * sv.x + u.view1.xyz * sv.y + u.view2.xyz * sv.z;
+    let terraced = fract(tess * 53.17) < terr && length(sv) > 0.02;
+    let irrigated = !terraced && fract(tess * 29.71) < irr;
+    let contours = hatchAcross(T, slopeG, 3.0 * u.mode.z, 0.8 * u.mode.z, fract(tess * 13.37));
+    let ditches = hatch(T, vec2f(-sin(furrowA), cos(furrowA)), 7.2 * u.mode.z, 1.0 * u.mode.z);
     if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (rank < c2) {
@@ -871,7 +884,12 @@ fn hair(d: f32, w: f32) -> f32 {
       // The Knowledge, Culture and States maps keep only the works where minds and machines gather (cities,
       // datacenters and factories), not the fields.
     } else if (rank < c4) {
-      pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
+      if (terraced) {
+        pland = mix(pland, mix(u.inkC.rgb, u.text.rgb, 0.15), 0.1 + 0.6 * contours);
+      } else {
+        pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
+        if (irrigated) { pland = mix(pland, u.ocean.rgb, 0.85 * ditches); }
+      }
     } else if (rank < c5) {
       // Solar farms in AI's verdigris (the datacenters' ink, a parcel's pattern).
       pland = mix(pland, u.inkD.rgb, 0.12 + 0.6 * furrows);
@@ -972,7 +990,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   // The people's eight values a vertex (the People scenario), refined from their grid (src/engine/people-worker.js).
   const folkBuf = storage(device, nm * 32);
   // The herders' pasture, one vec4 a vertex (People.pasture), refined from their grid as the folk are.
-  const pastBuf = storage(device, nm * 16);
+  const pastBuf = storage(device, nm * 32);
   let pastS = null;
   // The peoples' identities and the fishers' parcels, three vec4s a vertex (Peoples.drawn), refined as the folk are.
   const identBuf = storage(device, nm * 48);
@@ -989,7 +1007,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const patches = patchesOf(mesh);
   const idxBuf = device.createBuffer({ size: patches.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, patches.tris);
-  const uniBuf = device.createBuffer({ size: 38 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 34 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -1016,7 +1034,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(152);
+  const uni = new Float32Array(136);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -1125,12 +1143,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
       device.queue.writeBuffer(folkS, 0, d); folkRef.run(folkS, folkBuf, 2);
     },
-    /** Per cell of the people's grid `pg`, four values (People.drawnB): the herders' pasture (a share of the cell), production's and learning's knowledge there, the works a km². */
+    /** Per cell of the people's grid `pg`, eight values (People.drawnB): the herders' pasture (a share of the cell), production's and learning's knowledge there, the works a km²; the shares terraced and irrigated. */
     setPeopleB(l, pg) {
       if (pg === mesh) { device.queue.writeBuffer(pastBuf, 0, l); return; }
-      if (!pastS) pastS = storage(device, pg.n * 16);
+      if (!pastS) pastS = storage(device, pg.n * 32);
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
-      device.queue.writeBuffer(pastS, 0, l); folkRef.run(pastS, pastBuf, 1);
+      device.queue.writeBuffer(pastS, 0, l); folkRef.run(pastS, pastBuf, 2);
     },
     /** Per cell of the people's grid `pg`, three vec4s (Peoples.drawn): the largest way's identity, the second's × its share, the fishers' parcels. */
     setPeopleC(d, pg) {
@@ -1189,9 +1207,9 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       // The Sun's direction in the globe's frame and how much of the night side shows (main.js, dayShown).
       const sun = mode.sun || { dir: [1, 0, 0], w: 0 };
       uni.set([sun.dir[0], sun.dir[1], sun.dir[2], sun.w], 124);
-      // The inventions' thresholds (the Knowledge map's lines): 4 slots for the eras', 12 for production's others, 8 for learning's.
-      const mk = mode.marks || {}, slots = (o, m, a = []) => { for (let k = 0; k < m; k++) uni[o + k] = k < a.length ? a[k] : 1e6; };
-      slots(128, 4, mk.eras); slots(132, 12, mk.production); slots(144, 8, mk.learning);
+      // The eras' thresholds (the Knowledge map's lines): 4 slots for production's, 4 for learning's.
+      const mk = mode.marks || {}, slots = (o, a = []) => { for (let k = 0; k < 4; k++) uni[o + k] = k < a.length ? a[k] : 1e6; };
+      slots(128, mk.production); slots(132, mk.learning);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();
