@@ -11,16 +11,16 @@
 //                     the last of the record, new events), `drawn` ~4 times a second (people and
 //                     robots per km² and the land's uses, eight a cell: People.drawn; the herders'
 //                     pasture, four a cell: People.pasture), `figure` once a second
-//                     (Fig. 8: src/engine/peoplefit.js; Fig. 9: the world's ages)
+//                     (Fig. 8: src/engine/peoplefit.js; Fig. 9: the states, the Histomap; Fig. 10: the world's ages)
 // The first people are placed on the first fields that come (the climate's first cycle). The
 // page's ticks owe the people years; the people step toward them at their own pace (People.nextDt)
 // and, behind, say so, so the page holds its clock.
 import { buildGrid } from '../grid/icosphere.js';
 import { People } from './people.js';
 import { solarSystem } from './solar.js';
-import { figureOf } from './peoplefit.js';
+import { figureOf, histomapOf } from './peoplefit.js';
 import { stable } from './cohorts.js';
-let pyrRef = null, routesAt = null;   // Fig. 9's reference; the trade kernel last drawn
+let pyrRef = null, routesAt = null;   // Fig. 10's reference; the trade kernel last drawn
 let capsAt = -1;   // the states' step whose capitals were last sent
 
 const BUDGET = 30;            // ms of stepping between looks at the messages
@@ -139,7 +139,7 @@ function post(force) {
       // compute's and the working robots' power.
       econ: E.on && E.flows ? { flows: { ...E.flows }, Lh: E.Lh, bodies: E.bodies, grade: E.grade, food: E.EfoodGot || 0, cdr: E.EcdrGot || 0,
         Ar: E.AIr, Wc: people.P.W_C * (E.Kc + E.Kq), Wr: people.P.W_R * E.Ap, cdrPg: (E.EcdrGot || 0) * 3.15576e7 / people.P.J_CDR, aA: E.aA || 0, ApE: E.ApE ?? E.Ap } : null,
-      // Off-world (Fig. 9, the sky): where its people live, the mass mined (Mercury's and the belt's
+      // Off-world (Fig. 11, the sky): where its people live, the mass mined (Mercury's and the belt's
       // shares, kg a year and the source drawn on most), the rooms off Earth and on it, the growth
       // past replacement, and the probes (with the people at other stars).
       off: { worlds: people.offworld(), ...people.minedShares(), flow: people.flow, src: people.src, mined: people.mined, room: people.room, roomE: people.roomE || 0, fert: people.fert, stars: people.stars() },
@@ -149,9 +149,10 @@ function post(force) {
   if (force || now - lastFig > 1000) {
     lastFig = now;
     const fig = figureOf(people);
-    // Fig. 9: the world's ages, and the pre-industrial reference's (src/engine/cohorts.js).
+    // Fig. 10: the world's ages, and the pre-industrial reference's (src/engine/cohorts.js); Fig. 9: the states on Fig. 8's axis.
     if (!pyrRef) { const r = stable(people.P.B_PRE, 0); pyrRef = Array.from({ length: Math.ceil(r.length / 5) }, (_, g) => { let s = 0; for (let k = 5 * g; k < Math.min(r.length, 5 * g + 5); k++) s += r[k]; return s; }); }
-    if (fig) self.postMessage({ type: 'figure', fig, pyr: people.pyramid(), pyrRef });
+    const states = fig ? histomapOf(people, fig) : null;
+    if (fig) self.postMessage({ type: 'figure', fig, pyr: people.pyramid(), pyrRef, states }, states ? [states.x.buffer, states.n.buffer, states.held.buffer] : []);
   }
   if (force || now - lastDrawn > 250) {
     lastDrawn = now;

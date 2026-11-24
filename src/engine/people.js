@@ -165,6 +165,7 @@ import { Year, YEAR } from './year.js';
 import { Routes, sized } from './routes.js';
 import { Peoples } from './peoples.js';
 import { Polities, KP as KPOL } from './polities.js';
+import { Classes } from './classes.js';
 import { COHORTS, stable, stableLookup, stepPyramid, stepTables, ageClock, settle, reference } from './cohorts.js';
 
 export const PEOPLE = {
@@ -502,6 +503,21 @@ export const PEOPLE = {
   // history's did the first industrial states took their unindustrialized neighbours, alike peoples whom
   // no nationalism defends: at early takeoff ~4 effective states, the largest with half the world.)
   F_PROJ: 0.1, L_PROJ: 2e4, I_PROJ: 0.05, K_SELF: 1, K_ARM: 0.5,
+  // Classes (batch 3a, src/engine/classes.js; synthesis, the values speculation): each way's elite's most
+  // claim (herders' 0.25 of the herds' increase, fishers' 0.15 of the catch, farmers' half the harvest,
+  // sharecropping's; the city's elite 0.2 of what it takes in, and capital's ALPHA of its goods), cut
+  // e-fold-ish where the land about is open, X_EXIT of spare room halving it, a state's hold raising that
+  // K_COER-fold (Domar's serfdom); an elite lives at C_E × the place's mean income; elites past their
+  // positions fall back over T_DOWN, empty positions fill over T_UP, stepped H_CLS years at most. Stress:
+  // immiseration below Y_COMF food and goods a person (and K_FAM × famine's rate), saturating over M0;
+  // the elites' overproduction over E0; the state's fiscal strain × K_SFD. At ψ = 1: cohesion spent at
+  // D_PSI a year, internal war's deaths W_IW and works W_IWW a year, the elites culled K_CULL a year.
+  TH_W: [0, 0.25, 0.15, 0.5, 0.2], X_EXIT: 0.1, K_COER: 2, C_E: 10, T_DOWN: 20, T_UP: 10, H_CLS: 10,
+  Y_COMF: 1.15, K_FAM: 5, M0: 0.05, E0: 0.5, K_SFD: 0.5, D_PSI: 0.02, W_IW: 0.004, W_IWW: 0.01, K_CULL: 0.03,
+  // The Histomap's record (Fig. 9, Polities.snapshot): every DT_HIST years (DT_HIST_IND with industry), the
+  // states holding HIST_MIN of the world's people or more, the HIST_K largest; past HIST_MAX entries the
+  // oldest half is thinned to every other.
+  DT_HIST: 50, DT_HIST_IND: 5, HIST_MIN: 1e-3, HIST_K: 48, HIST_MAX: 600,
   BETA_CITY: 1.15, S_CITY_REF: 2e4, DT_PLACES: 25,   // cities' minds (synthesis on urban scaling, innovation ∝ N^β, β ~1.15–1.25: Bettencourt and others 2007, from memory): a city dweller's ideas × (its city's size/S_CITY_REF)^{β−1}, the world's minds kept (normalized over everyone), so the loop runs faster where cities are large; the cities placed again in the step every DT_PLACES years
   // Where ideas go (synthesis, a9; the size speculation): a place's new ideas are shared between the
   // domains, learning's share ½ − TILT among those who feed themselves (foragers, herders, fishers,
@@ -660,7 +676,7 @@ export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real =
   }
   const e = Math.exp(Math.max(-50, Math.min(50, r * dt)));
   const Nn = Math.abs(r) > 1e-12 ? r * N * e / (r + a * N * (e - 1)) : N / (1 + a * N * dt);
-  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, b, d: b - (r - a * N), famine: dv, m: ms };   // m: senescence's medicine
+  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, b, d: b - (r - a * N), famine: dv, m: ms, floor: m * P.D_LO + age };   // m: senescence's medicine; floor: the well-fed death rate (classes: the elites')
 }
 
 /**
@@ -1066,8 +1082,9 @@ export class People {
     // the sea's, the fields', what energy buys), and the identities kept by them.
     this.wol = new Float32Array(5 * nL);
     this.ids = new Peoples(this);
-    // States (src/engine/polities.js): who people deliver to.
+    // States (src/engine/polities.js): who people deliver to; classes (src/engine/classes.js): who takes.
     this.pol = new Polities(this);
+    this.classes = new Classes(this);
   }
 
   /** The ending, by chance on two axes (a9): aligned, misaligned or paused; Earth preserved or sacrificed. */
@@ -1983,16 +2000,18 @@ export class People {
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = this.reserve(c, fc, z);
       const real = this.realYears(c, fc, tp, ry);
-      const { N: Nn, famine, b: bc, d: dc, m: mc } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c));
+      const { N: Nn, famine, b: bc, d: dc, m: mc, floor } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c));
       // (demography takes a total that isn't finite as none: said here, where it arose)
       if (this.debug && !Number.isFinite(famine)) throw new Error(`growth: famine at ${c} = ${famine} (N ${Nt}, K ${Kh}, goods ${this.goods[c]}, σ ${sg}, store ${st}, years ${real ? `φ ${real.phi} m ${real.m} s ${real.s}` : 'none'}, the years' moments ${this.yr ? this.yr.map(a => a[c]).join(' ') : '–'} over ${this.yrW}, pool ${tp ? `${tp.pool} τ ${tp.tau} market ${tp.k} mean ${this.yrM ? this.yrM[tp.k] : '–'}` : '–'}, harvest ${this.harvestCoef(c, fc).join(' ')}, sR ${this.H.sR[c]}) at t ${this.t.toFixed(1)}; not finite there: ${this.unfinite(c)}`);
       this.famine += famine * Nt;
+      this.classes.accrue(c, Math.max(0, dc - floor), famine, dt);
       // The pyramid over the step: births, the deaths past senescence (the total's, less the pyramid's
       // own senescence under medicine), the step's growth.
       if (this.pyrStale && !longStep) { stableLookup(bc, Nn > 0 ? Math.log(Nn / Nt) / dt : 0, this.pyr, COHORTS.K * c); this.pyrSum[c] = 1; }
       else if (!longStep) this.pyrSum[c] = stepPyramid(this.pyr, COHORTS.K * c, bc, dc - mc * this.sen[c], mc, Nn > 0 ? Math.log(Nn / Nt) / dt : 0, pyT, this.pyrTmp);
       Ntot[c] = Nn > 1e-6 ? Nn : 0;
     }
+    this.classes.tAcc += dt;
     this.herdYears();
     if (this.yrTake > 0) { const k = 1 - this.yrTake / this.yrW; for (const a of this.yr) for (let c = 0; c < nL; c++) a[c] *= k; this.yrW -= this.yrTake; if (this.yrW < 1e-9) this.yrW = 0; }
     lap('growth');
@@ -3123,8 +3142,8 @@ export class People {
     const Wn = top.map(c => site[c] * Math.pow(S[c] / A[c] + P.S0_CITY, P.G_NATION));
     const dl = this.dlv && this.dlv.length === idx.length ? this.dlv : (this.dlv = new Float32Array(idx.length));
     const dn = this.dlvN && this.dlvN.length === nL * K ? this.dlvN : (this.dlvN = new Float32Array(nL * K));
-    const dP = this.dlvP || (this.dlvP = new Float32Array(nL * KPOL)), cP = this.capP || (this.capP = new Int32Array(nL * KPOL)), pol = this.pol;
-    dl.fill(0); dn.fill(0); dP.fill(0); cP.fill(-1);
+    const dP = this.dlvP || (this.dlvP = new Float32Array(nL * KPOL)), cP = this.capP || (this.capP = new Int32Array(nL * KPOL)), kP = this.kP || (this.kP = new Int32Array(nL * KPOL)), pol = this.pol;
+    dl.fill(0); dn.fill(0); dP.fill(0); cP.fill(-1); kP.fill(-1);
     const mo = rt.marketOf, cost = new Float64Array(top.length), wk = new Float64Array(top.length), far = new Map();
     for (let d = 0; d < nL; d++) {
       if (!(u[d] > 0)) continue;
@@ -3143,7 +3162,7 @@ export class People {
         if (k < 0) break;
         const c = pol.list[k].cap, mc = mo[c], sc = Math.max(s, ind[c]);
         const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]) * Math.exp(-x / ll);
-        dP[KPOL * d + j] = y; cP[KPOL * d + j] = c;
+        dP[KPOL * d + j] = y; cP[KPOL * d + j] = c; kP[KPOL * d + j] = k;
         if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
       }
       if (natG > 0) for (let k = 0; k < top.length; k++) {

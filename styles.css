@@ -154,6 +154,7 @@ body.sim-body { background: var(--bg-canvas); }
 .fig-orbit { height: 230px; }
 .fig-model { height: 600px; }
 .fig-people { height: 280px; }
+.fig-states { height: 200px; }
 .fig-ages { height: 250px; }
 .fig-system { height: 340px; }
 

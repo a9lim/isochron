@@ -2,6 +2,7 @@
 // the Climate view's zones. Hairline axes, Newsreader, the inks for data.
 
 import { ZONES } from '../engine/climate.js';
+import { idHue } from './key.js';
 
 const FONT = "'Newsreader', 'STIX Two Text', serif";
 
@@ -502,7 +503,64 @@ export function drawPeople(canvas, fig, pal) {
 }
 
 /**
- * Fig. 9, the people's ages (docs/MODEL.md): the world's people in five-year groups
+ * Fig. 9, the states (src/engine/peoplefit.js `histomapOf`; after Sparks's Histomap of 1931): each state's
+ * share of the world's people as a band in its States-map hue, the bands stacked west to east by their
+ * capitals at founding, on Fig. 8's axis so the eras line up, each parted from the next by a hairline of
+ * paper; the states too small to draw singly a graphite wash above them, up to the share any state holds;
+ * the stateless share is the paper above that.
+ */
+export function drawStates(canvas, st, fig, pal) {
+  const { ctx, w, h } = setup(canvas);
+  if (!st || !fig || st.x.length < 2) return;
+  const left = 30, right = w - 8, top = 8, bot = h - 20, R = st.R, m = st.x.length;
+  const X = x => left + (fig.x0 - x) / Math.max(1e-9, fig.x0 - fig.x1) * (right - left), Y = v => bot - v * (bot - top);
+  // The axis: Fig. 8's ticks along the foot, the share up the side.
+  ctx.strokeStyle = alpha(pal.text, 0.4); ctx.lineWidth = 1;
+  let lastLab = -1e9;
+  for (let d = Math.floor(fig.x0); d >= Math.ceil(fig.x1); d--) {
+    const x = X(d);
+    ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, bot); ctx.lineTo(Math.round(x) + 0.5, bot + 3); ctx.stroke();
+    if (x - lastLab > 34 && (d % 3 === 0 || fig.x0 - fig.x1 < 7)) { label(ctx, before(d), x, bot + 11, pal.muted, 'center', 10.5); lastLab = x; }
+  }
+  for (const v of [0, 0.5, 1]) {
+    const y = Y(v);
+    ctx.strokeStyle = alpha(pal.text, v === 0 ? 0.4 : 0.08);
+    ctx.beginPath(); ctx.moveTo(left, Math.round(y) + 0.5); ctx.lineTo(right, Math.round(y) + 0.5); ctx.stroke();
+    label(ctx, `${Math.round(100 * v)}%`, left - 4, y, pal.muted, 'right', 10);
+  }
+  // The bands: each row's lower edge forward, its upper edge back; then the small states' wash to the held share.
+  const base = new Float32Array(m), band = (lo, hi, fill) => {
+    ctx.fillStyle = fill; ctx.beginPath();
+    for (let c = 0; c < m; c++) { const x = X(st.x[c]), y = Y(lo(c)); if (c) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+    for (let c = m - 1; c >= 0; c--) ctx.lineTo(X(st.x[c]), Y(hi(c)));
+    ctx.closePath(); ctx.fill();
+  };
+  const tops = [];
+  for (let r = 0; r < R; r++) {
+    let any = false;
+    for (let c = 0; c < m; c++) if (st.n[c * R + r] > 0) { any = true; break; }
+    if (any) { const b0 = Float32Array.from(base); band(c => b0[c], c => b0[c] + st.n[c * R + r], alpha(idHue(st.rows[r], pal.dark), 0.62)); }
+    for (let c = 0; c < m; c++) base[c] += st.n[c * R + r];
+    if (any) tops.push(Float32Array.from(base));
+  }
+  band(c => base[c], c => Math.max(base[c], st.held[c]), alpha(pal.text, 0.12));
+  // The hairlines between the states, in the paper.
+  ctx.strokeStyle = pal.canvas; ctx.lineWidth = 0.75;
+  for (const tp of tops) {
+    ctx.beginPath();
+    for (let c = 0; c < m; c++) { const x = X(st.x[c]), y = Y(tp[c]); if (c) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+    ctx.stroke();
+  }
+}
+
+/** Fig. 9's caption: the effective number of states, the largest's share of those held, the share held. */
+export function statesCaption(st) {
+  if (!st) return 'States';
+  return `States · ${st.states.toFixed(1)} effective · the largest ${Math.round(100 * st.top)}% of those held · ${Math.round(100 * st.heldNow)}% of the people held`;
+}
+
+/**
+ * Fig. 10, the people's ages (docs/MODEL.md): the world's people in five-year groups
  * (src/engine/people.js `pyramid`, each a share of everyone on Earth), ages up the side, as bars in
  * the accent; the pre-industrial reference (births B_PRE, no growth) a graphite step outline behind
  * them, so the transition reads as the shape moving off it; the working ages (15–64) bracketed.
@@ -540,7 +598,7 @@ export function drawAges(canvas, pyr, ref, pal) {
   label(ctx, '15–64', xb + 4, (y0 + y1) / 2, pal.muted, 'left', 10, true);
 }
 
-/** Fig. 9's caption: the median age, the share 65 and over, and the working ages'. */
+/** Fig. 10's caption: the median age, the share 65 and over, and the working ages'. */
 export function agesCaption(pyr) {
   if (!pyr || !pyr.length) return 'Ages';
   let acc = 0, med = 0, old = 0, work = 0;

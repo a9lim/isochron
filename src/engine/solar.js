@@ -1,6 +1,6 @@
 // The planet's solar system (docs/MODEL.md): today's on the `earth` seed, else seeded. The
 // people's model reads it (the worlds they settle, the inner planet the swarm takes apart, the belt the
-// habitats are built from) and Fig. 9 draws it (src/render/system.js). The Sun and the Moon are the
+// habitats are built from) and Fig. 11 draws it (src/render/system.js). The Sun and the Moon are the
 // same for every seed (the climate's sunlight, and the tide and day the Moon keeps, are tuned to them).
 import { stream } from '../rng.js';
 import { WORLDS } from './worlds.js';
@@ -10,7 +10,7 @@ const M_EARTH = 5.97e24, A_EARTH = 5.1e8;   // kg, km²
 const HOME_WORLDS = WORLDS.filter(w => w.around === 'earth');
 
 /**
- * Today's Solar System, as Fig. 9 draws it (distances standard; the angles where Fig. 9 places each, not
+ * Today's Solar System, as Fig. 11 draws it (distances standard; the angles where Fig. 11 places each, not
  * where it is): to Saturn, the belt between Mars and Jupiter, Mercury the swarm's quarry (its mass, from
  * memory), and the worlds of src/engine/worlds.js.
  */
@@ -81,7 +81,7 @@ export function seededSystem(seed) {
   }
   if (!belt) { const last = planets[planets.length - 1].a; belt = { a0: last * 1.3, a1: last * 1.8 }; }
   belt.mass = logU(5e20, 2e22);
-  // Fig. 9's marks: each planet's angle, its dot's radius by its mass.
+  // Fig. 11's marks: each planet's angle, its dot's radius by its mass.
   for (const p of planets) {
     p.deg = p.home ? 25 : 360 * r.uniform();
     p.r = Math.max(2.2, Math.min(5.4, 3.4 * Math.pow(p.m / M_EARTH, 0.12)));

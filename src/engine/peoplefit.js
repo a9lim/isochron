@@ -92,3 +92,33 @@ export function figureOf(p, n = 240) {
   const strip = f => f ? { tStar: f.tStar, p: f.p, r2: f.r2, r2exp: f.r2exp } : null;
   return { tStar, now: tNow, to, x0, x1, fit: strip(fit), minds: strip(fm), people: strip(fp), which: fit === fm ? 'minds' : fit ? 'people' : null, series, events };
 }
+
+/**
+ * Fig. 9's data (the Histomap, after Sparks's of 1931): each state's share of the world's people on Fig. 8's
+ * axis, log₁₀(t* − t), from the states' record (src/engine/polities.js, `snapshot`), at most n columns,
+ * each the last snapshot before its x. The states as rows, west to east by their capitals at founding
+ * (neighbours stack beside each other), each with its hue's angle on the peoples' wheel (the States map's);
+ * `n` row-major, a column's rows; `held` each column's share of the people any state holds (the rest of it the
+ * states too small to draw singly). Null before a state has stood or before Fig. 8 has its axis.
+ */
+export function histomapOf(p, fig, n = 240) {
+  const hist = p.pol.hist;
+  if (!fig || !hist.length) return null;
+  const ts = hist.map(s => s.t), cols = [];
+  for (let k = 0; k <= n; k++) {
+    const x = fig.x0 + (fig.x1 - fig.x0) * k / n, i = before(ts, fig.tStar - Math.pow(10, x));
+    if (i < 0 || (cols.length && cols.at(-1) === i)) continue;
+    cols.push(i);
+  }
+  if (cols.length < 2) return null;
+  const meta = p.pol.histStates(), ks = [...new Set(cols.flatMap(i => Array.from(hist[i].k)))].sort((a, b) => meta[a].lon - meta[b].lon || a - b);
+  const row = new Map(ks.map((k, r) => [k, r])), R = ks.length;
+  const x = new Float32Array(cols.length), out = new Float32Array(cols.length * R), held = new Float32Array(cols.length);
+  cols.forEach((i, c) => {
+    const s = hist[i];
+    x[c] = Math.log10(fig.tStar - s.t); held[c] = s.all > 0 ? (s.held ?? 0) / s.all : 0;
+    for (let j = 0; j < s.k.length; j++) out[c * R + row.get(s.k[j])] = s.all > 0 ? s.n[j] / s.all : 0;
+  });
+  const last = p.history.at(-1) || {};
+  return { x, n: out, held, rows: ks.map(k => meta[k].h), R, states: last.states || 0, top: last.stTop || 0, heldNow: last.stHeld || 0 };
+}

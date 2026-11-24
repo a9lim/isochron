@@ -27,7 +27,7 @@ function blocks(c, x, y, P, ink) {
 }
 // The peoples' hue wheel (src/render/globe.js, idWheel; Miasma's strain wheel): OKLCH at one lightness and
 // chroma a theme, its zero opposite the accent, hurried through the accent with its chroma dipping there.
-function idHue(h, dark) {
+export function idHue(h, dark) {
   const L = dark ? 0.62 : 0.525, C0 = dark ? 0.10 : 0.08, ah = dark ? 0.3473 : 0.4346;
   const v = ((h / (2 * Math.PI) + 0.5) % 1 + 1) % 1, hh = ah + 2 * Math.PI * v + 0.35 * Math.sin(2 * Math.PI * v);
   const dh = Math.abs(Math.atan2(Math.sin(hh - ah), Math.cos(hh - ah))), C = C0 * (1 - 0.5 * Math.exp(-((dh / 0.5236) ** 2)));

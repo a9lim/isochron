@@ -136,10 +136,12 @@ export class Polities {
     this.rY = new Float64Array(nL);               // its region's industrial income a person
     this.nat = new Float64Array(nL);              // how far its people are schooled into a nation (0–1)
     this.S = new Float64Array(nL).fill(pp.P.COH0); // each place's cohesion (asabiya)
+    this.ex = new Float64Array(nL);               // the spare room among its land neighbours (its people's exit; src/engine/classes.js reads it too)
     this.fr = new Float64Array(nL);               // its metaethnic frontier's weight
     this.rv = new Float64Array(nL).fill(1);       // its new ideas' lift by its states' rivals
     this.cid = new Int32Array(KC * nL); this.cpi = new Float64Array(KC * nL);
-    this.list = [];                               // every polity yet: { cap, coh, born, died, hue, N, A, P, L, f }
+    this.list = [];                               // every polity yet: { cap, coh, born, died, hue, N, A, P, L, f; peakN, peakT, peakA, parent; O, pos, rev (office: src/engine/classes.js) }
+    this.hist = []; this.tHist = null;            // the Histomap's record: each state's people every DT_HIST years (`snapshot`)
     this.live = [];
     this.rng = stream(pp.planet.seed, 'people:polities');
     this.owed = 0; this.nStates = 0; this.topShare = 0; this.heldN = 0; this.topN = 0; this.topArea = 0; this.first = null;
@@ -184,8 +186,11 @@ export class Polities {
         if (K[b] > 0) ex += Math.max(0, 1 - N[b] / K[b]);
       }
       ex = deg ? ex / deg : 0;
+      this.ex[c] = ex;
       pi0[c] = P.B_LOC * Math.exp(Math.min(zc[c] / P.Z_MIL, 600)) * (1 + P.K_RUG * H.slope[c] / 0.01) * (1 + P.K_EXIT * ex);
     }
+    // Classes (src/engine/classes.js): the claims, positions and elites' numbers, and the stress cohesion reads below.
+    if (pp.classes) pp.classes.advance(dt);
     // The region about each place, by one kernel: each place of its catchment by the local routes (roads,
     // rivers, short crossings) e-fold over the reach a state would have there. Its people's arms are the
     // stateless resistance (a province rises together), and a state's arms among them its power there.
@@ -342,7 +347,9 @@ export class Polities {
       // world of one people and few frontiers let its states' cores lose heart, and a third of it was
       // stateless at the takeoff).
       const floor = P.A_MIN + (P.A_NAT - P.A_MIN) / (1 + Math.exp(-(pp.zl[c] - P.Z_NAT) / P.W_NAT));
-      Sc[c] = Math.max(floor, asabiya(Sc[c], P.R_ASA * fr[c], P.D_ASA * (1 - fr[c]), dt));
+      // Stress (src/engine/classes.js, ψ) spends it too, frontier or not: the elites' quarrels and the commoners' risings.
+      const psi = pp.classes ? pp.classes.psi[c] : 0;
+      Sc[c] = Math.max(floor, asabiya(Sc[c], P.R_ASA * fr[c], P.D_ASA * (1 - fr[c]) + P.D_PSI * psi, dt));
     }
     // A state's cohesion is its people's, each by how alike they are to its capital's: the ruling
     // people's asabiya, not its subjects' (Turchin's core; an empire's colonies, subjects decaying
@@ -422,6 +429,30 @@ export class Polities {
     }
     this.count();
     this.recolour();
+    this.snapshot();
+  }
+
+  /**
+   * The Histomap's record (Fig. 9): every DT_HIST years (DT_HIST_IND with industry), the world's people, those
+   * the states hold, and each state's holding at least HIST_MIN of them, at most HIST_K. Thinned to every other entry past
+   * HIST_MAX entries (the oldest half), so the record stays bounded over any run.
+   */
+  snapshot() {
+    const pp = this.pp, P = pp.P, t = pp.t, every = pp.econ && pp.econ.on ? P.DT_HIST_IND : P.DT_HIST;
+    if (this.tHist !== null && t - this.tHist < every) return;
+    this.tHist = t;
+    let all = 0;
+    for (let c = 0; c < pp.nL; c++) all += pp.Ntot[c];
+    const rows = this.live.map(k => [k, this.list[k].N]).filter(([, n]) => n >= P.HIST_MIN * all).sort((a, b) => b[1] - a[1]).slice(0, P.HIST_K);
+    this.hist.push({ t, all, held: this.heldN, k: Int32Array.from(rows, r => r[0]), n: Float32Array.from(rows, r => r[1]) });
+    if (this.hist.length > P.HIST_MAX) { const h = this.hist, half = h.length >> 1; this.hist = h.slice(0, half).filter((_, i) => i % 2 === 0).concat(h.slice(half)); this.histThin = (this.histThin || 0) + 1; }
+  }
+
+  /** The Histomap's states: each one recorded, its hue's angle on the peoples' wheel and its capital's longitude (rad), for the figure's colours and order. */
+  histStates() {
+    const pp = this.pp, H = pp.H, out = {};
+    for (const s of this.hist) for (const k of s.k) if (!(k in out)) { const q = this.list[k]; out[k] = { h: HUE(q.hue), lon: q.lon0 ?? (H.lon ? H.lon[q.cap] : 0), born: q.born, died: q.died }; }
+    return out;
   }
 
   /**
@@ -497,7 +528,7 @@ export class Polities {
     const u0 = this.rng.uniform(); this.rng.uniform();
     const hue = this.pick(c, meet, -1, u0);
     if (this.first === null) this.first = pp.t;
-    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0 });
+    this.list.push({ cap: c, coh: this.S[c], born: pp.t, died: null, hue, N: 0, A: 0, P: 0, L: 0, f: 0, sI: 0, area: 0, peakN: 0, peakT: pp.t, peakA: 0, parent: null, lon0: pp.H.lon ? pp.H.lon[c] : 0, lat0: pp.H.lat ? pp.H.lat[c] : 0 });
     this.live.push(k);
     // It unites its region: the free share of each place in its catchment, e-fold over its reach (a
     // chiefdom's confederation; from one place, the region's resistance stopped every founding). Its
@@ -554,7 +585,16 @@ export class Polities {
   /** The effective number of states (Hill's order 2 over the people each holds), the largest's share of them, the people held, and the largest's people and area (km², the places it owns). */
   count() {
     let all = 0, sq = 0, top = 0, area = 0;
-    for (const k of this.live) { const q = this.list[k], n = q.N; all += n; sq += n * n; if (n > top) top = n; if (q.area > area) area = q.area; }
+    for (const k of this.live) {
+      const q = this.list[k], n = q.N;
+      all += n; sq += n * n; if (n > top) top = n; if (q.area > area) area = q.area;
+      if (n > q.peakN) { q.peakN = n; q.peakT = this.pp.t; }
+      if (q.area > q.peakA) q.peakA = q.area;
+    }
+    // Each state's peak share of the world's people (the states survey's great states: tools/people/states-survey.mjs).
+    let world = 0;
+    for (let c = 0; c < this.pp.nL; c++) world += this.pp.Ntot[c];
+    if (world > 0) for (const k of this.live) { const q = this.list[k]; q.peakS = Math.max(q.peakS || 0, q.N / world); }
     this.nStates = all > 0 ? all * all / sq : 0;
     this.topShare = all > 0 ? top / all : 0;
     this.heldN = all; this.topN = top; this.topArea = area;

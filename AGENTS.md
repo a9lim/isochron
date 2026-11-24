@@ -14,6 +14,7 @@ for f in main.js colors.js src/*.js src/*/*.js; do node --check "$f"; done
 node tools/climate-check.mjs earthlike # a seeded planet's settled climate (or `earth`)
 node tools/earth/climate-score.mjs     # today's Earth against observations (tools/earth/README.md)
 node tools/people/earth-score.mjs      # the people on today's Earth against where people live now
+node tools/people/states-survey.mjs '{}' 8   # its states and classes over eight draws (lifespans, the lead, cycles, stress, elites)
 node tools/planet-run.mjs earthlike 600 1000 10 '{"CARBON":{"FIXED":220}}'   # the coupled planet headless
 node tools/people-run.mjs earthlike 5e6 '{}'   # the people headless (LIVE=1: beside a live planet)
 node tools/engine-cost.mjs 7 20 0.5 earthlike gpu   # the plate step's cost by part

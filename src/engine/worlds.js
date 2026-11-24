@@ -1,5 +1,5 @@
 // The worlds off Earth people may settle (docs/MODEL.md): the people's model (src/engine/people.js)
-// opens them and splits its people over them; Fig. 9 (src/render/system.js) draws them.
+// opens them and splits its people over them; Fig. 11 (src/render/system.js) draws them.
 
 /**
  * The worlds people may settle off Earth (speculation, the order synthesis): each its distance from
