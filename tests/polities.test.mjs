@@ -204,6 +204,24 @@ test('industry crosses a contested march almost as it crosses a border, and free
   assert.ok(apart(1, 2) > 0.99 && apart(0, 3) > 0.99, `schooled: ${apart(1, 2).toFixed(4)}, ${apart(0, 3).toFixed(4)}`);
 });
 
+test('the border norm slows conquest of a state\'s land, not the claiming of land no state holds', () => {
+  // Two states, the media spanning the world (the norm ~1): a step later, the larger state's gain at a stateless
+  // place is the same with the norm as without it, and at a place the other state holds it is aN/a of it,
+  // (1 − e^{−dt/(T_WAR (1 + K_NORM norm))})/(1 − e^{−dt/T_WAR}), exactly.
+  const n = 200, run = K => {
+    const pp = line({ n, params: { K_NORM: K } }), pol = pp.pol;
+    pp.zl.fill(20);
+    const a = seat(pol, 90, 15), b = seat(pol, 112, 3);
+    pol.advance(5);
+    return { pol, s: held(pol, a, n), b };
+  };
+  const on = run(10), off = run(0), T = PEOPLE.T_WAR, norm = on.pol.norm;
+  assert.ok(norm > 0.9, `the media's span ${norm}`);
+  assert.ok(off.s[107] > 0 && on.s[107] === off.s[107], `stateless: ${on.s[107]} against ${off.s[107]}`);
+  const ratio = (1 - Math.exp(-5 / (T * (1 + 10 * norm)))) / (1 - Math.exp(-5 / T));
+  assert.ok(off.s[110] > 0 && Math.abs(on.s[110] / off.s[110] - ratio) < 1e-9, `held by another: ${on.s[110] / off.s[110]} against ${ratio}`);
+});
+
 test("a successor takes its parent's holdings nearer its seat, keeping everyone's allegiance", () => {
   // A state seated at 60 holding the whole line; a city at 140 secedes. Each place the successor's catchment
   // reaches splits by how much nearer it is to the new seat, e^{−x_new/L} / (e^{−x_new/L} + e^{−x_old/L}): half

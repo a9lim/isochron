@@ -68,6 +68,7 @@ let P = null, playing = false, pending = 3, scheduled = false, tides = null;
 const ticks = [];
 let samples = [], sea0 = 0, lastFast = 0, lastSeaCheck = 0, seaSent = 0, riversSteps = -1, stepYears = 0, stepsDone = 0, msPerStep = 50;
 let yearSent = -1, yearLiveSent = -1, riversId = 0, riversCells = null, riversQ12 = null, riversRt = null, lastRate = 1;
+let iceRouted = null, iceRouteKey = '';   // the drawn drainage over the ice's surface (Landscape.iceRoute), and what it was routed on
 let lakesSent = -1, lastLakes = 0;
 let coverSent = -1, lastCover = 0;
 
@@ -270,7 +271,11 @@ async function sendSurface(fromStep, steps = 0, ms = 0) {
   // closes; they run on their own drainage, which ends at closed lakes.
   const rk = `${land.steps}:${P.climate.version}:${lakesKey(P.lakes)}`;
   if (rk !== riversSteps) {
-    const rt = riversRt = drainage(grid, land, P.lakes);
+    // Over the ice's surface where there are sheets, routed again when the landscape steps or the lakes
+    // rebuild (as they do when the ice moves).
+    const ik = `${land.steps}:${P.lakes.builds || 0}`;
+    if (ik !== iceRouteKey) { iceRouted = land.iceRoute(ice.H); iceRouteKey = ik; }
+    const rt = riversRt = drainage(grid, land, P.lakes, iceRouted);
     riversQ12 = land.monthly(P.climate.runoffM, rt);
     m.rivers = traceRivers(grid, land, f.coast, riversQ12, RIVER_MIN, rt, lakesDraw); riversSteps = rk;
     m.riversId = ++riversId; riversCells = m.rivers.map(r => r.cells);

@@ -69,8 +69,11 @@
 // cohesion. One rule for a dynasty broken into its provinces, settler colonies breaking away while alike, and
 // a schooled colony founding its own state. A schooled stateless place founds as its nation's people stand in
 // for a city, × (1 + K_NATF × its schooling). The border norm (a9; Zacher's territorial integrity, from memory;
-// speculation as a mechanism): once the media span the world, a state gains a place it doesn't hold at
-// T_WAR × (1 + K_NORM × the media's span, the people's mean), so conquest slows and borders freeze.
+// speculation as a mechanism): once the media span the world, a state gains a place another state holds at
+// T_WAR × (1 + K_NORM × the media's span, the people's mean), so conquest slows and borders freeze. Land no
+// state holds it gains at T_WAR as before (slowed too, every share a place lost in the late industrial era's
+// churn came back eleven times slower than it went, and by the takeoff ~5% of the peopled land, a tenth of
+// North America's and Siberia's, had drained out of the states).
 // Capacity and tribute (batch 3c; synthesis, the values speculation):
 //   identity    each state's own point on the torus, its rulers' (conquest elites, a9): its capital's people's
 //               at founding, kept when its capital moves, drawn toward its capital's people over T_DYN
@@ -163,6 +166,26 @@ const HUE = (() => {
 /** How far apart two hues are round the wheel (0–½). */
 const hueGap = (a, b) => { const d = Math.abs(a - b) % 1; return Math.min(d, 1 - d); };
 const smooth = x => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+
+/**
+ * A drawn field's first m values a cell carried one cell out to sea (and onto land with no people's
+ * place): each such cell beside a place takes the values of its strongest neighbour by `out[12 i + w]`,
+ * so a wash reaches the drawn coast (between a place and the sea the globe's triangles had faded it out
+ * along every coast). Drawing only.
+ */
+export function coastward(pp, out, m, w = 4) {
+  const g = pp.planet.grid, loc = pp.loc, cells = pp.cells, best = new Float32Array(g.n);
+  for (let c = 0; c < pp.nL; c++) {
+    const i = cells[c], o = 12 * i, F = out[o + w];
+    if (!(F > 0)) continue;
+    for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+      const j = g.nbr[t];
+      if (loc[j] >= 0 || !(F > best[j])) continue;
+      best[j] = F;
+      for (let k = 0; k < m; k++) out[12 * j + k] = out[o + k];
+    }
+  }
+}
 
 /** The cohesion's logistic with decay over dt: dA/dt = a A (1 − A) − b A, exactly. */
 export function asabiya(A, a, b, dt) {
@@ -377,8 +400,8 @@ export class Polities {
         tribT[c] = P.T_TRIB * (rg === Infinity ? 1 : rg / (1 + rg));
       }
     }
-    // Allegiance: each place's shares toward their targets over T_WAR; gains by a state that doesn't hold the
-    // place over T_WAR × (1 + K_NORM × the media's span: the border norm).
+    // Allegiance: each place's shares toward their targets over T_WAR; gains by a state where another holds the
+    // place over T_WAR × (1 + K_NORM × the media's span: the border norm, which guards states, not unclaimed land).
     let mw = 0, mn = 0;
     if (P.K_NORM > 0) for (let c = 0; c < nL; c++) { if (!(N[c] > 0)) continue; const l = ids.idL(pp.zl[c]) / P.L_WORLD; mw += N[c] * (1 - Math.exp(-l * l)); mn += N[c]; }
     this.norm = mn > 0 ? mw / mn : 0;
@@ -408,7 +431,7 @@ export class Polities {
       const own0 = id[o] >= 0 && s[o] >= 0.5 * d[c] ? id[o] : -1;
       for (let i = 0; i < n; i++) {
         const tg = den > 0 && d[c] > 0 ? (list[uk[i]].camp ? sk * dH[c] * Math.pow(up[i], g) / den : den2 > 0 ? pool * Math.pow(up[i], g) / den2 : 0) : 0;
-        un[i] = us[i] + (tg - us[i]) * (tg > us[i] && uk[i] !== own0 ? aN : a);
+        un[i] = us[i] + (tg - us[i]) * (tg > us[i] && own0 >= 0 && uk[i] !== own0 ? aN : a);
         moved += Math.abs(un[i] - us[i]);
       }
       flux[c] = 0.5 * moved * N[c] / dt;
@@ -925,6 +948,7 @@ export class Polities {
       out[o + 2] = F * (sw ? x0 : x1); out[o + 3] = F * (sw ? y0 : y1);
       out[o + 4] = F;
     }
+    coastward(this.pp, out, 5);
     return out;
   }
 

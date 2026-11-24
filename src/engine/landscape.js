@@ -280,6 +280,27 @@ export class Landscape {
     this.z.set(z0);
   }
 
+  /**
+   * The drainage over the ice, for drawing (src/render/rivers.js, `drainage`): the rough routing's surface
+   * plus the ice (`iceH`, m), so water runs on an ice sheet's surface to its margin (its melt and the
+   * accumulation the soil's pack passes on, leaving where the ice ends) and a sheet dams what drains toward
+   * it, as the lakes route (src/engine/lakes.js, reroute: their basins behind the ice are its proglacial
+   * lakes). With each cell under a sheet (more than `sheet` m, where the globe draws one), where no river
+   * is drawn. Null where no ice is that thick, so the landscape's own routing serves. Drawing only: the
+   * landscape's cut runs on its bed.
+   */
+  iceRoute(iceH, sheet = 50) {
+    const n = this.grid.n, base = this.base, zr = this.zr;
+    if (!zr || !iceH) return null;
+    let any = false;
+    for (let i = 0; i < n; i++) if (!base[i] && iceH[i] > sheet) { any = true; break; }
+    if (!any) return null;
+    const z = this.zi || (this.zi = new Float64Array(n)), ice = new Uint8Array(n);
+    for (let i = 0; i < n; i++) { const h = base[i] ? 0 : iceH[i]; z[i] = zr[i] + h / 1000; ice[i] = h > sheet ? 1 : 0; }
+    this.ri = route(this.grid, z, base, this.ri);
+    return { r: this.ri, ice };
+  }
+
   /** The implicit stream-power cut over dt years on z (after reroute); z0 keeps the start. */
   cut(dt) {
     const tec = this.tec, n = this.grid.n, s = tec.seaLevel, z = this.z, z0 = this.z0, f = this.f;

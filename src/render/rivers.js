@@ -18,7 +18,9 @@
 // They run on their own drainage (`drainage`): the landscape's, except that in a
 // closed lake's basin water runs down the basin's floor to the lake and ends
 // there, and a spilling lake passes on only its overflow (its evaporation
-// taken), so a river below a closed lake is dry.
+// taken), so a river below a closed lake is dry. Where there are ice sheets, the
+// landscape's routing over the ice's surface (Landscape.iceRoute): water runs off
+// a sheet to its margin, and no river is drawn on one.
 
 export const RIVER_MIN = 1500;   // m³/s: a river worth drawing at this grid's scale
 // A confluence is a node where its second inflow carries at least this share of the first's: two
@@ -31,8 +33,10 @@ export const NODE = 0.4;
  * (src/engine/lakes.js): in a closed lake's depression each cell drains to its lowest
  * neighbour in the depression (on the lakes' own surface) and the lake's cells are sinks;
  * where the drainage leaves a spilling lake's depression, what it carries is scaled by the
- * lake's outflow against its inflow (`pass`). Returns { rcv, order (receivers first), count,
- * pass, lake (cells under a lake's water), key (changes when a lake opens or closes) }.
+ * lake's outflow against its inflow (`pass`). `iceR`, where there are ice sheets, is the landscape's
+ * routing over their surface (Landscape.iceRoute), in place of its own. Returns { rcv, order
+ * (receivers first), count, pass, lake (cells under a lake's water), ice (cells under a sheet, or
+ * null), key (changes when a lake opens or closes) }.
  */
 /** What `drainage` depends on in the lakes: their basins, and which of them spill. */
 export function lakesKey(lakes) {
@@ -44,8 +48,8 @@ export function lakesKey(lakes) {
 /** Does region q spill over the year (more than a hundredth of what reaches it)? The year's memory decays toward closed, never to it. */
 const spills = (lakes, q) => lakes.regOutY[q] > 0.01 * lakes.regInY[q] && lakes.regOutY[q] > 0;
 
-export function drainage(grid, land, lakes) {
-  const n = grid.n, r = land.r, nbrOff = grid.nbrOff, nbr = grid.nbr;
+export function drainage(grid, land, lakes, iceR = null) {
+  const n = grid.n, r = iceR ? iceR.r : land.r, nbrOff = grid.nbrOff, nbr = grid.nbr;
   const rcv = Int32Array.from(r.rcv), pass = new Float32Array(n).fill(1), lake = new Uint8Array(n);
   const key = lakesKey(lakes);
   if (lakes && lakes.built) {
@@ -77,7 +81,7 @@ export function drainage(grid, land, lakes) {
   let head = 0, tail = 0;
   for (let i = 0; i < n; i++) if (rcv[i] < 0) order[tail++] = i;
   while (head < tail) { const c = order[head++]; for (let t = cnt[c]; t < cnt[c + 1]; t++) order[tail++] = don[t]; }
-  return { rcv, order, count: tail, pass, lake, key };
+  return { rcv, order, count: tail, pass, lake, ice: iceR ? iceR.ice : null, key };
 }
 
 /**
@@ -108,7 +112,8 @@ export function traceRivers(grid, land, drawn = null, Q12 = null, qmin = RIVER_M
   };
   const big = new Uint8Array(n);
   const onLand = i => !drawn || drawn[i] > 0;
-  for (let i = 0; i < n; i++) if ((Q[i] >= qmin || (peak && peak[i] >= 1.5 * qmin)) && rcv[i] >= 0 && !isLake(i) && onLand(i)) big[i] = 1;
+  const ice = rt && rt.ice;   // no river on an ice sheet: its water leaves at the margin
+  for (let i = 0; i < n; i++) if ((Q[i] >= qmin || (peak && peak[i] >= 1.5 * qmin)) && rcv[i] >= 0 && !isLake(i) && onLand(i) && !(ice && ice[i])) big[i] = 1;
   // Each cell's largest and second-largest big donors.
   const d1 = new Int32Array(n).fill(-1), d2 = new Int32Array(n).fill(-1);
   const donors = () => {

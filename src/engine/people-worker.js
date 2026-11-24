@@ -16,7 +16,7 @@
 // page's ticks owe the people years; the people step toward them at their own pace (People.nextDt)
 // and, behind, say so, so the page holds its clock.
 import { buildGrid } from '../grid/icosphere.js';
-import { People } from './people.js';
+import { People, marks } from './people.js';
 import { solarSystem } from './solar.js';
 import { figureOf, histomapOf } from './peoplefit.js';
 import { stable } from './cohorts.js';
@@ -41,7 +41,7 @@ self.onmessage = e => {
   } else if (m.type === 'tick') { if (people) { owed += m.adv; schedule(owed >= dtLast ? 0 : waitLeft()); } }
   else if (m.type === 'params') {
     Object.assign(params, m.params);
-    if (people) Object.assign(people.P, m.params);
+    if (people) { Object.assign(people.P, m.params); self.postMessage({ type: 'marks', ...marks(people.P) }); }
   }
 };
 
@@ -58,6 +58,7 @@ function onEngine(e) {
       people.debug = true;   // the numbers checked after each phase until one isn't finite (`step`, below)
       people.seed();
       lastStep = performance.now();
+      self.postMessage({ type: 'marks', ...marks(people.P) });   // the inventions' thresholds, for the Knowledge map's lines
       post(true);
     } else {
       people.rates(f);
@@ -170,7 +171,7 @@ function post(force) {
     if (rt && rt.tTrade !== routesAt) {
       routesAt = rt.tTrade;
       const r = rt.lines();
-      self.postMessage({ type: 'routes', ...r }, [r.P.buffer, r.W.buffer, r.sea.buffer, r.off.buffer]);
+      self.postMessage({ type: 'routes', ...r }, [r.P.buffer, r.W.buffer, r.off.buffer]);
     }
 
   }

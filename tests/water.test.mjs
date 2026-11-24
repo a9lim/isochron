@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Planet } from '../src/engine/planet.js';
 import { accumulatePass } from '../src/engine/landscape.js';
-import { drainage } from '../src/render/rivers.js';
+import { drainage, traceRivers } from '../src/render/rivers.js';
 
 const R2 = 6371 * 6371;
 let shared = null;
@@ -83,4 +83,38 @@ test('the closure-to-live handover is continuous: the first live year repeats th
     top = Math.max(top, a);
   }
   assert.ok(worst < 0.2, `live against periodic: ${worst.toFixed(3)} mm at most (largest month ${top.toFixed(0)} mm)`);
+});
+
+test('rivers run off an ice sheet over its surface: never up it, and none drawn on it', () => {
+  // A dome of ice 2 km thick at its centre, laid on the land farthest from the sea. Water runs on the ice's
+  // surface (Landscape.iceRoute) to the margin, so along the drainage it never climbs the ice (routed on its bed,
+  // a river crossed a cap uphill), and no river is drawn where the globe draws the sheet (past 50 m).
+  const P = planet(), g = P.grid, n = g.n, land = P.land, far = new Int32Array(n).fill(-1);
+  let front = [];
+  for (let i = 0; i < n; i++) if (land.base[i]) { far[i] = 0; front.push(i); }
+  for (let d = 1; front.length; d++) {
+    const next = [];
+    for (const i of front) for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) { const j = g.nbr[t]; if (far[j] < 0) { far[j] = d; next.push(j); } }
+    front = next;
+  }
+  let c0 = 0;
+  for (let i = 0; i < n; i++) if (far[i] > far[c0]) c0 = i;
+  const H = new Float32Array(n), p0 = [g.pos[3 * c0], g.pos[3 * c0 + 1], g.pos[3 * c0 + 2]];
+  for (let i = 0; i < n; i++) {
+    if (land.base[i]) continue;
+    const a = Math.acos(Math.min(1, p0[0] * g.pos[3 * i] + p0[1] * g.pos[3 * i + 1] + p0[2] * g.pos[3 * i + 2])) / 0.35;
+    if (a < 1) H[i] = 2000 * Math.sqrt(1 - a * a);
+  }
+  const iceR = land.iceRoute(H), rt = drainage(g, land, null, iceR), top = i => land.zr[i] + H[i] / 1000;
+  let steps = 0;
+  for (let i = 0; i < n; i++) {
+    const j = rt.rcv[i];
+    if (!(H[i] > 50) || j < 0 || !(H[j] > 50)) continue;
+    steps++;
+    assert.ok(top(j) < top(i), `cell ${i} drains up the ice to ${j}: ${top(i).toFixed(3)} → ${top(j).toFixed(3)} km`);
+  }
+  assert.ok(steps > 20, `${steps} steps on the sheet`);
+  const rivers = traceRivers(g, land, null, land.monthly(P.climate.runoffM, rt), 1, rt);
+  assert.ok(rivers.length > 0, 'rivers drawn');
+  for (const r of rivers) for (const c of r.cells) assert.ok(!(H[c] > 50), `a river drawn on the sheet at ${c}`);
 });

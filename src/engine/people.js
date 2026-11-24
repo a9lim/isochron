@@ -582,7 +582,7 @@ export const PEOPLE = {
   // Secession (batch 3b, src/engine/polities.js; synthesis, the values speculation): a held city's successor at
   // R_SEC a year at most, as its region's resistance passes its state's hold there (ρ^G/(1 + ρ^G), G = SEC_G),
   // as far as it's organized (its cohesion about A_ORG) and × (1 + K_SECP ψ); a schooled stateless place founds × (1 + K_NATF × its schooling); the border norm slows a state's
-  // gains of places it doesn't hold × (1 + K_NORM × the media's span).
+  // gains of places another state holds × (1 + K_NORM × the media's span).
   R_SEC: 0.02, SEC_G: 3, A_ORG: 0.3, K_SECP: 3, K_NATF: 10, K_NORM: 10,
   // Capacity and tribute (batch 3c, src/engine/polities.js; synthesis, the values speculation): a state's fiscal
   // capacity κ from KAP0 at founding, raised by war's pressure over T_KUP toward a ceiling KAP0 + (1 − KAP0)
@@ -901,6 +901,21 @@ export function migration(N, S, room, RE, open, hE, dt, P) {
 }
 
 /** The saving rate by class (batch 3f): S_CAP of capital's income, S_WAGE of the rest, capital's the share α + (1 − α) sA (AI's work its owners'). */
+/**
+ * The inventions the model reads, each a threshold in knowledge (a hazard's start or a logistic's middle), by the
+ * domain it needs: production's (techniques), the eras' (farming, industry, AI) and the rest (herding, riding,
+ * fiscal capacity's ceiling, ocean ships, gunpowder, medicine at the frontier, renewables, synthetic food,
+ * industry off-world, fusion), and learning's (writing, science, schooling, modern medicine, industry learnable
+ * across borders). The Knowledge map draws each as a line where a place's knowledge crosses it (`marks`).
+ */
+export const INVENTIONS = {
+  eras: ['Z_FARM', 'Z_IND', 'Z_AI'],
+  production: ['Z_HERD', 'Z_RIDE', 'Z_KAP', 'Z_OCEAN', 'Z_GUN', 'Z_MEDF', 'Z_REN', 'Z_SYN', 'Z_SPACE', 'Z_FUS'],
+  learning: ['Z_ID0', 'Z_UP', 'Z_NAT', 'Z_MOD', 'Z_ABS'],
+};
+/** The inventions' thresholds under parameters P (`INVENTIONS`). */
+export function marks(P) { return Object.fromEntries(Object.entries(INVENTIONS).map(([k, v]) => [k, v.map(z => P[z])])); }
+
 export function saveRate(P, sA = 0) { const k = P.ALPHA + (1 - P.ALPHA) * sA; return P.S_CAP * k + P.S_WAGE * (1 - k); }
 
 /** A fresh industrial economy (before industry: off). */

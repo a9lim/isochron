@@ -129,7 +129,6 @@ const GLYPHS = {
   },
   isotherm: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.3); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
   // The Sea chart's isotherms, in its wash's ink: prussian where cold, sienna where warm.
-  seaiso: (c, x, y, P) => { c.lineWidth = 1; c.strokeStyle = rgba(P.ocean, 0.75); line(c, x, y + 6, x + 13, y + 6); c.strokeStyle = rgba(P.inks.sienna, 0.75); line(c, x + 13, y + 6, x + 26, y + 6); },
   // A current: a streamline, as the wind's (the Sea chart's).
   current: (c, x, y, P) => GLYPHS.wind(c, x, y, P),
   // The water's vertical motion in indigo: upwelling a stipple, the overturning's sinking a hatch (the shader's).
@@ -207,12 +206,14 @@ const GLYPHS = {
   // frontier's a place's is, far behind (left) to at the frontier (right).
   production: (c, x, y, P) => lag(c, x, y, P, P.accent),
   learning: (c, x, y, P) => lag(c, x, y, P, P.inks.verdigris),
+  // The inventions (the shader's lines where a place's knowledge crosses each threshold), in each domain's ink.
   era: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.accent, 0.8); c.lineWidth = 2.2; line(c, x, y + 6, x + 26, y + 6); },
+  eraP: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.accent, 0.7); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
+  eraL: (c, x, y, P) => { c.strokeStyle = mixHex(P.canvas, P.inks.verdigris, 0.75); c.lineWidth = 1; line(c, x, y + 6, x + 26, y + 6); },
   // Works: dots on a staggered lattice in the rules' colour, as the shader's `stipple`.
   works: (c, x, y, P) => { c.fillStyle = rgba(P.text, 0.6); for (let b = 0; b < 3; b++) for (let a = 0; a < 5; a++) { c.beginPath(); c.arc(x + 2.6 + a * 5.2 + (b % 2) * 2.6, y + 2 + b * 4, 0.8, 0, 7); c.fill(); } },
-  // The routes (src/render/overlay.js, drawRoutes): roads and rivers solid, sea lanes dashed, in the rules' colour.
+  // The routes (src/render/overlay.js, drawRoutes): by land, river and sea alike, in the rules' colour.
   route: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; line(c, x, y + 6, x + 26, y + 6); },
-  lane: (c, x, y, P) => { c.strokeStyle = rgba(P.text, 0.6); c.lineWidth = 1.5; c.setLineDash([4.8, 4]); line(c, x, y + 6, x + 26, y + 6); c.setLineDash([]); },
   // Night: the night side's three steps, the Sun 0°, 6° and 12° below the horizon (the shader's NIGHT_K).
   night: (c, x, y, P) => {
     for (let k = 0; k < 3; k++) { c.fillStyle = nightGround(P, (k + 1) / 3); c.fillRect(x + k * 26 / 3, y, 26 / 3 + 0.3, 12); }
@@ -295,15 +296,15 @@ const ITEMS = {
     ['volcano', 'Eruption'], ['salt', 'Salt flat'], ['permafrost', 'Permafrost'], ['icestream', 'Ice stream']],
   'climate-zones': [['z:0', 'Tropical'], ['z:4', 'Arid'], ['z:6', 'Temperate'], ['z:9', 'Continental'], ['z:12', 'Polar'], ['export', 'Export production'], ['volcano', 'Eruption']],
   'climate-air': [['wind', 'Wind'], ['dust', 'Dust'], ['veil', 'Sulfate veil'], ['volcano', 'Eruption']],
-  'climate-sea': [['current', 'Current'], ['seaiso', 'Isotherm, 5 °C'], ['upwell', 'Upwelling'], ['sink', 'Sinking'], ['volcano', 'Eruption']],
+  'climate-sea': [['current', 'Current'], ['upwell', 'Upwelling'], ['sink', 'Sinking'], ['volcano', 'Eruption']],
   'weather-pressure': [...FRONTS, ['trough', 'Trough'], ['pridge', 'Ridge'], ['shear', 'Shear line'], ['dry', 'Dry line'], ['isobar', 'Isobar, 4 hPa'], ['rain', 'Rain']],
   'weather-temperature': [...FRONTS, ['isotherm', 'Isotherm, 5 °C'], ['iso0', '0 °C']],
   'weather-humidity': [['h:dry', 'Dry air'], ['h:moist', 'Moist air'], ['dry', 'Dry line'], ['isohume', 'Humidity, 20%'], ['rain', 'Rain']],
   'people-settlement': [['unknown', 'Unexplored'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
   'people-density': [['folk', 'People'], ['robot', 'Robots'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['farm', 'Farms'], ['pasture', 'Pasture'], ['fishing', 'Fishing'], ['solar', 'Solar farms']],
-  'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry'], ['works', 'Works'], ['city', 'Cities'], ['route', 'Route'], ['lane', 'Sea lane']],
-  'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities']],
-  'people-states': [['states', 'States'], ['contested', 'Contested'], ['capital', 'Capital'], ['city', 'Cities']],
+  'people-knowledge': [['production', 'Production'], ['learning', 'Learning'], ['era', 'Farming, industry, AI'], ['eraP', 'Invention, production'], ['eraL', 'Invention, learning'], ['works', 'Works'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories'], ['route', 'Routes']],
+  'people-culture': [['peoples', 'Peoples'], ['mixed', 'Two ways of life'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories']],
+  'people-states': [['states', 'States'], ['contested', 'Contested'], ['capital', 'Capital'], ['city', 'Cities'], ['datacenter', 'Datacenters'], ['factory', 'Factories']],
   tides: [['amplitude', 'Tide, 0–3 m'], ['cotidal', 'Co-tidal, hourly'], ['amphidrome', 'Amphidrome'], ['highwater', 'High water'], ['dissipation', 'Energy lost']],
 };
 

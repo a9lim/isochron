@@ -80,7 +80,7 @@ for (const k in L) delete L[k];
 for (let s = 0; s < reps; s++) {
   await time('lakes rebuild', () => P.rebuildLakes());
   await time('  their routing', () => route(P.grid, P.lakes.zr, P.lakes.baseR, P.lakes.routeR));
-  const rt = await time('rivers: drainage', () => drainage(P.grid, land, P.lakes));
+  const rt = await time('rivers: drainage', () => drainage(P.grid, land, P.lakes, land.iceRoute(P.ice.H)));
   const q12 = await time('rivers: monthly', () => land.monthly(P.climate.runoffM, rt));
   const f = surfaceFields(P.grid, tec, land, P.ice);
   await time('rivers: trace', () => traceRivers(P.grid, land, f.elevRel, q12, RIVER_MIN, rt));

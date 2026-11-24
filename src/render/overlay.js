@@ -20,7 +20,7 @@
 // mantle at the surface. The Climate view's Air chart draws the winds as
 // streamlines (src/render/streamlines.js). The People view draws the trade's
 // routes (src/engine/routes.js, `lines`) in the rules' colour, their weight the
-// food they carry: roads and rivers solid, sea lanes dashed.
+// food they carry, by land, river and sea alike.
 import { INACTIVE, RIDGE, TRENCH, TRANSFORM } from './lines.js';
 import { RIVER_MIN } from './rivers.js';
 import { nearest } from '../grid/icosphere.js';
@@ -260,13 +260,13 @@ function drawRivers(ctx, cx, cy, r, camera, rivers, color, alpha, month = null) 
 }
 
 // The routes: each line's segments in buckets of weight by the food they carry (×3 a bucket, the
-// heaviest at the top; lighter than the fourth isn't drawn), roads and rivers solid, sea lanes dashed.
+// heaviest at the top; lighter than the fourth isn't drawn), by land, river and sea alike.
 const ROUTE_BUCKETS = 4;
 function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
-  const { P, W, sea, off, max } = routes;
+  const { P, W, off, max } = routes;
   if (!P || !P.length || !(max > 0)) return;
   const lw = Math.sqrt(symbolScale(r)), v = [0, 0, 0], lg3 = Math.log(3);
-  const paths = Array.from({ length: 2 * ROUTE_BUCKETS }, () => new Path2D());
+  const paths = Array.from({ length: ROUTE_BUCKETS }, () => new Path2D());
   const m = P.length / 3;
   for (let l = 0; l < off.length; l++) {
     const end = l + 1 < off.length ? off[l + 1] : m;
@@ -276,7 +276,7 @@ function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
       const x = cx + v[0] * r, y = cy - v[1] * r, vis = v[2] > 0.02;
       if (vis && pv && k > off[l]) {
         const b = ROUTE_BUCKETS - 1 + Math.floor(Math.log(W[k] / max) / lg3);
-        if (b >= 0) { const p = paths[2 * Math.min(ROUTE_BUCKETS - 1, b) + sea[k]]; p.moveTo(px, py); p.lineTo(x, y); }
+        if (b >= 0) { const p = paths[Math.min(ROUTE_BUCKETS - 1, b)]; p.moveTo(px, py); p.lineTo(x, y); }
       }
       px = x; py = y; pv = vis;
     }
@@ -285,10 +285,8 @@ function drawRoutes(ctx, cx, cy, r, camera, routes, color) {
   for (let b = 0; b < ROUTE_BUCKETS; b++) {
     const w = (0.5 + 0.5 * b) * lw;
     ctx.strokeStyle = withAlpha(color, 0.4 + 0.1 * b); ctx.lineWidth = w;
-    ctx.setLineDash([]); ctx.stroke(paths[2 * b]);
-    ctx.setLineDash([2.2 * w + 1.5 * lw, 1.6 * w + 2 * lw]); ctx.stroke(paths[2 * b + 1]);
+    ctx.stroke(paths[b]);
   }
-  ctx.setLineDash([]);
 }
 
 // The states' capitals (src/engine/polities.js, `capitals`): each a five-pointed star in the rules' colour,

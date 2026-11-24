@@ -639,10 +639,9 @@ export class Routes {
       }
       for (const [u, p] of np) pos.set(u, p);
     }
-    const P = [], W = [], S = [], off = [];
+    const P = [], W = [], off = [];
     for (const [nodes, ws] of chains) {
-      let pts = nodes.map(i => pos.get(i).slice()), wt = [ws[0], ...ws], sea = [0, ...nodes.slice(1).map((v, k) => (!land[v] && !land[nodes[k]] ? 1 : 0))];
-      sea[0] = sea[1] || 0;
+      let pts = nodes.map(i => pos.get(i).slice()), wt = [ws[0], ...ws];
       for (let it = 0; it < relax && pts.length > 2; it++) {
         const np = pts.map(p => p.slice());
         for (let k = 1; k + 1 < pts.length; k++) {
@@ -652,18 +651,18 @@ export class Routes {
         pts = np;
       }
       for (let it = 0; it < cuts && pts.length > 2; it++) {
-        const np = [pts[0]], nw = [wt[0]], ns = [sea[0]];
+        const np = [pts[0]], nw = [wt[0]];
         for (let k = 0; k + 1 < pts.length; k++) {
           const p0 = pts[k], p1 = pts[k + 1], m = (t) => { const x = p0[0] + t * (p1[0] - p0[0]), y = p0[1] + t * (p1[1] - p0[1]), z = p0[2] + t * (p1[2] - p0[2]), r = Math.hypot(x, y, z); return [x / r, y / r, z / r]; };
-          if (k > 0) { np.push(m(0.25)); nw.push(wt[k + 1]); ns.push(sea[k + 1]); }
-          if (k + 2 < pts.length) { np.push(m(0.75)); nw.push(wt[k + 1]); ns.push(sea[k + 1]); }
+          if (k > 0) { np.push(m(0.25)); nw.push(wt[k + 1]); }
+          if (k + 2 < pts.length) { np.push(m(0.75)); nw.push(wt[k + 1]); }
         }
-        np.push(pts[pts.length - 1]); nw.push(wt[wt.length - 1]); ns.push(sea[sea.length - 1]);
-        pts = np; wt = nw; sea = ns;
+        np.push(pts[pts.length - 1]); nw.push(wt[wt.length - 1]);
+        pts = np; wt = nw;
       }
       off.push(P.length / 3);
-      for (let k = 0; k < pts.length; k++) { P.push(...pts[k]); W.push(wt[k]); S.push(sea[k]); }
+      for (let k = 0; k < pts.length; k++) { P.push(...pts[k]); W.push(wt[k]); }
     }
-    return { P: Float32Array.from(P), W: Float32Array.from(W), sea: Uint8Array.from(S), off: Int32Array.from(off), max: qm };
+    return { P: Float32Array.from(P), W: Float32Array.from(W), off: Int32Array.from(off), max: qm };
   }
 }

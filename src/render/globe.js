@@ -44,7 +44,7 @@
 // density is the export production (the sea carbon's boxes spread by what
 // feeds them: upwelling, rivers, the cold sea). The Sea chart is a chart's
 // base on land; on the sea its surface temperature as the temperature chart's
-// wash with isotherms every 5 °C, the sea's ice, and the water's vertical
+// wash, the sea's ice, and the water's vertical
 // motion in indigo: upwelling a stipple by the cooling it brings the surface,
 // the overturning's sinking a hatch by its rate; the currents are streamlines
 // on the overlay (src/render/streamlines.js); lakes are the chart's water
@@ -81,13 +81,15 @@
 // farms in indigo, the herders' pasture in ochre), and factories a heavy sienna
 // hatch; the sulfate veil as in the Air map. Knowledge: a chart's base, production
 // as an accent wash and learning as a verdigris one by how near each is to its
-// frontier, production's lines at farming's and industry's in the accent, a stipple by the works a km², and of the land's
-// uses only the cities (People.drawnB). Culture: each place's way of life as a
+// frontier, a line where a place's knowledge crosses each invention's threshold
+// (production's in the accent, learning's in verdigris), a stipple by the works a km²
+// (People.drawnB). Culture: each place's way of life as a
 // wash of its hue and a hatch at its angle, a second way's hatch between the
-// first's lines (Peoples.drawn). States: each place's state as a wash of its hue,
-// fading where it holds few and where states' hues part (so the fade is the
-// border), a contested place in equal stripes of both states' hues
-// (Polities.drawn); with the cities. The ice is plain on the People charts.
+// first's lines (Peoples.drawn). States: each place's state as a wash of its hue
+// as strong as the share its states hold, a hairline where two states meet, a
+// contested place in equal stripes of both states' hues (Polities.drawn). Of the
+// land's uses, these three keep the cities, datacenters and factories, not the
+// fields. The ice is plain on the People charts.
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
 // away from the Sun in three steps (the Sun 0°, 6° and 12° below the horizon:
 // civil, nautical and astronomical twilight) and lights it where people and
@@ -103,8 +105,6 @@ const PLANKTON_HUE = 0.65;    // how far the depth tint's ink turns toward teal 
 const PLANKTON_WASH = 0.3;    // and a pale, milky turquoise laid over it there (blooms scatter light: so shelves, lightly tinted, show it too)
 const NIGHT_K = 0.24;         // how far night takes a map toward graphite (light theme)
 const NIGHT_K_DARK = 0.55;    // and toward black (dark theme)
-const Z_FARM = 3.0;   // the knowledge farming begins about and industry's (src/engine/people.js, PEOPLE.Z_FARM, Z_IND): the Knowledge map's heavier lines
-const Z_IND = 7.0;
 const LIGHT_FOLK = vec3f(0.95, 0.79, 0.33);   // the night's lights where people make them: lamplight's yellow
 const LIGHT_BOTS = vec3f(1.0, 0.99, 0.96);    // and where the robots do: white
 struct U {
@@ -123,6 +123,9 @@ struct U {
   veil: array<vec4f, 9>,   // the volcanoes' sulfate veil: optical depth in 36 bands of 5°, south first (0 where not drawn)
   steam: vec4f,      // the runaway's steam (src/engine/runaway.js): x its wash's opacity, from the column's pressure; y coal's sulfate's optical depth where its pattern is 1; z, w the Knowledge map's frontiers (production's, learning's)
   sun: vec4f,        // xyz toward the Sun in the globe's frame; w how much the night side is shown (where the dial resolves the day)
+  zmE: vec4f,             // the eras' thresholds in production's knowledge (farming, industry, AI: src/engine/people.js, INVENTIONS), 1e6 past the last
+  zmP: array<vec4f, 3>,   // the other inventions' in production's
+  zmL: array<vec4f, 2>,   // and in learning's
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> pol: array<f32>;
@@ -487,7 +490,6 @@ fn hair(d: f32, w: f32) -> f32 {
   let fcst = fwidth(cst);
   let ftf = fwidth(tf);
   let fa = max(fwidth(age), 0.05);
-  let fsst = fwidth(sst);
   let pw = i.wx.x;         // sea-level pressure about 1013 hPa
   let fpw = fwidth(pw);
   let wT = i.wx.z;         // the chart's surface temperature, °C
@@ -548,8 +550,6 @@ fn hair(d: f32, w: f32) -> f32 {
   sea = mix(sea, u.text.rgb, 0.09 * hair(abs(d - round(d)), fe) * step(0.5, d));
   // In the Zones map the sea is a plain wash (its temperature and currents are the Sea map's).
   var wash = mix(u.canvas.rgb, u.ocean.rgb, 0.16);
-  let iso = sst / 5.0;
-  let isoS = hair(abs(iso - round(iso)), max(fsst / 5.0, 1e-4));
   // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian strokes, denser where more sinks.
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
   let exMarks = strokes(T, mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
@@ -692,7 +692,7 @@ fn hair(d: f32, w: f32) -> f32 {
   sea = select(sea, asea, air);
 
   // The Climate view's Sea chart: a chart's base on land; on the sea its surface's temperature as the
-  // temperature chart's wash (prussian cold, sienna warm) with isotherms every 5 °C in its ink, the sea's ice, and
+  // temperature chart's wash (prussian cold, sienna warm), the sea's ice, and
   // the water's vertical motion in indigo: the upwelling a stipple whose density is the cooling it
   // brings the surface (K, the coasts' and the equator's: src/engine/ocean.js), the overturning's
   // sinking a hatch whose density is its rate (2 to 100 m/yr, by log: src/engine/seaheat.js). The
@@ -700,7 +700,6 @@ fn hair(d: f32, w: f32) -> f32 {
   let sT = clamp((sst - 10.0) / 25.0, -1.0, 1.0);
   let sInk = select(u.ocean.rgb, u.inkF.rgb, sT > 0.0);
   var ssea = mix(mix(u.canvas.rgb, u.ocean.rgb, 0.05), sInk, 0.3 * abs(sT));
-  ssea = mix(ssea, sInk, 0.55 * isoS);
   ssea = mix(ssea, iceInk, seaIce);
   ssea = mix(ssea, u.ocean.rgb, 0.55 * hair(abs(iceS - 0.5), fseaice));
   let upK = i.td.x;
@@ -772,40 +771,60 @@ fn hair(d: f32, w: f32) -> f32 {
       let a = select(0.4, 0.45, dark);
       pland = mix(pland, u.accent.rgb, a * exp(-2.0 * max(u.steam.z - zp, 0.0)) * had);
       pland = mix(pland, u.inkD.rgb, a * exp(-2.0 * max(u.steam.w - zl, 0.0)) * had);
-      // Only the boundaries that act: production's at farming's and industry's (Z_FARM, Z_IND), heavy in
-      // the accent (lines of every interval had stacked where knowledge falls steeply, as at the polar
-      // herders' edge).
+      // Only the boundaries that act: each invention the model reads, where a place's knowledge crosses its
+      // threshold (src/engine/people.js, INVENTIONS), in its domain's ink, production's in the accent and
+      // learning's in verdigris; the eras' (farming, industry, AI) heavy, the rest light, so the eras read
+      // where the lines crowd (lines of every interval had stacked where knowledge falls steeply, as at the
+      // polar herders' edge).
       let fzp = max(fwidth(zp), 1e-5);
-      let era = max(hair(abs(zp - Z_FARM), 2.2 * fzp), hair(abs(zp - Z_IND), 2.2 * fzp));
-      pland = mix(pland, u.accent.rgb, 0.8 * era * had);
+      let fzl = max(fwidth(zl), 1e-5);
+      let me = u.zmE;
+      let eraE = max(max(hair(abs(zp - me.x), 2.2 * fzp), hair(abs(zp - me.y), 2.2 * fzp)), max(hair(abs(zp - me.z), 2.2 * fzp), hair(abs(zp - me.w), 2.2 * fzp)));
+      var eraP = 0.0;
+      for (var k = 0; k < 3; k++) {
+        let m = u.zmP[k];
+        eraP = max(eraP, max(max(hair(abs(zp - m.x), fzp), hair(abs(zp - m.y), fzp)), max(hair(abs(zp - m.z), fzp), hair(abs(zp - m.w), fzp))));
+      }
+      var eraL = 0.0;
+      for (var k = 0; k < 2; k++) {
+        let m = u.zmL[k];
+        eraL = max(eraL, max(max(hair(abs(zl - m.x), fzl), hair(abs(zl - m.y), fzl)), max(hair(abs(zl - m.z), fzl), hair(abs(zl - m.w), fzl))));
+      }
+      pland = mix(pland, u.inkD.rgb, 0.75 * eraL * had);
+      pland = mix(pland, u.accent.rgb, 0.7 * eraP * had);
+      pland = mix(pland, u.accent.rgb, 0.8 * eraE * had);
       let wl = log(max(i.wx.w, 1e-6)) / 2.302585;
       let wd = smoothstep(1.5, 4.0, wl);
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
     } else if (folkS) {
-      // States: each place's state as a wash of its hue, no border drawn: the bands' vectors are its
-      // hue × the share F its states hold (Polities.drawn), interpolated, so the wash fades where a state
-      // holds few and where neighbours' hues part, and the fade is the border. A contested place is
-      // striped equally in its two states' hues (the second band turned to the second's). A band whose
-      // hue turns across the triangle while the other's holds (a march's edge) takes the other's, so the
-      // stripes come in without a band of paper; where both turn (a border) each keeps its own fade.
+      // States: each place's state as a wash of its hue, as strong as the share F its states hold
+      // (Polities.drawn), so the wash fades to the chart only where no state holds the people. The hue is
+      // each band's direction: its vector is the hue × F, interpolated, turning where two states meet. Every
+      // border is one hairline, where both bands turn, at the turn's middle. (By the vector's length, as
+      // the wash was once, a border between far hues faded to a band of paper and one between near hues
+      // didn't, so states seemed parted by stateless land that wasn't.) A contested place is striped
+      // equally in its two states' hues (the second band turned to the second's).
       let had = explored * (1.0 - sheet);
       let a = select(0.42, 0.48, dark);
       let F = max(i.wx.y, 1e-3);
       let b0 = i.td.xy;
       let b1 = i.td.zw;
-      let l0 = length(b0);
-      let l1 = length(b1);
-      let q0 = smoothstep(0.5, 0.9, l0 / F);
-      let q1 = smoothstep(0.5, 0.9, l1 / F);
-      let r0 = max(q0, 1.0 - q1);
-      let r1 = max(q1, 1.0 - q0);
       let c0 = idWheel(atan2(b0.y, b0.x), dark);
       let c1 = idWheel(atan2(b1.y, b1.x), dark);
-      let w0 = smoothstep(0.3, 0.8, l0);
-      let w1 = smoothstep(0.3, 0.8, l1);
-      let p0 = mix(pland, mix(c1, c0, r0), a * mix(w1, w0, r0) * had);
-      let p1 = mix(pland, mix(c0, c1, r1), a * mix(w0, w1, r1) * had);
-      pland = mix(p0, p1, stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z));
+      pland = mix(pland, mix(c0, c1, stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z)), a * smoothstep(0.3, 0.8, F) * had);
+      // The border's line: where both bands turn (each band over F runs along the chord between two hues'
+      // units, shorter than one in its middle), where band 0's, over F, passes its chord's middle: there
+      // its component along its change is zero, whatever the shares the two states hold. Its screen rate
+      // is the line's width, so the line is a pixel wide at any zoom.
+      let h0 = b0 / F;
+      let gx = dpdx(h0);
+      let gy = dpdy(h0);
+      let ge = select(gy, gx, dot(gx, gx) > dot(gy, gy));
+      let en = ge / max(length(ge), 1e-12);
+      let sb = dot(h0, en);
+      let ws = abs(dot(gx, en)) + abs(dot(gy, en));
+      let turn = smoothstep(0.996, 0.985, max(length(b0), length(b1)) / F) * smoothstep(0.15, 0.3, i.wx.y);
+      pland = mix(pland, u.text.rgb, 0.45 * hair(abs(sb), max(ws, 1e-9)) * turn * had);
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
       // hatch at the torus's first angle (over 180°) in the hue of its second (a wheel), over a wash of
@@ -844,12 +863,13 @@ fn hair(d: f32, w: f32) -> f32 {
     let furrows = hatch(T, vec2f(cos(furrowA), sin(furrowA)), 3.6 * u.mode.z, 0.75 * u.mode.z);
     if (rank < c1) {
       pland = mix(mix(pland, u.accent.rgb, 0.14), mix(u.accent.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
-    } else if (folkK || folkU) {
-      // The Knowledge and Culture maps keep only the cities of the land's uses (where the minds gather, and the ways meet).
     } else if (rank < c2) {
       pland = mix(mix(pland, u.inkD.rgb, 0.14), mix(u.inkD.rgb, u.text.rgb, select(0.35, 0.3, dark)), 0.75 * blocks);
     } else if (rank < c3) {
       pland = mix(mix(pland, u.inkF.rgb, 0.18), u.inkF.rgb, 0.85 * hatch(T, vec2f(0.7071, 0.7071), 2.8 * u.mode.z, 1.0 * u.mode.z));
+    } else if (folkK || folkU) {
+      // The Knowledge, Culture and States maps keep only the works where minds and machines gather (cities,
+      // datacenters and factories), not the fields.
     } else if (rank < c4) {
       pland = mix(pland, u.inkC.rgb, 0.1 + 0.55 * furrows);
     } else if (rank < c5) {
@@ -969,7 +989,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const patches = patchesOf(mesh);
   const idxBuf = device.createBuffer({ size: patches.tris.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(idxBuf, 0, patches.tris);
-  const uniBuf = device.createBuffer({ size: 32 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const uniBuf = device.createBuffer({ size: 38 * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   let polBuf = null, polCap = 0;
 
   const module = device.createShaderModule({ code: SHADER });
@@ -996,7 +1016,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
   let bind = null, depth = null, depthW = 0, depthH = 0;
-  const uni = new Float32Array(128);
+  const uni = new Float32Array(152);
   const field = new Float32Array(8 * n);
   const norm = new Float32Array(8 * n);
   let blend = 1;
@@ -1169,6 +1189,9 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       // The Sun's direction in the globe's frame and how much of the night side shows (main.js, dayShown).
       const sun = mode.sun || { dir: [1, 0, 0], w: 0 };
       uni.set([sun.dir[0], sun.dir[1], sun.dir[2], sun.w], 124);
+      // The inventions' thresholds (the Knowledge map's lines): 4 slots for the eras', 12 for production's others, 8 for learning's.
+      const mk = mode.marks || {}, slots = (o, m, a = []) => { for (let k = 0; k < m; k++) uni[o + k] = k < a.length ? a[k] : 1e6; };
+      slots(128, 4, mk.eras); slots(132, 12, mk.production); slots(144, 8, mk.learning);
       device.queue.writeBuffer(uniBuf, 0, uni);
       const bg = hexToRgb(palette.canvas);
       const enc = device.createCommandEncoder();
