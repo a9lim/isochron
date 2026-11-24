@@ -138,8 +138,13 @@ const GLYPHS = {
   // the overturning's sinking in indigo.
   upwell: (c, x, y, P) => ruled(c, x, y, P.inks.madder, -1),
   sink: (c, x, y, P) => ruled(c, x, y, P.inks.indigo, 1),
-  // Export production: viridian lines across the sea, as the shader's.
-  export: (c, x, y, P) => { c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9; for (let b = 0; b < 3; b++) line(c, x, y + 2 + b * 4, x + 26, y + 2 + b * 4); },
+  // Export production: viridian lines slanted 30° across the sea, as the shader's.
+  export: (c, x, y, P) => {
+    c.save(); c.beginPath(); c.rect(x, y, 26, 12); c.clip();
+    c.strokeStyle = rgba(P.inks.viridian, 0.75); c.lineWidth = 0.9;
+    c.beginPath(); for (let t = -21; t < 30; t += 8) { c.moveTo(x + t, y + 12); c.lineTo(x + t + 20.8, y); } c.stroke();
+    c.restore();
+  },
   // People: the accent by log density, the farms' densities over the first two thirds and the cities' step after.
   folk: (c, x, y, P) => {
     const ss = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };

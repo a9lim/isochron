@@ -573,10 +573,10 @@ fn contour(x: f32, fx: f32) -> f32 {
   sea = mix(sea, u.text.rgb, 0.09 * contour(d, fe));
   // In the Zones map the sea is a plain wash (its temperature and currents are the Sea map's).
   var wash = mix(u.canvas.rgb, u.ocean.rgb, 0.16);
-  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian lines, closer where more sinks
-  // (15 px apart at ~4, the gyres, to 5 px past ~80).
+  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian lines slanted 30° (the land's
+  // hatches are at 45°), closer where more sinks (15 px apart at ~4, the gyres, to 5 px past ~80).
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
-  let exLines = hatch(T, vec2f(0.0, 1.0), mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
+  let exLines = hatch(T, vec2f(0.5, 0.8660254), mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
   wash = mix(wash, u.inkA.rgb, EXPORT_INK * exLines);
   sea = select(sea, wash, climate);
   // Snow and sea ice: a light fill with a hard edge, as a map draws them.
