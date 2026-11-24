@@ -244,7 +244,7 @@ test("a herders' state holds its herders wholly, and its power over the settled 
   // power v: so, below its cap, its share settles at s = (h v)^γ/D, D the place's π₀^γ and every candidate's
   // power^γ, and the rest, (1 − h) v, is tribute: T_TRIB ρ^γ/(1 + ρ^γ), ρ^γ = ((1 − h) v)^γ/(D − (h v)^γ), so
   // ρ^γ = ((1 − h)/h)^γ s/(1 − s): one power read twice. (No raids: the line has no births to make up their dead.)
-  const n = 200, N = 1e4, pp = line({ n, N, c0: 100, L: 1500, params: { W_RAID: 0 } }), pol = pp.pol, ids = pp.ids, P = pp.P;
+  const n = 200, N = 1e4, pp = line({ n, N, c0: 100, L: 1500, params: { W_RAID: 0, Z_RIDE: -50 } }), pol = pp.pol, ids = pp.ids, P = pp.P;
   const hOf = c => (c < 60 ? 1 : c < 100 ? 0 : c < 120 ? 0.8 * (119 - c) / 19 : 0);
   for (let c = 0; c < n; c++) { const h = hOf(c); ids.W[5 * c + 1] = h * N; ids.W[5 * c + 3] = (1 - h) * N; pp.wol[5 * c + 1] = h; pp.wol[5 * c + 3] = 1 - h; }
   const ks = seat(pol, 160, 40), k = pol.list.length;

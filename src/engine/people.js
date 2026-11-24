@@ -15,7 +15,9 @@
 //             epistemic base: its ideas fall away once it runs D_BASE ahead of learning (Mokyr's
 //             argument). Learning is where the elite's and the cities' ideas lean (TILT; an elite's
 //             minds R_ELITE a commoner's: ideas by class, batch 3f). Ideas come from the minds a cell
-//             can learn from, M (the collective brain: Henrich 2004, from memory), at A M^ψ a year,
+//             can learn from, M (the collective brain: Henrich 2004, from memory), at A M^ψ a year
+//             (harder to find as knowledge grows: the agrarian world's tinkering × e^{−BETA_A (z_L − Z_BA)}
+//             until learning passes Z_UP and science lifts it, then BETA_R past industry),
 //             and are lost at λ z (imperfect copying; Tasmania's loss over ~10 kyr sets λ), less
 //             where a cell's works keep them (`works`: monuments, writing, schools; the land's
 //             works, terraces, canals, granaries and roads, are the cities' labour sent back to the
@@ -37,7 +39,8 @@
 //             density against RHO_COPY).
 //   people    a density per cell. Births and deaths (`demography`): deaths by food per person
 //             (hunger below subsistence, disease at density), cut by medicine as industrial income
-//             rises and, past industry's own places, as learning brings it (`modern`); births fall
+//             rises and, past industry's own places, as learning brings it once the frontier has it
+//             (`modern`: the post-war shock); births fall
 //             with industrial income only; so mortality falls before fertility
 //             (the demographic transition's stages, standard; Earth's rates from memory). Each
 //             cell's pyramid of five-year cohorts rides its total (src/engine/cohorts.js): its old
@@ -235,7 +238,7 @@ export const PEOPLE = {
   COAST: 0.5, P_DRY: 250, Q_RIVER: 200, ICE_MAX: 10,   // the coast's bonus; rain (mm) below which water limits; a river (m³/s); ice (m)
   T_COLD0: 2, K_COLD: 12, W_COLD: 3, // coldest month (°C) a knowledge of z holds: T_COLD0 − K_COLD z, over W_COLD (−10 °C at the tip, −22 °C at z 2: the Upper Palaeolithic on the mammoth steppe and in Beringia before farming, from memory)
   CAP_F: 8,                        // foraging's ceiling on the base density
-  F0: 1, CAP_A: 100,             // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory)
+  F0: 1, CAP_A: 40,              // farmers per km² at adoption (at NPP_REF, before the seed is kept and famines taken), and the organic economy's ceiling on its growth (~150/km² of good farmland at the top, as pre-industrial China's and Egypt's, from memory; the recalibration's 40 binds through the last agrarian millennia, Wrigley's organic economy: at 100 it never did, and at 55 the industrial era ran away, 1950's people 5.3 B)
   // Crops' land (synthesis): a river's floodplain is watered and renewed by its floods (the Nile's,
   // the Ganges'), the uplands rain-fed on soils the rain leaches and fresh rock renews.
   W_FP: 0.3, FP_MAX: 0.6, P_IRR: 1500,          // the floodplain's width, km per √(m³/s) of discharge (hydraulic geometry's width ∝ √Q, standard; the belt's multiple of the channel from memory: the Nile's ~15 km, the Yangtze's ~50), and its most of a cell; the water (mm a year) a floodplain's fields get, for their crops' climate
@@ -248,7 +251,7 @@ export const PEOPLE = {
   S_HALF: 0.05, T_ADAPT: 2000, A_ADAPT: 0.3, MIGR_F: 0.5, MIGR_S: 0.5, CLEAR_PACE: 5,
   SOD: 0.8,                        // the share of a cold grassland's arable land its sod keeps from the hoe and the wooden plough (by the cover's grass and the winter's cold: sod × logistic in −T_coldest/5 K)                    // a package suited s takes s/(s + S_HALF) × (1 + S_HALF) of the arable land (farmers grow a poor crop on the best land only)
   R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of knowledge
-  LIFT_MAX: 4,                     // industry's farming at most this many times the organic ceiling
+  LIFT_MAX: 10,                    // industry's farming at most this many times the organic ceiling (modern grain against the organic economy's ~5–8×, irrigated and double-cropped more, from memory; the ceiling 400 at NPP_REF either way: at 4 × 40 the post-war boom had nowhere to grow, 2000's people 4.6 B)
   E_AG: 200,                       // W of industrial energy a person fed past the organic ceiling takes (fertilizer, machines, transport; rough, from memory)
   CO2_FERT: 0.25,                  // crops' yield × (1 + β ln(CO₂/280)), VECODE's β
   // Stores: the harvests' weather against granaries and trade (working capital's one distinct role;
@@ -288,7 +291,7 @@ export const PEOPLE = {
   // incomes near subsistence). Once industry is somewhere, where learning passes Z_MOD (over W_MOD)
   // medicine's reach adds U_MED to its income's, and the fields take industry's lift as an
   // industrial place's do (`modern`).
-  Z_MOD: 7.6, W_MOD: 0.25, U_MED: 1.4,
+  Z_MOD: 7.45, W_MOD: 0.25, U_MED: 1.4, Z_MEDF: 7.9, W_MEDF: 0.3,   // … and they wait on the frontier: medicine and fertilizer reach past industry's places only as the world's best production passes Z_MEDF (sanitation and vaccination, then antibiotics, DDT and vaccines, the Haber–Bosch plants and the high-yielding varieties: the poor world's mortality fell mostly after 1945, Preston's curve shifting, from memory; the recalibration: by learning alone the boom came 1913–50, 3.3 B people in 1950 against 2.52; gated sharply at 1940's frontier, 1913's people ~20% short). Their reach then 16%, 65% and 91% of the people at 1913, 1950 and 1973
   AGE: 0.0087, Y_AGE: 30,          // aging without a pyramid (the demography alone): crude deaths + AGE (1 − e^{−y_g/Y_AGE}), AGE = B_MIN − M_MIN D_LO so a rich population is at replacement as with one (young growing populations die little, aged ones more: Earth's crude rate ~0.75% now, ~1%+ ahead; from memory)
   D0: 4, D_Z: 0.35, D_MAX: 3000, H_SLOPE: 1.5,   // dispersal km²/yr, its rise per unit z, cap; relief's cost (km)
   D_IND: 1e4,                      // … and industry's (railways and steamships, a logistic about Z_IND: the American and Siberian frontiers moved ~30–50 km a year in the nineteenth century, from memory), on top, past D_MAX
@@ -330,7 +333,14 @@ export const PEOPLE = {
   // first tip came ~100 kyr early (its time goes exponentially with the ideas' rate) and the takeoff
   // too soon after industry.
   SIG_LUCK: 0.4, L_LUCK: 1500, K_LUCK: 160, Z_LUCK: 0.3, Z_LUCK0: 2,
-  BETA_R: 0.25,                    // ideas get harder to find past industry's knowledge: people's research yields × e^{−β (z − Z_IND)} (Bloom and others 2020, from memory: research productivity falling while productivity's growth holds); AI's minds at full yield (their pace is THETA_C's)
+  // Ideas get harder to find (Jones's semi-endogenous growth; Bloom and others 2020, from memory): the
+  // agrarian world's tinkering yields e-fold less per 1/BETA_A of learning past Z_BA, until learning passes
+  // Z_UP and science lifts it (the industrial enlightenment, Mokyr's; the recalibration, batch 3f: without it
+  // the agrarian loop ran on Earth's 1960 A, its people at 1 CE half history's and growing ninefold to
+  // industry against ~3.5-fold, industry firing a few centuries short of the agrarian hyperbola's end; lifted
+  // nowhere, the industrial era stalled); past industry's knowledge, people's research × e^{−BETA_R (z − Z_IND)}
+  // (research productivity falling while productivity's growth holds). AI's minds at full yield (their pace is THETA_C's).
+  BETA_A: 0.6, Z_BA: 3.5, BETA_R: 0.25,
   // The species' clock (speculation): the first people's contact length ℓ_S (km, at z = 0) rises from
   // L_S0, e-fold per T_S at first, toward L_SMAX (a logistic in ℓ_S): one clock for everyone, so the
   // tip is still the loop's threshold, crossed where density and climate let the minds pass it (the
@@ -363,7 +373,7 @@ export const PEOPLE = {
   // place and millennium, began the first fields at knowledge ~2.6, ~17 kyr before early takeoff (and
   // 12–25 kyr before industry), where history's began ~11.4 kyr ago (the Fertile Crescent; Zeder 2011),
   // ~11 kyr before industry.
-  Z_FARM: 3, W_FARM: 0.05, H_FARM: 6e-6, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, C_PKG: 0.05,
+  Z_FARM: 3, W_FARM: 0.05, H_FARM: 2e-5, SED: 0.6, R_ADOPT: 0.02, C_FARM: 4e-3, C_PKG: 0.05,
   BREED: 1,                        // industry's breeding: a crop's climate envelope × (1 + BREED × industry's share)
   // Domesticates by zone: the seasonally dry climates' large-seeded annuals (after Blumler via
   // Diamond, from memory), next to none in the perhumid tropics; and a river's floodplain in a dry
@@ -397,19 +407,21 @@ export const PEOPLE = {
   // TFP at Z_IND, ×e^{THETA_I} per unit of knowledge past it: industry's first places near ~5 sy a person
   // a century on and its frontier ~10× that by the takeoff, ~1.5%/yr, as Maddison's (western Europe 4.9 sy
   // in 1870, the US 70 in 2000, at $400 1990 GK$ a sy; Maddison 2003); TFP at knowledge 10.35 as before the
-  // regional economies (0.7 × e^{0.85 × 3.35}); capital's share, saving, workers' share
-  A_I0: 4, THETA_I: 0.33, ALPHA: 1 / 3, LFP: 0.5,
+  // regional economies (0.7 × e^{0.85 × 3.35}), × 0.875 in the recalibration (2000's income a person 15.6 sy,
+  // Maddison's 15); capital's share, workers' share
+  A_I0: 3.5, THETA_I: 0.33, ALPHA: 1 / 3, LFP: 0.5,
   // Saving by class (batch 3f; classical, after Kaldor, from memory): S_CAP of capital's income saved and
   // S_WAGE of the rest, capital's the share α + (1 − α) × the machines' share of the work (AI's work earns
-  // its owners), so the saving rate is ¼ before AI and rises toward S_CAP as AI does the work.
-  S_CAP: 0.5, S_WAGE: 0.125,
+  // its owners), so the saving rate is 0.3 before AI and rises toward S_CAP as AI does the work (with fixed
+  // capital's wear at DELTA_F 4%, K/Y ~3.3 in 1913 and 1973: Earth's ~3–4; at ¼ and 5%, ~2.3).
+  S_CAP: 0.6, S_WAGE: 0.15,
   // Railways (batch 3f; works as capital): W_RAIL sy a km² for a full network (~0.1 km of track a km², the
   // densest of 1910's Europe, at ~2,000 sy a km; from memory) where people are dense enough to pay for it
   // (1 − e^{−ρ/RHO_RAIL}), built from at most F_RAIL of a state's fixed investment (the railway booms took a
   // quarter to a third of it, from memory) over T_RAIL; steam's land legs run on them (src/engine/routes.js).
   W_RAIL: 200, RHO_RAIL: 20, F_RAIL: 0.3, T_RAIL: 30,
   N_TAX: 0.1, R_FOS: 0.3,          // regional economies (batch 2b, landing 2): a state's share of each place's output to its capital (taxes, and a colony's drain; ~10% of output before 1914, from memory), fossil carbon's rent as a share of the fuel's worth (synthesis)
-  DELTA_F: 0.05, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital, compute, energy capital (/yr)
+  DELTA_F: 0.04, DELTA_C: 0.25, DELTA_E: 0.04,      // wear: fixed capital (structures and equipment together, ~3–6%, from memory), compute, energy capital (/yr)
   E_SUB: 200, Z_EFF: 5.5, E_MIN_Y: 2,               // W per sy/yr of output at Z_IND (~100 at the takeoff, as Earth's ~19 TW over ~8 B × ~22 sy now), falling toward E_MIN_Y e-fold per Z_EFF
   SIGMA_E: 0.3, W_E: 0.07,                          // energy against the capital–labour bundle: elasticity (standard estimates ~0.1–0.6) and energy's cost share (~6–8% of world output); both from memory
   R_EF0: 1000, R_ER0: 1500, R_EU0: 1000,            // W per sy of energy capital: fossil (full stock, × √ of what's left), renewables and fusion when mature (solar near parity with fossil at Earth's present, from memory)
@@ -523,12 +535,13 @@ export const PEOPLE = {
   // by place, R_ASA × the frontier's weight, D_ASA × the rest (a family apart, D_META; another way of life; another
   // state's at W_RIVAL), at least A_MIN, rising to the nation's A_NAT as learning passes Z_NAT (Gellner), a
   // founding's places lifted toward its founders' COH0 (Ibn Khaldun); founded at R_FORM × x²/(1 + x²), x a stateless
-  // city's people over N_STATE; a lost capital's cohesion × CAP_LOSS; gone under N_DIE people; capitals marked past
+  // city's people over N_STATE (softly: the first states found at cities of ~a third of it, Uruk's tens of
+  // thousands; at 2 × 10⁴, ~2 kyr before Uruk's date), a successor's and a dynasty's seat over N_SEC; a lost capital's cohesion × CAP_LOSS; gone under N_DIE people; capitals marked past
   // N_MARK; identity pulled toward the capital's at R_STATE × the share held (a9: softly); stepped every DT_POL
   // years at least; shares past S_MIN.
-  DT_POL: 10, T_WAR: 20, POL_G: 3, B_LOC: 0.012, K_RUG: 1, K_EXIT: 2, Z_MIL: 1.5, M_HERD: 2, DL_HERD: 0.5, DL_FISH: 0.5,
+  DT_POL: 10, T_WAR: 20, POL_G: 3, B_LOC: 0.012, K_RUG: 1, K_EXIT: 2, Z_MIL: 1.5, M_HERD: 2, Z_RIDE: 4.6, W_RIDE: 0.15, DL_HERD: 0.5, DL_FISH: 0.5,
   C_POL0: 1000, K_POL: 25, L_POLMAX: 1e5, K_KIN: 1, S_MIN: 1e-3, D_META: 2, R_ASA: 0.07, D_ASA: 0.005, COH0: 0.7, A_MIN: 0.03, A_NAT: 0.6, Z_NAT: 6.5, W_NAT: 0.3,
-  R_FORM: 5e-3, N_STATE: 2e4, N_DIE: 1000, CAP_LOSS: 0.7, N_MARK: 1e6, R_STATE: 0.002, W_RIVAL: 0.1,
+  R_FORM: 5e-3, N_STATE: 1e5, N_SEC: 2e4, N_DIE: 1000, CAP_LOSS: 0.7, N_MARK: 1e6, R_STATE: 0.002, W_RIVAL: 0.1,
   // What states do (speculation): war's toll where allegiance moves, W_DEATH of those changing hands and W_WORKS
   // of the works by the share moved; the state's granaries widen a place's store × (1 + G_STATE × the share held);
   // trade across a border at B_TRADE (McCallum's border effect, ~2–20× by era and estimate, from memory); rivalry
@@ -747,7 +760,7 @@ export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real =
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
   const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D - P.U_MED * med), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0) + heat;
-  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms };
+  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms, floor: m * P.D_LO + age };   // the land feeds no one (an ice sheet's or the sea's advance on the live planet)
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
   else { r = b - m * P.B_PRE - age + P.F_FAM; a = P.F_FAM / K; }
@@ -2059,7 +2072,7 @@ export class People {
   reachL(z) { const P = this.P; return softMin(this.clockL() * Math.exp(Math.min(Math.max(0, z) / P.Z_L, 300)), P.L_CMAX, 4); }
   speed(z) { const P = this.P; return P.V0 * Math.exp(Math.min(z, 60) / P.Z_V); }
   /** Industry's reach past its own works (PEOPLE.Z_MOD): medicine's and the fields' inputs, by learning, once industry is somewhere. */
-  modern(c) { const P = this.P; return this.econ.on ? sig((this.zl[c] - P.Z_MOD) / P.W_MOD) : 0; }
+  modern(c) { const P = this.P; return this.econ.on ? (this.medF || 0) * sig((this.zl[c] - P.Z_MOD) / P.W_MOD) : 0; }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
   /** The sea's reach (km) at production z: rafts and boats along coasts, then the open ocean. */
   seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * sig((z - P.Z_OCEAN) / P.W_OCEAN) : 0; }
@@ -2071,6 +2084,8 @@ export class People {
     const lap = k => { const t1 = performance.now(); prof[k] = (prof[k] || 0) + t1 - tq; tq = t1; };
     this.compCache = new Map();
     this.co2 = this.env.co2();
+    // The frontier's production, which medicine's and fertilizer's reach waits on (`modern`).
+    if (this.econ.on) { let zt = 0; for (let c = 0; c < nL; c++) if (Ntot[c] > 0 && this.zc[c] > zt) zt = this.zc[c]; this.medF = sig((zt - P.Z_MEDF) / P.W_MEDF); }
     // Capacity.
     this.capacity();
     if (this.debug) this.check('capacity');
@@ -2900,9 +2915,13 @@ export class People {
       let ring = m[c];
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) ring += m[E.nb[o]];
       const loc = disc * ring / this.ringArea[c], body = comp.id[c] >= 0 ? tot[comp.id[c]] : m[c];
-      // People's research yields less past industry's knowledge (ideas get harder to find); AI's
-      // own progress is its measured pace (THETA_C), so its minds join at full yield.
-      const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-P.BETA_R * Math.max(0, ZL[c] - P.Z_IND));
+      // People's research yields less as knowledge grows (ideas get harder to find): the agrarian
+      // world's tinkering e-fold per 1/BETA_A of learning past Z_BA, until learning passes Z_UP and
+      // science lifts it (the industrial enlightenment: Mokyr's, from memory; the same upper tail that
+      // sparks industry); and past industry's knowledge, BETA_R. AI's own progress is its measured pace
+      // (THETA_C), so its minds join at full yield.
+      const zL = ZL[c], lift = sig((zL - P.Z_UP) / P.W_UP), dA = P.BETA_A * Math.min(Math.max(0, zL - P.Z_BA), Math.max(0, P.Z_UP - P.Z_BA)) * (1 - lift);
+      const Mh = (body > 0 ? body * (1 - Math.exp(-loc / body)) : 0) * Math.exp(-dA - P.BETA_R * Math.max(0, zL - P.Z_IND));
       M[c] = ai > 0 && Mh > 0 ? taskLabor(Mh, ai, beta, P.SIGMA).L : Mh;
       // AI's minds share their ideas as a city's do (labs are urban; a9): learning's share of what
       // they add is a city dweller's, whatever the cell's own mix.

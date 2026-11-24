@@ -188,6 +188,9 @@ test('births and deaths: zero growth at the food capacity before industry, the f
   // Exact over a long step: the fed side's logistic settles at its equilibrium (r/a).
   const r = demography(1e5, 1e6, 0, 5000, P);
   assert.ok(Math.abs(r.N / 1e6 - 1) < 1e-6, `settled at the food capacity: ${r.N}`);
+  // Where the land feeds no one (an ice sheet's advance on the live planet), its deaths and their well-fed floor are still numbers (the classes read d − floor).
+  const z = demography(1e3, 0, 0, 10, P);
+  assert.ok(Number.isFinite(z.d - z.floor) && z.N < 1e3, `no food: d ${z.d}, floor ${z.floor}`);
 });
 
 test('heritable fertility: growth past replacement rises at V where room is slack, toward the frontier\'s, exactly at any step', () => {

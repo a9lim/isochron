@@ -6,7 +6,8 @@
 // cohesion and colours; each cell holds its allegiance to its KP strongest, a share of its people each,
 // the rest stateless. Territory is soft (a contested march is a split cell); borders are where it turns.
 //
-//   power       P = cohesion × arms, the people delivering × the horse (M_HERD a herder, fading with gunpowder) × e^{z/Z_MIL}
+//   power       P = cohesion × arms, the people delivering × the horse (M_HERD a herder once riding comes, where
+//               the world's best production passes Z_RIDE, fading with gunpowder) × e^{z/Z_MIL}
 //               at the capital's production, projected to each place as P e^{−cost/L} (Boulding's
 //               loss-of-strength gradient, 1962, standard, from memory), cost by the routes from the
 //               capital (src/engine/routes.js: the markets' costs, the catchment's near the capital),
@@ -60,7 +61,7 @@
 // as the region is organized (its cohesion A: a province's elite, a settler frontier, a schooled nation,
 // whose floor rises to A_NAT), found a successor instead of drifting stateless, at R_SEC × x²/(1 + x²) ×
 // ρ^G/(1 + ρ^G) × A²/(A² + A_ORG²) × (1 + K_SECP ψ) a year (G = SEC_G), x its city's people (or, once
-// schooled, its nation's) over N_STATE, ψ its stress (src/engine/classes.js). ρ grows with the cost from the
+// schooled, its nation's) over N_SEC (a province's city, already administered, needs less than a first state's), ψ its stress (src/engine/classes.js). ρ grows with the cost from the
 // capital, the place's unlikeness and schooling (kin and K_SELF cut v) and the state's loss of heart; a
 // subject people with no cohesion of its own only slips toward statelessness, as before. The successor takes its parent's holdings in
 // its region, each place's by how much nearer it lies to the new seat than to the old capital, e^{−x_new/L} /
@@ -87,7 +88,7 @@
 //               tribute), the rest of the vassals' share kept in the region (People.foodshed); where they
 //               administer, K_RENT of the land elites' rent is tax (src/engine/classes.js: centralization).
 //   the steppe  a place where herders are most of the people founds a herders' state, its capital a camp,
-//               where their arms gather beside settled wealth in reach: x² = (1 + the horse) × the region's
+//               where their arms gather beside settled wealth in reach, once they ride: x² = riding × (1 + the horse) × the region's
 //               herders × its settled people / N_CAMP² (Barfield's nomads, who needed the sown to milk), where
 //               no state already rules them (× π₀^γ against the states' powers there), uniting
 //               its region's herders. Herders deliver wholly to it, DL_HERD to a settled state; it reaches
@@ -100,7 +101,7 @@
 //               weighs them, to its camp and its office (goods and lives move, allegiance doesn't); the
 //               stateless share, with no one to pay, is raided, W_RAID × the tribute's share of its people a
 //               year dying. Its camp is its herders' most armed place held. Conquest: a settled state's city
-//               of N_STATE or more paying it tribute falls at R_SEC × ψ × ρ^γ/(1 + ρ^γ) a year, where stress
+//               of N_SEC or more paying it tribute falls at R_SEC × ψ × ρ^γ/(1 + ρ^γ) a year, where stress
 //               breaks the settled (Turchin's mirror empires; the factions that let the riders in): it takes
 //               the state's holdings nearer the city as a successor does and its administration (the larger
 //               κ), and moves its seat there, a settled state ruled by a dynasty from the steppe (Ibn
@@ -191,7 +192,7 @@ export class Polities {
     this.rH = new Float64Array(nL); this.rSo = new Float64Array(nL);   // its region's herders and settled people (farmers and cities), by the kernel
     this.tribK = new Int32Array(nL).fill(-1);     // the herders' state its tribute goes to, or −1
     this.tribT = new Float64Array(nL);            // the share of what its administrators take that goes to it
-    this.mH = pp.P.M_HERD;                        // the horse's edge now (M_HERD, fading with gunpowder)
+    this.mH = 0; this.ride = 0;                    // the horse's edge now (M_HERD once ridden, fading with gunpowder), and riding's share
     this.S = new Float64Array(nL).fill(pp.P.COH0); // each place's cohesion (asabiya)
     this.ex = new Float64Array(nL);               // the spare room among its land neighbours (its people's exit; src/engine/classes.js reads it too)
     this.fr = new Float64Array(nL);               // its metaethnic frontier's weight
@@ -234,7 +235,10 @@ export class Polities {
     let gs = 0, ns = 0, zt = 0;
     for (let c = 0; c < nL; c++) { gs += pp.goods[c]; ns += N[c]; if (N[c] > 0 && zc[c] > zt) zt = zc[c]; }
     const yW = this.yW = gs > 0 && ns > 0 ? gs / ns : 0, ky = yW > 0 ? P.K_ARM / yW : 0;
-    const mH = this.mH = P.M_HERD / (1 + Math.exp(Math.min(60, (zt - P.Z_GUN) / P.W_GUN))), dH = this.dH;
+    // Riding comes first (the chariot, then mounted archers: Anthony's horse, from memory), where the world's
+    // best production passes Z_RIDE: before it herders had no edge and founded no states of their own.
+    const ride = this.ride = 1 / (1 + Math.exp(-(zt - P.Z_RIDE) / P.W_RIDE));
+    const mH = this.mH = P.M_HERD * ride / (1 + Math.exp(Math.min(60, (zt - P.Z_GUN) / P.W_GUN))), dH = this.dH;
     for (let c = 0; c < nL; c++) {
       const n = N[c], t = T[c];
       if (!(n > 0) || !(t > 0)) { d[c] = 0; dH[c] = 0; arm[c] = 1; pi0[c] = 0; continue; }
@@ -560,7 +564,7 @@ export class Polities {
       for (let c = 0; c < nL; c++) {
         const k = this.owner(c);
         if (k < 0 || c === list[k].cap) continue;
-        const x = Math.max(city[c], nat[c] * N[c]) / P.N_STATE;
+        const x = Math.max(city[c], nat[c] * N[c]) / P.N_SEC;
         if (!(x > 0)) continue;
         let v = 0;
         for (let j = 0; j < KC; j++) if (cid[KC * c + j] === k) { v = cpi[KC * c + j]; break; }
@@ -574,7 +578,7 @@ export class Polities {
         if (this.rng.uniform() < 1 - Math.exp(-r * dt)) this.secede(c, k, capCost);
       }
     }
-    // Conquest: a settled state's city that could seat a state (N_STATE's) and pays a herders' state tribute
+    // Conquest: a settled state's city that could seat a state (N_SEC's, as a successor's) and pays a herders' state tribute
     // falls to it at R_SEC × ψ × the tribute's saturation (ρ^γ/(1 + ρ^γ)) a year, the likeliest first: where
     // stress breaks the settled frontier the riders take it (the factions and risings that let them in).
     // The herders' state takes its holdings nearer the city (as a successor takes its parent's) and moves
@@ -584,7 +588,7 @@ export class Polities {
       const cq = [];
       for (let c = 0; c < nL; c++) {
         const kc = tribK[c], ks = this.owner(c);
-        if (kc < 0 || ks < 0 || list[ks].camp || !(city[c] >= P.N_STATE) || list[kc].died !== null || !list[kc].camp) continue;
+        if (kc < 0 || ks < 0 || list[ks].camp || !(city[c] >= P.N_SEC) || list[kc].died !== null || !list[kc].camp) continue;
         const r = P.R_SEC * Math.min(1, psi[c]) * tribT[c] / P.T_TRIB;
         if (r > 1e-9) cq.push([c, kc, ks, r]);
       }
@@ -595,8 +599,8 @@ export class Polities {
       }
     }
     // Founding: a place mostly stateless with a fed city, or once schooled its nation's people; or, where
-    // herders are most of the people, a herders' state where their arms gather beside settled wealth in
-    // reach, x² = (1 + the horse's edge) × the region's herders × its settled people / N_CAMP² (both needed:
+    // herders are most of the people and ride, a herders' state where their arms gather beside settled wealth in
+    // reach, x² = riding × (1 + the horse's edge) × the region's herders × its settled people / N_CAMP² (both needed:
     // Barfield's nomads, who needed the sown to milk), its capital a camp, where no state already rules
     // them (× π₀^γ against its own and the states' powers there: herders count free to a herders' state
     // where a settled one holds all it can of them).
@@ -604,7 +608,7 @@ export class Polities {
     if (city) for (let c = 0; c < nL; c++) {
       if (!(d[c] > 0)) continue;
       const xc = (Math.max(city[c], nat[c] * N[c]) / P.N_STATE) ** 2;
-      const xh = P.N_CAMP > 0 && nat[c] <= 0.5 && T[c] > 0 && W[5 * c + 1] >= 0.5 * T[c] ? (1 + mH) * rH[c] * rSo[c] / (P.N_CAMP * P.N_CAMP) : 0;
+      const xh = P.N_CAMP > 0 && nat[c] <= 0.5 && T[c] > 0 && W[5 * c + 1] >= 0.5 * T[c] ? this.ride * (1 + mH) * rH[c] * rSo[c] / (P.N_CAMP * P.N_CAMP) : 0;
       const herd = xh > xc;
       if (!herd && !(city[c] > 0 || nat[c] > 0.5)) continue;
       const dd = herd ? W[5 * c + 1] / T[c] * (1 - ind[c]) : d[c];   // a herders' state's founders are its herders
