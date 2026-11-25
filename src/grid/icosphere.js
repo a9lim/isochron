@@ -271,9 +271,9 @@ export function laplacian(grid, f, out) {
 }
 
 /** Least-squares gradient in the tangent plane, as 3-vectors: out[3i..3i+2]. */
-export function gradient(grid, f, out) {
-  const { n, nbrOff, nbr, gw } = grid;
-  for (let i = 0; i < n; i++) {
+export function gradient(grid, f, out, from = 0, to = grid.n) {
+  const { nbrOff, nbr, gw } = grid;
+  for (let i = from; i < to; i++) {
     const fi = f[i];
     let gx = 0, gy = 0, gz = 0;
     for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {

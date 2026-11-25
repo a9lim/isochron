@@ -78,7 +78,7 @@ import { SeaHeat } from './seaheat.js';
 import { DeepSea } from './deepsea.js';
 import { AirHeat, AIRHEAT } from './airheat.js';
 import { Clouds, CLOUDS, shortwave, longwave } from './clouds.js';
-import { shared } from './shared.js';
+import { shared, toShared } from './shared.js';
 import { parallel } from './pool.js';
 
 // Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
@@ -238,12 +238,13 @@ export const wsat = T => W0 * Math.exp(WA * (Math.max(-45, Math.min(45, T)) - 15
  * The surface wind from the template's sea-level pressure (hPa about the mean): r u + f k×u =
  * −∇p/ρ, as 3-vectors (m/s) in each cell's tangent plane, written into `wind`. With `carry`,
  * also the moisture's carrying wind: the geostrophic part and CARRY of the frictional drift.
- * The climate's phases and the page's Air chart (src/render/streamlines.js) both take it.
+ * The climate's phases and the page's Air chart (src/render/streamlines.js) both take it. Cells
+ * `from` to `to` only, if given (the engine's pool's kernel, src/engine/kernels.js).
  */
-export function surfaceWind(g, pres, omega, wind, carry = null, gp = new Float64Array(3 * g.n)) {
-  gradient(g, pres, gp);
-  const r = CLIMATE.FRICTION, cy = CLIMATE.CARRY, pos = g.pos, n = g.n;
-  for (let i = 0; i < n; i++) {
+export function surfaceWind(g, pres, omega, wind, carry = null, gp = new Float64Array(3 * g.n), from = 0, to = g.n, C = CLIMATE) {
+  gradient(g, pres, gp, from, to);
+  const r = C.FRICTION, cy = C.CARRY, pos = g.pos;
+  for (let i = from; i < to; i++) {
     const gx = -gp[3 * i] * 100 / R_M / 1.2, gy = -gp[3 * i + 1] * 100 / R_M / 1.2, gz = -gp[3 * i + 2] * 100 / R_M / 1.2;
     const px = pos[3 * i], py = pos[3 * i + 1], pz = pos[3 * i + 2];
     const f = 2 * omega * pz;
@@ -254,6 +255,26 @@ export function surfaceWind(g, pres, omega, wind, carry = null, gp = new Float64
     if (carry) { carry[3 * i] = (cy * r * gx - f * kx) / d; carry[3 * i + 1] = (cy * r * gy - f * ky) / d; carry[3 * i + 2] = (cy * r * gz - f * kz) / d; }
   }
   return wind;
+}
+
+/**
+ * The template's sea-level pressure (hPa about the mean) on cells [a, b) at a point of the year
+ * (Climate.phase, and the engine's pool's kernel): the ITCZ's trough at each sector's latitude, the
+ * subtropical highs and subpolar lows either side of it at the Hadley cell's edge phiH, the polar
+ * highs, and the thermal part, −THERMAL per kelvin of the land's departure from its latitude
+ * (`anom`), bounded softly at THERMAL_MAX.
+ */
+export function pressureCells(x, a, b) {
+  const { lat, sector, landSmooth, polarHi, anom, itcz, phiH, pres, C } = x;
+  const G = (y, w) => Math.exp(-0.5 * (y / w) * (y / w));
+  const thMax = C.THERMAL_MAX, thermal = v => { const y = -C.THERMAL * v; return thMax > 0 ? thMax * Math.tanh(y / thMax) : y; };
+  for (let i = a; i < b; i++) {
+    const la = lat[i], pi = itcz[sector[i]];
+    const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
+    const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
+    pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
+      + 8 * polarHi[i] + thermal(anom[i]);
+  }
 }
 
 /** Preconditioned conjugate gradients for a complex symmetric system (COCG; real when im = 0). */
@@ -1066,25 +1087,18 @@ export class Climate {
       }
     }
     prolong(this.T, c5, anom);
-    // Pressure (hPa about the mean). The thermal part: −THERMAL per kelvin of the departure, bounded softly at THERMAL_MAX.
+    // Pressure (hPa about the mean: pressureCells), then the winds, r u + f k×u = −∇p/ρ (surfaceWind),
+    // each by chunk on the engine's pool where there is one.
     const pres = this.pres, G = (x, w) => Math.exp(-0.5 * (x / w) * (x / w));
-    const thMax = C.THERMAL_MAX, thermal = a => { const x = -C.THERMAL * a; return thMax > 0 ? thMax * Math.tanh(x / thMax) : x; };
     // The polar highs don't move: their Gaussians once.
-    const polarHi = this.polarHi || (this.polarHi = Float64Array.from(this.lat, la => G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28)));
-    for (let i = 0; i < n; i++) {
-      const la = this.lat[i], pi = itcz[this.sector[i]];
-      const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
-      const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
-      pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * this.landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
-        + 8 * polarHi[i] + thermal(anom[i]);
-    }
+    const polarHi = this.polarHi || (this.polarHi = toShared(Float64Array.from(this.lat, la => G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28))));
+    const consts = { ...C };
+    yield* parallel('pressure', { lat: this.lat, sector: this.sector, landSmooth: this.landSmooth, polarHi, anom, itcz: Array.from(itcz), phiH, pres, C: consts }, n);
     this.presPhase[p].set(pres);
-    // Winds: r u + f k×u = −∇p/ρ.
-    if (!this.gp) this.gp = new Float64Array(3 * n);
-    if (!this.carry) this.carry = new Float32Array(3 * n);
-    const carry = this.carry;
-    surfaceWind(g, pres, C.OMEGA, this.windPhase[p], carry, this.gp);
-    yield;
+    if (!this.gp) this.gp = shared(Float64Array, 3 * n);
+    if (!this.carry) this.carry = shared(Float32Array, 3 * n);
+    const carry = this.carry, gv = { n, pos: g.pos, nbrOff: g.nbrOff, nbr: g.nbr, gw: g.gw };
+    yield* parallel('wind', { g: gv, pres, omega: C.OMEGA, wind: this.windPhase[p], carry, gp: this.gp, C: consts }, n);
     yield* this.moisture(p, T, carry);
     // Its clouds (src/engine/clouds.js), for the next energy balance.
     if (this.clouds) yield* this.clouds.phaseSteps(p, T);
