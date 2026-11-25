@@ -457,7 +457,9 @@ export class GpuIce {
    * the sea. Every SLOW_EVERY reads (or with `all`) also the bed's fields and
    * the glacial integrals, which are cleared on the device as they're copied.
    */
-  async read(all = false) {
+  read(all = false) { return (this.inFlight = this.readOnce(all)); }
+  /** The read in flight's promise is `inFlight`: wait on it, not on turns of the thread (that spun it ~9% busy through a seeded planet's opening). */
+  async readOnce(all) {
     this.reading = true; this.lastRead = performance.now();
     const n = this.n, enc = this.device.createCommandEncoder();
     const slow = all || ++this.reads % SLOW_EVERY === 0;

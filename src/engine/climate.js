@@ -199,7 +199,9 @@ export const CLIMATE = {
   // The energy balance's fixed point (absorbed sunlight reads the temperature through snow and
   // sea ice), by Anderson's mixing over the last EBM_DEPTH steps (`energyBalance`): a cycle steps
   // until a step moves T by less than EBM_TOL (K rms over the year and the globe), at most
-  // EBM_MAX steps warm and EBM_MAX_COLD cold.
+  // EBM_MAX steps warm and EBM_MAX_COLD cold or until the climate has settled (at two a cycle the
+  // opening's residual stayed at 0.3–0.8 K, its mean moving ~2/3 as far each cycle as the last:
+  // today's Earth settled at cycle 10 on the page, the temperature the last to settle).
   EBM_TOL: 0.02, EBM_MAX: 2, EBM_MAX_COLD: 6, EBM_DEPTH: 3,
   // The CPU's harmonic solves (COCG): relative residual and iterations, warm then cold.
   EBM_CG: [1e-5, 60, 1e-7, 300],
@@ -917,7 +919,7 @@ export class Climate {
    */
   *energyBalance() {
     const C = CLIMATE, cg = this.coarse, nc = cg.n, N = 5 * nc, m = C.EBM_DEPTH;
-    const maxIt = this.warm ? C.EBM_MAX : C.EBM_MAX_COLD;
+    const maxIt = this.warm && this.stats.settled ? C.EBM_MAX : C.EBM_MAX_COLD;
     // The norm's weights: area, and each harmonic's share of the year's variance.
     const ws = this.ebmWs || (this.ebmWs = {
       w: Float64Array.from({ length: N }, (_, j) => cg.area[j % nc] / (4 * Math.PI) * (j < nc ? 1 : 0.5)),
