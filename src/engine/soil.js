@@ -189,6 +189,12 @@ function monthOf(S0, W0, G0, smax, T, pet, snow, rain, pdd, guess) {
   R[0] = quick; R[1] = base; R[2] = E; R[3] = S; R[4] = W; R[5] = G; R[6] = decay; R[7] = ice; R[8] = w;
 }
 
+/** The ground's periodic year on cells [a, b) (Soil.equilibrium on the soil `x.soil`'s arrays): the engine's pool's kernel. */
+export function soilYearCells(x, a, b) {
+  const s = Object.assign(Object.create(Soil.prototype), x.soil);
+  return s.equilibrium(x.T, x.P, x.PET, { cold: x.cold, from: a, to: b });
+}
+
 export class Soil {
   /** `n` cells; `Smax` (mm) a number or an array, ≤ 0 where there's no land. */
   constructor(n, Smax = SOIL.SMAX) {

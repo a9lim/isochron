@@ -71,7 +71,7 @@
 import { buildGrid, gradient } from '../grid/icosphere.js';
 import { makeTransfer, prolong, prolongT, restrict } from '../grid/transfer.js';
 import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit.js';
-import { Soil, SOIL, potentialEvaporation } from './soil.js';
+import { Soil, SOIL, potentialEvaporation, soilYearCells } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
 import { SeaHeat } from './seaheat.js';
@@ -276,6 +276,9 @@ export function pressureCells(x, a, b) {
       + 8 * polarHi[i] + thermal(anom[i]);
   }
 }
+
+/** The winds from a point of the year's pressure on cells [a, b) (surfaceWind): the engine's pool's kernel. */
+export const windCells = (x, a, b) => { surfaceWind(x.g, x.pres, x.omega, x.wind, x.carry, x.gp, a, b, x.C); };
 
 /** Preconditioned conjugate gradients for a complex symmetric system (COCG; real when im = 0). */
 export function cocg(g, D, dr, di, br, bi, xr, xi, ws, maxIt, tol) {
@@ -1093,12 +1096,12 @@ export class Climate {
     // The polar highs don't move: their Gaussians once.
     const polarHi = this.polarHi || (this.polarHi = toShared(Float64Array.from(this.lat, la => G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28))));
     const consts = { ...C };
-    yield* parallel('pressure', { lat: this.lat, sector: this.sector, landSmooth: this.landSmooth, polarHi, anom, itcz: Array.from(itcz), phiH, pres, C: consts }, n);
+    yield* parallel('pressure', pressureCells, { lat: this.lat, sector: this.sector, landSmooth: this.landSmooth, polarHi, anom, itcz: Array.from(itcz), phiH, pres, C: consts }, n);
     this.presPhase[p].set(pres);
     if (!this.gp) this.gp = shared(Float64Array, 3 * n);
     if (!this.carry) this.carry = shared(Float32Array, 3 * n);
     const carry = this.carry, gv = { n, pos: g.pos, nbrOff: g.nbrOff, nbr: g.nbr, gw: g.gw };
-    yield* parallel('wind', { g: gv, pres, omega: C.OMEGA, wind: this.windPhase[p], carry, gp: this.gp, C: consts }, n);
+    yield* parallel('wind', windCells, { g: gv, pres, omega: C.OMEGA, wind: this.windPhase[p], carry, gp: this.gp, C: consts }, n);
     yield* this.moisture(p, T, carry);
     // Its clouds (src/engine/clouds.js), for the next energy balance.
     if (this.clouds) yield* this.clouds.phaseSteps(p, T);
@@ -1362,7 +1365,7 @@ export class Climate {
   *groundYear() {
     const n = this.grid.n, s = this.soil, o = s.out, FC = SOIL.FC, CV = SOIL.COVER;
     potentialEvaporation(this.T12, this.PET12);
-    const rs = yield* parallel('soilYear', { soil: s.arrays(), T: this.T12, P: this.P12, PET: this.PET12, cold: !this.soilWarm, SOIL: { ...SOIL } }, n);
+    const rs = yield* parallel('soilYear', soilYearCells, { soil: s.arrays(), T: this.T12, P: this.P12, PET: this.PET12, cold: !this.soilWarm, SOIL: { ...SOIL } }, n);
     let years = 0, cells = 0;
     for (const r of rs) { years += r.meanYears * r.cells; cells += r.cells; }
     this.soilWarm = true;

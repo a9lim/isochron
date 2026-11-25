@@ -72,6 +72,7 @@
 // in the mantle's frame, as the ice does: plates move a cell's width in Myr,
 // and the cover re-makes itself in centuries.
 
+import { shared } from './shared.js';
 export const VEG = {
   F_MAX: 0.95, G_MIN: 800,          // VECODE: the most trees can cover; degree-days (above 0 °C) trees need
   G_TREE: 400,                      // degree-days past G_MIN over which trees reach F_MAX (c = −1/G_TREE)
@@ -237,8 +238,8 @@ export class Vegetation {
     // the pools below are solved in closed form over any step.
     this.veg = new Float64Array(n);
     this.share = new Float64Array(n);
-    this.ft = new Float32Array(n);       // trees, grass: shares of the cell
-    this.fg = new Float32Array(n);
+    this.ft = shared(Float32Array, n);       // trees, grass: shares of the cell (shared with the engine's pool)
+    this.fg = shared(Float32Array, n);
     this.vEq = new Float64Array(n); this.sEq = new Float64Array(n);
     this.pi = new Float64Array(n);       // NPP per m² of vegetation, kg C/yr
     this.kS = new Float64Array(n).fill(1 / VEG.TAU_SOIL);   // soil respiration, 1/yr

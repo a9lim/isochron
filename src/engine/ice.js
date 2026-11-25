@@ -89,6 +89,7 @@
 // Thickness in metres, time in years. The ice is held in the mantle's frame:
 // over its timescales the plates hardly move, and at plate speed it's
 // re-made by the climate faster than the plates carry it.
+import { shared } from './shared.js';
 import { elasticThickness, sharedElasticThickness } from './flexure.js';
 
 export const ICE = {
@@ -199,7 +200,7 @@ export class Ice {
     this.tec = tec;
     this.climate = climate;
     const g = this.grid = tec.grid, n = g.n;
-    this.H = new Float64Array(n);          // m
+    this.H = shared(Float64Array, n);          // m (shared with the engine's pool)
     this.w = new Float64Array(n);          // bed deflection, m (negative down)
     this.M = new Float64Array(n);          // mass balance, m of ice per year
     this.melt = new Float64Array(n);       // of which melt (surface, by degree days), m of ice per year

@@ -1,22 +1,21 @@
-// The engine's per-cell loops that run on its pool of threads (src/engine/pool.js): each a function of
-// its arguments (the planet's shared arrays, plain values, and the constants it reads) and a range of
-// cells [a, b), returning what the caller sums. Each layer's own method is the reference; a kernel
-// rebuilds the layer's view of its arrays and calls it on its range.
-import { Soil, SOIL } from './soil.js';
+// The kernels the engine's pool's threads run (src/engine/pool.js), by name: each a layer's own function
+// over a range of cells [a, b) (the one the layer hands `parallel`), after the constants the engine may
+// have set, which come with its arguments. Only the pool's threads import this.
+import { soilYearCells, SOIL } from './soil.js';
 import { cloudCells, CLOUDS } from './clouds.js';
-import { pressureCells, surfaceWind } from './climate.js';
+import { pressureCells, windCells } from './climate.js';
+import { sourceCells } from './aeolian.js';
+import { VEG } from './vegetation.js';
 
 export const KERNELS = {
-  /** The ground's periodic year (Soil.equilibrium) on cells [a, b), from the climate's months. */
-  soilYear(x, a, b) {
-    Object.assign(SOIL, x.SOIL);
-    const s = Object.assign(Object.create(Soil.prototype), x.soil);
-    return s.equilibrium(x.T, x.P, x.PET, { cold: x.cold, from: a, to: b });
-  },
-  /** A point of the year's clouds (cloudCells) on cells [a, b). */
+  /** The ground's periodic year (Soil.equilibrium). */
+  soilYear(x, a, b) { Object.assign(SOIL, x.SOIL); return soilYearCells(x, a, b); },
+  /** A point of the year's clouds. */
   clouds(x, a, b) { Object.assign(CLOUDS, x.CLOUDS); return cloudCells(x, a, b); },
-  /** A point of the year's template pressure (pressureCells) on cells [a, b). */
-  pressure(x, a, b) { pressureCells(x, a, b); },
-  /** Its winds and carrying winds from that pressure (surfaceWind) on cells [a, b). */
-  wind(x, a, b) { surfaceWind(x.g, x.pres, x.omega, x.wind, x.carry, x.gp, a, b, x.C); },
+  /** A point of the year's template pressure. */
+  pressure: pressureCells,
+  /** Its winds and carrying winds from that pressure. */
+  wind: windCells,
+  /** A point of the year's dust sources. */
+  dustSources(x, a, b) { Object.assign(VEG, x.VEG); return sourceCells(x, a, b); },
 };

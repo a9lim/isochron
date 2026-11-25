@@ -75,6 +75,7 @@
 //
 // Lengths and levels in km, areas in km², volumes in km³, time in years,
 // runoff and P − E in m/yr.
+import { shared } from './shared.js';
 import { LAND, route } from './landscape.js';
 
 export const LAKES = {
@@ -106,7 +107,7 @@ export class Lakes {
     this.wet = new Float32Array(n);       // share of the cell under water
     this.under = new Uint8Array(n);       // its mean floor is under water (wet > ½)
     this.wetY = new Float32Array(n);      // the wet share over about the last year (the climate's)
-    this.salt = new Float32Array(n);      // share of the cell that is salt flat
+    this.salt = shared(Float32Array, n);      // share of the cell that is salt flat (shared with the engine's pool)
     this.lakeId = new Int32Array(n).fill(-1);   // the lake node over the cell (state, level, area, volume), or −1
     this.mem = new Float32Array(n);       // recent wet share, decaying over SALT_TAU
     this.leafOf = new Int32Array(n).fill(-1);   // the leaf whose depression holds the cell, or −1

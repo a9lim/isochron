@@ -74,6 +74,8 @@ import { Dust, NP, DUST } from './dust.js';
 import { CLIMATE } from './climate.js';
 import { VEG, dust as bareShare } from './vegetation.js';
 import { monthPhase } from './orbit.js';
+import { shared } from './shared.js';
+import { parallel } from './pool.js';
 
 export const AEOLIAN = {
   W_DRY: [0.35, 0.55],    // the soil's relative water over which emission tapers out
@@ -97,6 +99,45 @@ export const AEOLIAN = {
 const R_M = 6.371e6, R2 = R_M * R_M;
 const ramp = (x, a, b) => { const t = (x - a) / (b - a); return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); };
 
+/**
+ * The sources at point p of the year on cells [a, b) (Aeolian.phaseSteps, and the engine's pool's
+ * kernel: src/engine/kernels.js): the gust's rms, each hemisphere's blended across the tropics; the
+ * source strength S and its threshold wind; the year's mean of S and of each share. Returns the
+ * source-weighted gust's sums.
+ */
+export function sourceCells(x, a, b) {
+  const { p, T, L, elev, H, ft, fg, z, Sm, Smax, wetL, salt, outRate, rh, lat, ph, sN, sS, lapse, A, U_T, gust, ut, S, pt, sourceAnn } = x, NZ = 16;
+  let gs = 0, gw = 0;
+  for (let i = a; i < b; i++) {
+    if (p === 0) pt[3 * i] = pt[3 * i + 1] = pt[3 * i + 2] = 0;
+    cell: {
+      const w = ramp(lat[i] * 180 / Math.PI, -15, 15);
+      gust[i] = sS + (sN - sS) * w;
+      ut[i] = U_T;
+      S[i] = 0;
+      if (!L[i] || (H && H[i] > A.ICE)) break cell;
+      const Ts = T[i] - lapse * elev[i], open = (1 - ramp(-Ts, -1, 5)) * (1 - (wetL[i] || 0));
+      if (!(open > 0)) break cell;
+      // The soil's relative water at this point of the year (the closure's months in it).
+      let w0 = 0, wn = 0;
+      if (Smax[i] > 0) for (let m = 0; m < 12; m++) if (ph[m] === p) { w0 += Sm[12 * i + m]; wn++; }
+      const wet = wn > 0 ? w0 / wn / Smax[i] : 0;
+      const bare = ft ? bareShare(ft[i], fg[i]) : z[NZ * i + 4] + 0.5 * z[NZ * i + 5];
+      const dry = bare * (1 - ramp(wet, A.W_DRY[0], A.W_DRY[1]));
+      const flat = salt ? Math.min(1, A.SALT * salt[i]) : 0;
+      const out = 1 - Math.exp(-outRate[i] / A.OUT_Q);
+      const loose = rh ? 1 - Math.exp(-rh[i] / A.LOOSE) : 1;
+      S[i] = open * loose * (1 - (1 - dry) * (1 - flat) * (1 - out));
+      const w6 = open * loose / NP;
+      pt[3 * i] += w6 * dry; pt[3 * i + 1] += w6 * flat; pt[3 * i + 2] += w6 * out;
+      ut[i] = U_T * Math.max(1, 1.2 + 0.2 * Math.log10(Math.max(wet, 1e-3)));
+      if (S[i] > 0) { gs += S[i] * gust[i]; gw += S[i]; }
+    }
+    sourceAnn[i] = p === 0 ? S[i] / NP : sourceAnn[i] + S[i] / NP;
+  }
+  return [gs, gw];
+}
+
 export class Aeolian {
   /** On the planet's layers: { grid, tec, climate, ice, lakes, regolith, life }; opts override AEOLIAN and (DUST) the balance's. */
   constructor({ grid, tec, climate, ice = null, lakes = null, regolith = null, life = null }, opts = {}) {
@@ -105,12 +146,13 @@ export class Aeolian {
     this.dust = new Dust(grid, opts.DUST || {});     // its emission constant DUST.C is the calibration
     const n = this.n = grid.n;
     this.areaM = Float64Array.from(grid.area, a => a * R2);
-    this.source = new Float32Array(n);        // S at the point of the year being packed
-    this.ut = new Float32Array(n);            // m/s
-    this.gust = new Float32Array(n);          // m/s
-    this.sourceAnn = new Float32Array(n);     // the year's mean S (figures, tests)
-    this.parts = new Float32Array(3 * n);     // the year's mean of each share: bare and dry, salt flats, outwash (the figure's attribution)
-    this.outRate = new Float32Array(n);       // m/yr of the ice's meltwater leaving it at each cell, eased
+    // (These six shared with the engine's pool: the sources are a kernel, `sourceCells`.)
+    this.source = shared(Float32Array, n);        // S at the point of the year being packed
+    this.ut = shared(Float32Array, n);            // m/s
+    this.gust = shared(Float32Array, n);          // m/s
+    this.sourceAnn = shared(Float32Array, n);     // the year's mean S (figures, tests)
+    this.parts = shared(Float32Array, 3 * n);     // the year's mean of each share: bare and dry, salt flats, outwash (the figure's attribution)
+    this.outRate = shared(Float32Array, n);       // m/yr of the ice's meltwater leaving it at each cell, eased
     this.dark = new Float32Array(n);          // the climate's planetary albedo change on snow and ice (≤ 0)
     this.forcing = new Float32Array(n);       // W/m², into the energy balance
     this.ddf = new Float32Array(2 * n).fill(1);   // the ice's degree-day factors' scale: snow, ice
@@ -144,8 +186,17 @@ export class Aeolian {
   phase(p, T) { const it = this.phaseSteps(p, T); while (!it.next().done); }
   /** `phase` in pieces (the climate's cycle yields between them). */
   *phaseSteps(p, T) {
+    const c = this.climate;
+    let gs = 0, gw = 0;
+    for (const r of yield* parallel('dustSources', sourceCells, this.sourceArgs(p, T), this.n)) { gs += r[0]; gw += r[1]; }
+    this.stats.gust = gw > 0 ? gs / gw : DUST.GUST;
+    yield;
+    yield* this.dust.phaseSteps(p, { wind: c.windPhase[p], carry: c.carry, rain: c.Pph[p], source: this.source, ut: this.ut, gust: this.gust });
+  }
+  /** Point p's arguments for `sourceCells`, with each hemisphere's equator-to-60° contrast for the gusts. */
+  sourceArgs(p, T) {
     const c = this.climate, A = this.A, n = this.n, g = this.grid, S = this.source, ut = this.ut, gust = this.gust;
-    const L = c.landMask, elev = c.elevPos, H = this.ice ? this.ice.H : null, cv = c.cover, z = c.zones, NZ = 16;
+    const L = c.landMask, elev = c.elevPos, H = this.ice ? this.ice.H : null, cv = c.cover, z = c.zones;
     const soil = c.soil, Sm = soil.out.S, Smax = soil.Smax, wetL = c.lakeWet, salt = this.lakes ? this.lakes.salt : null;
     const lapse = CLIMATE.LAPSE, ph = this.monthPh;
     // Each hemisphere's equator-to-60° contrast at this point of the year, for the gusts.
@@ -157,37 +208,9 @@ export class Aeolian {
     }
     const eq = zs[0] / za[0], dN = Math.max(5, eq - zs[1] / za[1]), dS = Math.max(5, eq - zs[2] / za[2]);
     const sN = DUST.GUST * Math.pow(dN / A.GUST_DT, A.GUST_EXP), sS = DUST.GUST * Math.pow(dS / A.GUST_DT, A.GUST_EXP);
-    let gs = 0, gw = 0;
-    const pt = this.parts;
-    if (p === 0) pt.fill(0);
-    for (let i = 0; i < n; i++) {
-      // The gust's rms: each hemisphere's, blended across the tropics.
-      const w = ramp(c.lat[i] * 180 / Math.PI, -15, 15);
-      gust[i] = sS + (sN - sS) * w;
-      ut[i] = DUST.U_T;
-      S[i] = 0;
-      if (!L[i] || (H && H[i] > A.ICE)) continue;
-      const Ts = T[i] - lapse * elev[i], open = (1 - ramp(-Ts, -1, 5)) * (1 - (wetL[i] || 0));
-      if (!(open > 0)) continue;
-      // The soil's relative water at this point of the year (the closure's months in it).
-      let w0 = 0, wn = 0;
-      if (Smax[i] > 0) for (let m = 0; m < 12; m++) if (ph[m] === p) { w0 += Sm[12 * i + m]; wn++; }
-      const wet = wn > 0 ? w0 / wn / Smax[i] : 0;
-      const bare = cv ? bareShare(cv.ft[i], cv.fg[i]) : z[NZ * i + 4] + 0.5 * z[NZ * i + 5];
-      const dry = bare * (1 - ramp(wet, A.W_DRY[0], A.W_DRY[1]));
-      const flat = salt ? Math.min(1, A.SALT * salt[i]) : 0;
-      const out = 1 - Math.exp(-this.outRate[i] / A.OUT_Q);
-      const loose = this.regolith ? 1 - Math.exp(-this.regolith.h[i] / A.LOOSE) : 1;
-      S[i] = open * loose * (1 - (1 - dry) * (1 - flat) * (1 - out));
-      const w6 = open * loose / NP;
-      pt[3 * i] += w6 * dry; pt[3 * i + 1] += w6 * flat; pt[3 * i + 2] += w6 * out;
-      ut[i] = DUST.U_T * Math.max(1, 1.2 + 0.2 * Math.log10(Math.max(wet, 1e-3)));
-      if (S[i] > 0) { gs += S[i] * gust[i]; gw += S[i]; }
-    }
-    this.stats.gust = gw > 0 ? gs / gw : DUST.GUST;
-    for (let i = 0; i < n; i++) this.sourceAnn[i] = p === 0 ? S[i] / NP : this.sourceAnn[i] + S[i] / NP;
-    yield;
-    yield* this.dust.phaseSteps(p, { wind: c.windPhase[p], carry: c.carry, rain: c.Pph[p], source: S, ut, gust });
+    const x = { p, T, L, elev, H, ft: cv ? cv.ft : null, fg: cv ? cv.fg : null, z, Sm, Smax, wetL, salt, outRate: this.outRate, rh: this.regolith ? this.regolith.h : null,
+      lat: c.lat, ph: Array.from(ph), sN, sS, lapse, A: { ...A }, VEG: { ...VEG }, U_T: DUST.U_T, gust, ut, S, pt: this.parts, sourceAnn: this.sourceAnn };
+    return x;
   }
 
   /** The balance after the six points of the year (a generator in the climate's cycle), then the routing. */

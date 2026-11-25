@@ -47,6 +47,7 @@
 // The layer is stepped with the fast layers (Planet.fast), at most every
 // `minGap` ms of the wall clock (the page) or every call (headless), the years
 // between banked: the exact solution takes any step.
+import { shared } from './shared.js';
 export const REGOLITH = {
   P0: 0.1,           // km/Myr (mm/yr) of rock turned to regolith at bare rock, at the reference climate (Heimsath's tens to hundreds of m/Myr, from memory)
   H0: 0.5,           // m: production's e-folding depth (from memory)
@@ -87,7 +88,7 @@ export class Regolith {
   constructor(tec, land, climate = null, ice = null) {
     this.tec = tec; this.land = land; this.climate = climate; this.ice = ice;
     const n = this.n = tec.grid.n;
-    this.h = new Float32Array(n);          // m, sampled from the frames at the last update
+    this.h = shared(Float32Array, n);          // m, sampled from the frames at the last update (shared with the engine's pool)
     this.prod = new Float32Array(n);       // km/Myr: production now (weathering's supply)
     this.soft = new Float32Array(n);       // the ice's bed softness
     this.areaKm = Float64Array.from(tec.grid.area, a => a * R_KM * R_KM);

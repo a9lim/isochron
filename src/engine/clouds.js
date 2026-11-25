@@ -106,7 +106,7 @@ export class Clouds {
   /** `phase` as the climate's cycle runs it: the cells by chunk (`cloudCells`), on the engine's pool where there is one. */
   *phaseSteps(p, T) {
     let sl = 0, sh = 0, sc = 0, sa = 0;
-    for (const r of yield* parallel('clouds', this.args(p, T), this.n)) { sl += r[0]; sh += r[1]; sc += r[2]; sa += r[3]; }
+    for (const r of yield* parallel('clouds', cloudCells, this.args(p, T), this.n)) { sl += r[0]; sh += r[1]; sc += r[2]; sa += r[3]; }
     // The year's means, as each point arrives.
     const st = this.stats, f = 1 / Math.min(NP, st.points + 1);
     st.lo += (sl / sa - st.lo) * f; st.hi += (sh / sa - st.hi) * f; st.cover += (sc / sa - st.cover) * f;
