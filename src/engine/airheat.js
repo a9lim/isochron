@@ -36,7 +36,7 @@ import { LaplaceMG, mgcg } from '../grid/multigrid.js';
 
 /** Tunable; tools and tests may change them. */
 export const AIRHEAT = {
-  H: 1,                  // km: the depth of air at the surface's temperature the wind carries (0: none). Earth (tuned: 3–8 km warmed Eurasia's interior 2–6 K)
+  H: 2.125,              // km: the depth of air at the surface's temperature the wind carries (0: none). Earth (tuned: 3–8 km warmed Eurasia's interior 2–6 K; 1 before moist static energy)
   SEASONS: 1,            // the year's mean wind carries the seasons' harmonics too (1), or the mean alone (0)
   CROSS: 1,              // the seasons' winds carry heat (1), or the year's mean wind alone (0)
   RHO_CP: 1206,          // J m⁻³ K⁻¹: air's, at the surface

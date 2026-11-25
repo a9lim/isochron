@@ -50,12 +50,12 @@ The page (`main.js`) keeps the clock and posts each frame's planned steps to the
 
 | Layer | Code | Form |
 |---|---|---|
-| Energy balance | `climate.js` `CLIMATE` | C ∂T/∂t = S(1 − α) − (A + BT) + L_c + 5.35 ln(CO₂/CO₂₀) + F + ∇·D∇T on level 5, the mean and two harmonics by COCG or BiCGSTAB; A 235.6, B 2.09, over land the OLR at T − `OLR_Z` (0.45) Γz; D = 1.14 (1 − 0.85 sin²φ), D_SEASON 0.44; capacities 7.9 sea, 0.61 land, 1.2 ice W yr m⁻² K⁻¹; albedo resampled at 24 points of the year, Anderson-mixed to 0.02 K. Each fine cell's seasons: (B + K + ikωC) T̂ = F̂ + L + K T̂ₘ, K 8 W m⁻² K⁻¹. Lapse 5.4 K/km. |
+| Energy balance | `climate.js` `CLIMATE` | C ∂T/∂t = S(1 − α) − (A + BT) + L_c + 5.35 ln(CO₂/CO₂₀) + F + ∇·D∇h on level 5, the mean and two harmonics by COCG or BiCGSTAB; A 235.6, B 2.09, over land the OLR at T − `OLR_Z` (0.65) Γz; D = 0.6 (1 − 0.615 sin²φ), D_SEASON 0.22; capacities 7.9 sea, 0.6 land, 1.2 ice W yr m⁻² K⁻¹; albedo resampled at 24 points of the year, Anderson-mixed to 0.02 K. Each fine cell's seasons: (B + K + ikωC) T̂ = F̂ + L + K T̂ₘ, K 8 W m⁻² K⁻¹. Lapse 5.4 K/km. Moist static energy h = T + s(φ)·`MSE` (0.88 K/mm) r W_s(T_s) + `MSE_Z` (0.7) (g/c_p − Γ) z: r the moisture's column humidity (held softly at 1, coarse, a cycle behind, relaxed by half), W_s the saturated column at the surface's temperature, s(φ) the eddies' share, 0.3 within 10° to 1 past 25°; split per edge into D(1 + μ) in the operator, μ = s ∂q/∂T, and a lagged rest exact at the fixed point. |
 | Clouds | `clouds.js` | High cloud 0.27 (1 − e^{−P/0.72 mm/day}); low cloud by column humidity and, over open sea at 45–60°, stratocumulus by EIS (7.1–15.3 K); shortwave by the adding formula; the high cloud's top at 220 K replaces A + BT over its share, the clear sky capped at 300 W/m². |
 | Air's heat | `airheat.js` | The surface wind's rotational part as edge fluxes (∇²ψ = ζ, divergence-free), carrying 1 km of air at the surface's temperature; sums to nothing. |
 | Sea's heat | `seaheat.js`, `ocean.js` | Steady θ: ρc_p(ΣF_in θ_in − F_out θ) = λA(θ − T); currents the gyres' (Stommel: ε∇²ψ + ∂ψ/∂λ = a² curl τ/2Ωρ₀) plus an overturning where a latitude circle is all sea (Drake Passage effect), `EKMAN` 0.37 of its Ekman transport plus `MIX` Sv. The stress ρ_a C_D √(\|u\|² + G²) u, the storms' gusts G 6 m/s past 30° (a tenth within 10°). The surface's anomaly T′ relaxed to upwelling: off coasts by the Ekman drift, and on the equator under the trades, `UPWELL_EQ` × the cell's place across its basin from west to east (the thermocline's tilt) × e^{−(φ/5.5°)²}. |
 | Deep sea | `deepsea.js` | Two layers (standard: Held and others 2010; Geoffroy and others 2013): beneath each coarse cell's sea a deep layer, C_D dθ/dt = γ(T − θ), the annual mean losing γ(T − θ); γ 1.03 W m⁻² K⁻¹ and C_D 149 W yr m⁻² K⁻¹ a m² of sea (Geoffroy's CMIP5 mean, 0.73 and 106 a m² of the planet, over Earth's sea's 71%), less under sea ice as the sea heat's exchange. Exact steps by the dial's years toward the last cycle's T; the energy balance charged the uptake's mean over the last cycle's span s, γ(1 − e^{−x})/x with x = γs/C_D, which is what the deep then takes: live at the people's dials, at its balance where cycles are centuries apart and through the opening. |
-| Circulation | `climate.js` | A template: the ITCZ the warmest latitude per 10° sector (at sea the water's surface, T + T′), pulled to the equator by 0.05 K (φ/14°)²; the Hadley edge √ΔT/Ω (30° at 28 K); subpolar lows at 2.05 × the edge; thermal pressure −1 hPa/K of departure; r u + f k×u = −∇p/ρ. |
+| Circulation | `climate.js` | A template: the ITCZ per 10° sector, its 2° bands weighted by e^{score/0.6 K}, a band's score its temperature (at sea the water's surface, T + T′) less 1.5 K per mm its column falls short of 0.82 of saturation, and each cell's trough between its sectors' centres by longitude; the Hadley edge √ΔT/Ω (30° at 28 K); subpolar lows at 2.05 × the edge; thermal pressure −0.6 hPa/K of departure; r u + f k×u = −∇p/ρ. |
 | Moisture | `climate.js`, `gpu/moisture.js` | ∇·(uW) − ∇·(κ∇W) = E − P, steady at six points of the year; rain (W_s/60) e^{CONV_A(r − 0.743)} mm/day + orographic + background; descent raises r₀. |
 | Zones | `climate.js` | Köppen's thresholds as logistics over 14 classes, widths the year's spread, so a class's probability is the share of years in it. |
 | Year | `year.js` | Hasselmann: C ∂T′/∂t = −BT′ + ∇·D∇T′ + F on level 4, F noise correlated over 1,500 km plus the veil, exact OU steps; rain z = ρT′/σ + √(1 − ρ²)η (ρ −0.3 land, +0.3 sea); live below ~56 yr/s, the closure above ~180. |
@@ -109,17 +109,20 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 
 | Target | Model | Observed | Tool |
 |---|---|---|---|
-| Land temperature rms (year, January, July) | 3.7, 5.4, 4.9 K | UDel | `climate-score.mjs` |
-| Sea surface by latitude rms; sea ice | 1.05 K; 0.036 | OISST | `climate-score.mjs` |
-| The eastern Pacific's cold tongue (3° S–3° N, 140–90° W); the western Pacific (5° S–5° N, 140–170° E) | 25.6; 29.8 °C | 25.2; 29.6 (OISST) | `climate-score.mjs` |
-| Land's rain; log-ratio rms | 935 mm/yr; 0.75 | 718 mm/yr (UDel) | `climate-score.mjs` |
-| Köppen classes; groups agreeing | 44%; 72% of land | | `climate-score.mjs` |
-| Reflected shortwave; clear sky | 98.4; 54.4 W/m² | 99.0; 53.3 (CERES EBAF) | `climate-score.mjs` |
-| Outgoing longwave; clear sky | 241.9; 268.6 W/m² | 240.4; 268.3 | `climate-score.mjs` |
-| Clouds' forcing, short and long | −44.0, +26.7 W/m² | −45.7, +27.9 | `climate-score.mjs` |
-| Overturning; heat across 26° N | 9.7 Sv; 1.15 PW | | `climate-score.mjs` |
-| Doubled CO₂, ice sheets held | 2.8 K | | `climate-score.mjs` |
-| CO₂ rising 1%/yr from 280 ppm: warming at doubling (year 70) against the balance; κ, the uptake a K | 1.75 against 2.60 K (0.67); 0.53 W m⁻² K⁻¹ | Geoffroy's two layers at this λ: 1.75 K (0.67), 0.59; CMIP5's κ 0.83 ± 0.41 (Forster and others 2013) | `tools/climate-ramp.mjs` |
+| Land temperature rms (year, January, July) | 3.3, 5.2, 4.7 K | UDel | `climate-score.mjs` |
+| The dry subtropics' July: the Sahara, the Middle East, the US West | 30.0, 27.2, 13.9 °C | 32.5, 30.0, 21.3 | `climate-score.mjs` |
+| Sea surface by latitude rms; sea ice | 1.19 K; 0.037 | OISST | `climate-score.mjs` |
+| The eastern Pacific's cold tongue (3° S–3° N, 140–90° W); the western Pacific (5° S–5° N, 140–170° E) | 27.1; 28.6 °C | 25.2; 29.6 (OISST) | `climate-score.mjs` |
+| Land's rain; log-ratio rms | 845 mm/yr; 0.64 | 718 mm/yr (UDel) | `climate-score.mjs` |
+| The rain of India, the Sahel, eastern Africa and Southeast Asia | 829, 634, 1,379, 2,760 mm/yr | 1,063, 508, 917, 2,162 (UDel) | `climate-score.mjs` |
+| Köppen classes; groups agreeing | 51%; 74% of land | | `climate-score.mjs` |
+| Reflected shortwave; clear sky | 99.2; 53.9 W/m² | 99.0; 53.3 (CERES EBAF) | `climate-score.mjs` |
+| Outgoing longwave; clear sky | 241.1; 269.1 W/m² | 240.4; 268.3 | `climate-score.mjs` |
+| Clouds' forcing, short and long | −45.3, +28.1 W/m² | −45.7, +27.9 | `climate-score.mjs` |
+| Overturning; heat across 26° N | 8.5 Sv; 0.92 PW | | `climate-score.mjs` |
+| Settled at cycle (today's Earth, level 6) | 14 | | `climate-score.mjs` |
+| Doubled CO₂, ice sheets held | 3.1 K | | `climate-score.mjs` |
+| CO₂ rising 1%/yr from 280 ppm: warming at doubling (year 70) against the balance; κ, the uptake a K | 1.90 against 2.92 K (0.65); 0.51 W m⁻² K⁻¹ | Geoffroy's two layers at this λ: 0.67 of the balance, 0.59; CMIP5's κ 0.83 ± 0.41 (Forster and others 2013) | `tools/climate-ramp.mjs` |
 | Plates' opening balance rms; correlation with Müller 2019 | 4.80 cm/yr; 0.927 | 4.40 cm/yr | `plates-score.mjs` |
 | Hypsometry at the opening (land, mean, 90th, 99th percentile) | 27.1%, 0.67, 1.44, 4.15 km | 27.5%, 0.63, 1.37, 4.6 (ETOPO) | `tools/hypsometry.mjs` |
 | Mean ocean depth | 3.84 km | 3.62 km | `tools/hypsometry.mjs` |
@@ -128,7 +131,7 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 | Tidal dissipation | ~4.8 TW | ~3.7 TW | the page |
 | Dust emission; lifetime | ~1,600 Tg/yr; ~2 days | | `tools/dust-check.mjs` |
 | Lakes' production (Caspian, Great Lakes, Baikal) | ~100, ~100, ~70 g C m⁻² yr⁻¹ | 50–110, 50–250, 75–120 | `climate-score.mjs` |
-| People's score at early takeoff, Σ share × \|ln(model/observed)\| | ~1.21 ± 0.05 over eight draws at the recalibration's round 1 after batch 4c (~1.055 after batch 3's, 1.14 at 4c's untuned landing); the model's wet Sahel, southern Africa and Australia (~10%) hold the people India (~4%) and China lack, as the sketch below expects in part (a guide, not a target) | regions' shares of ~2023 | `people/earth-score.mjs` |
+| People's score at early takeoff, Σ share × \|ln(model/observed)\| | ~1.07 ± 0.07 over eight draws on the moist static energy climate, before the people's round 2 (~1.21 ± 0.05 at the recalibration's round 1 after batch 4c, ~1.055 after batch 3's, 1.14 at 4c's untuned landing); the model's wet Sahel, southern Africa and Australia (~10%) hold the people India (~4%) and China lack, as the sketch below expects in part (a guide, not a target) | regions' shares of ~2023 | `people/earth-score.mjs` |
 | Early takeoff; the dial (the singularity), medians of eight draws | early takeoff ~255 yr after industry (the draws 227–272), ~5 yr before the dial; the dial ~29 yr after the people pass 6 billion (2028.7 by 1999's), 2020.1 by industry's start as 1760 (the draws 1993–2091), ~8.45 B people. Industry sparks in West Africa and the Sahel (six draws of eight; the model's wet Sahel), on the Sahara's edge and in Mozambique, its learning 6.0–6.5 against production's 6.7–7.0 | late 2027 by the people's 6 billion, ~8.3 B (a9's); industry ~265 yr before early takeoff | `people/earth-score.mjs` |
 | The world's milestones: years between its people passing 1, 1.5, 2, 3, 4, 5 and 6 billion; industry's start to 1 billion | 58, 20, 22, 14, 11, 10; 103 | 86, 37, 33, 14, 13, 12 (the UN's and the Census Bureau's estimates, from memory); ~44 | `people/earth-score.mjs` |
 | The agrarian era, medians in kyr before early takeoff: people reach Europe, Sahul, the Americas; the first fields; the first state; people at 10,000 BCE, 1 CE, 1500 | 54 (the first people outnumbering the archaics), 67, 13; 11.6; 5.4; 18 M, 180 M, 583 M (the recalibration's round 1) | ~45, 47–65, ≥21–23; ~11.4 (the Fertile Crescent); ~5.45 (Uruk); 1–10 M, 170–255 M, 425–503 M (McEvedy and Jones to HYDE 3.3) | `people/earth-score.mjs` |

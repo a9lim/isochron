@@ -19,7 +19,11 @@
 //             midpoint's), level 1 by sweeps in one workgroup; the year's mean
 //             wind's upwind transport on each level's edges, from its stream
 //             function at that level's corners, and the seasons' winds' heat
-//             lagged in the right-hand side (src/engine/airheat.js)
+//             lagged in the right-hand side (src/engine/airheat.js); moist
+//             static energy's factor 1 + μ on each level's edge weights (the
+//             EBM grid's cells', injected by index onto the coarser levels,
+//             once a cycle) and its lagged rest in the right-hand side
+//             (`latentSource` in src/engine/climate.js)
 //   fine T    the annual mean prolonged; each cell's seasons from its own
 //             capacity, the transport prolonged and the exchange's net
 //             returned evenly (sums by a two-pass reduction)
@@ -28,7 +32,7 @@
 import { kernel, storage, uniform } from './device.js';
 import { hierarchy } from './hierarchy.js';
 import { prolongT } from '../grid/transfer.js';
-import { CLIMATE } from '../engine/climate.js';
+import { CLIMATE, latentShare } from '../engine/climate.js';
 import { AIRHEAT } from '../engine/airheat.js';
 import { CLOUDS, topEmission } from '../engine/clouds.js';
 
@@ -510,6 +514,7 @@ export class GpuEnergyBalance {
       }
     }
     const B = (size, data) => storage(device, size, data);
+    this.geoBase = geo; this.geoW = Float32Array.from(geo); this.moistOn = false;
     this.topo = B(H.topo.byteLength, H.topo); this.geo = B(geo.byteLength, geo);
     this.X = B(8 * 3 * N); this.Y = B(8 * 3 * N); this.Bv = B(8 * 3 * N); this.Dg = B(8 * 3 * N);
     this.RF = B(4 * NR * N); this.PF = B(4 * NPF * N);
@@ -629,11 +634,36 @@ export class GpuEnergyBalance {
       q.writeBuffer(this.CLD, 0, c);
       this.cldVer = cl.version;
     }
+    this.setMoist(climate);
     const tf = this.tfStage || (this.tfStage = new Float32Array(5 * n));
     for (let k = 0; k < 5; k++) tf.set(climate.Tf[k], k * n);
     q.writeBuffer(this.TF, 0, tf);
     this.upload(climate.Tc);
     this.constants(climate);
+  }
+
+  /**
+   * Moist static energy's factor on the solve's levels' edge weights (`moistWeights` in
+   * src/engine/climate.js): each edge's 1 + μ, μ its latent share of the mean of its cells' (the energy
+   * balance's grid's per-cell μ, a coarser level's cell taking the one it nests on: the coarse levels only
+   * speed the solve), or the plain weights when the latent part is off.
+   */
+  setMoist(climate) {
+    const m = climate.mseOn ? climate.mI : null;
+    if (!m && !this.moistOn) return;
+    const base = this.geoBase, w = this.geoW, lv = this.H.levels;
+    for (let k = 0; k <= this.ci; k++) {
+      const { g, off } = lv[k];
+      for (let i = 0; i < g.n; i++) {
+        const o = g.nbrOff[i], d = g.nbrOff[i + 1] - o;
+        for (let e = 0; e < d; e++) {
+          const j = 8 * (off + i) + e, J = g.nbr[o + e];
+          w[j] = m ? base[j] * (1 + latentShare(0.5 * (g.pos[3 * i + 2] + g.pos[3 * J + 2])) * 0.5 * (m[i] + m[J])) : base[j];
+        }
+      }
+    }
+    this.device.queue.writeBuffer(this.geo, 0, w);
+    this.moistOn = !!m;
   }
 
   /** The coarse harmonics (5 arrays) into the solve's top level: the warm start, or Anderson's next point. */
@@ -680,31 +710,28 @@ export class GpuEnergyBalance {
   /**
    * The air's heat carried by the wind (src/engine/airheat.js) for the next step from the coarse state
    * Tc, or none: each level's inflow weights from the year's mean wind's stream function when the wind
-   * is new, and the seasons' winds' heat (`cross`, lagged) each step.
+   * is new, and the seasons' winds' heat (`cross`, lagged) each step; with moist static energy's lagged
+   * rest Sx (5 coarse fields, `latentSource` in src/engine/climate.js: D Sx, D_SEASON's for the seasons).
    */
-  setAirHeat(m, Tc) {
-    const a = this.adv, x = this.xf, q = this.device.queue, nc = this.nc;
-    if (!(m && m.on)) {
-      if (this.advOn) { a.fill(0); q.writeBuffer(this.ADV, 0, a); this.advOn = false; }
-      if (this.xfOn) { x.fill(0); q.writeBuffer(this.XF, 0, x); this.xfOn = false; }
-      return;
-    }
-    if (!this.advOn || m.version !== this.advVer) {
+  setAirHeat(m, Tc, Sx = null) {
+    const a = this.adv, x = this.xf, q = this.device.queue, nc = this.nc, on = !!(m && m.on);
+    if (!on && this.advOn) { a.fill(0); q.writeBuffer(this.ADV, 0, a); this.advOn = false; }
+    if (on && (!this.advOn || m.version !== this.advVer)) {
       const lv = this.H.levels;
       a.fill(0);
       for (let k = 0; k <= this.ci; k++) m.levelWeights(lv[k].g, a, lv[k].off);
       q.writeBuffer(this.ADV, 0, a);
       this.advOn = true; this.advVer = m.version;
     }
-    if (m.cross(Tc)) {
-      const X = m.X;
-      for (let I = 0; I < nc; I++) {
-        x[2 * I] = X[0][I]; x[2 * I + 1] = 0;
-        x[2 * (nc + I)] = X[1][I]; x[2 * (nc + I) + 1] = X[2][I];
-        x[2 * (2 * nc + I)] = X[3][I]; x[2 * (2 * nc + I) + 1] = X[4][I];
-      }
-      q.writeBuffer(this.XF, 0, x); this.xfOn = true;
-    } else if (this.xfOn) { x.fill(0); q.writeBuffer(this.XF, 0, x); this.xfOn = false; }
+    const X = on && m.cross(Tc) ? m.X : null;
+    if (!X && !Sx) { if (this.xfOn) { x.fill(0); q.writeBuffer(this.XF, 0, x); this.xfOn = false; } return; }
+    const D = CLIMATE.D, DS = CLIMATE.D_SEASON, f = (k, I) => (X ? X[k][I] : 0) + (Sx ? (k ? DS : D) * Sx[k][I] : 0);
+    for (let I = 0; I < nc; I++) {
+      x[2 * I] = f(0, I); x[2 * I + 1] = 0;
+      x[2 * (nc + I)] = f(1, I); x[2 * (nc + I) + 1] = f(2, I);
+      x[2 * (2 * nc + I)] = f(3, I); x[2 * (2 * nc + I) + 1] = f(4, I);
+    }
+    q.writeBuffer(this.XF, 0, x); this.xfOn = true;
   }
 
   /** One step T ← G(T) (forcing, restriction, the solves, the fine temperature); resolves once G's coarse harmonics are in Tc. */

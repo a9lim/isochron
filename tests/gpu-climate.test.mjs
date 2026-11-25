@@ -1,5 +1,5 @@
 // The climate's GPU paths against their CPU references from one warm state: the energy balance (src/gpu/ebm.js,
-// with the clouds), the moisture (src/gpu/moisture.js: its packing, and its balance against the CPU's sweeps), the tide.
+// with the clouds and moist static energy), the moisture (src/gpu/moisture.js: its packing, and its balance against the CPU's sweeps), the tide.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { skip } from './webgpu-node.mjs';
@@ -27,6 +27,7 @@ test('the energy balance on the GPU: the CPU\'s fixed point, solved tightly', { 
   // starts from the other's seasons), the CPU's solves converged far past their default.
   assert.ok(c.airHeat.on, 'the air\'s heat carried by the wind (src/engine/airheat.js) is on');
   assert.ok(c.clouds.stats.points >= 18, 'the clouds diagnosed from the moisture (src/engine/clouds.js)');
+  assert.ok(c.mseOn, 'moist static energy\'s latent part: its edges\' factor on every level and its lagged rest (src/engine/climate.js, `latentSource`)');
   c.ebmWs.hist = 0;
   const snap = { Tc: c.Tc.map(a => a.slice()), Tf: c.Tf.map(a => a.slice()), snow: c.snowAnn.slice(), ws: structuredClone(c.ebmWs), th: c.seaHeat.theta.slice(), deep: c.seaHeat.deep };
   const cg = CLIMATE.EBM_CG.slice();
@@ -76,24 +77,26 @@ test('moisture on the GPU: the balance the CPU sweeps converge to', { skip }, as
   const { gpuDevice } = await import('../src/gpu/device.js');
   const { GpuMoisture } = await import('../src/gpu/moisture.js');
   const { Planet, CLIMATE } = await import('../src/engine/planet.js');
+  const { VEG } = await import('../src/engine/vegetation.js');
   const P = new Planet('earthlike', { level: 4, spinup: 10 });
   const c = P.climate;
   c.solve(4);
-  // One more cycle from the same state each way: the CPU's sweeps run to convergence.
-  const keys = ['Tc', 'Tf', 'W', 'Pph', 'Pf', 'zones', 'snowAnn', 'runoff'];
-  const snap = Object.fromEntries(keys.map(k => [k, structuredClone(c[k])]));
-  const clouds = { lo: c.clouds.lo.slice(), hi: c.clouds.hi.slice() };   // the next energy balance's (src/engine/clouds.js)
-  const restore = () => { for (const k of keys) { if (Array.isArray(c[k])) c[k].forEach((a, i) => a.set(snap[k][i])); else c[k].set(snap[k]); } c.clouds.lo.set(clouds.lo); c.clouds.hi.set(clouds.hi); };
-  const base = CLIMATE.SWEEPS;
-  CLIMATE.SWEEPS = 60;
-  c.solve(1);
-  CLIMATE.SWEEPS = base;
-  const ref = c.Pph.map(p => Float32Array.from(p));
-  restore();
-  c.gpu = new GpuMoisture(await gpuDevice(), c.grid);
-  await c.solveAsync(1);
+  // Each point of the year from the same state each way, the CPU's sweeps run to convergence (point by
+  // point: a whole cycle's rain also answers the state it carries on, which moist static energy's
+  // opening moves ~10% a cycle).
+  const gm = new GpuMoisture(await gpuDevice(), c.grid), base = CLIMATE.SWEEPS;
+  const drive = async it => { for (let r = it.next(); !r.done; r = it.next()) if (r.value && r.value.then) await r.value; };
   let d = 0, sum = 0;
-  for (let p = 0; p < 6; p++) for (let i = 0; i < c.grid.n; i++) { d += Math.abs(c.Pph[p][i] - ref[p][i]); sum += ref[p][i]; }
+  for (let p = 0; p < 6; p++) {
+    const W0 = c.W[p].slice();
+    c.gpu = null; CLIMATE.SWEEPS = 60;
+    try { await drive(c.phase(p)); } finally { CLIMATE.SWEEPS = base; }
+    const ref = c.Pph[p].slice();
+    c.W[p].set(W0);
+    c.gpu = gm; gm.setGeography(c, CLIMATE, VEG);
+    await drive(c.phase(p));
+    for (let i = 0; i < c.grid.n; i++) { d += Math.abs(c.Pph[p][i] - ref[i]); sum += ref[i]; }
+  }
   // The GPU's sweeps stop at their own count (1.16% on the planet with Earth's relief, 2026-11-18; under 1% before).
   assert.ok(d < 0.015 * sum, `rain off by ${(100 * d / sum).toFixed(2)}% in all`);
 });

@@ -11,15 +11,23 @@
 // sunlight is re-evaluated at 24 points of the year from the last solution
 // and its harmonics re-solved: a fixed point, warm-started and iterated with
 // Anderson's mixing (`energyBalance`), which also keeps the ice-albedo
-// feedback's hysteresis. The diffusivity falls toward the poles (synthesis). T is the sea-level temperature; the
+// feedback's hysteresis. The diffusion carries moist static energy, h = T + s MSE r W_s(T_s) + a share of
+// the geopotential in kelvin (standard in zonal models: Frierson and others' moist EBMs, from memory;
+// synthesis in 2D), r the moisture's column humidity at six points of the year (a cycle behind, relaxed),
+// W_s the saturated column at the surface's temperature and s the eddies' share of the latent part (less
+// in the deep tropics, where the overturning carries the heat): dry air draws heat in (the deserts'
+// summers) and moist air spreads it. Its latent part is split per edge into the operator's factor
+// D(1 + μ), μ = s ∂q/∂T, and a lagged rest that cancels it at the fixed point (`latentSource`). The diffusivity falls toward the poles (synthesis). T is the sea-level temperature; the
 // surface is colder by the lapse rate, and high ground's outgoing longwave reads part of that drop,
 // A + B (T − OLR_Z Γ z) (synthesis: a high surface radiates from its own cold top through a thinner
 // column; read at sea level, Tibet's OLR ran ~30 W/m² above CERES's and its year ~5 K cold). Solved
 // on the level below the surface's (220 km cells): heat spreads over thousands of km.
 //
 // Circulation (synthesis). A template, not a solve: the ITCZ follows the
-// warmest latitude in each sector of longitude (at sea the water's surface, its
-// currents' and upwelling's anomaly with it, so it stands off a cold tongue), the Hadley cell's edge scales
+// warmest latitudes in each sector of longitude, softly (at sea the water's surface, its
+// currents' and upwelling's anomaly with it, so it stands off a cold tongue; a band's air drier than
+// ITCZ_R of saturation counts against it, so a hot desert doesn't hold it), between the sectors' centres
+// by longitude, the Hadley cell's edge scales
 // as Held and Hou's, ∝ √ΔT / Ω, and surface pressure has the ITCZ's trough,
 // the subtropical highs, the subpolar lows and the polar highs, plus a low
 // over land warmer than its latitude and a high over land colder than it
@@ -104,8 +112,9 @@ export const CLIMATE = {
   // Antarctica's area as sea, as this planet's ocean poles have it. Earth: 0.85 and −0.75 (from 1.0
   // and −0.6), so the tropics hold more of their heat (Earth's tropical sea was 3–5 K cold); 0.91 and −0.85 with the sea's heat transport (src/engine/seaheat.js) beside it;
   // 0.86 with the air's (src/engine/airheat.js); 1.14 with the clouds (retuned with them: at 0.86 the
-  // tropical sea ran ~4 K warm and the Southern Ocean's ice 25 points too wide).
-  D: 1.14, D_LAT: -0.85,
+  // tropical sea ran ~4 K warm and the Southern Ocean's ice 25 points too wide); 0.6 and −0.615 with moist
+  // static energy (MSE below), whose latent part carries the rest (~2× the dry diffusion's in the tropics).
+  D: 0.6, D_LAT: -0.615,
   // For the seasonal harmonics: transport smooths a season's land–sea contrast less. Synthesis: with
   // the capacity mixed over each coarse cell, 0.1 left 55–65° continents with summers ~3 K cooler
   // than Earth's (from memory) and D climates at 15% of land, and 0.085 stood in for that mixing;
@@ -113,7 +122,22 @@ export const CLIMATE = {
   // holds them near Earth's (~11 °C in June–August, from memory). Earth: 0.29 with maritime air (an
   // exchange with the sea's air carried inland, since replaced by the wind's own transport,
   // src/engine/airheat.js); 0.49 with the sea's heat transport and the belts at Earth's latitudes; 0.44 with the clouds.
-  D_SEASON: 0.44,
+  D_SEASON: 0.22,          // 0.44 before moist static energy
+  // Moist static energy (`latent`, `latentSource`): the diffusion carries h = T + MSE · r W_s(T_s), not T
+  // alone, K per mm of the column's water (L / c_p over a column of ~2,400 kg/m² is ~1 K per mm, from
+  // memory), r the moisture's column humidity at each point of the year (held softly at 1, coarse) and
+  // W_s its saturated water at the surface's temperature: so dry air draws heat in (the Sahara and the
+  // Middle East, ~4–7 K cold in summer under T's diffusion alone) and moist air spreads it (standard in
+  // zonal models: Frierson and others' moist EBMs, from memory; in 2D with the moisture's own humidity,
+  // synthesis). r lags a cycle, relaxed by MSE_RELAX (at 1 the wet tropics' humidity and their heat flip
+  // from one cycle to the next); W_s answers the energy balance's own state within its steps. The latent
+  // part's diffusion is the eddies' (`latentShare`): MSE_TROP of it within MSE_LAT[0]° of the equator, the
+  // whole past MSE_LAT[1]°, where the overturning carries the heat (whole, it smoothed the warm pool into
+  // the cold tongue: the western Pacific 2.7 K cold, the tropical sea's rms 1.05 → 1.5 K). And h has MSE_Z
+  // of the surface's geopotential, (g/c_p − LAPSE) z over land (T is the sea-level temperature; c_p T + g z
+  // whole made the high deserts' summers ~3 K colder, none left Tibet's July 7 K warm, its cold dry air
+  // drawing in India's).
+  MSE: 0.88, MSE_RELAX: 0.5, MSE_TROP: 0.3, MSE_LAT: [10, 25], MSE_Z: 0.7,   // Earth (MSE, MSE_TROP, MSE_Z)
   // Continental seasons (`continentalSeasons`): each cell's seasonal harmonics from its own heat
   // capacity, not its coarse cell's mixed one.
   SUBGRID: true,
@@ -124,10 +148,10 @@ export const CLIMATE = {
   // Seattle's against Spokane's; from memory). 0: none below the coarse grid's scale; ∞: the mixed capacity.
   SUB_K: 8,
   C_OCEAN: 7.9,            // W yr m⁻² K⁻¹: a 60 m mixed layer
-  C_LAND: 0.61,            // Earth (from 0.3, then 0.46: the air's column with the ground's seasonal layer)
+  C_LAND: 0.6,             // Earth (from 0.3, then 0.46, 0.61: the air's column with the ground's seasonal layer)
   C_ICE: 1.2,
   LAPSE: 5.4,              // K/km. Earth (from 6.5, then 5.6): the surface's, which broad uplands warm (Tibet's air)
-  OLR_Z: 0.45,             // the share of the lapse rate's drop over land the outgoing longwave reads (`olrDrop`). Earth (tuned: Tibet's OLR 248 → 233 W/m², CERES's 218)
+  OLR_Z: 0.65,             // the share of the lapse rate's drop over land the outgoing longwave reads (`olrDrop`). Earth (tuned: Tibet's OLR 248 → 233 W/m², CERES's 218; 0.45 before moist static energy)
   // The clear sky's albedo at the top of the atmosphere (the surface and the clear air; the clouds
   // are src/engine/clouds.js's, over it), + ALB_POLAR·sin²φ at sea and ALB_POLAR_LAND·sin²φ on land
   // (a low sun: water's reflection grows at a slant, land's less). Earth, against CERES's clear sky
@@ -135,7 +159,7 @@ export const CLIMATE = {
   // the planetary albedo with them folded in: the sea 0.25 + 0.12 sin²φ, land 0.225 (from 0.27: a
   // diffusive balance imports heat only where land is colder than its neighbours, so land as bright as
   // it is left subtropical land ~10 K cold), snow and the ice sheets 0.62, sea ice 0.56.
-  ALB_OCEAN: 0.09, ALB_LAND: 0.18, ALB_POLAR: 0.13, ALB_POLAR_LAND: 0.07,
+  ALB_OCEAN: 0.09, ALB_LAND: 0.17, ALB_POLAR: 0.13, ALB_POLAR_LAND: 0.07,   // ALB_LAND 0.18 before moist static energy
   ALB_SNOW: 0.44, ALB_ICE: 0.62, ALB_SEAICE: 0.46,   // land's snow (trees mask it further: VEG), the ice sheets', sea ice's
   ALB_DESERT: 0.07, ALB_FOREST: -0.03,
   ALB_COVER: 0,            // snow-free land's offset under the plants' cover (which also masks snow): Earth (from 0.03)
@@ -144,16 +168,26 @@ export const CLIMATE = {
   // Circulation and moisture
   OMEGA: 7.292e-5,         // rad/s, the planet's spin
   FRICTION: 4.5e-5,        // 1/s
-  ITCZ_PEN: 0.05,          // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6, then 0.5 before the equator's upwelling, which cools it in its own right: India's monsoon 0.66 → ~0.95 of Earth's)
+  ITCZ_PEN: 0,             // K per (latitude/14°)²: the ITCZ's pull toward the equator, against the warmest latitude in each sector (Earth; 0.6, then 0.5 before the equator's upwelling, which cools it in its own right: India's monsoon 0.66 → ~0.95 of Earth's; 0.05 before the dry air's penalty)
   ITCZ_MAX: 0.4,           // rad: the ITCZ's reach from the equator (Earth; 0.5 before the land's own evaporation; 0.35 kept India's monsoon trough at 20°)
   ITCZ_SMOOTH: 3,          // passes of the ITCZ's smoothing along the sectors
+  // The ITCZ's latitude in each sector is its 2° bands' weighted by e^{score/ITCZ_SOFT} (K), not the best
+  // band's: under moist static energy the tropics' temperature is flat, and the best of near-equal bands
+  // jumped ~15° from one cycle to the next, the deep tropics' rain with it. A band's score is its
+  // temperature less ITCZ_DRY per mm its column's water falls short of ITCZ_R of saturation (the last
+  // cycle's, at that point of the year): convection rises where the surface's moist static energy is
+  // greatest, so a hot desert's dry air doesn't hold the trough (the Sahara rained ~4× Earth's under it).
+  // One-sided: moister air earns nothing, or wherever the ITCZ stood would keep it (India's monsoon failed).
+  ITCZ_SOFT: 0.6, ITCZ_DRY: 1.5, ITCZ_R: 0.82,   // Earth
   // hPa per K: the low where it's warmer than its latitude, the high where it's colder, bounded softly at
   // THERMAL_MAX (hPa). Earth's winter highs over cold continents and lows over warm seas are ~1 hPa/K
   // (from memory). Earth: 0.75, then 0.4, 0.2, and 0.12 with the air's heat transport, whose winds at
   // 0.6–1 carried a summer continent's heat into its interior (Siberia's July 25–28 °C against 16) and at
   // 1.5 ran away; with the clouds, which shade a summer continent's rain, 1.0 holds (against 0.12:
   // January's land 6.4 → 5.7 K rms, eastern North America's January 2 K colder; Siberia's July 2.5 K warm).
-  THERMAL: 1.15, THERMAL_MAX: 30,   // Earth (1.0 before the land's own evaporation)
+  // With moist static energy, 0.6: the deserts' and India's heat lows deepened as their summers warmed, and
+  // at 1.15 India's monsoon flipped on and off from one cycle to the next (a wet India exported its heat).
+  THERMAL: 0.6, THERMAL_MAX: 30,   // Earth (1.0 before the land's own evaporation, 1.15 before moist static energy)
   // The Hadley edge, where the subtropical highs stand: Held and Hou's √ΔT/Ω, HADLEY degrees at
   // an equator-to-60° contrast of HADLEY_DT; the subpolar lows at LOWS of it. Earth: its highs at
   // ~30–35° and its lows at ~60–65° (the Southern Ocean's trough ~65° S; from memory), so its
@@ -164,9 +198,9 @@ export const CLIMATE = {
   // The subtropical highs' share that land takes away (smoothed over ~1,500 km): 0 zonal bands, 1
   // oceanic cells (Earth's highs sit over the eastern oceans, and their western flanks carry the sea's
   // air up the continents' east coasts: zonal bands left eastern China and the eastern US as deserts).
-  HIGH_LAND: 0.85,         // Earth (0.75 before the land's own evaporation)
+  HIGH_LAND: 0.825,        // Earth (0.75 before the land's own evaporation, 0.85 before moist static energy)
   CARRY: 0.5,              // share of the down-gradient (frictional) drift the moisture-bearing layer takes (Earth; 0.4 before)
-  KAPPA_W: 1.95e5,         // km²/day, eddy mixing of moisture in the storm tracks (Earth; 1.65e5 everywhere before)
+  KAPPA_W: 2.25e5,         // km²/day, eddy mixing of moisture in the storm tracks (Earth; 1.65e5 everywhere before, 1.95e5 before moist static energy)
   // The eddies' mixing is the storm tracks': KW_TROP of it in the deep tropics, the whole past KW_LAT[1]°
   // (smoothly from KW_LAT[0]°), where the mean circulation carries the water (standard in kind).
   KW_TROP: 0.075, KW_LAT: [10, 30],   // Earth
@@ -179,7 +213,7 @@ export const CLIMATE = {
   // is a cell's descent, 0–1: it raises the humidity convection needs by SUB_R0 and holds back the
   // background rain by e^{−SUB_BG}. So the Sahara under the trades is dry while eastern China under
   // the summer's southerlies rains, at the same latitude.
-  SUB_V: 3, SUB_R0: 0.11, SUB_BG: 3.25,   // Earth (5, 0.15, 2.25 before the land's own evaporation)
+  SUB_V: 3, SUB_R0: 0.19, SUB_BG: 3.25,   // Earth (5, 0.15, 2.25 before the land's own evaporation; SUB_R0 0.11 before moist static energy)
   // The background rain needs moist air: its rate rises from nothing at a column humidity of BG_R1
   // to RAIN_BG at BG_R2 (smoothly; the humidity is the last solve's at that point of the year), so a
   // hot desert's air, holding much water but far from saturation, doesn't drizzle (synthesis).
@@ -234,6 +268,11 @@ const W0 = 25, WA = 0.065;     // saturated column water (mm) = W0 e^{WA (T − 
 const sigmoid = x => 1 / (1 + Math.exp(-x));
 const ramp = (x, a, b) => { const t = (x - a) / (b - a); return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); };
 export const wsat = T => W0 * Math.exp(WA * (Math.max(-45, Math.min(45, T)) - 15));
+/** The latent part's share of the diffusion on an edge whose middle is at z = sin φ (CLIMATE.MSE_TROP, MSE_LAT): the eddies'. */
+export function latentShare(z, C = CLIMATE) {
+  const la = Math.asin(Math.min(1, Math.abs(z))) * 180 / Math.PI;
+  return C.MSE_TROP + (1 - C.MSE_TROP) * ramp(la, C.MSE_LAT[0], C.MSE_LAT[1]);
+}
 
 /**
  * The surface wind from the template's sea-level pressure (hPa about the mean): r u + f k×u =
@@ -266,11 +305,13 @@ export function surfaceWind(g, pres, omega, wind, carry = null, gp = new Float64
  * (`anom`), bounded softly at THERMAL_MAX.
  */
 export function pressureCells(x, a, b) {
-  const { lat, sector, landSmooth, polarHi, anom, itcz, phiH, pres, C } = x;
+  const { lat, secX, landSmooth, polarHi, anom, itcz, phiH, pres, C } = x;
   const G = (y, w) => Math.exp(-0.5 * (y / w) * (y / w));
   const thMax = C.THERMAL_MAX, thermal = v => { const y = -C.THERMAL * v; return thMax > 0 ? thMax * Math.tanh(y / thMax) : y; };
   for (let i = a; i < b; i++) {
-    const la = lat[i], pi = itcz[sector[i]];
+    // The ITCZ's latitude between the sectors' centres: taken whole from each cell's sector, the trough
+    // stepped at every 10° of longitude, and lines of convergence and rain ran along the sectors' edges.
+    const sx = secX[i], k = Math.floor(sx), u = sx - k, la = lat[i], pi = itcz[(k + 36) % 36] * (1 - u) + itcz[(k + 1) % 36] * u;
     const N = phiH + 0.45 * pi, S = -phiH + 0.45 * pi;
     const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
     pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
@@ -501,6 +542,7 @@ export class Climate {
     this.lat = shared(Float64Array, n); this.lon = shared(Float64Array, n);
     this.row = shared(Int16Array, n); this.roww = shared(Float32Array, n);
     this.sector = shared(Uint8Array, n); this.band = shared(Uint8Array, n);
+    this.secX = shared(Float32Array, n);      // per cell: its longitude in sectors from the first's centre (the ITCZ between them, `pressureCells`)
     this.cor = shared(Float64Array, n);
     this.eqw = shared(Float64Array, 3 * n);   // per cell: the unit vector toward the equator, tapered within 15° of it (descent's)
     this.sinking = shared(Float32Array, n);   // per cell: the descent at the point of the year being solved (`descent`)
@@ -513,6 +555,7 @@ export class Climate {
       const x = (la + Math.PI / 2) / Math.PI * (NLAT - 1);
       this.row[i] = Math.min(NLAT - 2, Math.floor(x)); this.roww[i] = x - this.row[i];
       this.sector[i] = Math.min(35, Math.floor((lo + Math.PI) / (2 * Math.PI) * 36));
+      this.secX[i] = (lo + Math.PI) / (2 * Math.PI) * 36 - 0.5;
       this.band[i] = Math.min(89, Math.floor((la + Math.PI / 2) / Math.PI * 90));
     }
     this.bandArea = shared(Float64Array, 90);
@@ -529,6 +572,17 @@ export class Climate {
       this.wsD.w[t] *= 1 + CLIMATE.D_LAT * z * z;
     }
 
+    // Moist static energy's latent part (`latent`, `latentSource`): the column's humidity at each point of
+    // the year and the surface's offset from the sea-level temperature, coarse; each edge's moist factor
+    // 1 + μ, its weights (wsM: the energy balance's, wsD's, times it); the lagged source per harmonic.
+    this.rc = Array.from({ length: NP }, () => new Float64Array(nc));
+    this.dc = new Float64Array(nc);
+    this.mu = new Float64Array(cg.nbrOff[nc]);
+    this.lshare = new Float64Array(cg.nbrOff[nc]);   // each edge's latent share (`latentShare`)
+    this.zs = new Float64Array(nc);                  // the geopotential's part of the lagged source (static, the annual mean's)
+    this.wsM = { ...this.ws, w: Float64Array.from(this.wsD.w) };
+    this.Sx = [0, 1, 2, 3, 4].map(() => new Float64Array(nc));
+    this.mseOn = false;
     // State: harmonics of the sea-level temperature, coarse (warm start) and fine.
     this.Tc = [shared(Float64Array, nc).fill(14), shared(Float64Array, nc), shared(Float64Array, nc), shared(Float64Array, nc), shared(Float64Array, nc)];
     this.Fc = [0, 1, 2, 3, 4].map(() => shared(Float64Array, nc));
@@ -936,8 +990,11 @@ export class Climate {
     const zero = this.scratch.c5b.fill(0), ah = this.airHeat && this.airHeat.on ? this.airHeat : null;
     const X = ah && ah.cross(this.Tc) ? ah.X : null;
     if (X) for (let I = 0; I < nc; I++) br[I] += X[0][I];
-    if (ah) bicgstab(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, ah.a, maxIt, tol);
-    else cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, this.wsD, maxIt, tol);
+    // Moist static energy (`latentSource`): the edges' moist factor in the operator, the lagged rest here.
+    const mse = this.mseOn, wsE = mse ? this.wsM : this.wsD, Sx = this.Sx;
+    if (mse) for (let I = 0; I < nc; I++) br[I] += C.D * Sx[0][I];
+    if (ah) bicgstab(cg, C.D, dr, di, br, bi, this.Tc[0], zero, wsE, ah.a, maxIt, tol);
+    else cocg(cg, C.D, dr, di, br, bi, this.Tc[0], zero, wsE, maxIt, tol);
     yield;
     // The seasons: each harmonic's impedance B + ikωC, the coarse cells' from their cells'
     // (`continentalSeasons`), or with the heat capacity mixed over each coarse cell (SUBGRID off).
@@ -956,12 +1013,105 @@ export class Climate {
         }
       }
       if (X) for (let I = 0; I < nc; I++) { br[I] += X[2 * k - 1][I]; bi[I] += X[2 * k][I]; }
-      if (ah && AIRHEAT.SEASONS) bicgstab(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, ah.a, maxIt, tol);
-      else cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], this.wsD, maxIt, tol);
+      if (mse) for (let I = 0; I < nc; I++) { br[I] += C.D_SEASON * Sx[2 * k - 1][I]; bi[I] += C.D_SEASON * Sx[2 * k][I]; }
+      if (ah && AIRHEAT.SEASONS) bicgstab(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], wsE, ah.a, maxIt, tol);
+      else cocg(cg, C.D_SEASON, dr, di, br, bi, this.Tc[2 * k - 1], this.Tc[2 * k], wsE, maxIt, tol);
       yield;
     }
     this.fineTemperature();
     this.temperatureStats();
+  }
+
+  /**
+   * After a cycle's six points, moist static energy's humidity: r = W/W_s at each point of the year, each
+   * cell's held softly at 1 (past it the rain's cap carries the water on, and a cold surface's column holds
+   * more than its own saturation), restricted to the energy balance's cells and relaxed by MSE_RELAX; the
+   * surface's offset from the sea-level temperature (−LAPSE z on land, the gyres' anomaly at sea); and each
+   * edge's moist factor from the state now, the next energy balance's start (`moistWeights`).
+   */
+  latent() {
+    const C = CLIMATE, n = this.grid.n, nc = this.coarse.n;
+    if (!(C.MSE > 0)) { this.mseOn = false; return; }
+    const f = this.scratch.f6, c = this.scratch.c5, sst = this.ocean ? this.ocean.fine.sst : null, lapse = C.LAPSE;
+    const om = this.mseOn ? C.MSE_RELAX : 1;
+    for (let p = 0; p < NP; p++) {
+      const tau = (p + 0.5) / NP, W = this.W[p], r = this.rc[p];
+      for (let i = 0; i < n; i++) {
+        const land = this.landMask[i], T = this.tAt(i, tau), x = W[i] / wsat(land ? T - lapse * this.elevPos[i] : Math.max(-1.8, T + (sst ? sst[i] : 0)));
+        f[i] = x / Math.sqrt(Math.sqrt(1 + x * x * x * x));
+      }
+      restrict(this.T, f, c);
+      for (let I = 0; I < nc; I++) r[I] += om * (c[I] - r[I]);
+    }
+    for (let i = 0; i < n; i++) f[i] = this.landMask[i] ? -lapse * this.elevPos[i] : (sst ? sst[i] : 0);
+    restrict(this.T, f, this.dc);
+    // The geopotential's share, MSE_Z (g/c_p − LAPSE) z, a static part of h: its diffusion is a fixed source.
+    for (let i = 0; i < n; i++) f[i] = this.landMask[i] ? C.MSE_Z * (9.77 - lapse) * this.elevPos[i] : 0;
+    restrict(this.T, f, c);
+    const cg = this.coarse, w0 = this.wsD.w, zs = this.zs;
+    for (let I = 0; I < nc; I++) { let v = 0; for (let t = cg.nbrOff[I], e = cg.nbrOff[I + 1]; t < e; t++) v += w0[t] * (c[cg.nbr[t]] - c[I]); zs[I] = v; }
+    this.mseOn = true;
+    this.moistWeights();
+  }
+
+  /**
+   * Each edge's moist factor 1 + μ, μ its latent share (`latentShare`) of the mean over the year of
+   * ∂(MSE r W_s)/∂T at its two cells (mI, each cell's) from the state Tc (W_s's growth stops past ±45 °C, wsat's bounds: the hot climates' guard), into the energy
+   * balance's weights (wsM). μ only splits the latent part into an implicit piece and a lagged rest
+   * (`latentSource`), which cancel at the fixed point; held for a cycle (the GPU's levels take it once).
+   */
+  moistWeights() {
+    const C = CLIMATE, cg = this.coarse, nc = cg.n, Tc = this.Tc, rc = this.rc, dc = this.dc, trig = this.phaseTrig();
+    const m = this.mI || (this.mI = new Float64Array(nc));
+    for (let I = 0; I < nc; I++) {
+      let s = 0;
+      for (let p = 0; p < NP; p++) {
+        const [c1, s1, c2, s2] = trig[p], Ts = Tc[0][I] + Tc[1][I] * c1 - Tc[2][I] * s1 + Tc[3][I] * c2 - Tc[4][I] * s2 + dc[I];
+        if (Ts > -45 && Ts < 45) s += WA * C.MSE * rc[p][I] * wsat(Ts);
+      }
+      m[I] = s / NP;
+    }
+    const w0 = this.wsD.w, w = this.wsM.w, mu = this.mu, sh = this.lshare;
+    for (let I = 0; I < nc; I++) for (let t = cg.nbrOff[I], e = cg.nbrOff[I + 1]; t < e; t++) {
+      const J = cg.nbr[t];
+      sh[t] = latentShare(0.5 * (cg.pos[3 * I + 2] + cg.pos[3 * J + 2]), C);
+      mu[t] = sh[t] * 0.5 * (m[I] + m[J]);
+      w[t] = w0[t] * (1 + mu[t]);
+    }
+  }
+
+  /** The six points of the year's cosines and sines, [cos θ, sin θ, cos 2θ, sin 2θ] at θ = 2π (p + ½)/6. */
+  phaseTrig() {
+    return this.pTrig || (this.pTrig = Array.from({ length: NP }, (_, p) => { const th = 2 * Math.PI * (p + 0.5) / NP; return [Math.cos(th), Math.sin(th), Math.cos(2 * th), Math.sin(2 * th)]; }));
+  }
+
+  /**
+   * Before each energy-balance step, from its state Tc: the latent part q = MSE r W_s(T + δ) at the six
+   * points of the year, as harmonics, and its lagged source per harmonic, Sx = Σₑ w (s Δq − μ ΔT) over each
+   * cell's edges, s the edge's latent share (the solve adds D Sx, or D_SEASON's; the annual mean's with the
+   * geopotential's, zs): with the operator's D w (1 + μ) ΔT the transport is D w Δ(T + s q), exactly when the
+   * step's state is its fixed point.
+   */
+  latentSource() {
+    const cg = this.coarse, nc = cg.n, L = CLIMATE.MSE, Tc = this.Tc, rc = this.rc, dc = this.dc, trig = this.phaseTrig();
+    const q = this.qc || (this.qc = [0, 1, 2, 3, 4].map(() => new Float64Array(nc)));
+    for (let I = 0; I < nc; I++) {
+      let a0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+      for (let p = 0; p < NP; p++) {
+        const [c1, s1, c2, s2] = trig[p], v = L * rc[p][I] * wsat(Tc[0][I] + Tc[1][I] * c1 - Tc[2][I] * s1 + Tc[3][I] * c2 - Tc[4][I] * s2 + dc[I]);
+        a0 += v; a1 += v * c1; b1 -= v * s1; a2 += v * c2; b2 -= v * s2;
+      }
+      q[0][I] = a0 / NP; q[1][I] = 2 * a1 / NP; q[2][I] = 2 * b1 / NP; q[3][I] = 2 * a2 / NP; q[4][I] = 2 * b2 / NP;
+    }
+    const w0 = this.wsD.w, mu = this.mu, sh = this.lshare, off = cg.nbrOff, nbr = cg.nbr;
+    for (let k = 0; k < 5; k++) {
+      const s = this.Sx[k], qk = q[k], Tk = Tc[k];
+      for (let I = 0; I < nc; I++) {
+        let v = k ? 0 : this.zs[I];
+        for (let t = off[I], e = off[I + 1]; t < e; t++) { const J = nbr[t]; v += w0[t] * (sh[t] * (qk[J] - qk[I]) - mu[t] * (Tk[J] - Tk[I])); }
+        s[I] = v;
+      }
+    }
   }
 
   /**
@@ -1070,9 +1220,10 @@ export class Climate {
     if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
     for (let it = 0; it < maxIt; it++) {
       this.olrCorrection();
+      if (this.mseOn) this.latentSource();
       if (gpu) {
         gpu.setSeaHeat(this.seaTerms(Tc[0]));
-        gpu.setAirHeat(this.airHeat, Tc);
+        gpu.setAirHeat(this.airHeat, Tc, this.mseOn ? this.Sx : null);
         yield gpu.step(Tc, this.warm);
       } else yield* this.ebm();
       this.olrMeasure();
@@ -1107,24 +1258,36 @@ export class Climate {
     }
     // Zonal means and the ITCZ by sector (at sea, the water's surface).
     const zm = new Float64Array(90), za = new Float64Array(90), sstA = this.ocean ? this.ocean.fine.sst : null;
+    // A band's score is its temperature less ITCZ_DRY per mm its air is short of ITCZ_R of saturation, by
+    // the last cycle's water at this point of the year (none before there is one).
     const sec = new Float64Array(36 * 30), secA = new Float64Array(36 * 30);   // ±30° in 2° bands
+    const Wp = this.W[p], dry = this.warm ? C.ITCZ_DRY : 0;
     for (let i = 0; i < n; i++) {
       const b = this.band[i], a = g.area[i];
       zm[b] += T[i] * a; za[b] += a;
-      if (b >= 30 && b < 60) { const k = this.sector[i] * 30 + b - 30; sec[k] += (T[i] + (sstA && !this.landMask[i] ? sstA[i] : 0)) * a; secA[k] += a; }
+      if (b >= 30 && b < 60) {
+        const k = this.sector[i] * 30 + b - 30, land = this.landMask[i], t = T[i] + (sstA && !land ? sstA[i] : 0);
+        const short = dry > 0 ? Math.max(0, C.ITCZ_R * wsat(land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, t)) - Wp[i]) : 0;
+        sec[k] += (t - dry * short) * a; secA[k] += a;
+      }
     }
     for (let b = 0; b < 90; b++) zm[b] = za[b] > 0 ? zm[b] / za[b] : 0;
-    const itcz = new Float64Array(36);
+    // Each sector's bands weighted by e^{score/ITCZ_SOFT} (the best band's alone at 0).
+    const itcz = new Float64Array(36), score = new Float64Array(30);
     for (let s = 0; s < 36; s++) {
       let best = -1e9, bb = 15;
       for (let b = 0; b < 30; b++) {
-        const k = s * 30 + b;
-        if (!(secA[k] > 0)) continue;
-        const la = -29 + 2 * b;
-        const score = sec[k] / secA[k] - C.ITCZ_PEN * (la / 14) * (la / 14);
-        if (score > best) { best = score; bb = b; }
+        const k = s * 30 + b, la = -29 + 2 * b;
+        score[b] = secA[k] > 0 ? sec[k] / secA[k] - C.ITCZ_PEN * (la / 14) * (la / 14) : -Infinity;
+        if (score[b] > best) { best = score[b]; bb = b; }
       }
-      itcz[s] = (-29 + 2 * bb) * Math.PI / 180;
+      let lat = -29 + 2 * bb;
+      if (C.ITCZ_SOFT > 0) {
+        let sw = 0, sl = 0;
+        for (let b = 0; b < 30; b++) { const w = Math.exp((score[b] - best) / C.ITCZ_SOFT); sw += w; sl += w * (-29 + 2 * b); }
+        lat = sl / sw;
+      }
+      itcz[s] = lat * Math.PI / 180;
     }
     // Smooth around the globe, and bound.
     for (let pass = 0; pass < C.ITCZ_SMOOTH; pass++) {
@@ -1162,7 +1325,7 @@ export class Climate {
     // The polar highs don't move: their Gaussians once.
     const polarHi = this.polarHi || (this.polarHi = toShared(Float64Array.from(this.lat, la => G(la - Math.PI / 2, 0.28) + G(la + Math.PI / 2, 0.28))));
     const consts = { ...C };
-    yield* parallel('pressure', pressureCells, { lat: this.lat, sector: this.sector, landSmooth: this.landSmooth, polarHi, anom, itcz: Array.from(itcz), phiH, pres, C: consts }, n);
+    yield* parallel('pressure', pressureCells, { lat: this.lat, secX: this.secX, landSmooth: this.landSmooth, polarHi, anom, itcz: Array.from(itcz), phiH, pres, C: consts }, n);
     this.presPhase[p].set(pres);
     if (!this.gp) this.gp = shared(Float64Array, 3 * n);
     if (!this.carry) this.carry = shared(Float32Array, 3 * n);
@@ -1460,6 +1623,7 @@ export class Climate {
     // The moisture's geography on the GPU, once for the six points (it was packed at each: ~3 ms).
     if (this.gpu && this.gpu.solveFrom) this.gpu.setGeography(this, CLIMATE, VEG);
     for (let p = 0; p < NP; p++) yield* this.phase(p);
+    this.latent();   // moist static energy's humidity, for the next energy balance
     // The year's winds carry the air's heat in the next cycle's energy balance (src/engine/airheat.js).
     if (this.airHeat) yield* this.airHeat.windSteps();
     // The gyres after the winds they're driven by (before them, the first cycle's saw none), and
