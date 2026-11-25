@@ -11,5 +11,11 @@ export function shared(T, n) {
   return SHARED.on ? new T(new SharedArrayBuffer(n * T.BYTES_PER_ELEMENT)) : new T(n);
 }
 
+/** `a`, or a shared copy of it when the pool is on (for arrays built before anything holds them). */
+export function toShared(a) {
+  if (!SHARED.on || a.buffer instanceof SharedArrayBuffer) return a;
+  const b = shared(a.constructor, a.length); b.set(a); return b;
+}
+
 /** Chunk k's cells of n: [from, to). */
 export const chunkOf = (k, n, chunks = CHUNKS) => [Math.floor(k * n / chunks), Math.floor((k + 1) * n / chunks)];

@@ -38,6 +38,8 @@
 // EBAF 4.2's cloud forcing (tools/earth/obs.py) on today's Earth, then tuned with the rest of the
 // climate (tools/earth/tune.mjs; tools/earth/README.md). Undrawn.
 import { CLIMATE, wsat } from './climate.js';
+import { shared } from './shared.js';
+import { parallel } from './pool.js';
 
 export const CLOUDS = {
   ON: true,
@@ -90,9 +92,9 @@ export class Clouds {
   constructor(climate) {
     this.c = climate;
     const n = this.n = climate.grid.n;
-    this.lo = new Float32Array(NP * n).fill(CLOUDS.LO0);   // point p's at p n + i
-    this.hi = new Float32Array(NP * n).fill(CLOUDS.HI0);
-    this.eis = new Float32Array(n);                         // the last point's EIS at sea (K), for the tools
+    this.lo = shared(Float32Array, NP * n).fill(CLOUDS.LO0);   // point p's at p n + i (shared with the engine's pool)
+    this.hi = shared(Float32Array, NP * n).fill(CLOUDS.HI0);
+    this.eis = shared(Float32Array, n);                         // the last point's EIS at sea (K), for the tools
     this.s2 = Float64Array.from(climate.lat, la => Math.sin(la) ** 2);
     this.band = new Float64Array(90); this.bandA = new Float64Array(90);
     this.stats = { lo: CLOUDS.LO0, hi: CLOUDS.HI0, cover: 1 - (1 - CLOUDS.LO0) * (1 - CLOUDS.HI0), points: 0 };
@@ -100,7 +102,19 @@ export class Clouds {
   }
 
   /** Point p's clouds from its moisture (`Climate.phase`, after the rain): T the sea-level temperature there. */
-  phase(p, T) {
+  phase(p, T) { const it = this.phaseSteps(p, T); while (!it.next().done); }
+  /** `phase` as the climate's cycle runs it: the cells by chunk (`cloudCells`), on the engine's pool where there is one. */
+  *phaseSteps(p, T) {
+    let sl = 0, sh = 0, sc = 0, sa = 0;
+    for (const r of yield* parallel('clouds', this.args(p, T), this.n)) { sl += r[0]; sh += r[1]; sc += r[2]; sa += r[3]; }
+    // The year's means, as each point arrives.
+    const st = this.stats, f = 1 / Math.min(NP, st.points + 1);
+    st.lo += (sl / sa - st.lo) * f; st.hi += (sh / sa - st.hi) * f; st.cover += (sc / sa - st.cover) * f;
+    st.points++;
+    if (p === NP - 1) this.version++;
+  }
+  /** Point p's arguments for `cloudCells`, with the free troposphere's reference taken over the globe. */
+  args(p, T) {
     const K = CLOUDS, C = CLIMATE, c = this.c, n = this.n, g = c.grid, lat = c.lat;
     const W = c.W[p], P = c.Pph[p], sst = c.ocean ? c.ocean.fine.sst : null, land = c.landMask, z = c.elevPos;
     // The free troposphere's reference: the zonal mean (2° bands) and, within 20°, the rain-weighted mean surface.
@@ -114,35 +128,7 @@ export class Clouds {
     }
     for (let b = 0; b < 90; b++) zb[b] = za[b] > 0 ? zb[b] / za[b] : 0;
     const Tw = ww > 0 ? tw / ww : 27;
-    const lo = this.lo, hi = this.hi, o = p * n, eis = this.eis;
-    const s1 = K.SC_LAT[0] * Math.PI / 180, s2 = K.SC_LAT[1] * Math.PI / 180, kap = Math.pow(1000 / 700, RD / CP), zlog = RD / G * Math.log(1000 / 700) / 1000;
-    let sl = 0, sh = 0, sc = 0, sa = 0;
-    for (let i = 0; i < n; i++) {
-      const sea = !land[i], Tsea = T[i] + (sea && sst ? sst[i] : 0);
-      const Ts = sea ? Math.max(-1.8, Tsea) : T[i] - C.LAPSE * z[i];
-      const r = Math.min(1.2, W[i] / wsat(Ts));
-      const h = K.HI_MAX * (1 - Math.exp(-Math.max(0, P[i]) / K.HI_P));
-      let l = K.LO_MAX * ramp(r, K.LO_R1, K.LO_R2);
-      const al = Math.abs(lat[i]);
-      if (sea && al < s2) {
-        const ice = ramp(-Tsea, 1.5, 6), x = (lat[i] + Math.PI / 2) / Math.PI * 90 - 0.5;
-        const b0 = Math.max(0, Math.min(88, Math.floor(x))), bw = Math.min(1, Math.max(0, x - b0)), Tz = zb[b0] * (1 - bw) + zb[b0 + 1] * bw;
-        const wt = ramp(al, 0.698, 0.349), Tref = wt * Tw + (1 - wt) * Tz;
-        const T7v = t700(Tref), TK = Ts + 273.15, Tm = 0.5 * (TK + T7v);
-        const e = T7v * kap - TK - moistLapse(Tm, 850) * (zlog * Tm - K.LCL);
-        eis[i] = e;
-        const s = K.SC_MAX * ramp(e, K.SC_E1, K.SC_E2) * ramp(al, s2, s1) * (1 - ice);
-        l = 1 - (1 - l) * (1 - s);
-      } else eis[i] = 0;
-      lo[o + i] = l; hi[o + i] = h;
-      const a = g.area[i];
-      sl += a * l; sh += a * h; sc += a * (1 - (1 - l) * (1 - h)); sa += a;
-    }
-    // The year's means, as each point arrives.
-    const st = this.stats, f = 1 / Math.min(NP, st.points + 1);
-    st.lo += (sl / sa - st.lo) * f; st.hi += (sh / sa - st.hi) * f; st.cover += (sc / sa - st.cover) * f;
-    st.points++;
-    if (p === NP - 1) this.version++;
+    return { T, W, P, sst, land, z, lat, area: g.area, lo: this.lo, hi: this.hi, eis: this.eis, o: p * n, zb: Array.from(zb), Tw, LAPSE: C.LAPSE, CLOUDS: { ...K } };
   }
 
   /** The layers' shares at cell i at year phase τ (the six points, linear in time and periodic). */
@@ -156,6 +142,40 @@ export class Clouds {
     const K = CLOUDS, s = this.s2[i];
     return [K.A_LO + K.Z * s * (1 - K.A_LO), K.A_HI + K.Z * s * (1 - K.A_HI)];
   }
+}
+
+/**
+ * Point p's clouds on cells [a, b) (Clouds.phase, and the engine's pool's kernel: src/engine/kernels.js):
+ * the low and high layers' shares and the EIS at sea written, the area-weighted sums of low, high,
+ * cover and area returned. zb the 2° bands' mean temperature and Tw the deep tropics' rain-weighted
+ * surface (the free troposphere's reference).
+ */
+export function cloudCells(x, a, b) {
+  const { T, W, P, sst, land, z, lat, area, lo, hi, eis, o, zb, Tw, LAPSE } = x, K = x.CLOUDS || CLOUDS;
+  const s1 = K.SC_LAT[0] * Math.PI / 180, s2 = K.SC_LAT[1] * Math.PI / 180, kap = Math.pow(1000 / 700, RD / CP), zlog = RD / G * Math.log(1000 / 700) / 1000;
+  let sl = 0, sh = 0, sc = 0, sa = 0;
+  for (let i = a; i < b; i++) {
+    const sea = !land[i], Tsea = T[i] + (sea && sst ? sst[i] : 0);
+    const Ts = sea ? Math.max(-1.8, Tsea) : T[i] - LAPSE * z[i];
+    const r = Math.min(1.2, W[i] / wsat(Ts));
+    const h = K.HI_MAX * (1 - Math.exp(-Math.max(0, P[i]) / K.HI_P));
+    let l = K.LO_MAX * ramp(r, K.LO_R1, K.LO_R2);
+    const al = Math.abs(lat[i]);
+    if (sea && al < s2) {
+      const ice = ramp(-Tsea, 1.5, 6), y = (lat[i] + Math.PI / 2) / Math.PI * 90 - 0.5;
+      const b0 = Math.max(0, Math.min(88, Math.floor(y))), bw = Math.min(1, Math.max(0, y - b0)), Tz = zb[b0] * (1 - bw) + zb[b0 + 1] * bw;
+      const wt = ramp(al, 0.698, 0.349), Tref = wt * Tw + (1 - wt) * Tz;
+      const T7v = t700(Tref), TK = Ts + 273.15, Tm = 0.5 * (TK + T7v);
+      const e = T7v * kap - TK - moistLapse(Tm, 850) * (zlog * Tm - K.LCL);
+      eis[i] = e;
+      const s = K.SC_MAX * ramp(e, K.SC_E1, K.SC_E2) * ramp(al, s2, s1) * (1 - ice);
+      l = 1 - (1 - l) * (1 - s);
+    } else eis[i] = 0;
+    lo[o + i] = l; hi[o + i] = h;
+    const A = area[i];
+    sl += A * l; sh += A * h; sc += A * (1 - (1 - l) * (1 - h)); sa += A;
+  }
+  return [sl, sh, sc, sa];
 }
 
 /** The planetary albedo with the layers over a clear sky's a: low (cl, its albedo al) then high (ch, ah), each by the adding formula. */

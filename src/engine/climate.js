@@ -408,12 +408,12 @@ export class Climate {
     this.orbit = { ...EARTH_ORBIT, ...(opts.orbit || {}) };
 
     // Geometry, fine.
-    this.lat = new Float64Array(n); this.lon = new Float64Array(n);
-    this.row = new Int16Array(n); this.roww = new Float32Array(n);
-    this.sector = new Uint8Array(n); this.band = new Uint8Array(n);
-    this.cor = new Float64Array(n);
-    this.eqw = new Float64Array(3 * n);   // per cell: the unit vector toward the equator, tapered within 15° of it (descent's)
-    this.sinking = new Float32Array(n);   // per cell: the descent at the point of the year being solved (`descent`)
+    this.lat = shared(Float64Array, n); this.lon = shared(Float64Array, n);
+    this.row = shared(Int16Array, n); this.roww = shared(Float32Array, n);
+    this.sector = shared(Uint8Array, n); this.band = shared(Uint8Array, n);
+    this.cor = shared(Float64Array, n);
+    this.eqw = shared(Float64Array, 3 * n);   // per cell: the unit vector toward the equator, tapered within 15° of it (descent's)
+    this.sinking = shared(Float32Array, n);   // per cell: the descent at the point of the year being solved (`descent`)
     for (let i = 0; i < n; i++) {
       const z = fine.pos[3 * i + 2];
       const la = Math.asin(Math.max(-1, Math.min(1, z))), lo = Math.atan2(fine.pos[3 * i + 1], fine.pos[3 * i]);
@@ -425,12 +425,12 @@ export class Climate {
       this.sector[i] = Math.min(35, Math.floor((lo + Math.PI) / (2 * Math.PI) * 36));
       this.band[i] = Math.min(89, Math.floor((la + Math.PI / 2) / Math.PI * 90));
     }
-    this.bandArea = new Float64Array(90);
+    this.bandArea = shared(Float64Array, 90);
     for (let i = 0; i < n; i++) this.bandArea[this.band[i]] += fine.area[i];
     // Edge weights for the coarse Laplacian.
     const cg = this.coarse;
     this.ws = { w: Float64Array.from(cg.ell, (l, t) => l / cg.dist[t]) };
-    for (const k of ['rr', 'ri', 'zr', 'zi', 'pr', 'pi', 'qr', 'qi', 'mr', 'mi']) this.ws[k] = new Float64Array(nc);
+    for (const k of ['rr', 'ri', 'zr', 'zi', 'pr', 'pi', 'qr', 'qi', 'mr', 'mi']) this.ws[k] = shared(Float64Array, nc);
     // The energy balance's: each edge's weight carries the diffusivity's shape in latitude,
     // 1 + D_LAT sin²φ at the edge's middle.
     this.wsD = { ...this.ws, w: Float64Array.from(this.ws.w) };
@@ -440,48 +440,48 @@ export class Climate {
     }
 
     // State: harmonics of the sea-level temperature, coarse (warm start) and fine.
-    this.Tc = [new Float64Array(nc).fill(14), new Float64Array(nc), new Float64Array(nc), new Float64Array(nc), new Float64Array(nc)];
-    this.Fc = [0, 1, 2, 3, 4].map(() => new Float64Array(nc));
-    this.Tf = [0, 1, 2, 3, 4].map(() => new Float32Array(n));
+    this.Tc = [shared(Float64Array, nc).fill(14), shared(Float64Array, nc), shared(Float64Array, nc), shared(Float64Array, nc), shared(Float64Array, nc)];
+    this.Fc = [0, 1, 2, 3, 4].map(() => shared(Float64Array, nc));
+    this.Tf = [0, 1, 2, 3, 4].map(() => shared(Float32Array, n));
     this.Tf[0].fill(14);
-    this.Pf = [0, 1, 2, 3, 4].map(() => new Float32Array(n));
+    this.Pf = [0, 1, 2, 3, 4].map(() => shared(Float32Array, n));
     this.Pf[0].fill(2.5);
-    this.W = Array.from({ length: NP }, () => new Float32Array(n).fill(20));
-    this.Pph = Array.from({ length: NP }, () => new Float32Array(n).fill(2.5));
-    this.zones = new Float32Array(NZ * n);
-    this.snowAnn = new Float32Array(n);    // fraction of the year under snow (land) or sea ice
-    this.runoff = new Float32Array(n);         // m/yr, the ground's (its periodic year)
-    this.runoffM = new Float32Array(12 * n);   // runoff by month (m), January first: rivers' seasons
+    this.W = Array.from({ length: NP }, () => shared(Float32Array, n).fill(20));
+    this.Pph = Array.from({ length: NP }, () => shared(Float32Array, n).fill(2.5));
+    this.zones = shared(Float32Array, NZ * n);
+    this.snowAnn = shared(Float32Array, n);    // fraction of the year under snow (land) or sea ice
+    this.runoff = shared(Float32Array, n);         // m/yr, the ground's (its periodic year)
+    this.runoffM = shared(Float32Array, 12 * n);   // runoff by month (m), January first: rivers' seasons
     // The ground: its periodic year under this climate's months (the closure; the year steps
     // it live, src/engine/ground.js). Sea and grounded ice hold no soil water.
     this.soil = new Soil(n, 0);
     this.T12 = shared(Float32Array, 12 * n);       // surface °C by month (12 i + m)
     this.P12 = shared(Float32Array, 12 * n);       // rain, mm in the month
     this.PET12 = shared(Float32Array, 12 * n);     // potential evaporation, mm in the month
-    this.peAnn = new Float32Array(n);          // m/yr: rain less potential evaporation (what open water gains)
-    this.pAnn = new Float32Array(n);           // m/yr: rain (land)
-    this.betaPh = Array.from({ length: NP }, () => new Float32Array(n).fill(0.5));   // the ground's evaporative efficiency at each point of the year
-    this.evapPh = Array.from({ length: NP }, () => new Float32Array(n));            // the ground's evaporation at each point of the year (mm/day), the air's source over land
+    this.peAnn = shared(Float32Array, n);          // m/yr: rain less potential evaporation (what open water gains)
+    this.pAnn = shared(Float32Array, n);           // m/yr: rain (land)
+    this.betaPh = Array.from({ length: NP }, () => shared(Float32Array, n).fill(0.5));   // the ground's evaporative efficiency at each point of the year
+    this.evapPh = Array.from({ length: NP }, () => shared(Float32Array, n));            // the ground's evaporation at each point of the year (mm/day), the air's source over land
     this.soilWarm = false;
     this.lakes = null;   // src/engine/lakes.js, when there is one
-    this.lakeWet = new Float32Array(n);        // the lakes' share of each cell, as this cycle saw it
+    this.lakeWet = shared(Float32Array, n);        // the lakes' share of each cell, as this cycle saw it
     this.ground = null;  // the live ground (src/engine/ground.js): its slow mean, weighed by the year's live weight
-    this.upz = new Float64Array(3 * n);
-    this.elevPos = new Float64Array(n);
-    this.landMask = new Uint8Array(n);
-    this.landFracC = new Float64Array(nc);
-    this.landSmooth = new Float64Array(n);   // the land's share smoothed over ~1,500 km (`geography`)
-    this.wind = new Float32Array(3 * n);   // the last phase's surface wind (m/s), for drawing
-    this.windPhase = Array.from({ length: NP }, () => new Float32Array(3 * n));
-    this.pres = new Float32Array(n);
-    this.presPhase = Array.from({ length: NP }, () => new Float32Array(n));   // the template's pressure at each point of the year
-    this.itcz = new Float32Array(NP * 36);
+    this.upz = shared(Float64Array, 3 * n);
+    this.elevPos = shared(Float64Array, n);
+    this.landMask = shared(Uint8Array, n);
+    this.landFracC = shared(Float64Array, nc);
+    this.landSmooth = shared(Float64Array, n);   // the land's share smoothed over ~1,500 km (`geography`)
+    this.wind = shared(Float32Array, 3 * n);   // the last phase's surface wind (m/s), for drawing
+    this.windPhase = Array.from({ length: NP }, () => shared(Float32Array, 3 * n));
+    this.pres = shared(Float32Array, n);
+    this.presPhase = Array.from({ length: NP }, () => shared(Float32Array, n));   // the template's pressure at each point of the year
+    this.itcz = shared(Float32Array, NP * 36);
     this.zonal = null;
     this.stats = { meanT: 14, iceLat: 90, cycles: 0, hadley: 30, settled: 0 };
     this.scratch = {
-      f6: new Float64Array(n), c5: new Float64Array(nc), c5b: new Float64Array(nc),
-      F: [0, 1, 2, 3, 4].map(() => new Float64Array(n)),
-      alb: new Float32Array(n),
+      f6: shared(Float64Array, n), c5: shared(Float64Array, nc), c5b: shared(Float64Array, nc),
+      F: [0, 1, 2, 3, 4].map(() => shared(Float64Array, n)),
+      alb: shared(Float32Array, n),
     };
     // Sweep orders for the moisture solve.
     const idx = Array.from({ length: n }, (_, i) => i);
@@ -1087,7 +1087,7 @@ export class Climate {
     yield;
     yield* this.moisture(p, T, carry);
     // Its clouds (src/engine/clouds.js), for the next energy balance.
-    if (this.clouds) this.clouds.phase(p, T);
+    if (this.clouds) yield* this.clouds.phaseSteps(p, T);
     // Dust's sources on these winds and this rain (src/engine/aeolian.js).
     if (this.dust) { yield; yield* this.dust.phaseSteps(p, T); }
   }

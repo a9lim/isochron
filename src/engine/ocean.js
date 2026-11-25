@@ -29,6 +29,7 @@
 // leaves (src/engine/climate.js), so it stands off the cold tongue. The stress
 // is src/engine/seaheat.js's (`stressSpeed`: the storms' gusts).
 
+import { shared } from './shared.js';
 const R_M = 6.371e6;
 
 import { nearest } from '../grid/icosphere.js';
@@ -58,7 +59,7 @@ export class Ocean {
     const g = this.grid = grid, n = g.n;
     this.coarse = grid !== climate.grid;
     this.psi = new Float64Array(n);       // m³/s
-    this.sst = new Float32Array(n);       // the anomaly T′, K
+    this.sst = shared(Float32Array, n);       // the anomaly T′, K (shared with the engine's pool: the clouds read it)
     this.vel = new Float32Array(3 * n);   // surface current, m/s
     this.tau = new Float64Array(3 * n);   // annual-mean wind stress, N/m²
     this.curl = new Float64Array(n);
@@ -74,7 +75,7 @@ export class Ocean {
     }
     this.eps = OCEAN.LAYER_CELLS * Math.sqrt(4 * Math.PI / n) / 2;
     const fn = climate.grid.n;
-    this.fine = this.coarse ? { psi: new Float64Array(fn), sst: new Float32Array(fn), sea: new Uint8Array(fn) } : { psi: this.psi, sst: this.sst, sea: this.sea };
+    this.fine = this.coarse ? { psi: new Float64Array(fn), sst: shared(Float32Array, fn), sea: new Uint8Array(fn) } : { psi: this.psi, sst: this.sst, sea: this.sea };
     if (this.coarse) {
       // Sweep orders on this grid (the climate's are for its own).
       const lon = i => Math.atan2(pos[3 * i + 1], pos[3 * i]), lat = i => pos[3 * i + 2];

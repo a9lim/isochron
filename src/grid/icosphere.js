@@ -18,6 +18,7 @@
 //   centre    Float64Array(3f)   each triangle's circumcentre on the sphere
 //                                (the Voronoi corners)
 
+import { toShared } from '../engine/shared.js';
 const PHI = (1 + Math.sqrt(5)) / 2;
 const ICO_V = [
   [-1, PHI, 0], [1, PHI, 0], [-1, -PHI, 0], [1, -PHI, 0],
@@ -197,6 +198,8 @@ function makeGrid(level) {
 
   const grid = { level, n, pos, nbrOff, nbr, corner, ell, dist, tan, gw, area, tris, centre, nf };
   grid.lookup = buildLookup(grid);
+  // Shared with the engine's pool, where it has one (src/engine/shared.js): nothing holds them yet.
+  for (const k of ['pos', 'nbrOff', 'nbr', 'corner', 'ell', 'dist', 'tan', 'gw', 'area']) grid[k] = toShared(grid[k]);
   return grid;
 }
 

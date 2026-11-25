@@ -12,6 +12,7 @@ const P = new Planet('earthlike', { level: 4, spinLevel: 4, spinup: 10 });
 P.climate.solve(1);
 const ARGS = {
   soilYear: () => { const c = P.climate; return { soil: c.soil.arrays(), T: c.T12, P: c.P12, PET: c.PET12, cold: false, SOIL: { ...SOIL } }; },
+  clouds: () => P.climate.clouds.args(2, P.climate.Tf[0]),
 };
 const clone = x => ArrayBuffer.isView(x) ? x.slice() : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, clone(v)])) : x;
 
