@@ -8,7 +8,8 @@
 // never-exposed it kills (its virulence v), how much of its passing needs a vector that wants warm, wet
 // months (x), and how strongly it lives on outside people (its reservoir r) in a host, the herds or the
 // wild by what its origin had, whose range is a climate envelope about its origin's (as a crop package's
-// suitability is). Nothing names a kind: a crowd disease, a plague and a fever are regions of these
+// suitability is), joined to the origin by land within R_ENV σ of it (`range`, batch 4b: a host doesn't cross
+// the climates it can't live in, so the Old World's tropical hosts and the New's stay apart). Nothing names a kind: a crowd disease, a plague and a fever are regions of these
 // traits, and the world selects which persist (the stages from an animal's pathogen to a human one:
 // Wolfe, Dunavan and Diamond 2007, from memory). Most die out at once.
 //
@@ -26,14 +27,16 @@
 //                critical community size (~2.5–5 × 10⁵: Bartlett 1957, from memory), so an acute disease
 //                needs a great connected people and a chronic one (D long) or one whose immunity wanes
 //                persists among fewer. The pool is a trading market (src/engine/routes.js, one with fields)
-//                with its trade partners' people by the kernel (faster travel merges the pools: Cliff and
+//                with its trade partners' people by the kernel (the K_PATH it meets most, Routes.ppart) (faster travel merges the pools: Cliff and
 //                Haggett on Iceland's measles, from memory); elsewhere a place and its land neighbours (a
-//                band's contacts reach no further). Persisting, λ = Λ_END: s settles near 1/R, children
+//                band's contacts reach no further). It persists only where it is: p × (1 − e^{−I}), I the
+//                pool's infectious at the step's start. Persisting, λ = Λ_END: s settles near 1/R, children
 //                carry it, and its deaths are b (1 − 1/R) v.
 //   introduction where it doesn't persist, epidemics come with infectious travellers: λ = Λ_I × Σ contact ×
 //                prevalence (infections a person a year × D) over the trade's partners (contact as
 //                knowledge's copying reads it, Routes.part, × e^{−T/(D G_TRANS)}: a traveller must arrive while
-//                the infection lasts, T the journey by sail or steam and G_TRANS the generations a ship's company
+//                the infection lasts, T the journey (Routes.years: coasting craft's slow voyages, the ocean-going ship's
+//                by navigation, steam's) and G_TRANS the generations a ship's company
 //                or a caravan carries on the way, so an acute disease crosses an ocean only as ships grow fast:
 //                Cliff and Haggett's measles reaching the islands with steam, from memory; the partners' hosts in
 //                persistence alike) and the land neighbours in other pools (K_LAND
@@ -59,7 +62,14 @@
 //   vaccination  cov = V_COV × medicine's reach (People.modern) × e^{−ω/Ω_VAC}: lasting immunity can be
 //                given. Past 1 − 1/R wherever it passes, a pathogen goes (eradication).
 //   carried      migrants carry their susceptibility as they carry who they are (People.diffuse, flee,
-//                voyages): settlers from where a pathogen is endemic come immune, and those they meet don't.
+//                voyages, captives): settlers from where a pathogen is endemic come immune, and those they meet don't.
+//   strangers    (batch 4b; Curtin's settler mortality, from memory) a stranger from place a at place b dies at
+//                m = Σ f_b v [n_a (1 + K_COLL) + K_RE (s_a − n_a)] a year, f_b = inf/s the force of infection on b's
+//                susceptible, n_a = 1 − e_a a's naive share (an adult's first case, as a virgin people's) and
+//                s_a − n_a those whose immunity waned, × a's medicine (People.mortF) and quinine past Z_QUIN; a tour
+//                of T_TOUR years keeps 1/(1 + m T_TOUR) of those sent (a garrison, its officials, settlers' first
+//                years: `seasoning`), so the states' power projected (src/engine/polities.js) and the settlers
+//                crossing the sea (People.diffuse) go where their people survive.
 //   births       a hazard a year at each place, H_SPILL × N × (its herds + K_WILD × its wild hosts) × κ, the
 //                wild hosts W_WILD + (1 − W_WILD) vec (the warm, wet tropics hold the most: the pathogens'
 //                latitudinal gradient, standard). One that can't pass at its origin (R ≤ 1) with no
@@ -126,6 +136,7 @@ export function persistence(N, b, om, R, D, P) {
 }
 
 const lnU = (r, a, b) => Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * r.uniform());
+const S_EPS = 1e-3;   // the susceptible share below which the force of infection on them is read at it (strangers)
 
 export class Pathogens {
   /** For a People `pp` (src/engine/people.js). */
@@ -161,6 +172,20 @@ export class Pathogens {
     for (let k = 0; k < 4; k++) { const d = (x[4 * c + k] - q.clim[k]) / (S[k] * w); d2 += d * d; }
     return Math.exp(-0.5 * d2);
   }
+  /**
+   * A reservoir's host's range (batch 4b): the places joined to its origin by land through its climate envelope
+   * (env past e^{−R_ENV²/2}: a host doesn't cross the climates it can't live in, so the tropics' wild hosts of
+   * the Old World and the New stay apart). 1 in range, 0 out.
+   */
+  range(q) {
+    const pp = this.pp, E = pp.E, nL = pp.nL, lo = Math.exp(-0.5 * pp.P.R_ENV * pp.P.R_ENV), out = new Uint8Array(nL), st = [q.c];
+    out[q.c] = 1;
+    while (st.length) {
+      const c = st.pop();
+      for (let e = E.off[c]; e < E.off[c + 1]; e++) { const d = E.nb[e]; if (E.hop[e] || out[d] || !(this.env(q, d) > lo)) continue; out[d] = 1; st.push(d); }
+    }
+    return out;
+  }
   /** R at c, from its crowding. */
   R(q, c) { return q.R0 * this.kap[c] * (1 - q.x + q.x * this.pp.H.path[c]); }
 
@@ -185,6 +210,7 @@ export class Pathogens {
         clim: Float32Array.from(pp.H.clim.subarray(4 * c, 4 * c + 4)), last: pp.t, cases: 0, dead: 0, peak: 0, rate: Infinity,
       };
       if (!(this.R(q, c) > 1) && !(q.r * this.host(c, q.hw) > P.R_EPS)) { this.still++; continue; }
+      if (q.r > 0) q.range = this.range(q);
       // A full table gives a new pathogen the slot of its least active, if that one's last step held fewer than N_EVICT cases a year.
       let j = this.slots.indexOf(null);
       if (j < 0) {
@@ -222,7 +248,7 @@ export class Pathogens {
     }
     // The pools: a trading market's people (src/engine/routes.js: those with fields, Routes.active), and
     // elsewhere each place with its land neighbours (a band's contacts reach no further).
-    const routes = !!(rt && rt.part && rt.mN && rt.mF && rt.mN.length === rt.nm), mo = routes ? rt.marketOf : null, off = routes ? rt.nm : 0, np = off + nL;
+    const routes = !!(rt && rt.ppart && rt.mN && rt.mF && rt.mN.length === rt.nm), mo = routes ? rt.marketOf : null, off = routes ? rt.nm : 0, np = off + nL;
     const pool = this.pool || (this.pool = new Int32Array(nL));
     for (let c = 0; c < nL; c++) pool[c] = routes && rt.mF[mo[c]] > 0 ? mo[c] : off + c;
     this.births(dt, c => pool[c]);
@@ -230,7 +256,7 @@ export class Pathogens {
     if (!this.live.length) return;
     const sc = this.sc && this.sc.np === np ? this.sc : (this.sc = { np, N: new Float64Array(np), R: new Float64Array(np), B: new Float64Array(np), A: new Float64Array(np), L: new Float64Array(np), p: new Float64Array(np), pre: new Float64Array(np), ev: new Int8Array(np) });
     const pN = sc.N, pR = sc.R, pB = sc.B, pA = sc.A, pL = sc.L, pP = sc.p, pre = sc.pre, ev = sc.ev, lam = this.lam, s = this.s, e = this.e, inf = this.inf, r = this.rng;
-    const KP = routes ? rt.C.K_PART : 0, NM = routes ? rt.C.N_MEET : 0, pk = routes ? rt.part.k : null, pw = routes ? rt.part.w : null, mN = routes ? rt.mN : null;
+    const KP = routes ? rt.C.K_PATH : 0, NM = routes ? rt.C.N_MEET : 0, pk = routes ? rt.ppart.k : null, pw = routes ? rt.ppart.w : null, mN = routes ? rt.mN : null;
     // Each place's land neighbours in other pools, and their weights, K_LAND κ κ' over its neighbours (once a step).
     const nbO = this.nbO || (this.nbO = new Int32Array(nL + 1)), nbI = this.nbI || (this.nbI = new Int32Array(E.off[nL])), nbW = this.nbW || (this.nbW = new Float64Array(E.off[nL]));
     let m = 0;
@@ -251,12 +277,11 @@ export class Pathogens {
     // pair has industry (the trade's own layers, Routes.trade).
     const Tk = routes ? (this.Tk && this.Tk.length === rt.nm * KP ? this.Tk : (this.Tk = new Float64Array(rt.nm * KP))) : null;
     if (routes) {
-      const C = rt.C, vS = C.V_SHIP * 86.4 * 365.25, vI = C.V_STEAM * 86.4 * 365.25, mS = rt.mS, RI = rt.R.I;
+      const mS = rt.mS, mZ = rt.mZ, nu = rt.mNu;
       for (let k = 0; k < rt.nm; k++) for (let i = 0; i < KP; i++) {
         const j = pk[k * KP + i];
         if (j < 0) break;
-        const sI = RI && mS ? Math.max(mS[k], mS[j]) : 0;
-        Tk[k * KP + i] = (1 - sI) * rt.cost(k, j, 'S') / vS + (sI > 0 ? sI * rt.cost(k, j, 'I') / vI : 0);
+        Tk[k * KP + i] = rt.years(k, j, nu ? Math.max(nu[k], nu[j]) : 0, mS ? Math.max(mS[k], mS[j]) : 0, rt.reach(Math.max(mZ[k], mZ[j])));
       }
     }
     const Rc = this.Rc, vec = H.path;
@@ -282,7 +307,10 @@ export class Pathogens {
             if (pN[j] > 0) pr += w * pA[j] / pN[j] * D;
           }
         } else { const c = k - off; for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e]) Nc += N[E.nb[e]]; }
-        pP[k] = persistence(Nc, pB[k] / pN[k], om, pR[k] / pN[k], D, P); pre[k] = pr;
+        // Persisting needs it there: the pool's infectious at the step's start, I = Σ N inf D, as a soft
+        // presence 1 − e^{−I} (read as the chance of keeping it anywhere it could, a pathogen had been endemic in
+        // every great pool from its birth: none came anywhere new, and no people fell).
+        pP[k] = persistence(Nc, pB[k] / pN[k], om, pR[k] / pN[k], D, P) * (1 - Math.exp(-pA[k] * D)); pre[k] = pr;
       }
       // Each place's introductions a year from outside its pool: its pool's partners, its land neighbours in
       // other pools, the reservoir.
@@ -292,7 +320,7 @@ export class Pathogens {
         let ln = 0;
         for (let i = nbO[c]; i < nbO[c + 1]; i++) ln += nbW[i] * inf[o + nbI[i]];
         let l = P.L_INTRO * (pre[k] + ln * D);
-        if (q.r > 0) { const hs = this.host(c, q.hw); if (hs > 0) l += P.L_RES * q.r * hs * this.env(q, c); }
+        if (q.r > 0 && (!q.range || q.range[c])) { const hs = this.host(c, q.hw); if (hs > 0) l += P.L_RES * q.r * hs * this.env(q, c); }
         lam[c] = l; pL[k] += N[c] * l;
       }
       // Each pool's introductions as events (rarer than one a step) or as their mean.
@@ -374,6 +402,44 @@ export class Pathogens {
       const o = q.slot * nL;
       this.s[o + b] = (this.s[o + b] * m + n * this.s[o + a]) / (m + n); this.e[o + b] = (this.e[o + b] * m + n * this.e[o + a]) / (m + n);
     }
+  }
+
+  /**
+   * Each market's hazard to strangers, by slot (K × nm, slot-major): its people's mean force of infection
+   * on the susceptible, inf/s, × virulence (People-weighted over its places).
+   */
+  strangers(rt) {
+    const pp = this.pp, nL = pp.nL, nm = rt.nm, N = pp.Ntot, mo = rt.marketOf, K = this.K;
+    const h = this.hS && this.hS.length === K * nm ? this.hS : (this.hS = new Float64Array(K * nm));
+    const w = this.hW && this.hW.length === nm ? this.hW : (this.hW = new Float64Array(nm));
+    h.fill(0); w.fill(0);
+    for (let c = 0; c < nL; c++) if (N[c] > 0) w[mo[c]] += N[c];
+    for (const q of this.live) {
+      const o = q.slot * nL, om = q.slot * nm;
+      for (let c = 0; c < nL; c++) { const n = N[c]; if (n > 0 && this.inf[o + c] > 0) h[om + mo[c]] += n * q.v * this.inf[o + c] / Math.max(this.s[o + c], S_EPS); }
+      for (let m = 0; m < nm; m++) if (w[m] > 0) h[om + m] /= w[m];
+    }
+    return h;
+  }
+  /** A stranger's case from place a's people, by slot (K): its naive share's first case (1 + K_COLL) and its waned share's K_RE. */
+  vulnerable(a, out = new Float64Array(this.K)) {
+    const P = this.pp.P, nL = this.pp.nL;
+    out.fill(0);
+    for (const q of this.live) { const o = q.slot * nL + a, n = 1 - this.e[o]; out[q.slot] = n * (1 + P.K_COLL) + P.K_RE * Math.max(0, this.s[o] - n); }
+    return out;
+  }
+  /** The share of strangers from place a who outlast a tour of T_TOUR years at place b: 1/(1 + m T_TOUR), m their deaths a year there (× `mf`, their medicine). */
+  seasoning(a, b, mf) {
+    if (!this.live.length || !(mf > 0)) return 1;
+    const P = this.pp.P, nL = this.pp.nL;
+    let m = 0;
+    for (const q of this.live) {
+      const ob = q.slot * nL + b, f = this.inf[ob];
+      if (!(f > 0)) continue;
+      const oa = q.slot * nL + a, n = 1 - this.e[oa];
+      m += q.v * f / Math.max(this.s[ob], S_EPS) * (n * (1 + P.K_COLL) + P.K_RE * Math.max(0, this.s[oa] - n));
+    }
+    return 1 / (1 + m * mf * P.T_TOUR);
   }
 
   /** The pathogens circulating: those with a case in the last step. */

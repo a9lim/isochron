@@ -23,7 +23,7 @@
 //               exit the spare room among the place's land neighbours (Polities.ex) and h its states'
 //               hold. Domar's hypothesis (1970): free land, free peasants and idle landlords can't all
 //               three stand, so open land keeps the take low unless a state backs the landlords
-//               (serfdom). The city's elite takes TH_W of its food and capital's share of its goods (ALPHA,
+//               (serfdom). K_COER falls as schooling and the media spread (batch 4b, Polities.coer: abolition). The city's elite takes TH_W of its food and capital's share of its goods (ALPHA,
 //               and AI's work besides: compute and robots are capital, so their owners take what AI's work
 //               earns; People.regional's kCap).
 //               Where a state administers the place (its fiscal capacity κ, src/engine/polities.js), K_RENT
@@ -155,7 +155,7 @@ export class Classes {
       const n = N[c], t = T[c], o = WAYS * c;
       if (!(n > 0) || !(t > 0)) { psi[c] = 0; mmp[c] = 0; emp[c] = 0; this.take[c] = 0; this.eP[c] = 0; for (let w = 0; w < WAYS; w++) { e[o + w] = 0; pos[o + w] = 0; claim[o + w] = 0; } continue; }
       const y = (K[c] + goods[c]) / n, h = pol.held(c);
-      const tk = 1 / (1 + (pol.ex ? pol.ex[c] : 0) / (P.X_EXIT * (1 + P.K_COER * h)));
+      const tk = 1 / (1 + (pol.ex ? pol.ex[c] : 0) / (P.X_EXIT * (1 + (pol.coer ? pol.coer(c) : P.K_COER) * h)));
       // Where its states administer it (their fiscal capacity κ by their shares), K_RENT of the land's rent is tax.
       let dr = 0;
       if (pol.d[c] > 0) for (let j = 0; j < KP; j++) { const k = pol.id[KP * c + j]; if (k < 0) break; dr += Math.min(1, pol.s[KP * c + j] / pol.d[c]) * (list[k].kap ?? 1); }

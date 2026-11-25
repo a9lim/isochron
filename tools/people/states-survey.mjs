@@ -34,8 +34,16 @@
 //                   share of the people the Americas and Europe lost within 150 and 100 years (and when), and
 //                   the falls of a region's people by a fifth or more within 50 years a kyr, before industry
 //                   (regions with 1% of the people at industry); the most lethal pathogens' traits
-//   the industrial era   the share under unlike rulers at 1870, 1913, 1950 (industry's start as 1760),
-//                   the effective states at early takeoff
+//   the industrial era   the share under unlike rulers (state or elite, the unlikest) at 1870, 1913, 1950
+//                   (industry's start as 1760), the effective states at early takeoff
+//   empires overseas (4b)  the first state holding a million people overseas (on another landmass, joined to its
+//                   capital only across the open ocean: Routes.oceanic; the first overseas empires ~1500); at 1913 the share of the people held from overseas, of them those
+//                   alike to their rulers (settlers) and those ruled directly (κ), and the share under an unlike
+//                   elite; captives taken, carried and landed, and those carried overseas (People.capt) and landed
+//                   there (~12.5 M carried across the Atlantic, ~10.7 M landed: Eltis and Richardson, from memory),
+//                   and when half of those had sailed; coercion's weight (people-weighted over held places, against
+//                   K_COER) falling below a half (abolition 1807–88); the drain's share of capital's income at
+//                   1913; balancing (people-weighted over the states) 1 kyr before industry and at 1913
 //   classes' economy (3f)  at 1 CE, 1500, 1820, 1913, 1980 and early takeoff: the cities' share of the people
 //                   (Cantillon's), the world's Gini over its places' two classes (Bourguignon and Morrisson:
 //                   ~0.5 in 1820, ~0.65 late in the twentieth century), the top decile's share of income in the
@@ -62,17 +70,31 @@ async function one(ov, run) {
   pp.onEvent = (t, k, x) => { if (!(k in ev)) { ev[k] = t; evText[k] = x; } };
   pp.seed();
   // The regions' people every EVERY years once any state stands; stress and the unlike rule's share alongside.
-  const series = [], stress = [], unlike = [], econ = [], dis = [];
+  const series = [], stress = [], unlike = [], econ = [], dis = [], emp = [];
   let next = null;
   const sample = () => {
     const r = new Float64Array(REGIONS.length), N = pp.Ntot, cl = pp.classes;
-    let all = 0, ps = 0, hi = 0, un = 0;
+    let all = 0, ps = 0, hi = 0, un = 0, uE = 0, ovN = 0, ovA = 0, ovD = 0, cw = 0, cn = 0;
+    const pol = pp.pol, mass = pol.massOf(), ovK = new Map();
     for (let c = 0; c < nL; c++) {
       const n = N[c]; if (!(n > 0)) continue;
       all += n; if (regOf[c] >= 0) r[regOf[c]] += n;
       ps += n * cl.psi[c]; if (cl.psi[c] > 0.3) hi += n;
-      const k = pp.pol.owner(c); if (k >= 0 && pp.ids.simX(c, pp.pol.list[k].X) < 0.5) un += n;
+      const se = pp.ids.eliteSim(c), k = pol.owner(c);
+      if (se < 0.5) uE += n;
+      if (k >= 0 && Math.min(se, pp.ids.simX(c, pol.list[k].X)) < 0.5) un += n;
+      for (let j = 0; j < 3; j++) {
+        const kk = pol.id[3 * c + j]; if (kk < 0) break;
+        const q = pol.list[kk], x = pol.s[3 * c + j] * n;
+        if (mass[c] === mass[q.cap] || !pp.routes.oceanic(pp.routes.marketOf[q.cap], pp.routes.marketOf[c])) continue;   // overseas: across the open ocean
+        ovN += x; ovK.set(kk, (ovK.get(kk) || 0) + x); if (pp.ids.simX(c, q.X) >= 0.5) ovA += x; ovD += x * (q.kap ?? 1);
+      }
+      if (pol.held(c) > 0) { cw += n * pol.coer(c) / pp.P.K_COER; cn += n; }
     }
+    let bw = 0, bn = 0;
+    for (const k of pol.live) { const q = pol.list[k]; bw += q.N * (q.bal ?? 1); bn += q.N; }
+    emp.push({ t: pp.t, ovN: all > 0 ? ovN / all : 0, ovMax: Math.max(0, ...ovK.values()), alike: ovN > 0 ? ovA / ovN : NaN, direct: ovN > 0 ? ovD / ovN : NaN, uE: all > 0 ? uE / all : 0,
+      coer: cn > 0 ? cw / cn : 1, capt: { ...pp.capt }, drain: pp.capY > 0 ? pp.drainY / pp.capY : 0, bal: bn > 0 ? bw / bn : 1 });
     series.push({ t: pp.t, r: Array.from(r) });
     let kw = 0, kn = 0, trib = 0, tax = 0;
     for (const k of pp.pol.live) { const q = pp.pol.list[k]; kw += q.N * q.kap; kn += q.N; }
@@ -193,7 +215,15 @@ async function one(ov, run) {
   const dAt = t => dis.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), dis[0] || { d: 0, n: 0 });
   const pg = pp.pathogens, worst = pg.live.concat(pg.past).sort((a, b) => b.dead - a.dead).slice(0, 3);
   const wave = xs => ({ n: xs.length, at: xs.length ? xs.map(x => 1760 + x.t - tI).sort((a, b) => a - b)[xs.length >> 1] : null });
+  // Empires overseas: the first million held overseas; captives' half-sailed date; abolition's.
+  const eAt = t => emp.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), emp[0] || {}), cal = t => (t == null ? null : 1760 + t - tI);
+  const e0 = emp.find(x => x.ovMax >= 1e6), cF = emp.at(-1) ? emp.at(-1).capt : pp.capt, half = emp.find(x => x.capt.over >= 0.5 * cF.over && cF.over > 0);
+  const peakC = emp.reduce((m, x) => Math.max(m, x.coer), 0), ab = emp.find(x => x.t > tI - 2000 && x.coer < 0.5);
+  const e13 = eAt(tI + 153);
+  const empire = { first: e0 ? cal(e0.t) : null, ov13: e13.ovN, alike13: e13.alike, direct13: e13.direct, uE13: e13.uE, made: cF.made, carried: cF.carried, landed: cF.landed, over: cF.over, overLanded: cF.overLanded,
+    half: half ? cal(half.t) : null, abolition: ab ? cal(ab.t) : null, coerPeak: peakC, drain13: e13.drain, bal: [eAt(tI - 1000).bal, e13.bal] };
   return {
+    empire,
     sec: { agrKyr: 1000 * agr.length / span, settler: wave(ind.filter(x => x.overseas && x.alike >= 0.5)), nation: wave(ind.filter(x => x.alike < 0.5)), other: ind.filter(x => !x.overseas && x.alike >= 0.5).length },
     great: great.length, life: lives.sort((a, b) => a - b), standing: standing.length, peakA: great.map(q => q.peakA).sort((a, b) => a - b),
     changes, cycles, stress: [tI - 3000, tI - 1000, tI, tP].map(t => { const s = at(t); return [s.psi, s.hi]; }),
@@ -248,5 +278,8 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   console.log(`pathogens at 3 and 1 kyr before industry, at industry, at early takeoff: deaths ${[0, 1, 2, 3].map(i => pm(md(dz.map(x => x.d[i])))).join(', ')} a thousand a year, circulating ${[0, 1, 2, 3].map(i => f0(md(dz.map(x => x.n[i])))).join(', ')}; born ${f0(md(dz.map(x => x.born)))} a draw (stillborn ${f0(md(dz.map(x => x.still)))}, gone ${f0(md(dz.map(x => x.gone)))}); the Americas' largest fall within 150 yr ${pc(md(dz.map(x => x.americas.f)))} (median ${f0(md(dz.map(x => x.americas.at)))}; history ~50–90% after 1492), Europe's before industry within 100 yr ${pc(md(dz.map(x => x.europe.f)))} (median ${f0(md(dz.map(x => x.europe.at)))}; the Black Death ~30–50%); a region's people falling a fifth within 50 yr ${f2(md(dz.map(x => x.crashes)))} times a kyr before industry`);
   for (const [k, r] of runs.entries()) console.log(`draw ${k}'s most lethal pathogens: ${r.disease.worst.join(' · ')}`);
   for (const [k, r] of runs.entries()) if (r.spark) console.log(`draw ${k}: ${r.spark}`);
+  const em = runs.map(r => r.empire), mM = x => (Number.isFinite(x) ? (x / 1e6).toFixed(1) : '–');
+  console.log(`empires overseas: the first million held overseas ${f0(md(em.map(x => x.first)))} (~1500); at 1913 ${pc(md(em.map(x => x.ov13)))} of the people held from overseas, ${pc(md(em.map(x => x.alike13)))} of them alike to their rulers, ${pc(md(em.map(x => x.direct13)))} ruled directly; under an unlike elite ${pc(md(em.map(x => x.uE13)))}; balancing 1 kyr before industry and at 1913 ${[0, 1].map(i => f2(md(em.map(x => x.bal[i])))).join(', ')}; the drain ${pc(md(em.map(x => x.drain13)))} of capital's income at 1913`);
+  console.log(`captives: ${mM(md(em.map(x => x.made)))} M taken a draw, ${mM(md(em.map(x => x.carried)))} M carried, ${mM(md(em.map(x => x.landed)))} M landed; overseas ${mM(md(em.map(x => x.over)))} M carried, ${mM(md(em.map(x => x.overLanded)))} M landed (the Atlantic's ~12.5, ~10.7), half sailed by ${f0(md(em.map(x => x.half)))}; coercion's weight below half its own by ${f0(md(em.map(x => x.abolition)))} (abolition 1807–88)`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);
 }

@@ -564,6 +564,21 @@ export const PEOPLE = {
   // history's did the first industrial states took their unindustrialized neighbours, alike peoples whom
   // no nationalism defends: at early takeoff ~4 effective states, the largest with half the world.)
   F_PROJ: 0.1, L_PROJ: 2e4, I_PROJ: 0.05, K_SELF: 1, K_ARM: 0.5,
+  // Empires overseas (batch 4b, src/engine/polities.js; synthesis, the values speculation): power projected by
+  // sail once the capital navigates the open ocean (People.nav), e-fold over L_PROJ_S of route cost (short of
+  // steam's: Lisbon's ~20,000 km to Goa e-fold twice), toward steam's L_PROJ as its core has industry; each market
+  // weighs the KJ_PROJ states projecting most into it. Strangers die: the projection × 1/(1 + m T_TOUR), m a
+  // stranger's deaths a year there (src/engine/pathogens.js, `seasoning`; a garrison's tour, its officials'),
+  // quinine cutting them by F_QUIN past Z_QUIN of learning over W_QUIN (the 1850s: Curtin, from memory).
+  // Balancing (realism's balance of power: Waltz, from memory; speculation as a flux): a state's power at
+  // places another state holds ÷ (1 + K_BAL × what its rivals field against it over its own), each rival's
+  // weighted by how far the state outweighs it. Captives (batch 3's deferred forced migration): F_CAPT of war's
+  // toll and of the raided, carried to where coerced labour earns most (the KD_CAPT best markets a source
+  // reaches), the product a worker past Y_COER × the hold × the open room, D_PASS of them dying a year at sea
+  // (~12–15% across the Atlantic, from memory). Coercion's weight K_COER falls as schooling and the media spread
+  // (abolition: one norm for serfdom and slavery; speculation as a mechanism).
+  L_PROJ_S: 1e4, KJ_PROJ: 4, T_TOUR: 5, Z_QUIN: 7.0, W_QUIN: 0.2, F_QUIN: 0.85, K_BAL: 1,
+  F_CAPT: 0.2, KD_CAPT: 4, Y_COER: 1, D_PASS: 2,
   // Classes (batch 3a, src/engine/classes.js; synthesis, the values speculation): each way's elite's most
   // claim (herders' 0.25 of the herds' increase, fishers' 0.15 of the catch, farmers' half the harvest,
   // sharecropping's; the city's elite 0.2 of what it takes in, and capital's ALPHA of its goods), cut
@@ -612,11 +627,11 @@ export const PEOPLE = {
   // (1 + K_COLL × the share sick at once: an endemic childhood case kills ~1–2% (measles), a people meeting it for the
   // first time a quarter and more, all ages sick together, from memory), a case again K_RE of a first; vaccination V_COV of medicine's reach × e^{−ω/OM_VAC}; gone after
   // T_IDLE years with no case, or for a new one when the table's full, the least active under N_EVICT cases a year;
-  // stepped every DT_PATH years at least.
+  // stepped every DT_PATH years at least; a reservoir's host ranging where land joins it to its origin within R_ENV σ of its climate.
   P_MAX: 32, H_SPILL: 4e-10, K_WILD: 0.5, W_WILD: 0.25, SPILL_MAX: 4, R_EPS: 1e-3,
   R0_MED: 1.5, R0_SIG: 0.9, D_PATH: [0.01, 0.5], OM_PATH: [0.001, 0.3], V_PATH: [0.0003, 0.05], F_RES: 0.3, R_RES: 1e-3,
   RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1, G_TRANS: 4,
-  K_COLL: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1,
+  K_COLL: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1, R_ENV: 2,
   KAP0: 0.2, T_KUP: 100, T_KDN: 300, Z_KAP: 5, W_KAP: 0.75, F_TRIB: 0.3, K_RENT: 0.5,
   N_CAMP: 1e5, F_RIDE: 0.3, T_TRIB: 0.2, W_RAID: 0.01, Z_GUN: 6.6, W_GUN: 0.15, T_DYN: 150,
   // Migration (batch 3d, `diffuse`; synthesis, the values speculation): down one potential, crowding against real
@@ -625,8 +640,9 @@ export const PEOPLE = {
   // peoples × (1 + K_CHAIN likeness)/(1 + K_CHAIN) (chains: migrants go to their own); × the leaving place's
   // weight of those of an age to migrate against the reference pyramid's (the young adults' share: the
   // emigration hump, Hatton and Williamson, from memory); F_FLEE of war's toll flees to the neighbours' room,
-  // carrying who they are but not their state (refugees).
-  B_MIG: 0.1, K_CHAIN: 1, F_FLEE: 0.5,
+  // carrying who they are but not their state (refugees; 0.5 until batch 4b took its captives, F_CAPT, from them,
+  // so war's deaths stay half its toll).
+  B_MIG: 0.1, K_CHAIN: 1, F_FLEE: 0.3,
   // The Histomap's record (Fig. 9, Polities.snapshot): every DT_HIST years (DT_HIST_IND with industry), the
   // states holding HIST_MIN of the world's people or more, the HIST_K largest; past HIST_MAX entries the
   // oldest half is thinned to every other.
@@ -663,6 +679,7 @@ const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'D
 const KINDS = ['T', 'C', 'G', 'R'];   // the land's works: terraces, canals, granaries, roads
 const R = 6371, YEAR_S = 3.156e7, AREA_M2 = 4 * Math.PI * (R * 1e3) ** 2;
 const sig = x => 1 / (1 + Math.exp(-x));
+const T_SEA = 25;      // years a sea crossing's settlers' seasoning is read for (`diffuse`)
 /**
  * A soft ceiling: x/(1 + (x/c)^p)^{1/p}, linear well below c, approaching c above (synthesis).
  * p = 1 is the harmonic form, 1/y = 1/x + 1/c (two limits in series; what many uneven units with
@@ -1206,6 +1223,8 @@ export class People {
     // power plants, datacenters, robots), the land's works its capital builds (sy a year), and its fossil
     // carbon left (PgC; the coal map's shares of the whole).
     this.wi = { F: new Float64Array(nL), L: new Float64Array(nL), P: new Float64Array(nL), D: new Float64Array(nL), B: new Float64Array(nL) };
+    this.fo = new Float64Array(nL);   // the share of each place's factories and railways built beyond its own saving (batch 4b, the drain: their profit its holders' capitals')
+    this.capt = { made: 0, carried: 0, landed: 0, sea: 0, over: 0, overLanded: 0 };   // captives a run (batch 4b, `captives`): taken, carried from their place, landed, dead at sea, carried across the open ocean (Routes.oceanic) and landed there
     this.landCap = new Float64Array(nL);
     this.fos = Float64Array.from(this.coal, x => x / this.P.COAL_SHARE);
     this.env = new CachedEnv(this);
@@ -2115,7 +2134,19 @@ export class People {
   modern(c) { const P = this.P; return this.econ.on ? (this.medF || 0) * sig((this.zl[c] - P.Z_MOD) / P.W_MOD) : 0; }
   Dz(z) { const P = this.P; return softMin(P.D0 * Math.exp(Math.min(P.D_Z * z, 300)), P.D_MAX, 4) + P.D_IND * sig((z - P.Z_IND) / 0.5); }
   /** The sea's reach (km) at production z: rafts and boats along coasts, then the open ocean. */
-  seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * sig((z - P.Z_OCEAN) / P.W_OCEAN) : 0; }
+  seaReach(z) { const P = this.P; return z >= P.Z_BOAT ? P.L_SEA0 + P.L_SEA * (1 - Math.exp(-Math.max(0, z) / P.Z_SEA)) + P.L_OCEAN * this.nav(z) : 0; }
+  /**
+   * A stranger from place c's medicine (batch 4b): demography's mortality factor at its income and medicine,
+   * M_MIN + (1 − M_MIN) e^{−y/Y_D − U_MED med}, × 1 − F_QUIN σ((z_L − Z_QUIN)/W_QUIN), quinine's and
+   * the tropics' prophylaxis by its learning (Curtin: West Africa's soldiers' deaths cut tenfold in the
+   * 19th century, from memory). Its people's deaths among strangers' pathogens (src/engine/pathogens.js, `seasoning`).
+   */
+  mortF(c) {
+    const P = this.P, n = this.Ntot[c], y = n > 0 ? Math.max(0, this.goods[c] / n) : 0;
+    return (P.M_MIN + (1 - P.M_MIN) * Math.exp(-y / P.Y_D - P.U_MED * this.modern(c))) * (1 - P.F_QUIN * sig((this.zl[c] - P.Z_QUIN) / P.W_QUIN));
+  }
+  /** Deep-sea navigation at production z (0–1): the open ocean's logistic past Z_OCEAN, for the voyages, the trade's ocean legs (src/engine/routes.js) and the states' reach by sail (src/engine/polities.js). */
+  nav(z) { const P = this.P; return sig((z - P.Z_OCEAN) / P.W_OCEAN); }
 
   step(dtWanted) {
     const P = this.P, nL = this.nL;
@@ -2326,7 +2357,8 @@ export class People {
     const lump = nsub > this.P.NSUB_MAX, pol = this.pol, T = ids.T, eps = this.P.ID_EPS;
     const xs = this.dEdges || (this.dEdges = { e: new Int32Array(F.m), c: new Int32Array(F.m), d: new Int32Array(F.m), k: new Float64Array(F.m), fw: new Float64Array(F.m), bk: new Float64Array(F.m), gc: new Float64Array(F.m), gd: new Float64Array(F.m) });
     const xe = xs.e, xc = xs.c, xd = xs.d, xk = xs.k, fw = xs.fw, bk = xs.bk, gC = xs.gc, gD = xs.gd, Fa = F.a, Fb = F.b, Fk = F.k, Fh = F.hop;
-    const nat = pol ? pol.nat : null, P = this.P, kch = P.K_CHAIN, pg = this.pathogens;
+    const nat = pol ? pol.nat : null, P = this.P, kch = P.K_CHAIN, pg = this.pathogens, sea = this.dSea && this.dSea.length === 2 * F.m ? this.dSea : (this.dSea = new Float64Array(2 * F.m).fill(1));
+    const seaT = this.dSeaT && this.dSeaT.length === F.m ? this.dSeaT : (this.dSeaT = new Float64Array(F.m).fill(-Infinity));
     let nx = 0;
     for (let s = 0; s < nsub; s++) {
       for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; dL[c] = 0; u[c] = Y2[c] > 1e-12 ? N[c] / Y2[c] : 0; }
@@ -2346,6 +2378,12 @@ export class People {
           const ch = kch > 0 ? (1 + kch * ids.sim(c, d)) / (1 + kch) : 1;
           const bc = pol && nat && nat[c] > 0 ? pol.border(c, d, 1 - (1 - P.B_MIG) * nat[c]) : 1, bd = pol && nat && nat[d] > 0 ? pol.border(c, d, 1 - (1 - P.B_MIG) * nat[d]) : 1;
           gC[nx] = bc * mA[d]; gD[nx] = bd * mA[c];
+          // Settlers across the sea go where they survive (batch 4b, strangers: src/engine/pathogens.js, `seasoning`),
+          // read every T_SEA years at most between coasts both settled (the pathogens' state moves over decades).
+          if (Fh[e] && pg.live.length && N[c] >= nmin[c] && N[d] >= nmin[d]) {
+            if (s === 0 && !(this.t - seaT[e] < T_SEA)) { sea[2 * e] = pg.seasoning(d, c, this.mortF(d)); sea[2 * e + 1] = pg.seasoning(c, d, this.mortF(c)); seaT[e] = this.t; }
+            gC[nx] *= sea[2 * e]; gD[nx] *= sea[2 * e + 1];
+          }
           xe[nx] = e; xc[nx] = c; xd[nx] = d; xk[nx] = kScale * k * rho * ch; fw[nx] = 0; bk[nx] = 0; nx++;
         }
       }
@@ -2404,6 +2442,83 @@ export class People {
     }
     N[c] -= g; this.fled = (this.fled || 0) + g;
     return g;
+  }
+
+  /** n captives taken at place c (Polities: war's toll, raids), queued for the polities' step's carrying (`captives`). */
+  capture(c, n) {
+    if (!(n > 0)) return;
+    const Q = this.captQ || (this.captQ = new Map());
+    Q.set(c, (Q.get(c) || 0) + n);
+    this.capt.made += n;
+  }
+
+  /**
+   * Captives (batch 4b; synthesis, the values speculation): carried where coerced labour earns most. A place's
+   * demand is coercion's weight there (Polities.coer) × its states' hold × the product a worker past Y_COER ×
+   * its open room (K − N)⁺ (Domar's open land under a strong hold: the plantation's), gathered by market at its
+   * likeliest place. Each market's captives go to the KD_CAPT markets they'd reach most, by demand × e^{−cost/
+   * reach} (the trade's routes and reach at the more advanced end, the ocean's legs by navigation:
+   * Routes.between) × their survival there (src/engine/pathogens.js, `seasoning`: so the flow runs from where
+   * people survive the destination's pathogens), D_PASS of them dying a year of the passage (Routes.years); they carry who they are,
+   * what they know and their immunity, not their state. Where no one wants them, they stay.
+   */
+  captives() {
+    const Q = this.captQ, rt = this.routes, pol = this.pol, P = this.P;
+    if (!Q || !Q.size) return;
+    if (!rt || !rt.mZ || rt.mZ.length !== rt.nm || !pol) { for (const [c, n] of Q) this.Ntot[c] += n; Q.clear(); return; }
+    const nL = this.nL, N = this.Ntot, Z = this.zc, ZL = this.zl, nm = rt.nm, mo = rt.marketOf, K = this.K, K2 = this.K2, cp = this.capt;
+    const dm = sized(this, 'cDm', Float64Array, nm), best = sized(this, 'cBest', Int32Array, nm), bv = sized(this, 'cBv', Float64Array, nm);
+    dm.fill(0); best.fill(-1); bv.fill(0);
+    for (let c = 0; c < nL; c++) {
+      const n = N[c];
+      if (!(n > 0)) continue;
+      const h = pol.held(c);
+      if (!(h > 0)) continue;
+      const v = pol.coer(c) * h * Math.max(0, (K[c] + Math.max(0, this.goods[c])) / n - P.Y_COER) * Math.max(0, K2[c] - n);
+      if (!(v > 0)) continue;
+      const m = mo[c];
+      dm[m] += v;
+      if (v > bv[m]) { bv[m] = v; best[m] = c; }
+    }
+    // Each source market's captives and its most captive place (whose people's survival stands for theirs).
+    const src = new Map();
+    for (const [c, n] of Q) { const m = mo[c]; let e = src.get(m); if (!e) src.set(m, e = { n: 0, rep: c, rn: 0, cells: [] }); e.n += n; e.cells.push(c); if (n > e.rn) { e.rn = n; e.rep = c; } }
+    const KD = P.KD_CAPT, nu = rt.mNu, mZ = rt.mZ, mS = rt.mS, pg = this.pathogens;
+    const tk = new Int32Array(KD), tw = new Float64Array(KD), tp = new Float64Array(KD);
+    for (const [ms, e] of src) {
+      let nk = 0;
+      tk.fill(-1); tw.fill(0);
+      const mf = this.mortF(e.rep);
+      for (let m = 0; m < nm; m++) {
+        if (!(dm[m] > 0)) continue;
+        const L = rt.reach(Math.max(mZ[ms], mZ[m])), v = nu ? Math.max(nu[ms], nu[m]) : 0, sI = mS ? Math.max(mS[ms], mS[m]) : 0, x = rt.between(ms, m, v, sI, L);
+        let w = dm[m] * Math.exp(-x / L);
+        if (!(w > tw[KD - 1])) continue;   // (survival only lowers it)
+        w *= pg.seasoning(e.rep, best[m], mf);
+        if (!(w > tw[KD - 1])) continue;
+        let r = KD - 1;
+        while (r > 0 && tw[r - 1] < w) { tw[r] = tw[r - 1]; tk[r] = tk[r - 1]; tp[r] = tp[r - 1]; r--; }
+        tw[r] = w; tk[r] = m; tp[r] = Math.exp(-P.D_PASS * rt.years(ms, m, v, sI, L));
+        if (nk < KD) nk++;
+      }
+      let sw = 0;
+      for (let r = 0; r < nk; r++) sw += tw[r];
+      for (const c of e.cells) {
+        const n = Q.get(c);
+        if (!(sw > 0)) { N[c] += n; continue; }
+        for (let r = 0; r < nk; r++) {
+          const d = best[tk[r]], x = n * tw[r] / sw;
+          if (d === c) { N[c] += x; continue; }
+          const y = x * tp[r];
+          cp.carried += x; cp.landed += y; cp.sea += x - y;
+          if (rt.oceanic(ms, tk[r])) { cp.over += x; cp.overLanded += y; }
+          if (!(y > 0)) continue;
+          Z[d] = (N[d] * Z[d] + y * Z[c]) / (N[d] + y); ZL[d] = (N[d] * ZL[d] + y * ZL[c]) / (N[d] + y);
+          this.ids.carry(c, d, y); this.pathogens.mix(c, d, y, N[d]); N[d] += y;
+        }
+      }
+    }
+    Q.clear();
   }
 
   /**
@@ -2482,12 +2597,18 @@ export class People {
    * carry), the rest factories where capital would earn most, φ ∝ A^{1/(1−α)} ℓ: capital mobile within a
    * state and at home across them (Feldstein and Horioka's saving–investment correlation, from memory);
    * the machines and power plants alike. Writes each place's income (`goods`).
+   *
+   * The drain (batch 4b; 3a's open question): the investment a place takes past its own saving keeps its
+   * owners, the share `fo` of its factories and railways built so (stepped with them, worn alike), and that
+   * share of capital's income there goes to its states' capitals by their shares, home rather than to the
+   * place's own capital class (the drain of wealth, Naoroji's, and food's ghost acres already in People.feed:
+   * Pomeranz; both from memory). Where a place saves what it builds, its own; the stateless keep theirs.
    */
   regional(E, Lh, hs, K0, dt) {
     const P = this.P, nL = this.nL, N = this.Ntot, ind = this.ind, zc = this.zc, lfp = this.lfp, pol = this.pol, H = this.H;
     const wi = this.wi, goods = this.goods, Out = this.Out, fos = this.fos, a = P.ALPHA, sA = E.sA || 0, Y = hs * E.Y;
     const o = this.rOut || (this.rOut = new Float64Array(nL)), gw = this.rW || (this.rW = new Float64Array(nL)), inv = this.rInv || (this.rInv = new Float64Array(nL));
-    const kc = this.kCap || (this.kCap = new Float64Array(nL));
+    const kc = this.kCap || (this.kCap = new Float64Array(nL)), fo = this.fo && this.fo.length === nL ? this.fo : (this.fo = new Float64Array(nL));
     let zmax = -Infinity, so = 0, fs = 0, sF = 0, sM = 0;
     for (let c = 0; c < nL; c++) { sF += wi.F[c] + wi.L[c]; sM += wi.D[c] + wi.B[c]; if (ind[c] > 0 && N[c] > 0 && zc[c] > zmax) zmax = zc[c]; }
     for (let c = 0; c < nL; c++) {
@@ -2513,6 +2634,7 @@ export class People {
     if (!(so > 0)) return still();
     const id = pol.id, s = pol.s, list = pol.list, KPL = KPOL;
     const rent = fs > 0 ? Math.min(P.R_FOS * (E.Ef || 0) * (E.lamE || 0), 0.5 * Y) : 0, drawn = Math.min(E.burned || 0, fs);
+    this.drainY = 0; this.capY = 0;   // the drain and capital's income kept, a year (the states survey)
     for (let c = 0; c < nL; c++) {
       const y = (Y - rent) * o[c] / so, f0 = fs > 0 ? fos[c] / fs : 0, rc = rent * f0;
       fos[c] -= drawn * f0;
@@ -2525,7 +2647,11 @@ export class People {
         held += sh; taxed += sh * tk; goods[cap] += sh * (P.N_TAX * tk * y + rc);
       }
       held = Math.min(1, held); taxed = Math.min(1, taxed);
-      goods[c] += y * (1 - P.N_TAX * taxed) + (1 - held) * rc;
+      // The drain: of what it keeps, capital's share × the share its holders' saving built goes to their capitals.
+      const keep = y * (1 - P.N_TAX * taxed), dr = held > 0 ? keep * kc[c] * fo[c] * held : 0;
+      goods[c] += keep - dr + (1 - held) * rc;
+      this.drainY += dr; this.capY += keep * kc[c];
+      if (dr > 0) for (let j = 0; j < KPL; j++) { const k = id[KPL * c + j]; if (k < 0) break; goods[list[k].cap] += dr * s[KPL * c + j] / held; }
     }
     for (let c = 0; c < nL; c++) Out[c] += goods[c];
     // Each place's gaps (sy): the land's works where it has industry (a person-year a sy), railways' where people live.
@@ -2582,8 +2708,11 @@ export class People {
       inv[c] = v * gw[c] / St; si += inv[c];
       // The land's works built here (`stocks` takes them as labour, sy a year), its railways, and its factories by where capital earns.
       lc[c] = dt > 0 ? bw * gW[c] / dt : 0;
+      const K1 = (wi.L[c] + wi.F[c]) * eF, I = bl * gL[c] + bf * gw[c];
       wi.L[c] = wi.L[c] * eF + bl * gL[c];
       wi.F[c] = wi.F[c] * eF + bf * gw[c];
+      // The share built past its own saving (its part of the world's building by its saving), the drain's.
+      if (K1 + I > 0) { const own = held > 0 ? bF * (P.S_CAP * kc[c] + P.S_WAGE * (1 - kc[c])) * goods[c] / St : I; fo[c] = Math.min(1, (fo[c] * K1 + Math.max(0, I - own)) / (K1 + I)); }
     }
     // The machines and power plants where capital earns.
     for (let c = 0; c < nL; c++) {
@@ -3452,14 +3581,17 @@ export class People {
     const tP = this.tribP || (this.tribP = new Float32Array(nL)), tC = this.tribC || (this.tribC = new Int32Array(nL)), kT = this.tribKk || (this.tribKk = new Int32Array(nL));
     dl.fill(0); dn.fill(0); dP.fill(0); cP.fill(-1); kP.fill(-1); tP.fill(0); tC.fill(-1); kT.fill(-1);
     const mo = rt.marketOf, cost = new Float64Array(top.length), wk = new Float64Array(top.length), far = new Map();
+    const nv = this.navBuf || (this.navBuf = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) nv[c] = zc ? this.nav(zc[c]) : 0;
     for (let d = 0; d < nL; d++) {
       if (!(u[d] > 0)) continue;
-      const r = rt.reach(zc ? zc[d] : 0), ll = P.K_LOSS * r, s = ind[d], md = mo[d];
-      // The country's scale: to the largest cities over the markets' routes.
+      const r = rt.reach(zc ? zc[d] : 0), ll = P.K_LOSS * r, s = ind[d], md = mo[d], nd = nv[d];
+      // The country's scale: to the largest cities over the markets' routes (the ocean's legs by the
+      // more navigating end, steam's by the more industrial: Routes.between).
       let Zn = 0;
       for (let k = 0; k < top.length; k++) {
         const c = top[k], mc = mo[c], sc = Math.max(s, ind[c]);
-        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S');   // (steam's only where there's industry: Routes.R.I)
+        const x = rt.between(md, mc, Math.max(nd, nv[c]), sc, ll);
         cost[k] = x; wk[k] = Wn[k] * Math.exp(-x / (P.C_NAT0 + P.K_NAT * r)); Zn += wk[k];
       }
       // A state's share of it to its capitals (src/engine/polities.js), what it administers as tax and the
@@ -3473,14 +3605,14 @@ export class People {
         const k = pol.id[KPOL * d + j];
         if (k < 0) break;
         const c = pol.list[k].cap, mc = mo[c], sc = Math.max(s, ind[c]), sh = nat * Math.min(1, pol.s[KPOL * d + j] / pol.d[d]), tk = pol.take(k);
-        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = sh * tk * pay * Math.exp(-x / ll);
+        const x = rt.between(md, mc, Math.max(nd, nv[c]), sc, ll), y = sh * tk * pay * Math.exp(-x / ll);
         kept += sh * (1 - tk); taken += sh * tk;
         dP[KPOL * d + j] = y; cP[KPOL * d + j] = c; kP[KPOL * d + j] = k;
         if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
       }
       if (tau > 0 && taken > 0) {
         const c = pol.list[kt].cap, mc = mo[c], sc = Math.max(s, ind[c]);
-        const x = md === mc ? 0 : sc > 0 ? (1 - sc) * rt.cost(md, mc, 'S') + sc * rt.cost(md, mc, 'I') : rt.cost(md, mc, 'S'), y = tau * taken * Math.exp(-x / ll);
+        const x = rt.between(md, mc, Math.max(nd, nv[c]), sc, ll), y = tau * taken * Math.exp(-x / ll);
         tP[d] = y; tC[d] = c; kT[d] = kt;
         if (mc !== md && q * y > 0 && rt.rho[mc * rt.nm + md] < rt.rhoDraw) { const key = mc * 65536 + md; far.set(key, (far.get(key) || 0) + q * y); }
       }

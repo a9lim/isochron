@@ -76,3 +76,21 @@ test("migrants carry their susceptibility and make or lose none", () => {
   const s1 = pg.s[o + 1], s3 = pg.s[o + 3];
   pg.mix(3, 1, 10, 54); assert.ok(Math.abs(pg.s[o + 1] - (54 * s1 + 10 * s3) / 64) < 1e-15);
 });
+
+test("a pathogen persists only where it is: a great people it never reached stays clear of it", () => {
+  // Two pairs of places, each pair joined, the pairs apart, every place great enough to keep measles. Seeded in
+  // the first, it passes to its neighbour and stays endemic there; the second pair, which could keep it as well,
+  // never has a case (read as the chance of keeping it wherever it could, it had been endemic everywhere at birth).
+  const nL = 4, P = { ...PEOPLE, H_SPILL: 0 }, N = new Float64Array(nL).fill(5e6);
+  const E = { off: Int32Array.of(0, 1, 2, 3, 4), nb: Int32Array.of(1, 0, 3, 2), hop: new Uint8Array(4) };
+  const pp = { nL, P, Ntot: N, E, t: 0, planet: { seed: 'test' }, bR: new Float64Array(nL).fill(0.04), cityShare: null,
+    H: { area: new Float64Array(nL).fill(1e4), path: new Float64Array(nL), clim: new Float32Array(4 * nL) }, econ: { on: false }, animHere: () => 0, modern: () => 0 };
+  const pg = new Pathogens(pp);
+  const q = { id: 0, t: 0, c: 0, slot: 0, R0: 15, D: 2 / 52, om: 0, v: 0.01, x: 0, r: 0, hw: 0, clim: new Float32Array(4), last: 0, cases: 0, dead: 0, peak: 0, rate: Infinity, seed: 0 };
+  pg.slots[0] = q; pg.live.push(q);
+  let ever = 0;
+  for (let k = 0; k < 60; k++) { pg.step(1, null); pp.t += 1; ever = Math.max(ever, pg.inf[2], pg.inf[3]); }
+  assert.ok(pg.inf[0] > 0 && pg.inf[1] > 0 && pg.s[0] < 0.5 && pg.s[1] < 0.5, `the first pair: inf ${pg.inf[0]}, ${pg.inf[1]}; s ${pg.s[0]}, ${pg.s[1]}`);
+  assert.equal(ever, 0);
+  assert.ok(pg.s[2] === 1 && pg.s[3] === 1 && pg.e[2] === 0 && pg.e[3] === 0);
+});

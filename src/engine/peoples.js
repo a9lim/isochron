@@ -47,6 +47,13 @@
 //   mixing      people joining a way's point move it by a conformist mean: weights w^γ, γ = 1 + d²/(d² +
 //               D_MIX²), so near peoples average (people and mean identity kept) and far ones shift
 //               toward the larger (Boyd and Richerson's conformist transmission, standard in form).
+//   elites      (batch 4b; a9, 3c's Normans) each way's elite has its own point (`eX`, foragers' unused): carried
+//               with its migrants, a plain mean by numbers where they join; replaced where a state takes the
+//               place, by its fiscal capacity × the share taken (`replace`: a conquest's barons, a colony's
+//               officials and planters; indirect rule keeps the old elite), and drawn toward its commoners at
+//               1/T_DYN + K_CULL ψ (it takes their ways, and stress renews it from below), exactly. Read where
+//               rulers' likeness is (`eliteSim`: a schooled people resists an unlike elite as an unlike state,
+//               src/engine/polities.js) and by each state, whose point follows its capital's elite.
 //
 // Read back: learning's copying by how alike two places are once learning is written (texts need a
 // shared language: each cell's learned identity its city's point, else its largest way's; `copyW`),
@@ -63,6 +70,8 @@ export const WAY = ['foragers', 'herders', 'fishers', 'farmers', 'city'];
 
 /** The shortest way round on a circle of side S. */
 export const wrap = (d, S) => d - S * Math.round(d / S);
+/** v on the circle [0, S). */
+const mod = (v, S) => ((v % S) + S) % S;
 /** Contact's rate's falloff with identity distance d (squared: d2), to its floor g0. */
 export const pull = (d2, D, g0 = 0) => g0 + (1 - g0) / (1 + d2 / (D * D));
 /**
@@ -78,6 +87,7 @@ export class Peoples {
     const nL = pp.nL, P = pp.P, S = P.TOR;
     this.W = new Float64Array(WAYS * nL);          // people a way
     this.X = new Float64Array(2 * WAYS * nL);      // a way's point on the torus
+    this.eX = new Float64Array(2 * WAYS * nL);     // its elite's (batch 4b)
     this.T = new Float64Array(nL);                 // people a cell, as its ways hold them
     this.Xn = new Float64Array(2 * WAYS * nL);     // the step's scratch
     this.lead = new Int32Array(nL).fill(-1);       // each cell's learned identity (a way's slot)
@@ -92,7 +102,7 @@ export class Peoples {
   /** The first people: foragers at the foragers' point. */
   seed(cells) {
     const N = this.pp.Ntot;
-    for (const c of cells) { const s = c * WAYS; this.W[s] = N[c]; this.T[c] = N[c]; this.X[2 * s] = this.att[0]; this.X[2 * s + 1] = this.att[1]; }
+    for (const c of cells) { const s = c * WAYS; this.W[s] = N[c]; this.T[c] = N[c]; this.X[2 * s] = this.eX[2 * s] = this.att[0]; this.X[2 * s + 1] = this.eX[2 * s + 1] = this.att[1]; }
   }
 
   /** Squared distance between two points (slots), the shortest way round. */
@@ -100,15 +110,36 @@ export class Peoples {
     const S = this.pp.P.TOR, X = this.X, dx = wrap(X[2 * b] - X[2 * a], S), dy = wrap(X[2 * b + 1] - X[2 * a + 1], S);
     return dx * dx + dy * dy;
   }
-  /** w people at (x, y) into slot s: a conformist mean (near peoples average, far ones shift toward the larger). */
-  mix(s, w, x, y) {
+  /**
+   * w people at (x, y) into slot s: a conformist mean (near peoples average, far ones shift toward the larger);
+   * their elite's point (ex, ey: theirs if they bring one, else their own) a plain mean by numbers.
+   */
+  mix(s, w, x, y, ex = x, ey = y) {
     if (!(w > 0)) return;
-    const P = this.pp.P, S = P.TOR, W = this.W, X = this.X, w0 = W[s];
-    if (!(w0 > 0)) { W[s] = w; X[2 * s] = ((x % S) + S) % S; X[2 * s + 1] = ((y % S) + S) % S; return; }
+    const P = this.pp.P, S = P.TOR, W = this.W, X = this.X, eX = this.eX, w0 = W[s];
+    if (!(w0 > 0)) { W[s] = w; X[2 * s] = mod(x, S); X[2 * s + 1] = mod(y, S); eX[2 * s] = mod(ex, S); eX[2 * s + 1] = mod(ey, S); return; }
     const dx = wrap(x - X[2 * s], S), dy = wrap(y - X[2 * s + 1], S), d2 = dx * dx + dy * dy, g = 1 + d2 / (d2 + P.D_MIX * P.D_MIX);
-    const f = 1 / (1 + Math.pow(w0 / w, g));
-    X[2 * s] = ((X[2 * s] + f * dx) % S + S) % S; X[2 * s + 1] = ((X[2 * s + 1] + f * dy) % S + S) % S;
+    const f = 1 / (1 + Math.pow(w0 / w, g)), fe = w / (w0 + w);
+    X[2 * s] = mod(X[2 * s] + f * dx, S); X[2 * s + 1] = mod(X[2 * s + 1] + f * dy, S);
+    eX[2 * s] = mod(eX[2 * s] + fe * wrap(ex - eX[2 * s], S), S); eX[2 * s + 1] = mod(eX[2 * s + 1] + fe * wrap(ey - eX[2 * s + 1], S), S);
     W[s] = w0 + w;
+  }
+  /** Place c's elites replaced by share g with those of a state whose point is x (its conquerors', its colony's officials): each way's elite's point moved g of the way toward x. */
+  replace(c, x, g) {
+    if (!(g > 0)) return;
+    const S = this.pp.P.TOR, eX = this.eX, W = this.W, f = Math.min(1, g);
+    for (let k = 1; k < WAYS; k++) {
+      const a = c * WAYS + k;
+      if (!(W[a] > 0)) continue;
+      for (let i = 0; i < 2; i++) { const v = eX[2 * a + i] + f * wrap(x[i] - eX[2 * a + i], S); eX[2 * a + i] = ((v % S) + S) % S; }
+    }
+  }
+  /** How alike place c's learned identity's people are to their own elite, as `sim` (1 for foragers, who have none). */
+  eliteSim(c) {
+    const a = this.lead[c];
+    if (a < 0 || a % WAYS === 0) return 1;
+    const S = this.pp.P.TOR, dx = wrap(this.X[2 * a] - this.eX[2 * a], S), dy = wrap(this.X[2 * a + 1] - this.eX[2 * a + 1], S), D = this.pp.P.D_SIM;
+    return 1 / (1 + (dx * dx + dy * dy) / (D * D));
   }
   /**
    * q migrants from cell a to cell b, each way of life in its share (the spread, the voyages); settling
@@ -124,7 +155,7 @@ export class Peoples {
       if (!(w > 0)) continue;
       const m = w * f;
       W[sa] = w - m; moved += m;
-      this.mix(b * WAYS + k, m, X[2 * sa] + (settle ? kick * this.rng.normal() : 0), X[2 * sa + 1] + (settle ? kick * this.rng.normal() : 0));
+      this.mix(b * WAYS + k, m, X[2 * sa] + (settle ? kick * this.rng.normal() : 0), X[2 * sa + 1] + (settle ? kick * this.rng.normal() : 0), this.eX[2 * sa], this.eX[2 * sa + 1]);
     }
     this.T[a] -= moved; this.T[b] += moved;
   }
@@ -161,7 +192,7 @@ export class Peoples {
         let best = -1, bn = 0;
         for (let e = E.off[c]; e < E.off[c + 1]; e++) { const d = E.nb[e]; if (T[d] > 0 && N[d] > bn) { bn = N[d]; best = d; } }
         const src = best >= 0 ? this.main(best) : -1;
-        this.mix(o, N[c], src >= 0 ? X[2 * src] : this.att[0], src >= 0 ? X[2 * src + 1] : this.att[1]);
+        this.mix(o, N[c], src >= 0 ? X[2 * src] : this.att[0], src >= 0 ? X[2 * src + 1] : this.att[1], src >= 0 ? this.eX[2 * src] : this.att[0], src >= 0 ? this.eX[2 * src + 1] : this.att[1]);
       }
       T[c] = N[c];
     }
@@ -190,8 +221,9 @@ export class Peoples {
           const dk = tgt[k] - cur[k];
           if (!(dk > 0)) continue;
           // (Cities have no customs of their own: their people keep their points.)
-          if (k === CITY) this.mix(o + k, give * dk / def, xj, yj);
-          else this.mix(o + k, give * dk / def, xj + P.F_CONV * wrap(att[2 * k] - xj, S), yj + P.F_CONV * wrap(att[2 * k + 1] - yj, S));
+          // (Their elite comes with them: the giving way's.)
+          if (k === CITY) this.mix(o + k, give * dk / def, xj, yj, this.eX[2 * sj], this.eX[2 * sj + 1]);
+          else this.mix(o + k, give * dk / def, xj + P.F_CONV * wrap(att[2 * k] - xj, S), yj + P.F_CONV * wrap(att[2 * k + 1] - yj, S), this.eX[2 * sj], this.eX[2 * sj + 1]);
         }
       }
     }
@@ -263,10 +295,17 @@ export class Peoples {
         Xn[2 * a] = xa + ox + sd * rng.normal(); Xn[2 * a + 1] = ya + oy + sd * rng.normal();
       }
     }
+    // Each elite toward its commoners at 1/T_DYN + K_CULL ψ (its own taking their ways; stress's renewal from below), exactly.
+    const eX = this.eX, psi = pp.classes ? pp.classes.psi : null;
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) { this.lead[c] = -1; continue; }
-      const o = c * WAYS;
-      for (let k = 0; k < WAYS; k++) { const a = o + k; if (W[a] > 1e-12 * N[c]) { X[2 * a] = ((Xn[2 * a] % S) + S) % S; X[2 * a + 1] = ((Xn[2 * a + 1] % S) + S) % S; } }
+      const o = c * WAYS, fe = 1 - Math.exp(-dt * (1 / P.T_DYN + P.K_CULL * (psi ? psi[c] : 0)));
+      for (let k = 0; k < WAYS; k++) {
+        const a = o + k;
+        if (!(W[a] > 1e-12 * N[c])) continue;
+        X[2 * a] = ((Xn[2 * a] % S) + S) % S; X[2 * a + 1] = ((Xn[2 * a + 1] % S) + S) % S;
+        for (let i = 0; i < 2; i++) { const v = eX[2 * a + i] + fe * wrap(X[2 * a + i] - eX[2 * a + i], S); eX[2 * a + i] = ((v % S) + S) % S; }
+      }
       this.lead[c] = W[o + CITY] > 0 ? o + CITY : this.main(c);
     }
   }

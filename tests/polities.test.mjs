@@ -1,8 +1,9 @@
 // States (src/engine/polities.js) on a line of farming places: cohesion exactly, Boulding's radius, the border at
-// equal power, the reach of power projected and nationalism's cut, the media's pull.
+// equal power, the reach of power projected (by steam and by sail) and nationalism's cut, the media's pull,
+// balancing, the elites replaced.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Polities, asabiya, KP } from '../src/engine/polities.js';
+import { Polities, asabiya, balance, KP } from '../src/engine/polities.js';
 import { Peoples, wrap } from '../src/engine/peoples.js';
 import { PEOPLE, People } from '../src/engine/people.js';
 
@@ -14,13 +15,13 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
   for (let c = 0; c < n; c++) off[c + 1] = off[c] + lists[c].length;
   const m = off[n], E = { off, nb: new Int32Array(m), hop: new Uint8Array(m), slope: new Float64Array(m).fill(1), km: new Float64Array(m).fill(100) };
   for (let c = 0; c < n; c++) lists[c].forEach((d, k) => { E.nb[off[c] + k] = d; });
-  const P = { ...PEOPLE, R_FORM: 0, R_ASA: 0, D_ASA: 0, C_POL0: L, K_POL: 0, L_POLMAX: Infinity, K_EXIT: 0, K_RUG: 0, W_DEATH: 0, B_LOC: 0.05, COH0: 0.5, ...params };   // no frontier, no war's toll, cohesion ten times the resistance: the geometry alone
+  const P = { ...PEOPLE, R_FORM: 0, R_ASA: 0, D_ASA: 0, C_POL0: L, K_POL: 0, L_POLMAX: Infinity, K_EXIT: 0, K_RUG: 0, W_DEATH: 0, B_LOC: 0.05, COH0: 0.5, K_BAL: 0, ...params };   // no frontier, no war's toll, no balancing, cohesion ten times the resistance: the geometry alone
   const wol = new Float32Array(5 * n);
   for (let c = 0; c < n; c++) wol[5 * c + 3] = 1;
   const pp = {
     nL: n, P, E, t: 0, packages: [1], planet: { seed: 'polities' }, Ntot: new Float64Array(n).fill(N), K: new Float64Array(n).fill(N),
     zc: new Float64Array(n), zl: new Float64Array(n), ind: new Float32Array(n), city: null, wol, cityShare: null, dx: 100,
-    H: { slope: new Float64Array(n), area: new Float64Array(n).fill(1e4) },
+    H: { slope: new Float64Array(n), area: new Float64Array(n).fill(1e4) }, nav: () => 0, mortF: () => 1,
     goods: new Float64Array(n), works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) }, wi: { F: new Float64Array(n), L: new Float64Array(n), P: new Float64Array(n), D: new Float64Array(n), B: new Float64Array(n) },
   };
   // Each place's catchment: the places within M of it along the line, itself first, the strait's cost J
@@ -36,7 +37,7 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
   }
   pp.routes = {
     key: 1, nm: n, marketOf: Int32Array.from({ length: n }, (_, c) => c), nodeOf: Int32Array.from({ length: n }, (_, c) => c), ownCost: new Float32Array(n),
-    catch: { off: cof, idx: Int32Array.from(cix), cS: Float32Array.from(cc), cI: Float32Array.from(cc) }, cost, reach: () => 0,
+    catch: { off: cof, idx: Int32Array.from(cix), cS: Float32Array.from(cc), cI: Float32Array.from(cc) }, cost, between: (a, b) => cost(a, b), reach: () => 0,
   };
   pp.ids = new Peoples(pp);
   for (let c = 0; c < n; c++) { pp.ids.W[5 * c + 3] = N; pp.ids.T[c] = N; }
@@ -106,7 +107,7 @@ test("power projected past a state's own people holds to LP ln(coh F/B), and a s
   for (const zl of [0, 20]) {
     const pp = line({ n, c0, L: 10, params: { POL_G: 12, F_PROJ: F, L_PROJ: LP } }), pol = pp.pol, ids = pp.ids, P = pp.P;
     pp.zl.fill(zl);
-    for (let c = 0; c < n; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = c ? P.D_SIM : 0; }   // likeness 1/(1 + 1) to the capital's
+    for (let c = 0; c < n; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = ids.eX[2 * (5 * c + 3)] = c ? P.D_SIM : 0; }   // likeness 1/(1 + 1) to the capital's (each place's elite at its people's)
     pp.ind.fill(1);   // all industry, so the projection's reach is L_PROJ/(1 + I_PROJ) (and everyone delivers)
     seat(pol, 0, 0);
     for (let k = 0; k < 300; k++) { pol.advance(10); pp.t += 10; }
@@ -114,6 +115,64 @@ test("power projected past a state's own people holds to LP ln(coh F/B), and a s
     const want = LP / (1 + P.I_PROJ) * Math.log(pol.list[0].coh * F * k / B) / c0, got = half(held(pol, 0, n), 1, 1);
     assert.ok(Math.abs(got - want) < 0.2, `schooled ${zl}: ${got} against ${want}`);
   }
+});
+
+test('power projects by sail only as the capital navigates: none below it, and at L_PROJ_S past it', () => {
+  // As the projection by steam, with no industry and the capital's navigation ν: LP = L_PROJ_S ν, so the edge is
+  // at L_PROJ_S ν ln(coh F k/B) (k the likeness's, unschooled), and with no navigation nothing past its own reach.
+  const n = 120, c0 = 100, LS = 3000, F = 0.5, B = 0.05;
+  for (const nu of [0, 1]) {
+    const pp = line({ n, c0, L: 10, params: { POL_G: 12, F_PROJ: F, L_PROJ_S: LS } }), pol = pp.pol, ids = pp.ids, P = pp.P;
+    pp.nav = () => nu;
+    for (let c = 0; c < n; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = ids.eX[2 * (5 * c + 3)] = c ? P.D_SIM : 0; }
+    seat(pol, 0, 0);
+    for (let k = 0; k < 300; k++) { pol.advance(10); pp.t += 10; }
+    const got = half(held(pol, 0, n), 1, 1);
+    if (!nu) { assert.ok(held(pol, 0, n).slice(3).every(x => x < 1e-6), 'no reach by sail below navigation'); continue; }
+    const want = LS * Math.log(pol.list[0].coh * F * 0.75 / B) / c0;
+    assert.ok(Math.abs(got - want) < 0.2, `by sail: ${got} against ${want}`);
+  }
+});
+
+test('balancing: nothing where rivals field nothing, half where rivals it far outweighs field as much', () => {
+  assert.equal(balance(5, []), 1);
+  assert.equal(balance(5, [0, 0]), 1);
+  // Rivals it far outweighs, together fielding what it does: φ → 1 each, so 1/(1 + 1).
+  const many = Array(1e4).fill(1e-4);
+  assert.ok(Math.abs(balance(1, many) - 0.5) < 1e-6, `${balance(1, many)}`);
+  // A peer weighs half its own (φ(1) = ½); one far stronger hardly any (it fights the state straight).
+  assert.ok(Math.abs(balance(1, [1]) - 1 / 1.5) < 1e-12);
+  assert.ok(balance(1, [1e4]) > 0.9999);
+  // Monotone: more rivals, less balance.
+  assert.ok(balance(1, [0.3, 0.3]) < balance(1, [0.3]));
+});
+
+test('a state taking a place replaces its elite by its capacity × the share taken, and makes no people', () => {
+  // Two states on the line, their peoples and elites apart ((0, 0) left, (1, 0) right). Whatever the right takes
+  // of the left's, the elites there move toward its point by κ × the share gained, none of the people's points
+  // move, and no one is made or lost (no war's toll here).
+  const n = 200, pp = line({ n, L: 3000, params: { POL_G: 3 } }), pol = pp.pol, ids = pp.ids, P = pp.P;
+  for (let c = 0; c < n; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = ids.eX[2 * (5 * c + 3)] = c >= 100 ? 1 : 0; }
+  const a = seat(pol, 60, 30), b = seat(pol, 140, 30);
+  pol.list[b].coh *= 3;   // the right far stronger: it takes the left's march
+  const X0 = ids.X.slice(), N0 = pp.Ntot.reduce((x, y) => x + y, 0);
+  ids.replace(70, pol.list[b].X, 0.25);
+  assert.ok(Math.abs(ids.eX[2 * (5 * 70 + 3)] - 0.25) < 1e-12 && ids.X[2 * (5 * 70 + 3)] === 0, 'a quarter of the way, the people unmoved');
+  ids.eX[2 * (5 * 70 + 3)] = 0;
+  const s0 = held(pol, b, n), a0 = held(pol, a, n);
+  pol.advance(10);
+  const s1 = held(pol, b, n), a1 = held(pol, a, n), kap = pol.list[b].kap;
+  let moved = 0;
+  for (let c = 40; c < 100; c++) {
+    if (a1[c] > a0[c]) continue;   // (where both gained, the left's gain draws its elite back toward its own)
+    const g = Math.max(0, s1[c] - s0[c]), want = Math.min(1, kap * g);
+    assert.ok(Math.abs(ids.eX[2 * (5 * c + 3)] - want) < kap * P.S_MIN, `place ${c}: ${ids.eX[2 * (5 * c + 3)]} against ${want}`);   // (a gain pruned below S_MIN replaced its sliver)
+    moved += g;
+  }
+  assert.ok(moved > 0.01, `the right took ${moved}`);
+  for (let i = 0; i < X0.length; i++) assert.equal(ids.X[i], X0[i]);
+  assert.equal(pp.Ntot.reduce((x, y) => x + y, 0), N0);
+  assert.ok(pol.list[a].died === null);
 });
 
 test('within one pool, capital goes where it earns: income a worker e^{θΔz/(1−α)} apart, and a state takes N_TAX', () => {
@@ -238,12 +297,12 @@ test("a successor takes its parent's holdings nearer its seat, keeping everyone'
   assert.equal(pol.secs.length, 1);
 });
 
-test("a state's identity is its rulers': kept when its capital moves, drawn toward its new capital's people over T_DYN", () => {
-  // A state founded at 60 among people at (0, 0) on the torus; the right half's people are at (1, 0). Its
-  // capital moved to 140 (a dynasty in a conquered city), its point keeps the founders' and is drawn toward
-  // its new capital's people as 1 − e^{−t/T_DYN}, one step or two, and the places it holds read it.
+test("a state's identity is its rulers': kept when its capital moves, drawn toward its new capital's elite over T_DYN", () => {
+  // A state founded at 60 among people at (0, 0) on the torus; the right half's people and their elites are at
+  // (1, 0). Its capital moved to 140 (a dynasty in a conquered city), its point keeps the founders' and is drawn
+  // toward its new capital's elite as 1 − e^{−t/T_DYN}, one step or two, and the places it holds read it.
   const pp = line({}), pol = pp.pol, ids = pp.ids, P = pp.P;
-  for (let c = 0; c < 200; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = c >= 100 ? 1 : 0; }
+  for (let c = 0; c < 200; c++) { ids.lead[c] = 5 * c + 3; ids.X[2 * (5 * c + 3)] = ids.eX[2 * (5 * c + 3)] = c >= 100 ? 1 : 0; }
   const k = seat(pol, 60, 90), q = pol.list[k];
   assert.deepEqual(q.X, [0, 0]);
   q.cap = 140;
@@ -313,4 +372,31 @@ test("a herders' state conquers a tributary's city where stress breaks it, takin
   const a = held(pol, ks, n), b = held(pol, k, n);
   for (let c = 100; c < n; c++) assert.ok(Math.abs(a[c] + b[c] - before[c]) < 1e-12, `place ${c}: ${a[c]} + ${b[c]} against ${before[c]}`);
   assert.ok(Math.abs(half(b, 110) - 135) < 0.5, `the split at ${half(b, 110)}, against 135`);
+});
+
+test('captives are carried where coerced labour earns, made and lost by none: those landed and those dead at sea are those carried', () => {
+  // Two markets: the captives' (no demand: coercion abolished there) and one across the sea with open land
+  // under a strong hold. All go there, D_PASS of them dying a year at sea on the way; with no demand anywhere they stay.
+  const P = { ...PEOPLE }, nL = 4, moved = [];
+  const pp = {
+    P, nL, Ntot: Float64Array.of(1e5, 1e5, 1e4, 1e4), zc: new Float64Array(nL).fill(5), zl: new Float64Array(nL).fill(5),
+    K: Float64Array.of(1e5, 1e5, 1e5, 1e5), K2: Float64Array.of(1e5, 1e5, 1e5, 1e5), goods: new Float64Array(nL),
+    routes: { nm: 2, marketOf: Int32Array.of(0, 0, 1, 1), mZ: Float64Array.of(5, 5), mNu: Float64Array.of(1, 1), mS: new Float64Array(2), C: { V_SHIP: 2.5 }, reach: () => 1e4, between: (a, b) => (a === b ? 0 : 5000), years: (a, b) => (a === b ? 0 : 5000 / (2.5 * 86.4 * 365.25)), oceanic: (a, b) => a !== b },
+    pol: { held: () => 1, coer: c => (c >= 2 ? 2 : 0) },
+    ids: { carry: (a, b, q) => moved.push([a, b, q]) }, pathogens: { seasoning: () => 1, mix() {} }, mortF: () => 1,
+    capt: { made: 0, carried: 0, landed: 0, sea: 0, over: 0, overLanded: 0 },
+  };
+  const before = pp.Ntot.reduce((a, b) => a + b, 0);
+  People.prototype.capture.call(pp, 0, 100); People.prototype.capture.call(pp, 1, 50);
+  People.prototype.captives.call(pp);
+  const cp = pp.capt, after = pp.Ntot.reduce((a, b) => a + b, 0), pass = Math.exp(-P.D_PASS * 5000 / (2.5 * 86.4 * 365.25));
+  assert.equal(cp.made, 150);
+  assert.ok(Math.abs(cp.carried - 150) < 1e-9 && Math.abs(cp.landed - 150 * pass) < 1e-9 && Math.abs(cp.landed + cp.sea - cp.carried) < 1e-9);
+  assert.ok(Math.abs(cp.over - 150) < 1e-9 && Math.abs(after - before - cp.landed) < 1e-6, `people ${after - before} against landed ${cp.landed}`);
+  assert.ok(moved.every(([a, b]) => a < 2 && b >= 2));
+  // No demand anywhere: they stay where they were taken.
+  pp.pol.coer = () => 0;
+  People.prototype.capture.call(pp, 0, 40);
+  People.prototype.captives.call(pp);
+  assert.ok(Math.abs(pp.Ntot[0] - 1e5 - 40) < 1e-9 && cp.carried === 150);
 });

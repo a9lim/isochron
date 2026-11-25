@@ -1,5 +1,5 @@
-// The routes (src/engine/routes.js): Dijkstra against brute force, and the way home the long way round under one
-// wind.
+// The routes (src/engine/routes.js): Dijkstra against brute force, the way home the long way round under one
+// wind, and the open ocean closed to coasting craft until navigation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
@@ -50,21 +50,29 @@ test('under one wind the way home is the long way round, and a monsoon makes bot
     const f = islands([1, 1, 1, 1, 1, 1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f);
     const a = nearest(rt, 0), b = nearest(rt, Math.PI / 2), nm = rt.nm;
     assert.ok(a !== b && rt.nm >= 2);
-    const out = rt.D.S[a * nm + b], home = rt.D.S[b * nm + a], quarter = R * Math.PI / 2;
+    const out = rt.D.O[a * nm + b], home = rt.D.O[b * nm + a], quarter = R * Math.PI / 2;
     // Out: a quarter of the equator before the wind, ~1 sea-km a km (the grid's zigzag a little more), and two ports.
     assert.ok(out > 0.95 * quarter && out < 1.2 * quarter + 2 * C.C_PORT + 400, `out ${out.toFixed(0)} against ${quarter.toFixed(0)}`);
     // Home: three quarters round before the wind beats a quarter against it.
     assert.ok(home < beat * quarter && home > 2.8 * quarter, `home ${home.toFixed(0)}: three quarters round (${(3 * quarter).toFixed(0)}), not a beat (${(beat * quarter).toFixed(0)})`);
-    const path = rt.path(b, rt.mnode[a], 'S');
+    const path = rt.path(b, rt.mnode[a], 'O');
     const far = path.some(v => { const x = rt.g.pos[3 * v], y = rt.g.pos[3 * v + 1]; return x < 0 && Math.abs(y) < 0.5 * -x; });
     assert.ok(far, 'the way home passes the far side (longitude 180°, at whatever latitude shortens it)');
     // Steam hardly cares: the short way both ways, a few percent apart (K_STEAM of the wind).
     assert.ok(Math.abs(rt.D.I[a * nm + b] / rt.D.I[b * nm + a] - 1) < 0.15);
+    // Coasting craft pay (1 + K_OPEN)-fold for the open ocean's legs, nearly the whole crossing, and the
+    // cost a carrier sees runs from theirs without navigation to the ocean-going ship's with it.
+    const cS = rt.cost(a, b, 'S'), cO = rt.cost(a, b, 'O'), L = 1e4;
+    assert.ok(cS > 0.8 * (1 + C.K_OPEN) * cO && cS < (1 + C.K_OPEN) * cO, `coasting ${cS.toFixed(0)} against ${((1 + C.K_OPEN) * cO).toFixed(0)}`);
+    assert.equal(rt.between(a, b, 0, 0, L), cS);
+    assert.ok(Math.abs(rt.between(a, b, 1, 0, L) - cO) < 1e-6 * cO);
+    let last = Infinity;
+    for (const nu of [1e-3, 0.01, 0.1, 0.5, 0.9]) { const x = rt.between(a, b, nu, 0, L); assert.ok(x < last && x > cO, `ν ${nu}: ${x}`); last = x; }
   }
   {
     const f = islands([1, 1, 1, -1, -1, -1]), pp = new People(f, { H_FARM: 0 }), rt = new Routes(pp, f);
     const a = nearest(rt, 0), b = nearest(rt, Math.PI / 2), nm = rt.nm;
-    const out = rt.D.S[a * nm + b], home = rt.D.S[b * nm + a];
+    const out = rt.D.O[a * nm + b], home = rt.D.O[b * nm + a];
     assert.ok(Math.abs(out / home - 1) < 0.05, `monsoon: out ${out.toFixed(0)}, home ${home.toFixed(0)}`);
     // Each leg sails when its wind serves: the year's mean of a fair run and a beat.
     const quarter = R * Math.PI / 2, k = C.V_SHIP / (0.5 * (C.V_SHIP + Math.max(C.V_ROW, C.V_SHIP * C.G_UP)));
