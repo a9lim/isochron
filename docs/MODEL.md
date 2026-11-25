@@ -109,13 +109,13 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 |---|---|---|---|
 | Land temperature rms (year, January, July) | 3.7, 5.4, 4.9 K | UDel | `climate-score.mjs` |
 | Sea surface by latitude rms; sea ice | 1.05 K; 0.036 | OISST | `climate-score.mjs` |
-| The eastern Pacific's cold tongue (3° S–3° N, 140–90° W); the western Pacific (5° S–5° N, 140–170° E) | 25.6; 29.7 °C | 25.2; 29.6 (OISST) | `climate-score.mjs` |
-| Land's rain; log-ratio rms | 931 mm/yr; 0.74 | 718 mm/yr (UDel) | `climate-score.mjs` |
+| The eastern Pacific's cold tongue (3° S–3° N, 140–90° W); the western Pacific (5° S–5° N, 140–170° E) | 25.6; 29.8 °C | 25.2; 29.6 (OISST) | `climate-score.mjs` |
+| Land's rain; log-ratio rms | 935 mm/yr; 0.75 | 718 mm/yr (UDel) | `climate-score.mjs` |
 | Köppen classes; groups agreeing | 44%; 72% of land | | `climate-score.mjs` |
-| Reflected shortwave; clear sky | 98.3; 54.4 W/m² | 99.0; 53.3 (CERES EBAF) | `climate-score.mjs` |
-| Outgoing longwave; clear sky | 241.9; 268.5 W/m² | 240.4; 268.3 | `climate-score.mjs` |
-| Clouds' forcing, short and long | −43.9, +26.6 W/m² | −45.7, +27.9 | `climate-score.mjs` |
-| Overturning; heat across 26° N | 9.7 Sv; 1.16 PW | | `climate-score.mjs` |
+| Reflected shortwave; clear sky | 98.4; 54.4 W/m² | 99.0; 53.3 (CERES EBAF) | `climate-score.mjs` |
+| Outgoing longwave; clear sky | 241.9; 268.6 W/m² | 240.4; 268.3 | `climate-score.mjs` |
+| Clouds' forcing, short and long | −44.0, +26.7 W/m² | −45.7, +27.9 | `climate-score.mjs` |
+| Overturning; heat across 26° N | 9.7 Sv; 1.15 PW | | `climate-score.mjs` |
 | Doubled CO₂, ice sheets held | 2.8 K | | `climate-score.mjs` |
 | CO₂ rising 1%/yr from 280 ppm: warming at doubling (year 70) against the balance; κ, the uptake a K | 1.75 against 2.60 K (0.67); 0.53 W m⁻² K⁻¹ | Geoffroy's two layers at this λ: 1.75 K (0.67), 0.59; CMIP5's κ 0.83 ± 0.41 (Forster and others 2013) | `tools/climate-ramp.mjs` |
 | Plates' opening balance rms; correlation with Müller 2019 | 4.80 cm/yr; 0.927 | 4.40 cm/yr | `plates-score.mjs` |
