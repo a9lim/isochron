@@ -1207,9 +1207,8 @@ export class Climate {
     const m = nbrOff[n], pmax = C.RAIN_MAX;
     if (this.gpu && this.gpu.solveFrom) {
       // On the GPU (src/gpu/moisture.js), packed there from the wind and the temperature, with
-      // the geography as it stands and β's factor (the live ground's slow mean against the
+      // the cycle's geography (packed before its six points: `cycle`) and β's factor (the live ground's slow mean against the
       // closure's, by the year's live weight).
-      this.gpu.setGeography(this, C, VEG);
       const beta = this.betaPh[p], G = this.ground, gw = G && G.betaSlow ? G.weight : 0, gratio = gw > 0 ? G.betaRatio : null;
       const bf = this.betaF || (this.betaF = new Float32Array(n));
       if (this.landFlux()) {
@@ -1452,6 +1451,8 @@ export class Climate {
     if (this.deep) this.deep.begin();
     yield* this.energyBalance();
     if (this.deep) this.deep.end();
+    // The moisture's geography on the GPU, once for the six points (it was packed at each: ~3 ms).
+    if (this.gpu && this.gpu.solveFrom) this.gpu.setGeography(this, CLIMATE, VEG);
     for (let p = 0; p < NP; p++) yield* this.phase(p);
     // The year's winds carry the air's heat in the next cycle's energy balance (src/engine/airheat.js).
     if (this.airHeat) yield* this.airHeat.windSteps();

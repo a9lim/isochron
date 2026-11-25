@@ -53,9 +53,12 @@ test('the energy balance on the GPU: the CPU\'s fixed point, solved tightly', { 
 
 test('the moisture\'s coefficients packed on the GPU: the CPU\'s packing, solved alike', { skip }, async () => {
   const { c, drive } = await warm();
+  const { CLIMATE } = await import('../src/engine/climate.js'), { VEG } = await import('../src/engine/vegetation.js');
   const gm = c.gpu, n = c.grid.n, a = c.grid.area;
-  // The CPU's packing goes through `solve` (a solver without `solveFrom`); the GPU's through `solveFrom`.
+  // The CPU's packing goes through `solve` (a solver without `solveFrom`); the GPU's through `solveFrom`,
+  // from the geography a cycle packs before its six points.
   const old = { solve: (...x) => gm.solve(...x) };
+  gm.setGeography(c, CLIMATE, VEG);
   for (const p of [0, 3]) {
     const W0 = c.W[p].slice();
     c.gpu = old; await drive(c.phase(p));
