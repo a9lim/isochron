@@ -174,9 +174,9 @@ async function pumpTicks() {
   }
   else if (now - lastSeaCheck > 250) {
     // Ice moves the sea; the coast is redrawn when it has moved a few metres (and in the opening, the
-    // rivers retraced on each cycle's runoff).
+    // rivers retraced on every other cycle's runoff: each retrace is ~25 ms of the engine's thread).
     lastSeaCheck = now;
-    if (Math.abs(P.tec.seaLevel - seaSent) > 0.004 || (!opened && riversKey() !== riversSteps)) await sendSurface(false);
+    if (Math.abs(P.tec.seaLevel - seaSent) > 0.004 || (!opened && P.climate.stats.cycles % 2 === 1 && riversKey() !== riversSteps)) await sendSurface(false);
     lap('sea');
   }
   if (P.year.steps !== yearSent || (P.year.live > 0) !== yearLiveSent) { sendYear(); lap('year'); }
