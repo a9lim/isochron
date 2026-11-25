@@ -976,6 +976,8 @@ export class Tectonics {
     for (let i = 0; i < n; i++) { if (sea[i] && !(elev[i] < s)) sea[i] = 0; if (sea[i]) ocean += area[i]; }
     this.oceanArea = ocean;
     this.seaLevel = s;
+    // Which water this solve held, and how many solves there have been (Planet.fast re-solves from the last).
+    this.waterSolved = this.iceWater + this.lakeWater; this.seaSolves = (this.seaSolves || 0) + 1;
     this.datum = this.boiled > 0 ? solveSeaLevel(g, elev, this.seaWater(0), this.datum || s, excl) : s;
     if (events) this.basins++;
   }

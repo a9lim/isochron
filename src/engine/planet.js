@@ -148,8 +148,7 @@ export class Planet {
     this.seaLevel0 = this.tec.seaLevel;
     this.record = new Record();
     this.climateVersionSeen = -1;
-    this.iceWaterSolved = 0;
-    this.loadSince = 0;
+    this.loadSince = 0; this.seaSolvesSeen = 0;
     this.setOrbit(1e6);
   }
 
@@ -231,15 +230,18 @@ export class Planet {
       if (this.iceGpu) this.iceGpu.advance(dt, iceSteps); else this.ice.advance(dt, iceMs);
       // The regolith: the ice's erosion and till into it and the crust, production against the rivers.
       this.regolith.advance(dt);
-      // Re-solve the sea only when the ice and the lakes have moved ~10 cm of it (the solve is ~5 ms),
-      // and at most every twentieth of a second of the dial (at the top the ice moves that much
-      // every frame, and a glacial cycle passes in a few frames).
-      const held = this.tec.iceWater + this.tec.lakeWater;
+      // Re-solve the sea only when the ice and the lakes have moved ~10 cm of it since it was last
+      // solved, here or by a step (a plate step's or the landscape's, as often as ten times a second
+      // at 1 Myr/s: counting from this one's alone, these re-solved it ~20 times a second more, ~10%
+      // of the engine's thread there), and at most every twentieth of a second of the dial (at the
+      // top the ice moves that much every frame, and a glacial cycle passes in a few frames). The
+      // solve is ~5 ms at level 7.
+      const tec = this.tec, held = tec.iceWater + tec.lakeWater;
+      if (tec.seaSolves !== this.seaSolvesSeen) { this.seaSolvesSeen = tec.seaSolves; this.loadSince = 0; this.yearsSinceSea = 0; }
       this.yearsSinceSea = (this.yearsSinceSea || 0) + dt;
-      if ((Math.abs(held - (this.iceWaterSolved ?? 0)) > 3.5e-6 && this.yearsSinceSea >= rate / 20) || this.loadSince++ > 30) {
-        this.tec.updateElevation();
-        this.iceWaterSolved = this.tec.iceWater + this.tec.lakeWater;
-        this.loadSince = 0; this.yearsSinceSea = 0;
+      if ((Math.abs(held - tec.waterSolved) > 3.5e-6 && this.yearsSinceSea >= rate / 20) || this.loadSince++ > 30) {
+        tec.updateElevation();
+        this.seaSolvesSeen = tec.seaSolves; this.loadSince = 0; this.yearsSinceSea = 0;
       }
     }
     this.year.advance(this.years, rate);
@@ -311,7 +313,6 @@ export class Planet {
   zeroSea() {
     this.syncLakes();
     this.tec.updateElevation();
-    this.iceWaterSolved = this.tec.iceWater + this.tec.lakeWater;
     if (this.record) this.record.shift('sea', (this.seaLevel0 - this.tec.seaLevel) * 1000);
     this.seaLevel0 = this.tec.seaLevel;
     this.seaZeroed = true;
