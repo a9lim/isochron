@@ -285,7 +285,7 @@ export const PEOPLE = {
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
   B_PRE: 0.035, B_MIN: 0.01245, Y_B: 8, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (8: England and Wales's crude births ~3.5% in 1870, ~2.4% in 1913, ~1.6% in 1950 at its goods then, as reported from the Registrar-General's and Mitchell's series; today's Earth at ~8–9 B at early takeoff; 5.5, set on the poorer one-world economy, had the industrial world's births fall a generation early); steepness K_B; the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
-  F_DIS: 0.5,                      // the share of the deaths here (the floor's and the density's) that stood for disease (batch 4a, src/engine/pathogens.js; pre-modern deaths were about half infection's, from memory): the pathogens' deaths take its place by a soft maximum, so they bite where they pass it (an epidemic, a plague, a people meeting pathogens it never had, a crowded city) and the stand-in holds where they don't (recalibrated at the batch's end)
+  F_DIS: 0.5, T_USUAL: 150,        // the most of the deaths here (the floor's and the density's) that stand for the diseases a people usually bears (batch 4a, src/engine/pathogens.js; pre-modern deaths were about half infection's, from memory), and the years over which its usual is its pathogens' own (a people's numbers settle to the diseases it bears: the Americas' recovered a century and a half after contact, from memory): the pathogens' deaths take the usual's place by a soft maximum, so they bite where they pass it (a plague, a people meeting pathogens it never had) (recalibrated at the batch's end)
   M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   // Industry's reach past its own works (synthesis on Preston's shifting curve, 1975, and the Green
   // Revolution; from memory): medicine and industry's farm inputs reached the agrarian world with its
@@ -606,7 +606,8 @@ export const PEOPLE = {
   // share uniform, a reservoir F_RES of the time, log-uniform from R_RES to 1; crowding (ρ/(ρ + RHO_PATH))^Q_PATH
   // × (1 + K_CITY × the city's share), the host's envelope CLIM_S × ENV_W; persistence σ(ln(I*/I_MIN)/W_P)
   // (I_MIN from measles' critical community size, ~2.5–5 × 10⁵: Bartlett 1957, from memory); an endemic
-  // pathogen's epidemics at L_END a year; introductions L_INTRO a year at a whole prevalence and contact, the
+  // pathogen's epidemics at L_END a year; introductions L_INTRO a year at a whole prevalence and contact (a trade
+  // partner's × e^{−T/(D G_TRANS)}, its journey's years T against G_TRANS generations of infection on the way), the
   // land neighbours' at K_LAND of a market partner's, the reservoir's L_RES a year at its whole; deaths ×
   // (1 + K_COLL × the share sick at once: an endemic childhood case kills ~1–2% (measles), a people meeting it for the
   // first time a quarter and more, all ages sick together, from memory), a case again K_RE of a first; vaccination V_COV of medicine's reach × e^{−ω/OM_VAC}; gone after
@@ -614,7 +615,7 @@ export const PEOPLE = {
   // stepped every DT_PATH years at least.
   P_MAX: 32, H_SPILL: 4e-10, K_WILD: 0.5, W_WILD: 0.25, SPILL_MAX: 4, R_EPS: 1e-3,
   R0_MED: 1.5, R0_SIG: 0.9, D_PATH: [0.01, 0.5], OM_PATH: [0.001, 0.3], V_PATH: [0.0003, 0.05], F_RES: 0.3, R_RES: 1e-3,
-  RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1,
+  RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1, G_TRANS: 4,
   K_COLL: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1,
   KAP0: 0.2, T_KUP: 100, T_KDN: 300, Z_KAP: 5, W_KAP: 0.75, F_TRIB: 0.3, K_RENT: 0.5,
   N_CAMP: 1e5, F_RIDE: 0.3, T_TRIB: 0.2, W_RAID: 0.01, Z_GUN: 6.6, W_GUN: 0.15, T_DYN: 150,
@@ -776,15 +777,16 @@ export function taskLabor(Lh, A, beta, sigma) {
  * step that crosses K keeps its side's law (a small error). Returns the new total, the births' and
  * deaths' rates, famine's deaths and medicine's factor on senescence.
  */
-export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0, med = 0, heat = 0, path = 0) {
+export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0, med = 0, heat = 0, path = 0, usual = Infinity) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
   // The pathogens' deaths (src/engine/pathogens.js) × medicine, as the density's are.
-  // The pathogens (src/engine/pathogens.js): F_DIS of the deaths below (the floor's and the density's, at the
-  // step's start) stood for disease, and the pathogens' deaths take that part's place by a soft maximum of
-  // order 8, so where they kill about as many the people stand where they did, and where more (a plague, a
-  // people meeting diseases it never had, a crowded city) the excess is theirs: a rate over the step, × medicine.
-  const S = P.F_DIS * (P.D_LO + (P.B_PRE - P.D_LO) * Math.min(1, K > 1e-9 ? N / K : 1)), hi = Math.max(S, path), lw = Math.min(S, path);
+  // The pathogens (src/engine/pathogens.js): the deaths below (the floor's and the density's) already stand for the
+  // diseases a people usually bears, as much as F_DIS of them (at the step's start), so the pathogens' deaths take
+  // the place of the place's own usual (its pathogens' deaths over T_USUAL), at most that, by a soft maximum of
+  // order 8: where they kill as usual the people stand where they did, and past it (a plague, a people meeting
+  // diseases it never had) the excess is theirs, a rate over the step × medicine.
+  const S = Math.min(usual, P.F_DIS * (P.D_LO + (P.B_PRE - P.D_LO) * Math.min(1, K > 1e-9 ? N / K : 1))), hi = Math.max(S, path), lw = Math.min(S, path);
   const ex = path > 0 && hi > 0 ? hi * Math.pow(1 + (lw / hi) ** 8, 0.125) - S : 0;
   const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D - P.U_MED * med), ms = Math.pow(m, P.M_SEN), dis = m * path, age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0) + heat + m * ex;
   if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms, floor: m * P.D_LO + age, dis };   // the land feeds no one (an ice sheet's or the sea's advance on the live planet)
@@ -2165,7 +2167,7 @@ export class People {
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = this.reserve(c, fc, z);
       const real = this.realYears(c, fc, tp, ry);
-      const { N: Nn, famine, b: bc, d: dc, m: mc, floor, dis } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c), this.dHeat[c], dPg[c]);
+      const { N: Nn, famine, b: bc, d: dc, m: mc, floor, dis } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c), this.dHeat[c], dPg[c], pg.usual[c]);
       this.disD += dis * Nt;
       // (demography takes a total that isn't finite as none: said here, where it arose)
       if (this.debug && !Number.isFinite(famine)) throw new Error(`growth: famine at ${c} = ${famine} (N ${Nt}, K ${Kh}, goods ${this.goods[c]}, σ ${sg}, store ${st}, years ${real ? `φ ${real.phi} m ${real.m} s ${real.s}` : 'none'}, the years' moments ${this.yr ? this.yr.map(a => a[c]).join(' ') : '–'} over ${this.yrW}, pool ${tp ? `${tp.pool} τ ${tp.tau} market ${tp.k} mean ${this.yrM ? this.yrM[tp.k] : '–'}` : '–'}, harvest ${this.harvestCoef(c, fc).join(' ')}, sR ${this.H.sR[c]}) at t ${this.t.toFixed(1)}; not finite there: ${this.unfinite(c)}`);

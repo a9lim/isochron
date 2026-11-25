@@ -32,7 +32,11 @@
 //                carry it, and its deaths are b (1 − 1/R) v.
 //   introduction where it doesn't persist, epidemics come with infectious travellers: λ = Λ_I × Σ contact ×
 //                prevalence (infections a person a year × D) over the trade's partners (contact as
-//                knowledge's copying reads it, Routes.part) and the land neighbours in other pools (K_LAND
+//                knowledge's copying reads it, Routes.part, × e^{−T/(D G_TRANS)}: a traveller must arrive while
+//                the infection lasts, T the journey by sail or steam and G_TRANS the generations a ship's company
+//                or a caravan carries on the way, so an acute disease crosses an ocean only as ships grow fast:
+//                Cliff and Haggett's measles reaching the islands with steam, from memory; the partners' hosts in
+//                persistence alike) and the land neighbours in other pools (K_LAND
 //                κ κ' over the neighbours), the reservoir's spillover Λ_R r env host, and its origin's pool
 //                at its birth. Where a pool's introductions are rarer than one a step, each step draws
 //                whether one came (a seeded stream, people:pathogens), and an epidemic of final size Z
@@ -46,10 +50,12 @@
 //   deaths       v (1 + K_COLL a) a first case and K_RE of that a case again (partial immunity: a waning
 //                pathogen's reinfections are milder; synthesis), a the share sick at once (virgin-soil
 //                epidemics' excess: the sick nurse the sick, the fields go untended; Crosby, from memory), at
-//                most every case; a rate over the step, × medicine. People's `demography` had F_DIS of its deaths
-//                (the well-fed floor's and the density's) standing for disease, and the pathogens' deaths take
-//                that part's place by a soft maximum, so they move the people where they pass it (a plague, a
-//                people meeting diseases it never had, a crowded city). The elites die of it as the commoners do.
+//                most every case; a rate over the step, × medicine. People's `demography` already stood for the
+//                diseases a people usually bears (up to F_DIS of its deaths, the well-fed floor's and the
+//                density's), so the pathogens' deaths take the place of each place's usual, its own pathogens'
+//                deaths over T_USUAL, by a soft maximum: they move the people where they pass it (a plague, a
+//                people meeting diseases it never had), and a people whose diseases settle in recovers as its
+//                usual rises to meet them. The elites die of it as the commoners do.
 //   vaccination  cov = V_COV × medicine's reach (People.modern) × e^{−ω/Ω_VAC}: lasting immunity can be
 //                given. Past 1 − 1/R wherever it passes, a pathogen goes (eradication).
 //   carried      migrants carry their susceptibility as they carry who they are (People.diffuse, flee,
@@ -134,6 +140,8 @@ export class Pathogens {
     this.e = new Float64Array(K * nL);           // its share that has had it or been vaccinated (not naive)
     this.inf = new Float64Array(K * nL);         // its infections a person a year over the last step
     this.d = new Float64Array(nL);               // deaths a person a year, before medicine, over the step
+    this.usual = new Float64Array(nL);           // each place's usual: its pathogens' deaths over T_USUAL (People's demography: what its deaths already stood for)
+    this.dtLast = 0;
     this.kap = new Float64Array(nL); this.med = new Float64Array(nL); this.wild = new Float64Array(nL); this.anim = new Float64Array(nL); this.hz = new Float64Array(nL); this.lam = new Float64Array(nL); this.Rc = new Float64Array(nL);
     this.acc = 0;                                // the years owed (stepped every DT_PATH at least: their state moves over years)
     this.rng = stream(pp.planet.seed, 'people:pathogens');
@@ -202,6 +210,9 @@ export class Pathogens {
     if (this.acc < P.DT_PATH) return;
     const dt = this.acc;
     this.acc = 0;
+    // The usual moves toward the last step's deaths over T_USUAL (exact), before this step's are found.
+    if (this.dtLast > 0) { const k = Math.exp(-this.dtLast / P.T_USUAL), d = this.d, us = this.usual; for (let c = 0; c < nL; c++) us[c] = d[c] + (us[c] - d[c]) * k; }
+    this.dtLast = dt;
     for (let c = 0; c < nL; c++) {
       const rho = N[c] / H.area[c];
       kap[c] = N[c] > 0 ? Math.pow(rho / (rho + P.RHO_PATH), P.Q_PATH) * (1 + P.K_CITY * (u ? u[c] : 0)) : 0;
@@ -236,6 +247,18 @@ export class Pathogens {
       }
     }
     nbO[nL] = m;
+    // Each trading market's partners' journey (years): the route's cost by sail at a ship's speed, by steam where the
+    // pair has industry (the trade's own layers, Routes.trade).
+    const Tk = routes ? (this.Tk && this.Tk.length === rt.nm * KP ? this.Tk : (this.Tk = new Float64Array(rt.nm * KP))) : null;
+    if (routes) {
+      const C = rt.C, vS = C.V_SHIP * 86.4 * 365.25, vI = C.V_STEAM * 86.4 * 365.25, mS = rt.mS, RI = rt.R.I;
+      for (let k = 0; k < rt.nm; k++) for (let i = 0; i < KP; i++) {
+        const j = pk[k * KP + i];
+        if (j < 0) break;
+        const sI = RI && mS ? Math.max(mS[k], mS[j]) : 0;
+        Tk[k * KP + i] = (1 - sI) * rt.cost(k, j, 'S') / vS + (sI > 0 ? sI * rt.cost(k, j, 'I') / vI : 0);
+      }
+    }
     const Rc = this.Rc, vec = H.path;
     for (const q of this.live) {
       const o = q.slot * nL, D = q.D, om = q.om, R0 = q.R0, x1 = 1 - q.x, x = q.x;
@@ -253,8 +276,10 @@ export class Pathogens {
           for (let i = 0; i < KP; i++) {
             const j = pk[k * KP + i];
             if (j < 0) break;
-            Nc += pw[k * KP + i] * (mN[j] + NM);
-            if (pN[j] > 0) pr += pw[k * KP + i] * pA[j] / pN[j] * D;
+            // A traveller must arrive while the infection lasts: e^{−T/(D G_TRANS)}, the party carrying G_TRANS generations.
+            const w = pw[k * KP + i] * Math.exp(-Tk[k * KP + i] / (D * P.G_TRANS));
+            Nc += w * (mN[j] + NM);
+            if (pN[j] > 0) pr += w * pA[j] / pN[j] * D;
           }
         } else { const c = k - off; for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e]) Nc += N[E.nb[e]]; }
         pP[k] = persistence(Nc, pB[k] / pN[k], om, pR[k] / pN[k], D, P); pre[k] = pr;
