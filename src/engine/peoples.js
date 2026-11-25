@@ -50,8 +50,10 @@
 //   elites      (batch 4b; a9, 3c's Normans) each way's elite has its own point (`eX`, foragers' unused): carried
 //               with its migrants, a plain mean by numbers where they join; replaced where a state takes the
 //               place, by its fiscal capacity × the share taken (`replace`: a conquest's barons, a colony's
-//               officials and planters; indirect rule keeps the old elite), and drawn toward its commoners at
-//               1/T_DYN + K_CULL ψ (it takes their ways, and stress renews it from below), exactly. Read where
+//               officials and planters; indirect rule keeps the old elite), drawn toward its commoners at
+//               1/T_DYN + K_CULL ψ (it takes their ways, and stress renews it from below) and toward its ruler's
+//               point at κ × the ruler's share / T_REN (its officials and planters sent on from the capital: the
+//               recalibration after batch 4c, `Polities.renew`), exactly toward their weighted mean. Read where
 //               rulers' likeness is (`eliteSim`: a schooled people resists an unlike elite as an unlike state,
 //               src/engine/polities.js) and by each state, whose point follows its capital's elite.
 //
@@ -295,16 +297,19 @@ export class Peoples {
         Xn[2 * a] = xa + ox + sd * rng.normal(); Xn[2 * a + 1] = ya + oy + sd * rng.normal();
       }
     }
-    // Each elite toward its commoners at 1/T_DYN + K_CULL ψ (its own taking their ways; stress's renewal from below), exactly.
-    const eX = this.eX, psi = pp.classes ? pp.classes.psi : null;
+    // Each elite toward its commoners at a = 1/T_DYN + K_CULL ψ (its own taking their ways; stress's renewal from below)
+    // and toward its ruler's point at b, the ruler's officials, planters and garrisons sent from its capital
+    // (Polities.renew), exactly toward their weighted mean.
+    const eX = this.eX, psi = pp.classes ? pp.classes.psi : null, ru = pp.pol && pp.pol.list ? pp.pol : null;
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) { this.lead[c] = -1; continue; }
-      const o = c * WAYS, fe = 1 - Math.exp(-dt * (1 / P.T_DYN + P.K_CULL * (psi ? psi[c] : 0)));
+      const ra = 1 / P.T_DYN + P.K_CULL * (psi ? psi[c] : 0), rb = ru ? ru.renew(c) : 0, rx = rb > 0 ? ru.list[ru.rk].X : null;
+      const o = c * WAYS, fe = 1 - Math.exp(-dt * (ra + rb)), wa = ra / (ra + rb), wb = 1 - wa;
       for (let k = 0; k < WAYS; k++) {
         const a = o + k;
         if (!(W[a] > 1e-12 * N[c])) continue;
         X[2 * a] = ((Xn[2 * a] % S) + S) % S; X[2 * a + 1] = ((Xn[2 * a + 1] % S) + S) % S;
-        for (let i = 0; i < 2; i++) { const v = eX[2 * a + i] + fe * wrap(X[2 * a + i] - eX[2 * a + i], S); eX[2 * a + i] = ((v % S) + S) % S; }
+        for (let i = 0; i < 2; i++) { const e = eX[2 * a + i], v = e + fe * (wa * wrap(X[2 * a + i] - e, S) + (rx ? wb * wrap(rx[i] - e, S) : 0)); eX[2 * a + i] = ((v % S) + S) % S; }
       }
       this.lead[c] = W[o + CITY] > 0 ? o + CITY : this.main(c);
     }

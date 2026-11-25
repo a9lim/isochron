@@ -229,9 +229,14 @@ async function one(ov, run) {
   const e13 = eAt(tI + 153);
   const empire = { first: e0 ? cal(e0.t) : null, ov13: e13.ovN, alike13: e13.alike, direct13: e13.direct, uE13: e13.uE, made: cF.made, carried: cF.carried, landed: cF.landed, over: cF.over, overLanded: cF.overLanded,
     half: half ? cal(half.t) : null, abolition: ab ? cal(ab.t) : null, coerPeak: peakC, drain13: e13.drain, bal: [eAt(tI - 1000).bal, e13.bal] };
+  // The continents' shares of the people at industry and at early takeoff (earth-score's continents).
+  const CONTS = { Africa: [6, 7, 8, 9, 10, 11, 12, 13], Asia: [4, 5, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24], India: [19], China: [20, 21, 22], Europe: [0, 1, 2, 3], Americas: [28, 29, 30, 31, 32, 33, 34], Oceania: [25, 26, 27] };
+  const shareAt = x => { const tot = x ? x.r.reduce((a, b) => a + b, 0) : 0; return Object.fromEntries(Object.entries(CONTS).map(([k, gs]) => [k, tot > 0 ? gs.reduce((a, g) => a + x.r[g], 0) / tot : NaN])); };
+  const shares = [shareAt(series.filter(x => x.t <= tI).at(-1)), shareAt(series.at(-1))];
   const wAt = t => water.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), water[0] || { wa: 0, asia: 0, gw: 0 });
   const kyr = t => (t == null ? null : (tP - t) / 1e3);
   return {
+    shares,
     water: { w00: wAt(tI + 140), w2k: wAt(tI + 240), wI: wAt(tI), dep2k: (wAt(tI + 230).gS - wAt(tI + 240).gS) / 10, arch0: pp.archN0, half: kyr(aHalf), gone: kyr(aGone), assim: pp.assim },
     empire,
     sec: { agrKyr: 1000 * agr.length / span, settler: wave(ind.filter(x => x.overseas && x.alike >= 0.5)), nation: wave(ind.filter(x => x.alike < 0.5)), other: ind.filter(x => !x.overseas && x.alike >= 0.5).length },
@@ -290,6 +295,8 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   for (const [k, r] of runs.entries()) if (r.spark) console.log(`draw ${k}: ${r.spark}`);
   const em = runs.map(r => r.empire), mM = x => (Number.isFinite(x) ? (x / 1e6).toFixed(1) : '–');
   console.log(`empires overseas: the first million held overseas ${f0(md(em.map(x => x.first)))} (~1500); at 1913 ${pc(md(em.map(x => x.ov13)))} of the people held from overseas, ${pc(md(em.map(x => x.alike13)))} of them alike to their rulers, ${pc(md(em.map(x => x.direct13)))} ruled directly; under an unlike elite ${pc(md(em.map(x => x.uE13)))}; balancing 1 kyr before industry and at 1913 ${[0, 1].map(i => f2(md(em.map(x => x.bal[i])))).join(', ')}; the drain ${pc(md(em.map(x => x.drain13)))} of capital's income at 1913`);
+  const shK = Object.keys(runs[0].shares[0]);
+  console.log(`shares of the people at industry · at early takeoff: ${shK.map(k => `${k} ${pc(md(runs.map(r => r.shares[0][k])))} · ${pc(md(runs.map(r => r.shares[1][k])))}`).join(', ')}`);
   const wt = runs.map(r => r.water);
   console.log(`water and the first peoples: watered land past the floodplains at industry, 1900, 2000 ${[0, 1, 2].map(i => md(wt.map(x => [x.wI, x.w00, x.w2k][i].wa)).toFixed(0)).join(', ')} M ha (~40 in 1900, ~280 in 2000), Asia's share in 2000 ${pc(md(wt.map(x => x.w2k.asia)))}; the wells' draw in 2000 ${md(wt.map(x => x.w2k.gw)).toFixed(0)} km³ a year (withdrawals ~900), the aquifers' depletion ${md(wt.map(x => x.dep2k)).toFixed(0)} (~150–300); the archaic peoples ${(md(wt.map(x => x.arch0)) / 1e6).toFixed(2)} M at the start, half gone ${f0(md(wt.map(x => x.half)))} and 99% ${f0(md(wt.map(x => x.gone)))} kyr before early takeoff (~40–30), ${(md(wt.map(x => x.assim)) / 1e6).toFixed(2)} M passing into the moderns`);
   console.log(`captives: ${mM(md(em.map(x => x.made)))} M taken a draw, ${mM(md(em.map(x => x.carried)))} M carried, ${mM(md(em.map(x => x.landed)))} M landed; overseas ${mM(md(em.map(x => x.over)))} M carried, ${mM(md(em.map(x => x.overLanded)))} M landed (the Atlantic's ~12.5, ~10.7), half sailed by ${f0(md(em.map(x => x.half)))}; coercion's weight below half its own by ${f0(md(em.map(x => x.abolition)))} (abolition 1807–88)`);

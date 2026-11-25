@@ -400,3 +400,14 @@ test('captives are carried where coerced labour earns, made and lost by none: th
   People.prototype.captives.call(pp);
   assert.ok(Math.abs(pp.Ntot[0] - 1e5 - 40) < 1e-9 && cp.carried === 150);
 });
+
+test('a ruler renews the elites of the places it rules at κ × its share / T_REN, and of no others', () => {
+  const pp = line({}), pol = pp.pol, P = pp.P;
+  const k = seat(pol, 60, 20), q = pol.list[k];
+  pol.advance(1);
+  for (const c of [50, 60, 75]) {
+    const want = (q.kap ?? 1) * pol.s[KP * c] / pol.d[c] / P.T_REN;
+    assert.ok(pol.owner(c) === k && Math.abs(pol.renew(c) - want) < 1e-15 && pol.rk === k, `place ${c}: ${pol.renew(c)} against ${want}`);
+  }
+  assert.equal(pol.renew(150), 0); assert.equal(pol.rk, -1);
+});

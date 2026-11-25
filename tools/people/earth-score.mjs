@@ -55,7 +55,7 @@ async function one(ov, run) {
     const y = [...pop.keys()].filter(r => pop[r] > 0.01 * all).map(r => inc[r] / pop[r]);
     return [all, out / all, Math.max(...y) / Math.max(Math.min(...y), 1e-9), ind / all, unl / all];
   };
-  // When each continent is first peopled (its first 10,000 people), checked every 500 years.
+  // When each continent is first peopled (its first 10,000 people, and more than its archaic peoples: batch 4c), checked every 500 years.
   const CN = Object.keys(CONT), contOf = Int8Array.from(regOf, r => CN.findIndex(n => CONT[n].includes(r))), peopled = {};
   let chk = -1e9, by = null;
   // The world's milestones (its people passing 1, 1.5, 2, 3, 4, 5 and 6 billion), and the regions' shares at early takeoff.
@@ -68,9 +68,9 @@ async function one(ov, run) {
     if (ev.present && !by) by = shares();
     if (pp.t - chk >= 500) {
       chk = pp.t;
-      const bc = new Float64Array(CN.length);
-      for (let c = 0; c < pp.nL; c++) if (contOf[c] >= 0) bc[contOf[c]] += pp.Ntot[c];
-      CN.forEach((n, i) => { if (peopled[n] == null && bc[i] > 1e4) peopled[n] = pp.t; });
+      const bc = new Float64Array(CN.length), ba = new Float64Array(CN.length);
+      for (let c = 0; c < pp.nL; c++) if (contOf[c] >= 0) { bc[contOf[c]] += pp.Ntot[c]; ba[contOf[c]] += pp.arch[c]; }
+      CN.forEach((n, i) => { if (peopled[n] == null && bc[i] > Math.max(1e4, ba[i])) peopled[n] = pp.t; });
     }
     if (ev.industry && marks.length && pp.t >= ev.industry.t + marks[0]) { marks.shift(); emp.push(empire()); }
     if (ev.industry && pp.t - ev.industry.t > 3000) break;

@@ -1051,6 +1051,8 @@ export class Polities {
 
   /** Each place's strongest polity where it holds most of those who deliver, else −1. */
   owner(c) { const k = this.id[KP * c]; return k >= 0 && this.s[KP * c] >= 0.5 * this.d[c] && this.d[c] > 0 ? k : -1; }
+  /** The rate a year at which place c's ruler (its owner) renews its elites from its capital, κ × its share of what the place delivers / T_REN (src/engine/peoples.js), its index left in `rk`; 0 where none rules. */
+  renew(c) { const k = this.rk = this.owner(c); if (k < 0) return 0; return (this.list[k].kap ?? 1) * this.s[KP * c] / this.d[c] / this.pp.P.T_REN; }
 
   /** The capitals of the states holding at least N_MARK people, for drawing: position and people, four a capital. */
   capitals() {

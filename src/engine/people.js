@@ -409,7 +409,7 @@ export const PEOPLE = {
   // moderns at R_ASSIM a year as often as they meet (the moderns' density against RHO_COPY, as copying's), so
   // none is made or lost; no ancestry is kept (a9). The game is wary where they lived, softly (by their density
   // over RHO_WARY), and the Settlement map draws their land in a tone between terra incognita and the land's.
-  Z_AK: 0.5, R_ARCH: 0.02, C_ARCH: 3, R_ASSIM: 2e-3, RHO_WARY: 0.005,
+  Z_AK: 0.5, F_ARCH: 1.65, R_ARCH: 0.02, C_ARCH: 3, R_ASSIM: 2e-3, RHO_WARY: 0.005,
   // Farming. Its origin's knowledge is sharp (W_FARM): at 0.15 the hazard's tail, summed over every
   // place and millennium, began the first fields at knowledge ~2.6, ~17 kyr before early takeoff (and
   // 12–25 kyr before industry), where history's began ~11.4 kyr ago (the Fertile Crescent; Zeder 2011),
@@ -672,6 +672,11 @@ export const PEOPLE = {
   RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1, G_TRANS: 4,
   K_COLL: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1, R_ENV: 2,
   KAP0: 0.2, T_KUP: 100, T_KDN: 300, Z_KAP: 5, W_KAP: 0.75, F_TRIB: 0.3, K_RENT: 0.5,
+  // A ruler renews its places' elites from its capital at κ × its share / T_REN a year (its officials, planters and
+  // garrisons: the recalibration after batch 4c; speculation, an official's term and a planter's generation), against
+  // their drift toward their commoners over T_DYN, so a colony's elite stays its rulers' (with T_DYN alone an unlike
+  // elite ruled ~0 of the people by 1913, against Earth's empires' ~31%).
+  T_REN: 50,
   N_CAMP: 1e5, F_RIDE: 0.3, T_TRIB: 0.2, W_RAID: 0.01, Z_GUN: 6.6, W_GUN: 0.15, T_DYN: 150,
   // Migration (batch 3d, `diffuse`; synthesis, the values speculation): down one potential, crowding against real
   // income, N/(K + goods) (food a person before industry, which was the crowding; goods with it after); into a
@@ -2068,11 +2073,11 @@ export class People {
     }
     return isle;
   }
-  /** The archaic peoples' food here (people, batch 4c): the land's and the water's at knowledge Z_AK without the first people's reach (F_SAP), as cold as Z_ARCH holds. */
+  /** The archaic peoples' food here (people, batch 4c): the land's and the water's at knowledge Z_AK and reach F_ARCH (the first people's F_SAP), as cold as Z_ARCH holds. */
   archCap(c) {
     const P = this.P, H = this.H;
     if (!H.alive[c]) return 0;
-    const ez = Math.exp(P.THETA * P.Z_AK), PF = ez / (1 + (ez - 1) / P.CAP_F), forage = H.bL[c] * (1 + P.MEAT * this.mega[c]) / (1 + P.MEAT * P.MG_REF) * PF;
+    const ez = Math.exp(P.THETA * P.Z_AK), PF = ez / (1 + (ez - 1) / P.CAP_F) * P.F_ARCH, forage = H.bL[c] * (1 + P.MEAT * this.mega[c]) / (1 + P.MEAT * P.MG_REF) * PF;
     return this.hEc[c] * this.labH[c] * H.area[c] * this.coldOK(c, P.Z_ARCH) * ((1 - this.f[c]) * forage + H.bS[c] * this.fish[c] * PF);
   }
   /**
