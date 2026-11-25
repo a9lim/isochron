@@ -115,7 +115,7 @@ export class Classes {
    */
   mu(c, w) {
     const pp = this.pp, P = pp.P;
-    if (w === 3) { const H = pp.H; return P.MU[3] * (1 + P.K_MU * Math.min(1, H.irrPot[c] * pp.built(c, 'C') + H.terrPot[c] * pp.built(c, 'T'))); }
+    if (w === 3) { const H = pp.H; return P.MU[3] * (1 + P.K_MU * Math.min(1, H.irrQ[c] * pp.built(c, 'C') + H.terrPot[c] * pp.built(c, 'T'))); }
     if (w === CITY) return P.MU[CITY] + (P.MU_IND - P.MU[CITY]) * pp.ind[c];
     return P.MU[w];
   }

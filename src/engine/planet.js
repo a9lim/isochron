@@ -101,6 +101,7 @@ export class Planet {
     this.tec.updateElevation();
     this.land.reroute();
     this.climate = new Climate(this.tec, this.land);
+    this.climate.clock = () => this.years;   // the aquifer's years between cycles (src/engine/soil.js)
     this.ice = new Ice(this.tec, this.climate);
     this.climate.ice = this.ice;
     // The bed bends under the ice by flexure (ELRA), and the crust under its own loads' changes;

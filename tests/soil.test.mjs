@@ -1,7 +1,7 @@
 // The ground (src/engine/soil.js): water kept every month, and the bucket's analytic steady state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Soil, SOIL, potentialEvaporation } from '../src/engine/soil.js';
+import { Soil, SOIL, potentialEvaporation, aquifer } from '../src/engine/soil.js';
 
 const season = m => Math.cos(2 * Math.PI * (m - 6) / 12);     // July warmest
 /** Forcing for n cells from f(i, m) → [T, P]: T, P, PET, 12 per cell. */
@@ -54,5 +54,27 @@ test("the bucket's steady state under constant forcing", () => {
     assert.ok(Math.abs(soil.evap[0] / 12 - E) < 1e-2 && Math.abs(soil.runoff[0] / 12 - (P - E)) < 1e-2, `P ${P}: E ${(soil.evap[0] / 12).toFixed(3)} against ${E.toFixed(3)}`);
     assert.ok(Math.abs(soil.out.base[0] - kd * w ** 4) < 1e-2, 'baseflow K_D S_max w⁴');
     assert.ok(soil.SWE[0] < 1e-9 && Math.abs(soil.Tg[0] - T) < 1e-6, 'no snow; the ground at the air');
+  }
+});
+
+test('the aquifer steps exactly and keeps its water, drawn dry or not, and at its balance passes on its recharge', () => {
+  // Exact: two half spans make one span, filling, drawn down past its recharge (it runs dry midway), and drained.
+  const tau = SOIL.TAU_A;
+  for (const [A0, r, w] of [[0, 50, 0], [3e4, 40, 10], [5e3, 20, 60], [8e3, 0, 0]]) {
+    const one = aquifer(A0, r, w, 900, tau), h = aquifer(A0, r, w, 450, tau), two = aquifer(h.A, r, w, 450, tau);
+    assert.ok(Math.abs(one.A - two.A) < 1e-9 * Math.max(1, A0), `A0 ${A0}, r ${r}, w ${w}: ${one.A} against ${two.A} in halves`);
+    assert.ok(Math.abs(one.out - (h.out + two.out)) < 1e-6 && Math.abs(one.drawn - (h.drawn + two.drawn)) < 1e-6, 'its flows add over halves');
+    assert.ok(Math.abs(A0 + r * 900 - (one.A + one.out + one.drawn)) < 1e-6 * Math.max(1, A0 + r * 900), 'what came in is what it holds more and what left');
+    assert.ok(one.A >= 0 && one.out >= -1e-9);
+  }
+  // At its balance under the year's recharge, the periodic year's baseflow over the year is the ground's own.
+  const n = 40, fc = forcing(n, (i, m) => climate(CLIMATES[(i * 7) % CLIMATES.length], m)), s = new Soil(n);
+  s.equilibrium(fc.T, fc.P, fc.PET, { cold: true });
+  s.aquiferStep(Infinity);
+  for (let i = 0; i < n; i++) {
+    let g = 0, b = 0;
+    for (let m = 0; m < 12; m++) { g += s.out.base[12 * i + m]; b += s.riverBase(12 * i + m); }
+    assert.ok(Math.abs(b - g) < 1e-6 * Math.max(1, g), `cell ${i}: the rivers' ${b} mm against the ground's ${g}`);
+    assert.ok(Math.abs(s.A[i] - tau * SOIL.F_AQ * g) < 1e-6 * Math.max(1, s.A[i]));
   }
 });

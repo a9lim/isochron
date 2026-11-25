@@ -301,3 +301,25 @@ test('the wet bulb is the psychrometer\'s within Stull\'s ~1 K', () => {
     assert.ok(Math.abs(got - want) < 1.1, `T ${T}, rh ${rh}: ${got.toFixed(2)} against ${want.toFixed(2)}`);
   }
 });
+
+test('the archaic peoples stand at their balance alone, share the land\'s food by their capacities, and pass into the moderns keeping everyone', () => {
+  // Alone, at their capacity, a step leaves them there.
+  const p = new People(uniformPlanet(3), { ...quiet, R_ASSIM: 0 });
+  p.seed(); p.capacity();
+  const c = p.cells.findIndex((_, k) => p.arch[k] > 0 && !(p.Ntot[k] > 0)), ka = p.Ka[c];
+  assert.ok(c >= 0 && ka > 0 && Math.abs(p.arch[c] / ka - 1) < 1e-9, `at their balance when the first people arise: ${p.arch[c]} against ${ka}`);
+  p.archaics(50);
+  assert.ok(Math.abs(p.arch[c] / ka - 1) < 1e-9, 'and stay there alone');
+  // Each archaic eats K_a/K of a modern's room.
+  assert.ok(Math.abs(p.K[c] - Math.max(0, p.Kma[c] - p.arch[c] * ka / p.Kma[c])) < 1e-9 * p.Kma[c], 'the moderns\' share of the land');
+  // The two at a joint balance: archaics at a share m of their capacity, moderns crowding them by N K/K_a² = 1 − m.
+  p.arch[c] = 0.6 * ka; p.Ntot[c] = 0.4 * ka * ka / p.Kma[c];
+  p.archaics(100);
+  assert.ok(Math.abs(p.arch[c] / (0.6 * ka) - 1) < 1e-9, `stand still: ${p.arch[c] / ka}`);
+  // Assimilation makes and loses no one.
+  const q = new People(uniformPlanet(3), { ...quiet, R_ARCH: 0, R_ASSIM: 0.01 });
+  q.seed(); q.capacity();
+  const sum = () => { let s = 0; for (let k = 0; k < q.nL; k++) s += q.arch[k] + q.Ntot[k]; return s; }, s0 = sum();
+  q.archaics(30);
+  assert.ok(q.assim > 0 && Math.abs(sum() / s0 - 1) < 1e-12, `everyone kept: ${sum()} against ${s0}, ${q.assim} assimilated`);
+});

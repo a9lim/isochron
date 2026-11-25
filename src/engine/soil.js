@@ -25,6 +25,19 @@
 //                rivers' 3–30×, from memory). Exact over a month for the
 //                month's recharge; it doesn't feed back on the soil, so its
 //                periodic state is solved after the soil's, in closed form.
+//   the aquifer   (batch 4c; synthesis) beneath it, a slow linear store A (mm)
+//                that F_AQ of the groundwater's outflow recharges and that
+//                empties to the rivers (their baseflow, and so the lakes) over
+//                TAU_A years: deep groundwater's ages run from centuries to tens
+//                of millennia (from memory). Stepped exactly once a climate
+//                cycle over the years since the last (`aquiferStep`, its water
+//                kept: what came in is what it holds more, what flowed out and
+//                what was drawn), at its balance until the climate has settled,
+//                so the opening has no fossil water (the Sahara's). Its outflow
+//                reaches the rivers evenly over the months. The people's wells
+//                draw it (`draw`, mm/yr), never below empty: past that they
+//                take its recharge as it comes. The live year's months pass its
+//                share through (its centuries don't show within a year).
 //   the month     backward Euler with the fluxes at the month's end, so any
 //                 month is stable: S_max w + Lᵢ(w⁴ − 1) + E_p β(w) + D w⁴ = S₀.
 //                 Split at w = 0.75 it is a w + c w⁴ = d on each side, convex,
@@ -84,6 +97,23 @@ export function groundwater(g0, rch) {
   return g0 * a + rch * SOIL.TAU_G * (1 - a);
 }
 
+/**
+ * The aquifer over `yrs` years (exact): dA/dt = r − w − A/τ, r its recharge and w a draw (mm/yr), never
+ * below empty (from then the draw takes the recharge as it comes). Into `o`: the store at the end (A),
+ * the water that flowed out to the rivers (out) and was drawn (drawn), mm over the span, so
+ * A0 + r yrs = A + out + drawn.
+ */
+export function aquifer(A0, r, w, yrs, tau = SOIL.TAU_A, o = {}) {
+  const As = tau * (r - w);
+  let t0 = yrs;
+  if (As < 0) t0 = Math.min(yrs, tau * Math.log1p(A0 / -As));   // when it runs dry
+  const A = Math.max(0, As + (A0 - As) * Math.exp(-t0 / tau));
+  o.A = t0 < yrs ? 0 : A;
+  o.drawn = w * t0 + Math.min(w, r) * (yrs - t0);
+  o.out = A0 + r * yrs - o.A - o.drawn;
+  return o;
+}
+
 // Water in mm, temperature in °C, time in months (12 equal months a year).
 // Forcing and monthly outputs are laid out 12 per cell, January first
 // (index 12 i + m), as the climate's runoffM. A cell with S_max ≤ 0 is sea.
@@ -101,6 +131,7 @@ export const SOIL = {
   RHO_SNOW: 300,      // kg/m³
   FROZEN: 0.5,        // share of rain and melt that runs off a frozen surface
   TAU_G: 4,           // months: groundwater's time constant (synthesis)
+  F_AQ: 0.2, TAU_A: 1000,   // the aquifer: its share of groundwater's outflow, and its time constant in years (speculation)
   PET_K: 55 / 12,     // PET = PET_K · max(0, T + PET_T0), mm a month (the climate's Budyko PET by the month)
   PET_T0: 4,
   PERMA_W: 1.0,       // K, the width of permafrost's logistic in the ground's mean: the spread of the ground's mean within a cell (see above)
@@ -205,6 +236,8 @@ export class Soil {
     this.SWE = shared(Float64Array, n);        // snowpack, mm of water
     this.Tg = shared(Float64Array, n);         // the ground's temperature, °C
     this.G = shared(Float64Array, n);          // groundwater, mm
+    // The aquifer (`aquiferStep`): its store (mm), its recharge (mm/yr), the people's wells' draw (mm/yr; null without them).
+    this.A = new Float64Array(n); this.Ar = new Float32Array(n); this.draw = null; this.aqOpen = true;
     const m12 = () => shared(Float32Array, 12 * n);
     // By month (12 i + m), the month's totals (mm: base is groundwater's outflow) and its end state.
     this.out = { quick: m12(), base: m12(), evap: m12(), S: m12(), SWE: m12(), Tg: m12(), G: m12() };
@@ -334,6 +367,34 @@ export class Soil {
     this.aggregate(from, to);
     return { cells, meanYears: cells ? years / cells : 0, maxYears: worst, unconverged };
   }
+
+  /**
+   * The aquifer over `yrs` years since the last (Infinity: at its balance), after the periodic year:
+   * F_AQ of the groundwater's outflow (`out.base`) recharges it, and the rest and the aquifer's own
+   * outflow at its new store (A/TAU_A, evenly by the month) are the rivers' baseflow (`riverBase`; the
+   * ground's own year is left as it is, so the live year takes over from it without a step).
+   * Returns the water's account over the span (mm summed over cells, for the oracle): recharged, out, drawn, held.
+   */
+  aquiferStep(yrs) {
+    const o = this.out, C = SOIL, n = this.n, st = { A: 0, out: 0, drawn: 0 }, acc = { r: 0, out: 0, drawn: 0, dA: 0 };
+    for (let i = 0; i < n; i++) {
+      if (!(this.Smax[i] > 0)) { this.A[i] = 0; this.Ar[i] = 0; continue; }
+      const b = 12 * i;
+      let g = 0;
+      for (let m = 0; m < 12; m++) g += o.base[b + m];
+      const r = C.F_AQ * g, w = this.draw ? Math.max(0, this.draw[i]) : 0, A0 = this.A[i];
+      this.Ar[i] = r;
+      if (yrs === Infinity) this.A[i] = Math.max(0, C.TAU_A * (r - w));
+      else {
+        aquifer(A0, r, w, yrs, C.TAU_A, st);
+        this.A[i] = st.A;
+        acc.r += r * yrs; acc.out += st.out; acc.drawn += st.drawn; acc.dA += st.A - A0;
+      }
+    }
+    return acc;
+  }
+  /** The rivers' baseflow in month k (12 i + m, mm): the groundwater's outflow less the aquifer's recharge, and the aquifer's outflow. */
+  riverBase(k) { return (1 - SOIL.F_AQ) * this.out.base[k] + this.A[(k / 12) | 0] / SOIL.TAU_A / 12; }
 
   /** Copy the state at the start of calendar month m from the periodic year in `out`. */
   stateAt(m) {

@@ -780,10 +780,12 @@ fn contour(x: f32, fx: f32) -> f32 {
   // verdigris), parcels for fields (farms in sap, solar farms in verdigris, the herders' pasture in ochre, the
   // fishers' in the sea's blue), and factories a heavy hatch.
   let explored = clamp(0.5 + (i.pq.w - 0.5) / freach, 0.0, 1.0);
+  // Where only the archaic peoples live (People.drawn: below ½, by their density), a tone toward the land's.
+  let tone = max(explored, clamp(i.pq.w, 0.0, 0.45));
   let unknown = mix(mix(u.canvas.rgb, u.text.rgb, select(0.13, 0.12, dark)), iceC, sheet);
   // On the People charts the ice is plain (its surface's contours crowd at a cap's steep edge, and
   // read there as the charts' own lines).
-  var pland = select(mix(unknown, land, explored), mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), snowInk, sheet), folkC);
+  var pland = select(mix(unknown, land, tone), mix(mix(u.canvas.rgb, u.land.rgb, 0.16) * mix(1.0, relief, 0.5), snowInk, sheet), folkC);
   // The land's uses by a rank fixed to the globe at the tessera's site (the People view's).
   var rank = 1.0;
   if (folkV) { rank = landRank(ts.xyz / u.mode.y); }

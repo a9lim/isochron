@@ -11,6 +11,8 @@
 //               litter to soil to the air), albedo and evaporation do the rest
 //   soil        tillage's erosion (mm/yr) is added to the landscape's erosion field around each
 //               fast step, so the regolith's exact step strips it; the people read the regolith back
+//   wells       the wells' draw (mm/yr) on the aquifer beneath the groundwater, a sink in its exact
+//               step each climate cycle (src/engine/soil.js); the people read its store back
 //   the years   while the dial resolves the year, each whole year's anomaly (`HarvestYears`) for
 //               the people's harvests: the year's log-rain unit and its mean T′, as moments a few
 //               times a second (src/engine/people.js, `addYears`)
@@ -37,7 +39,7 @@ import { LIFE } from './life.js';
 export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1, rh: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1, rh: 1, aq: 1, aqR: 1, dep: 1 };
 /** A lake's shore: its cells wet past this share of their area, and their neighbours. */
 export const LAKE_SHORE = 0.05;
 
@@ -72,6 +74,7 @@ export function fieldsOf(P, f = null, T = null) {
   for (let i = 0; i < N; i++) { let t = 0; for (let m = 0; m < 12; m++) t += c.P12[12 * i + m]; map[i] = t; }
   const sp = P.year.spreadFine(), sigT = sp.T, ex = P.life.export, G = P.grid;
   const coastSea = i => { if (tec.sea[i] || !ex) return 0; let m = 0; for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) { const j = G.nbr[t]; if (tec.sea[j]) m = Math.max(m, ex[j] || 0); } return m; };
+  const dustOut = P.aeolian && P.aeolian.dust ? P.aeolian.dust.out : null;
   const pp = P.life.lakePP, lw = c.lakeWet, lakeAt = j => (!tec.sea[j] && lw[j] > LAKE_SHORE ? LIFE.E_LAKE * (pp[j] || 0) : 0);
   const shoreLake = i => { if (tec.sea[i] || !pp) return 0; let m = lakeAt(i); for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) m = Math.max(m, lakeAt(G.nbr[t])); return m; };
   const src = {
@@ -81,6 +84,8 @@ export function fieldsOf(P, f = null, T = null) {
     sea: coastSea, lakeEx: shoreLake, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
     arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
     rh: i => c.humidHot(i),   // the column's humidity at the year's warmest point (the people's wet bulb)
+    aq: i => c.soil.A[i], aqR: i => c.soil.Ar[i],   // the aquifer's store (mm) and its recharge (mm/yr: src/engine/soil.js), the people's wells'
+    dep: i => (dustOut && !tec.sea[i] ? dustOut.depAnn[i] : 0),   // dust's deposition (kg m⁻² yr⁻¹), the uplands' renewal beside fresh rock's
   };
   const np = c.windPhase.length, wind = new Float32Array(18 * N), cur = new Float32Array(3 * N), oc = P.ocean;
   for (let i = 0; i < N; i++) for (let p = 0; p < 6; p++) { const w = c.windPhase[Math.min(np - 1, Math.floor(p * np / 6))]; for (let k = 0; k < 3; k++) wind[18 * i + 3 * p + k] = w[3 * i + k]; }
@@ -194,7 +199,7 @@ export class PeopleLink {
    * carbon (Pg C) since the last, forcing (W/m²). What isn't a finite number stops here (a cell's at 0, a
    * total's last value), said once by name: past here a NaN poisons the planet's climate and carbon.
    */
-  receive({ f, Ef, s, x, m, carbon = 0, F = 0, aerC = 0 }) {
+  receive({ f, Ef, s, x, m, w, carbon = 0, F = 0, aerC = 0 }) {
     const put = (a, out, name) => {
       let bad = 0;
       for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) { a[i] = 0; bad++; }
@@ -206,6 +211,7 @@ export class PeopleLink {
     if (s) put(s, this.us, 'solar farms');
     if (f) { put(f, this.u, 'farmed share'); this.landUse(); }
     if (Ef) put(Ef, this.ef, 'tillage');
+    if (w) { const soil = this.P.climate.soil; if (!soil.draw) soil.draw = new Float32Array(this.P.grid.n); put(w, soil.draw, 'wells\' draw'); }
     if (x) put(x, this.x, 'sulfate');
     if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = new Float32Array(this.P.grid.n).fill(1); put(m, veg.mega, 'large game'); }
     this.carbon += num(carbon, 0, 'carbon');

@@ -70,7 +70,8 @@ async function one(ov, run) {
   pp.onEvent = (t, k, x) => { if (!(k in ev)) { ev[k] = t; evText[k] = x; } };
   pp.seed();
   // The regions' people every EVERY years once any state stands; stress and the unlike rule's share alongside.
-  const series = [], stress = [], unlike = [], econ = [], dis = [], emp = [];
+  const series = [], stress = [], unlike = [], econ = [], dis = [], emp = [], water = [];
+  let aHalf = null, aGone = null;   // the archaic peoples (4c): when half of them and 99% are gone
   let next = null;
   const sample = () => {
     const r = new Float64Array(REGIONS.length), N = pp.Ntot, cl = pp.classes;
@@ -130,6 +131,10 @@ async function one(ov, run) {
     let rl = 0, rr = 0;
     if (E.on) for (let c = 0; c < nL; c++) { rl += pp.wi.L[c]; rr += pp.railRoom(c); }
     econ.push({ t: pp.t, urb: all > 0 ? city / all : 0, gini: w.gini, top: w.top, topI: wI.top, KY: E.on && E.Y > 0 ? E.Kf / E.Y : NaN, sv: E.on ? E.sReal : NaN, rail: rr > 0 ? rl / rr : NaN });
+    // Water control (4c): the watered land past the floodplains (M ha) and the wells' draw on the aquifers (km³ a year).
+    let wa = 0, gw = 0, wAs = 0, gS = 0;
+    for (let c = 0; c < nL; c++) { const a = H.area[c], x = Math.min(pp.f[c] - Math.min(pp.f[c], H.sfp[c]), pp.watered(c)); if (x > 0) { wa += x * a; if ((regOf[c] >= 14 && regOf[c] <= 24) || regOf[c] === 4 || regOf[c] === 5) wAs += x * a; } gw += pp.wDraw[c] * a * 1e-6; gS += pp.aq[c] * a * 1e-6; }
+    water.push({ t: pp.t, wa: wa * 100 / 1e6, asia: wa > 0 ? wAs / wa : 0, gw, gS });
   };
   // Each way's elites at a moment: their share of its people and their two-class Gini.
   const classes = () => {
@@ -151,6 +156,8 @@ async function one(ov, run) {
   let nextC = null;
   while (pp.t < 6e6 && !('present' in ev)) {
     pp.step(pp.nextDt());
+    if (aHalf === null && pp.archN < 0.5 * pp.archN0) aHalf = pp.t;
+    if (aGone === null && pp.archN < 0.01 * pp.archN0) aGone = pp.t;
     if (next === null && pp.pol.first !== null) next = nextC = pp.t;
     if (next !== null && pp.t >= next) { sample(); next = pp.t + ('industry' in ev ? 5 : EVERY); }
     if (nextC !== null && !('industry' in ev) && pp.t >= nextC) { cls.push({ t: pp.t, v: classes() }); if (cls.length > 10) cls.shift(); nextC = pp.t + 250; }
@@ -222,7 +229,10 @@ async function one(ov, run) {
   const e13 = eAt(tI + 153);
   const empire = { first: e0 ? cal(e0.t) : null, ov13: e13.ovN, alike13: e13.alike, direct13: e13.direct, uE13: e13.uE, made: cF.made, carried: cF.carried, landed: cF.landed, over: cF.over, overLanded: cF.overLanded,
     half: half ? cal(half.t) : null, abolition: ab ? cal(ab.t) : null, coerPeak: peakC, drain13: e13.drain, bal: [eAt(tI - 1000).bal, e13.bal] };
+  const wAt = t => water.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), water[0] || { wa: 0, asia: 0, gw: 0 });
+  const kyr = t => (t == null ? null : (tP - t) / 1e3);
   return {
+    water: { w00: wAt(tI + 140), w2k: wAt(tI + 240), wI: wAt(tI), dep2k: (wAt(tI + 230).gS - wAt(tI + 240).gS) / 10, arch0: pp.archN0, half: kyr(aHalf), gone: kyr(aGone), assim: pp.assim },
     empire,
     sec: { agrKyr: 1000 * agr.length / span, settler: wave(ind.filter(x => x.overseas && x.alike >= 0.5)), nation: wave(ind.filter(x => x.alike < 0.5)), other: ind.filter(x => !x.overseas && x.alike >= 0.5).length },
     great: great.length, life: lives.sort((a, b) => a - b), standing: standing.length, peakA: great.map(q => q.peakA).sort((a, b) => a - b),
@@ -280,6 +290,8 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   for (const [k, r] of runs.entries()) if (r.spark) console.log(`draw ${k}: ${r.spark}`);
   const em = runs.map(r => r.empire), mM = x => (Number.isFinite(x) ? (x / 1e6).toFixed(1) : '–');
   console.log(`empires overseas: the first million held overseas ${f0(md(em.map(x => x.first)))} (~1500); at 1913 ${pc(md(em.map(x => x.ov13)))} of the people held from overseas, ${pc(md(em.map(x => x.alike13)))} of them alike to their rulers, ${pc(md(em.map(x => x.direct13)))} ruled directly; under an unlike elite ${pc(md(em.map(x => x.uE13)))}; balancing 1 kyr before industry and at 1913 ${[0, 1].map(i => f2(md(em.map(x => x.bal[i])))).join(', ')}; the drain ${pc(md(em.map(x => x.drain13)))} of capital's income at 1913`);
+  const wt = runs.map(r => r.water);
+  console.log(`water and the first peoples: watered land past the floodplains at industry, 1900, 2000 ${[0, 1, 2].map(i => md(wt.map(x => [x.wI, x.w00, x.w2k][i].wa)).toFixed(0)).join(', ')} M ha (~40 in 1900, ~280 in 2000), Asia's share in 2000 ${pc(md(wt.map(x => x.w2k.asia)))}; the wells' draw in 2000 ${md(wt.map(x => x.w2k.gw)).toFixed(0)} km³ a year (withdrawals ~900), the aquifers' depletion ${md(wt.map(x => x.dep2k)).toFixed(0)} (~150–300); the archaic peoples ${(md(wt.map(x => x.arch0)) / 1e6).toFixed(2)} M at the start, half gone ${f0(md(wt.map(x => x.half)))} and 99% ${f0(md(wt.map(x => x.gone)))} kyr before early takeoff (~40–30), ${(md(wt.map(x => x.assim)) / 1e6).toFixed(2)} M passing into the moderns`);
   console.log(`captives: ${mM(md(em.map(x => x.made)))} M taken a draw, ${mM(md(em.map(x => x.carried)))} M carried, ${mM(md(em.map(x => x.landed)))} M landed; overseas ${mM(md(em.map(x => x.over)))} M carried, ${mM(md(em.map(x => x.overLanded)))} M landed (the Atlantic's ~12.5, ~10.7), half sailed by ${f0(md(em.map(x => x.half)))}; coercion's weight below half its own by ${f0(md(em.map(x => x.abolition)))} (abolition 1807–88)`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);
 }

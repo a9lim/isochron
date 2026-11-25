@@ -269,7 +269,7 @@ export class Routes {
     if (!pp.wk) return;
     for (let c = 0; c < nL; c++) {
       const u = this.nodeOf[c], w = A[c];
-      a[u] += w; rd[u] += w * pp.built(c, 'R'); cn[u] += w * pp.H.irrPot[c] * pp.built(c, 'C'); rl[u] += w * pp.railShare(c);
+      a[u] += w; rd[u] += w * pp.built(c, 'R'); cn[u] += w * pp.H.irrQ[c] * pp.built(c, 'C'); rl[u] += w * pp.railShare(c);
     }
     for (let u = 0; u < n; u++) if (a[u] > 0) { rd[u] /= a[u]; cn[u] /= a[u]; rl[u] /= a[u]; }
   }
@@ -413,7 +413,7 @@ export class Routes {
     const Q = c => f.discharge[cells[c]];
     // Each cell's works: roads' built share, the land canals water, railways'.
     const rd = new Float32Array(nL), cn = new Float32Array(nL), rl = new Float32Array(nL), lc = [0, 0];
-    if (pp.wk) for (let c = 0; c < nL; c++) { rd[c] = pp.built(c, 'R'); cn[c] = H.irrPot[c] * pp.built(c, 'C'); rl[c] = pp.railShare(c); }
+    if (pp.wk) for (let c = 0; c < nL; c++) { rd[c] = pp.built(c, 'R'); cn[c] = H.irrQ[c] * pp.built(c, 'C'); rl[c] = pp.railShare(c); }
     // Both layers' edge costs (per directed edge of E).
     const m = E.off[nL], eS = new Float32Array(m), eI = new Float32Array(m);
     for (let c = 0; c < nL; c++) for (let o = E.off[c]; o < E.off[c + 1]; o++) {

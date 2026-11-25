@@ -31,7 +31,7 @@ test('the elites settle past their positions by their growth over the commoners:
   const pol = { live: [], list: [], id: new Int32Array(KP).fill(-1), s: new Float64Array(KP), d: new Float64Array([1]), ex: new Float64Array(1), held: () => 0 };
   const pp = { P, nL: 1, pol, ids: { W, T: new Float64Array([N]) }, Ntot: new Float64Array([N]), K: new Float64Array([N]), goods: new Float64Array(1), wol, imp: null,
     uSent: null, dlvP: null, kP: null, Kown: new Float64Array([N]), econ: { on: false }, works: new Float64Array(1), wk: { T: new Float64Array(1) }, wi: {},
-    H: { irrPot: [0], terrPot: [0] }, built: () => 0, ind: [0] };
+    H: { irrQ: [0], terrPot: [0] }, built: () => 0, ind: [0] };
   // The claim: the functional μ of the harvest (coordination) and the rent's TH_W of the rest.
   const cl = new Classes(pp), mu = P.MU[3], p = (mu + P.TH_W[3] * (1 - mu)) / P.C_E, mD = 1 / P.T_DOWN;
   for (const d of [0, 0.01, 0.02]) {

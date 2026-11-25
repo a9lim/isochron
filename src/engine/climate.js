@@ -1379,6 +1379,11 @@ export class Climate {
     for (const r of rs) { years += r.meanYears * r.cells; cells += r.cells; }
     this.soilWarm = true;
     this.stats.soilYears = cells ? years / cells : 0;
+    // The aquifer beneath (src/engine/soil.js): over the years since the last cycle by the planet's
+    // clock, at its balance until the climate has settled (the opening's lakes are held so too).
+    const now = this.clock ? this.clock() : null, cs = this.stats, open = !(cs.settled && cs.cycles > cs.settled);
+    s.aquiferStep(open || now === null || this.aqT == null ? Infinity : Math.max(0, now - this.aqT));
+    this.aqT = now;
     const ph = this.monthPh || (this.monthPh = Array.from({ length: 12 }, (_, m) => Math.floor(((monthPhase(m) % 1) + 1) % 1 * NP) % NP));
     const cnt = new Float64Array(NP);
     for (let m = 0; m < 12; m++) cnt[ph[m]]++;
@@ -1394,14 +1399,15 @@ export class Climate {
         for (let p = 0; p < NP; p++) this.betaPh[p][i] = this.evapPh[p][i] = 0;
         continue;
       }
-      this.runoff[i] = s.runoff[i] / 1000;
       for (let p = 0; p < NP; p++) this.betaPh[p][i] = this.evapPh[p][i] = 0;
+      let ro = 0;
       for (let m = 0; m < 12; m++) {
         const k = b + m, sw = o.SWE[k];
-        this.runoffM[k] = (o.quick[k] + o.base[k]) / 1000;
+        this.runoffM[k] = (o.quick[k] + s.riverBase(k)) / 1000; ro += this.runoffM[k];   // the rivers' months, with the aquifer's baseflow
         this.betaPh[ph[m]][i] += Math.min(1, o.S[k] / smax / FC) * (1 - sw / (sw + CV)) / cnt[ph[m]];
         this.evapPh[ph[m]][i] += o.evap[k] / 30.44 / cnt[ph[m]];
       }
+      this.runoff[i] = ro;
     }
     if (this.land) this.land.runoff.set(this.runoff);
   }
