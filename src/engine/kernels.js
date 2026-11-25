@@ -3,7 +3,8 @@
 // have set, which come with its arguments. Only the pool's threads import this.
 import { soilYearCells, SOIL } from './soil.js';
 import { cloudCells, CLOUDS } from './clouds.js';
-import { pressureCells, windCells } from './climate.js';
+import { pressureCells, windCells, finishCells } from './climate.js';
+import { YEAR } from './year.js';
 import { sourceCells } from './aeolian.js';
 import { VEG } from './vegetation.js';
 
@@ -16,6 +17,8 @@ export const KERNELS = {
   pressure: pressureCells,
   /** Its winds and carrying winds from that pressure. */
   wind: windCells,
+  /** Rain's harmonics, the months and the zones. */
+  finish(x, a, b) { if (x.YEAR) Object.assign(YEAR, x.YEAR); finishCells(x, a, b); },
   /** A point of the year's dust sources. */
   dustSources(x, a, b) { Object.assign(VEG, x.VEG); return sourceCells(x, a, b); },
 };

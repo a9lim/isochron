@@ -53,6 +53,7 @@ import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
 import { CLIMATE } from './climate.js';
 import { stream } from '../rng.js';
 import { VOLC, bandLat } from './volcanoes.js';
+import { shared } from './shared.js';
 
 export const YEAR = {
   LEVEL: 4,              // the anomaly's grid (440 km)
@@ -141,6 +142,12 @@ export function boxResponse(C0, a0, B, F0, tau, tMax = 30) {
   let te = null;
   for (let t = tp; t <= tMax * 3; t += 0.01) if (at(t) > vp / Math.E) { te = t - tp; break; }
   return { peak: vp, tPeak: tp, efold: te, at };
+}
+
+/** A year's log-rain spread at fine cell i with mean rain `map` (mm/yr), from `spreadFine`'s fields (Year.annualRainSpread, and the climate's zones on the engine's pool). */
+export function rainSpread(sp, i, map) {
+  const s = Year.rainSigma(map), l = sp.land[i], rho = YEAR.RHO_LAND * l + YEAR.RHO_SEA * (1 - l);
+  return s * Math.sqrt(rho * rho * sp.mem[i] + (1 - rho * rho) / 12);
 }
 
 export class Year {
@@ -472,15 +479,12 @@ export class Year {
   spreadFine() {
     this.capacity();
     const n = this.fine.n;
-    if (!this.sp || this.sp.T.length !== n) this.sp = { T: new Float32Array(n), mem: new Float32Array(n), land: new Float32Array(n) };
+    if (!this.sp || this.sp.T.length !== n) this.sp = { T: shared(Float32Array, n), mem: shared(Float32Array, n), land: shared(Float32Array, n) };
     this.toFine(this.sigma, this.sp.T); this.toFine(this.mem, this.sp.mem); this.toFine(this.land, this.sp.land);
     return this.sp;
   }
   /** A year's log-rain spread at fine cell i with mean rain `map` (mm/yr): the T′-borne part keeps its memory, the rest averages out. */
-  annualRainSpread(i, map) {
-    const sp = this.sp, s = Year.rainSigma(map), l = sp.land[i], rho = YEAR.RHO_LAND * l + YEAR.RHO_SEA * (1 - l);
-    return s * Math.sqrt(rho * rho * sp.mem[i] + (1 - rho * rho) / 12);
-  }
+  annualRainSpread(i, map) { return rainSpread(this.sp, i, map); }
 
   /**
    * The anomaly on the engine's grid over a step of `months` months, weighted by `live`:

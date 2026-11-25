@@ -80,6 +80,7 @@ import { AirHeat, AIRHEAT } from './airheat.js';
 import { Clouds, CLOUDS, shortwave, longwave } from './clouds.js';
 import { shared, toShared } from './shared.js';
 import { parallel } from './pool.js';
+import { rainSpread, YEAR } from './year.js';
 
 // Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
 // tune.mjs): the constants below marked "Earth" were set by a pattern search over the land's January,
@@ -274,6 +275,71 @@ export function pressureCells(x, a, b) {
     const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
     pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
       + 8 * polarHi[i] + thermal(anom[i]);
+  }
+}
+
+/**
+ * Harmonics of rain, the months and the zones on cells [a, b) (Climate.finishSteps, and the engine's
+ * pool's kernel). The thresholds' widths stand for the spread from year to year: the year's anomaly's
+ * (its closure: a month's temperature, a year's log rain), as a logistic's scale (σ / 1.7 matches a
+ * normal's spread), where the planet has a year (`sp`, Year.spreadFine).
+ */
+export function finishCells(x, a, b) {
+  const { Pph, Tf, P, z, T12, P12, elev, land, lat, trig, sp, C } = x, lapse = C.LAPSE;
+  const { c1, s1, c2, s2, mc, ms, mc2, ms2 } = trig;
+  const tm = new Float64Array(12), pm = new Float64Array(12);
+  let wT = C.ZONE_T, wP = C.ZONE_P;
+  for (let i = a; i < b; i++) {
+    let p0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+    for (let p = 0; p < NP; p++) {
+      const v = Pph[p][i];
+      p0 += v; a1 += v * c1[p]; b1 -= v * s1[p]; a2 += v * c2[p]; b2 -= v * s2[p];
+    }
+    P[0][i] = p0 / NP; P[1][i] = 2 * a1 / NP; P[2][i] = 2 * b1 / NP; P[3][i] = 2 * a2 / NP; P[4][i] = 2 * b2 / NP;
+    const o = NZ * i;
+    for (let k = 0; k < NZ; k++) z[o + k] = 0;
+    let mat = 0, map = 0, th = -99, tc = 99, pdry = 1e9;
+    const t0 = Tf[0][i], t1 = Tf[1][i], t2 = Tf[2][i], t3 = Tf[3][i], t4 = Tf[4][i], q0 = P[0][i], q1 = P[1][i], q2 = P[2][i], q3 = P[3][i], q4 = P[4][i], dz = lapse * elev[i];
+    for (let m = 0; m < 12; m++) {
+      tm[m] = t0 + t1 * mc[m] - t2 * ms[m] + t3 * mc2[m] - t4 * ms2[m] - dz;
+      pm[m] = Math.max(0, q0 + q1 * mc[m] - q2 * ms[m] + q3 * mc2[m] - q4 * ms2[m]) * 30.44;
+      T12[12 * i + m] = tm[m]; P12[12 * i + m] = pm[m];
+      mat += tm[m] / 12; map += pm[m];
+      if (tm[m] > th) th = tm[m];
+      if (tm[m] < tc) tc = tm[m];
+      if (pm[m] < pdry) pdry = pm[m];
+    }
+    if (!land[i]) continue;
+    if (sp) { const u = sp.T[i] / 1.7, v = rainSpread(sp, i, map) / 1.7; wT = Math.sqrt(u * u + C.ZONE_FLOOR_T * C.ZONE_FLOOR_T); wP = Math.sqrt(v * v + C.ZONE_FLOOR_P * C.ZONE_FLOOR_P); }
+    // Summer is April–September in the north, October–March in the south.
+    const north = lat[i] >= 0;
+    let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;
+    for (let m = 0; m < 12; m++) {
+      const summer = (m >= 3 && m <= 8) === north;
+      if (summer) { ps += pm[m]; psd = Math.min(psd, pm[m]); psw = Math.max(psw, pm[m]); }
+      else { pw += pm[m]; pwd = Math.min(pwd, pm[m]); pww = Math.max(pww, pm[m]); }
+    }
+    const pth = 2 * mat + (ps >= 0.7 * map ? 28 : pw >= 0.7 * map ? 0 : 14);
+    const pE = sigmoid((10 - th) / wT);
+    const lmap = Math.log(Math.max(1, map));
+    const pB = 10 * pth > 1 ? (1 - pE) * sigmoid((Math.log(10 * pth) - lmap) / wP) : 0;
+    const rest = 1 - pE - pB;
+    const sA = sigmoid((tc - 18) / wT), sC = sigmoid(tc / wT);
+    const pA = rest * sA, pC = rest * (1 - sA) * sC, pD = rest * (1 - sA) * (1 - sC);
+    // Second letters.
+    const sS = sigmoid((40 - psd) / 8) * sigmoid((pww / 3 - psd) / 8);
+    const sW = sigmoid((psw / 10 - pwd) / 6);
+    const fS = sS, fW = (1 - sS) * sW, fF = (1 - sS) * (1 - sW);
+    const af = sigmoid((pdry - 60) / 10), am = (1 - af) * sigmoid((pdry - (100 - map / 25)) / 10);
+    const dryS = psd < pwd ? 1 : 0;
+    z[o] = pA * af; z[o + 1] = pA * am;
+    z[o + 2] = pA * (1 - af - am) * (1 - dryS); z[o + 3] = pA * (1 - af - am) * dryS;
+    const bw = sigmoid((Math.log(5 * Math.max(0.2, pth)) - lmap) / wP);
+    z[o + 4] = pB * bw; z[o + 5] = pB * (1 - bw);
+    z[o + 6] = pC * fF; z[o + 7] = pC * fS; z[o + 8] = pC * fW;
+    z[o + 9] = pD * fF; z[o + 10] = pD * fS; z[o + 11] = pD * fW;
+    const ef = sigmoid(-th / wT);
+    z[o + 12] = pE * (1 - ef); z[o + 13] = pE * ef;
   }
 }
 
@@ -1278,9 +1344,13 @@ export class Climate {
    * Harmonics of rain, the months, and the zones, a slice of the cells at a time. The months'
    * and the six points' phases are the same for every cell, so their cosines are taken once.
    */
-  *finishSteps(slice = Math.ceil(this.grid.n / 8)) {
-    const C = CLIMATE, g = this.grid, n = g.n;
-    const P = this.Pf, Tf = this.Tf, Pph = this.Pph, elev = this.elevPos, lapse = C.LAPSE;
+  *finishSteps() {
+    // Monthly values, the zones, and runoff (finishCells, by chunk on the engine's pool where there is one).
+    yield* parallel('finish', finishCells, this.finishArgs(), this.grid.n);
+    yield* this.zonalSteps();
+  }
+  /** `finishCells`'s arguments: the six points' and the months' phases' cosines, taken once, and the year's spread. */
+  finishArgs() {
     const ph = this.finishTrig || (this.finishTrig = (() => {
       const t = { c1: new Float64Array(NP), s1: new Float64Array(NP), c2: new Float64Array(NP), s2: new Float64Array(NP), mc: new Float64Array(12), ms: new Float64Array(12), mc2: new Float64Array(12), ms2: new Float64Array(12) };
       for (let p = 0; p < NP; p++) { const th = 2 * Math.PI * (p + 0.5) / NP; t.c1[p] = Math.cos(th); t.s1[p] = Math.sin(th); t.c2[p] = Math.cos(2 * th); t.s2[p] = Math.sin(2 * th); }
@@ -1290,70 +1360,10 @@ export class Climate {
       }
       return t;
     })());
-    const { c1, s1, c2, s2, mc, ms, mc2, ms2 } = ph;
-    // Monthly values, the zones, and runoff.
-    const tm = new Float64Array(12), pm = new Float64Array(12);
-    // The thresholds' widths stand for the spread from year to year: the year's anomaly's
-    // (its closure: a month's temperature, a year's log rain), as a logistic's scale
-    // (σ / 1.7 matches a normal's spread), where the planet has a year.
-    const z = this.zones, sp = this.year ? this.year.spreadFine() : null;
-    let wT = C.ZONE_T, wP = C.ZONE_P;
-    for (let a = 0; a < n; a += slice) {
-      for (let i = a, e = Math.min(n, a + slice); i < e; i++) {
-        let p0 = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
-        for (let p = 0; p < NP; p++) {
-          const v = Pph[p][i];
-          p0 += v; a1 += v * c1[p]; b1 -= v * s1[p]; a2 += v * c2[p]; b2 -= v * s2[p];
-        }
-        P[0][i] = p0 / NP; P[1][i] = 2 * a1 / NP; P[2][i] = 2 * b1 / NP; P[3][i] = 2 * a2 / NP; P[4][i] = 2 * b2 / NP;
-        const o = NZ * i;
-        for (let k = 0; k < NZ; k++) z[o + k] = 0;
-        let mat = 0, map = 0, th = -99, tc = 99, pdry = 1e9;
-        const t0 = Tf[0][i], t1 = Tf[1][i], t2 = Tf[2][i], t3 = Tf[3][i], t4 = Tf[4][i], q0 = P[0][i], q1 = P[1][i], q2 = P[2][i], q3 = P[3][i], q4 = P[4][i], dz = lapse * elev[i];
-        for (let m = 0; m < 12; m++) {
-          tm[m] = t0 + t1 * mc[m] - t2 * ms[m] + t3 * mc2[m] - t4 * ms2[m] - dz;
-          pm[m] = Math.max(0, q0 + q1 * mc[m] - q2 * ms[m] + q3 * mc2[m] - q4 * ms2[m]) * 30.44;
-          this.T12[12 * i + m] = tm[m]; this.P12[12 * i + m] = pm[m];
-          mat += tm[m] / 12; map += pm[m];
-          if (tm[m] > th) th = tm[m];
-          if (tm[m] < tc) tc = tm[m];
-          if (pm[m] < pdry) pdry = pm[m];
-        }
-        if (!this.landMask[i]) continue;
-        if (sp) { const a = sp.T[i] / 1.7, b = this.year.annualRainSpread(i, map) / 1.7; wT = Math.sqrt(a * a + C.ZONE_FLOOR_T * C.ZONE_FLOOR_T); wP = Math.sqrt(b * b + C.ZONE_FLOOR_P * C.ZONE_FLOOR_P); }
-        // Summer is April–September in the north, October–March in the south.
-        const north = this.lat[i] >= 0;
-        let ps = 0, pw = 0, psd = 1e9, pwd = 1e9, psw = 0, pww = 0;
-        for (let m = 0; m < 12; m++) {
-          const summer = (m >= 3 && m <= 8) === north;
-          if (summer) { ps += pm[m]; psd = Math.min(psd, pm[m]); psw = Math.max(psw, pm[m]); }
-          else { pw += pm[m]; pwd = Math.min(pwd, pm[m]); pww = Math.max(pww, pm[m]); }
-        }
-        const pth = 2 * mat + (ps >= 0.7 * map ? 28 : pw >= 0.7 * map ? 0 : 14);
-        const pE = sigmoid((10 - th) / wT);
-        const lmap = Math.log(Math.max(1, map));
-        const pB = 10 * pth > 1 ? (1 - pE) * sigmoid((Math.log(10 * pth) - lmap) / wP) : 0;
-        const rest = 1 - pE - pB;
-        const sA = sigmoid((tc - 18) / wT), sC = sigmoid(tc / wT);
-        const pA = rest * sA, pC = rest * (1 - sA) * sC, pD = rest * (1 - sA) * (1 - sC);
-        // Second letters.
-        const sS = sigmoid((40 - psd) / 8) * sigmoid((pww / 3 - psd) / 8);
-        const sW = sigmoid((psw / 10 - pwd) / 6);
-        const fS = sS, fW = (1 - sS) * sW, fF = (1 - sS) * (1 - sW);
-        const af = sigmoid((pdry - 60) / 10), am = (1 - af) * sigmoid((pdry - (100 - map / 25)) / 10);
-        const dryS = psd < pwd ? 1 : 0;
-        z[o] = pA * af; z[o + 1] = pA * am;
-        z[o + 2] = pA * (1 - af - am) * (1 - dryS); z[o + 3] = pA * (1 - af - am) * dryS;
-        const bw = sigmoid((Math.log(5 * Math.max(0.2, pth)) - lmap) / wP);
-        z[o + 4] = pB * bw; z[o + 5] = pB * (1 - bw);
-        z[o + 6] = pC * fF; z[o + 7] = pC * fS; z[o + 8] = pC * fW;
-        z[o + 9] = pD * fF; z[o + 10] = pD * fS; z[o + 11] = pD * fW;
-        const ef = sigmoid(-th / wT);
-        z[o + 12] = pE * (1 - ef); z[o + 13] = pE * ef;
-      }
-      yield;
-    }
-    yield* this.zonalSteps();
+    const sp = this.year ? this.year.spreadFine() : null, trig = {};
+    for (const k in ph) trig[k] = Array.from(ph[k]);
+    return { Pph: this.Pph, Tf: this.Tf, P: this.Pf, z: this.zones, T12: this.T12, P12: this.P12, elev: this.elevPos, land: this.landMask, lat: this.lat, trig,
+      sp: sp ? { T: sp.T, mem: sp.mem, land: sp.land } : null, C: { ...CLIMATE }, YEAR: this.year ? { ...YEAR } : null };
   }
 
   /**

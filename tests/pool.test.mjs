@@ -15,6 +15,7 @@ const ARGS = {
   soilYear: () => { const c = P.climate; return { soil: c.soil.arrays(), T: c.T12, P: c.P12, PET: c.PET12, cold: false, SOIL: { ...SOIL } }; },
   clouds: () => P.climate.clouds.args(2, P.climate.Tf[0]),
   pressure: () => { const c = P.climate; return { lat: c.lat, sector: c.sector, landSmooth: c.landSmooth, polarHi: c.polarHi, anom: c.Tf[1], itcz: Array.from(c.itcz.subarray(36, 72)), phiH: 0.55, pres: c.pres, C: { ...CLIMATE } }; },
+  finish: () => P.climate.finishArgs(),
   dustSources: () => P.aeolian.sourceArgs(3, P.climate.Tf[0]),
   wind: () => { const c = P.climate, g = c.grid; return { g: { n: g.n, pos: g.pos, nbrOff: g.nbrOff, nbr: g.nbr, gw: g.gw }, pres: c.presPhase[2], omega: CLIMATE.OMEGA, wind: c.windPhase[2], carry: c.carry, gp: c.gp, C: { ...CLIMATE } }; },
 };
