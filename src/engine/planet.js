@@ -364,7 +364,7 @@ export class Planet {
    */
   settleClimate() {
     const c = this.climate;
-    while (!this.opened()) { c.solve(1); this.afterClimate(); this.openingIce(); }
+    while (!this.opened()) { c.solve(1); this.afterClimate(); this.openingIce(); this.openingLakes(); }
     return c.stats.settled;
   }
   /** The ice's volume (m × km² of the unit sphere: comparable with itself). */
@@ -385,6 +385,17 @@ export class Planet {
     let moved = 0, held = 0;
     for (let i = 0; i < H.length; i++) { moved += Math.abs(H[i] - H0[i]) * A[i]; held += H[i] * A[i]; }
     if ((this.iceYears >= PLANET.ICE_MIN && moved <= PLANET.ICE_TOL * Math.max(held, 1e-12)) || this.iceYears >= PLANET.ICE_MAX) { this.iceGrown = true; this.iceGrownAt = this.climate.stats.cycles; }
+  }
+  /**
+   * Today's Earth's opening after a climate cycle: its lakes at their balance with it and the sea
+   * re-solved for their water, so its opening's climate sees them as a seeded planet's does (whose
+   * lakes come with each chunk of its ice, `openingIce`), and the page draws them as they fill.
+   */
+  openingLakes() {
+    if (!this.earth || this.opened()) return;
+    const v = this.lakesVersion;
+    this.stepLakes(0, PLANET.OPEN_RATE);
+    if (this.lakesVersion !== v) this.tec.updateElevation();
   }
   /** The opening over: the climate settled and (a seeded planet's) its ice at its balance, seen by a cycle since. */
   opened() { const cs = this.climate.stats; return cs.settled > 0 && (!!this.earth || (!!this.iceGrown && cs.cycles > this.iceGrownAt)); }

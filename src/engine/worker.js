@@ -166,9 +166,10 @@ async function pumpTicks() {
     lap('surface');
   }
   else if (now - lastSeaCheck > 250) {
-    // Ice moves the sea; the coast is redrawn when it has moved a few metres.
+    // Ice moves the sea; the coast is redrawn when it has moved a few metres (and in the opening, the
+    // rivers retraced on each cycle's runoff).
     lastSeaCheck = now;
-    if (Math.abs(P.tec.seaLevel - seaSent) > 0.004) await sendSurface(false);
+    if (Math.abs(P.tec.seaLevel - seaSent) > 0.004 || (!opened && riversKey() !== riversSteps)) await sendSurface(false);
     lap('sea');
   }
   if (P.year.steps !== yearSent || (P.year.live > 0) !== yearLiveSent) { sendYear(); lap('year'); }
@@ -269,7 +270,7 @@ async function sendSurface(fromStep, steps = 0, ms = 0) {
   stepYears = 0;
   // Rivers retrace after the landscape steps, the climate's months change, or a lake opens or
   // closes; they run on their own drainage, which ends at closed lakes.
-  const rk = `${land.steps}:${P.climate.version}:${lakesKey(P.lakes)}`;
+  const rk = riversKey();
   if (rk !== riversSteps) {
     // Over the ice's surface where there are sheets, routed again when the landscape steps or the lakes
     // rebuild (as they do when the ice moves).
@@ -282,6 +283,9 @@ async function sendSurface(fromStep, steps = 0, ms = 0) {
   }
   post(m, [f.elevRel.buffer, f.coast.buffer, f.normals.buffer, f.tfDraw.buffer, f.felsic.buffer, m.elev.buffer]);
 }
+
+/** What the rivers were traced on: the landscape's steps, the climate's cycle, the lakes. */
+const riversKey = () => `${P.land.steps}:${P.climate.version}:${lakesKey(P.lakes)}`;
 
 // The lakes as drawn: their depth from their water, and the salt flats.
 let lakesDraw = null;
@@ -435,9 +439,12 @@ async function openingStep() {
       for (let k = 0; g.left > 1 && k < 8; k++) { g.advance(g.left, 1e5); while (g.reading) await nextTask(); await g.read(true); }
     }
     P.openingIceDone(H0);
-  }
+  } else P.openingLakes();
   opened = P.opened();
   if (opened) sendFast(false); else pending = Math.max(pending, 1);
+  // While the clock is held, a pump without ticks sends what the cycle brought (the cover, the lakes,
+  // the ice, and the rivers on its runoff), so the planet fills in cycle by cycle, not all at once.
+  schedule();
 }
 function sendPeopleFields() {
   if (!people || !opened || P.climate.version === people.sentVersion) return;

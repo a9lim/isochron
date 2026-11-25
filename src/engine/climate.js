@@ -207,8 +207,10 @@ export const CLIMATE = {
   // cell's column by more than MOIST_TOL of its saturation, at most MOIST_MAX (warm; ×4 cold).
   MOIST_TOL: 1e-3, MOIST_MAX: 48,
   // The climate has settled (`stats.settled`, the cycle it did) once two cycles running moved
-  // the mean temperature less than SETTLE_T (K) and rain, global and on land, less than SETTLE_P
-  // of itself; at the latest SETTLE_MAX cycles. The opening's references wait for it.
+  // the mean temperature less than SETTLE_T (K) a cycle and rain, global and on land, less than
+  // SETTLE_P of itself, each read as half its change over two cycles: rain alternates by ±0.3–0.7%
+  // from one cycle to the next at level 7, so cycle against cycle two calm ones never came and every
+  // opening ran to SETTLE_MAX. At the latest SETTLE_MAX cycles. The opening's references wait for it.
   SETTLE_T: 0.02, SETTLE_P: 0.005, SETTLE_MAX: 16,
   // The zones' widths: the year's own spread (src/engine/year.js) where there is one, with these
   // floors in quadrature (the classification's own uncertainty: a cell is 55–220 km of climates);
@@ -1434,14 +1436,17 @@ export class Climate {
     yield* this.groundYear();
     this.warm = true;
     // Settling: two cycles running that moved the mean temperature and rain (global and on
-    // land) less than SETTLE_T and SETTLE_P (the opening's references wait for it).
-    const C = CLIMATE, s = this.stats, q = this.lastMeans;
-    if (q) {
-      s.dT = s.meanT - q.T; s.dP = s.meanP / q.P - 1; s.dPland = s.landP / Math.max(1e-9, q.L) - 1;
+    // land) less than SETTLE_T and SETTLE_P a cycle, over two cycles so their alternation cancels
+    // (the opening's references wait for it).
+    const C = CLIMATE, s = this.stats, h = this.means || (this.means = []);
+    h.push({ T: s.meanT, P: s.meanP, L: s.landP });
+    if (h.length > 3) h.shift();
+    if (h.length === 3) {
+      const q = h[0];
+      s.dT = (s.meanT - q.T) / 2; s.dP = (s.meanP / q.P - 1) / 2; s.dPland = (s.landP / Math.max(1e-9, q.L) - 1) / 2;
       const near = Math.abs(s.dT) < C.SETTLE_T && Math.abs(s.dP) < C.SETTLE_P && Math.abs(s.dPland) < C.SETTLE_P;
       this.calm = near ? (this.calm || 0) + 1 : 0;
     }
-    this.lastMeans = { T: s.meanT, P: s.meanP, L: s.landP };
     s.cycles++;
     if (!s.settled && (this.calm >= 2 || s.cycles >= C.SETTLE_MAX)) s.settled = s.cycles;
     this.version++;

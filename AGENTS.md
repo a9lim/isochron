@@ -4,7 +4,7 @@ An Earth-like planet on one globe, from plate tectonics down to weather and peop
 
 ## Running and checking
 
-Serve from the parent root with `node tools/sims/serve.mjs 8790` and open `/isochron/`. `?seed=<string>` picks the planet (without one the page draws six letters and writes them into the link); `?seed=earth` is today's Earth; `?scenario=people` the People scenario (`&ending=1a`…`3b` forces its ending); `?level=` the engine's level.
+Serve from the parent root with `node tools/sims/serve.mjs 8790` and open `/isochron/`. `?seed=<string>` picks the planet (without one, today's Earth: `earth`; New planet writes six fresh letters into the link); `?scenario=people` the People scenario (`&ending=1a`…`3b` forces its ending); `?level=` the engine's level.
 
 ```bash
 node --test 'tests/*.test.mjs'         # the suite (~10 s; the GPU tests skip without Dawn)

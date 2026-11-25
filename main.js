@@ -18,7 +18,7 @@ import { buildGrid, cellCount } from './src/grid/icosphere.js';
 import { Record } from './src/engine/record.js';
 import { ClimateView, YearView } from './src/engine/mirror.js';
 import { OrbitCycles, EARTH_CYCLES } from './src/engine/orbit.js';
-import { isEarth } from './src/engine/earth.js';
+import { isEarth, EARTH_SEED } from './src/engine/earth.js';
 import { GTS2012, CNS_START } from './src/engine/gpts.js';
 import { PARAMS } from './src/engine/plates.js';
 import { CLIMATE, NZ } from './src/engine/climate.js';
@@ -60,9 +60,10 @@ const SPINUP_DAYS = 5;        // the weather's spin-up from the climate's state 
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
 const query = new URLSearchParams(location.search);
-// The planet's seed: the link's, or a new one written into it, so the link always names this planet.
-const seed = query.get('seed') || Array.from(crypto.getRandomValues(new Uint32Array(6)), v => 'abcdefghijkmnpqrstuvwxyz23456789'[v % 32]).join('');
-if (!query.get('seed')) { query.set('seed', seed); history.replaceState(null, '', `${location.pathname}?${query}${location.hash}`); }
+// The planet's seed: the link's, or today's Earth's for a link without one (New planet writes a
+// fresh one into the link, so a link always names its planet).
+const seed = query.get('seed') || EARTH_SEED;
+const freshSeed = () => Array.from(crypto.getRandomValues(new Uint32Array(6)), v => 'abcdefghijkmnpqrstuvwxyz23456789'[v % 32]).join('');
 const $ = id => document.getElementById(id);
 const els = {
   stage: document.querySelector('.globe-stage'),
@@ -776,10 +777,10 @@ for (const b of els.scenarios) {
     location.search = q.toString();
   });
 }
-// A new planet: the link without its seed, in the same scenario.
+// A new planet: a fresh seed in the link, in the same scenario.
 $('new-planet').addEventListener('click', () => {
   const q = new URLSearchParams(location.search);
-  q.delete('seed'); q.delete('ending');
+  q.set('seed', freshSeed()); q.delete('ending');
   location.search = q.toString();
 });
 function showPeopleParts() {
@@ -864,10 +865,13 @@ function caption(force) {
   lastCaption = now;
   // The year (the planet's, or with people their own, from the first people), the date where the
   // globe shows the season, and with people how many and the largest city. The view names itself;
-  // the margin's figures carry the rest. Nothing while the People scenario's planet settles.
-  if (!shown || (peopleOn() && !(people.msg && people.msg.last))) { setCaption('', true); return; }
+  // the margin's figures carry the rest. While the opening holds the clock, the climate's cycle it is
+  // on; with people, nothing else until the first of them.
+  const settling = engineOpened ? '' : `settling, cycle ${climate.stats.cycles + 1}`;
+  if (!shown || (peopleOn() && !(people.msg && people.msg.last))) { setCaption(shown ? settling : '', true); return; }
   const m = people.msg, h = m && m.last, parts = [h ? `year ${Math.floor(m.t).toLocaleString('en')}` : formatTime(P.years)];
   if (seasonShown() >= 0.5) parts.push(rate() < 0.05 ? dateOf(((P.years % 1) + 1) % 1) : monthName(((P.years % 1) + 1) % 1));
+  if (settling) parts.push(settling);
   if (h) {
     const st = m.off && m.off.stars;
     parts.push(`${headcount(h.earth)} people` + (h.space >= 1e3 ? `, ${headcount(h.space)} off-planet` : '') + (st && st.people >= 1e3 ? `, ${headcount(st.people)} at other stars` : ''));

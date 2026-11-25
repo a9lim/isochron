@@ -1,7 +1,7 @@
 // The climate on a seeded planet (or today's Earth: `earth`), converged: global means, the zonal profile, the zones' shares.
 // It runs cycles until the climate has settled (the engine's criterion, `stats.settled`: two
-// cycles running that moved the mean temperature less than CLIMATE.SETTLE_T and rain, global and
-// on land, less than SETTLE_P), with the moisture converged each cycle; the opening's first
+// cycles running that moved the mean temperature less than CLIMATE.SETTLE_T a cycle and rain, global
+// and on land, less than SETTLE_P, each over two cycles), with the moisture converged each cycle; the opening's first
 // cycles are a transient (the cover and the rain feed each other), so the numbers to tune to are
 // these, not cycle 4's.
 // usage: node tools/climate-check.mjs [seed] [overrides-json for CLIMATE]
