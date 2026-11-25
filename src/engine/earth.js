@@ -328,6 +328,11 @@ export function earthIce(P, f) {
     plates[owner[i]].h[ref[i]] = h[i];
   }
   tec.updateElevation();
+  // The ice's water read again over the refitted bed and the sea at the datum (the first read the bed
+  // sunk by the load the refit takes back out: ~10 m of sea short, which the ice's next step drained),
+  // and the sea filled with it.
+  fillSea(tec, datum());
+  ice.publish();
   fillSea(tec, datum());
   tec.landTarget = 1 - tec.oceanArea / (4 * Math.PI);
 }
