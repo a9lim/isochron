@@ -56,14 +56,16 @@ export const PLANET = {
   LAKES_ICE: 3.5e-5,     // km·sr: the ice's water that moves before the lakes are rebuilt for it,
   LAKES_ICE_YEARS: 100,  // and the years of the clock at least between such rebuilds (a rebuild is ~25 ms at level 7)
   // The opening (`settleClimate`; the page's worker alike): climate cycles back to back, and after
-  // each, on a seeded planet, the whole fast sim ICE_CHUNK years further off the clock (its ice, the
-  // regolith taking the ice's erosion as it comes, the carbon, the lakes, the sea), at OPEN_RATE's
-  // closures; today's Earth opens on its measured ice. Until the climate has settled, a chunk moves the
-  // ice's thickness less than ICE_TOL anywhere (Σ|ΔH| against ΣH: a sheet whose volume held while it
-  // thickened here and thinned there had gone on moving, and the land with it, after the opening; at
-  // least ICE_MIN years, at most ICE_MAX) and a cycle has seen it since (from
-  // none, a seeded planet's sheets take ~20–60 kyr to their balance with the climate they cool).
-  ICE_CHUNK: 5e3, ICE_TOL: 0.03, ICE_MIN: 2e4, ICE_MAX: 1.2e5, OPEN_RATE: 1e6,
+  // each, on a seeded planet, the whole fast sim further off the clock (its ice, the regolith taking
+  // the ice's erosion as it comes, the carbon, the lakes, the sea) in chunks of ICE_CHUNK years, one
+  // after the first cycle, two after the second and ICE_CHUNKS after each from then on (the climate's
+  // ~0.5 s cycle had followed each ~0.27 s chunk, so a planet whose ice took ICE_MAX ran 25 cycles), at
+  // OPEN_RATE's closures; today's Earth opens on its measured ice. Until the climate has settled, the
+  // chunks after a cycle move the ice's thickness less than ICE_TOL a chunk anywhere (Σ|ΔH| against ΣH:
+  // a sheet whose volume held while it thickened here and thinned there had gone on moving, and the
+  // land with it, after the opening; at least ICE_MIN years, at most ICE_MAX) and a cycle has seen it
+  // since (from none, a seeded planet's sheets take ~20–120 kyr to their balance with the climate they cool).
+  ICE_CHUNK: 5e3, ICE_CHUNKS: 4, ICE_TOL: 0.03, ICE_MIN: 2e4, ICE_MAX: 1.2e5, OPEN_RATE: 1e6,
 };
 
 export { Record, SERIES } from './record.js';
@@ -370,22 +372,31 @@ export class Planet {
   }
   /** The ice's volume (m × km² of the unit sphere: comparable with itself). */
   iceVolume() { const H = this.ice.H, A = this.grid.area; let v = 0; for (let i = 0; i < this.grid.n; i++) v += H[i] * A[i]; return v; }
-  /** The opening after a climate cycle (PLANET.ICE_*): the fast sim ICE_CHUNK years further off the clock, the ice in full (headless; the page's worker on its GPU, then `openingIceDone`). Nothing for today's Earth, or once grown. */
+  /** The opening after a climate cycle (PLANET.ICE_*): the fast sim further off the clock in `iceChunks()` chunks, the ice in full (headless; the page's worker steps its own on the GPU). Nothing for today's Earth, or once grown. */
   openingIce() {
     if (this.earth || this.iceGrown) return;
-    const H0 = Float32Array.from(this.ice.H);
-    this.fast(PLANET.ICE_CHUNK, Infinity, PLANET.OPEN_RATE, Infinity);
-    this.openingIceDone(H0);
+    const H0 = Float32Array.from(this.ice.H), k = this.iceChunks();
+    for (let j = 0; j < k; j++) { this.fast(PLANET.ICE_CHUNK, Infinity, PLANET.OPEN_RATE, Infinity); this.openingChunkDone(); }
+    this.openingIceDone(H0, k);
   }
-  /** A chunk of the opening stepped (the ice's thickness H0 before): the regolith given the chunk's glacial erosion and till now (not at the first step after the opening), the sea re-solved, the years counted, and grown once the chunk moved the ice's thickness less than ICE_TOL. */
-  openingIceDone(H0) {
+  /** The opening's chunks after this cycle: one, two, then ICE_CHUNKS, as many as ICE_MAX leaves. */
+  iceChunks() {
+    const left = Math.ceil((PLANET.ICE_MAX - (this.iceYears || 0)) / PLANET.ICE_CHUNK);
+    return Math.max(1, Math.min(PLANET.ICE_CHUNKS, 2 ** (this.iceCycles || 0), left));
+  }
+  /** A chunk of the opening stepped: the regolith given the chunk's glacial erosion and till now (not at the first step after the opening), the sea re-solved, the years counted. */
+  openingChunkDone() {
     this.regolith.flush();
     this.tec.updateElevation();
     this.iceYears = (this.iceYears || 0) + PLANET.ICE_CHUNK;
+  }
+  /** A cycle's k chunks stepped (the ice's thickness H0 before them): grown once they moved the ice's thickness less than ICE_TOL a chunk. */
+  openingIceDone(H0, k) {
+    this.iceCycles = (this.iceCycles || 0) + 1;
     const H = this.ice.H, A = this.grid.area;
     let moved = 0, held = 0;
     for (let i = 0; i < H.length; i++) { moved += Math.abs(H[i] - H0[i]) * A[i]; held += H[i] * A[i]; }
-    if ((this.iceYears >= PLANET.ICE_MIN && moved <= PLANET.ICE_TOL * Math.max(held, 1e-12)) || this.iceYears >= PLANET.ICE_MAX) { this.iceGrown = true; this.iceGrownAt = this.climate.stats.cycles; }
+    if ((this.iceYears >= PLANET.ICE_MIN && moved <= k * PLANET.ICE_TOL * Math.max(held, 1e-12)) || this.iceYears >= PLANET.ICE_MAX) { this.iceGrown = true; this.iceGrownAt = this.climate.stats.cycles; }
   }
   /**
    * Today's Earth's opening after a climate cycle: its lakes at their balance with it and the sea
