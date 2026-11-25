@@ -78,6 +78,8 @@ import { SeaHeat } from './seaheat.js';
 import { DeepSea } from './deepsea.js';
 import { AirHeat, AIRHEAT } from './airheat.js';
 import { Clouds, CLOUDS, shortwave, longwave } from './clouds.js';
+import { shared } from './shared.js';
+import { parallel } from './pool.js';
 
 // Tuned on today's Earth (2026-11-17; tools/earth/: climate-score.mjs against observed climatologies,
 // tune.mjs): the constants below marked "Earth" were set by a pattern search over the land's January,
@@ -453,9 +455,9 @@ export class Climate {
     // The ground: its periodic year under this climate's months (the closure; the year steps
     // it live, src/engine/ground.js). Sea and grounded ice hold no soil water.
     this.soil = new Soil(n, 0);
-    this.T12 = new Float32Array(12 * n);       // surface °C by month (12 i + m)
-    this.P12 = new Float32Array(12 * n);       // rain, mm in the month
-    this.PET12 = new Float32Array(12 * n);     // potential evaporation, mm in the month
+    this.T12 = shared(Float32Array, 12 * n);       // surface °C by month (12 i + m)
+    this.P12 = shared(Float32Array, 12 * n);       // rain, mm in the month
+    this.PET12 = shared(Float32Array, 12 * n);     // potential evaporation, mm in the month
     this.peAnn = new Float32Array(n);          // m/yr: rain less potential evaporation (what open water gains)
     this.pAnn = new Float32Array(n);           // m/yr: rain (land)
     this.betaPh = Array.from({ length: NP }, () => new Float32Array(n).fill(0.5));   // the ground's evaporative efficiency at each point of the year
@@ -1338,20 +1340,17 @@ export class Climate {
   }
 
   /**
-   * The ground's periodic year under this cycle's months (sliced over the cells, warm from
-   * the last), then its runoff for the landscape and the rivers, open water's balance for
-   * the lakes, and its evaporative efficiency at each point of the year for the next cycle.
+   * The ground's periodic year under this cycle's months (by chunk of cells, on the engine's pool
+   * where there is one, src/engine/kernels.js; warm from the last), then its runoff for the
+   * landscape and the rivers, open water's balance for the lakes, and its evaporative efficiency
+   * at each point of the year for the next cycle.
    */
   *groundYear() {
     const n = this.grid.n, s = this.soil, o = s.out, FC = SOIL.FC, CV = SOIL.COVER;
     potentialEvaporation(this.T12, this.PET12);
-    const cold = !this.soilWarm, slice = Math.ceil(n / 16);
+    const rs = yield* parallel('soilYear', { soil: s.arrays(), T: this.T12, P: this.P12, PET: this.PET12, cold: !this.soilWarm, SOIL: { ...SOIL } }, n);
     let years = 0, cells = 0;
-    for (let a = 0; a < n; a += slice) {
-      const r = s.equilibrium(this.T12, this.P12, this.PET12, { cold, from: a, to: Math.min(n, a + slice) });
-      years += r.meanYears * r.cells; cells += r.cells;
-      yield;
-    }
+    for (const r of rs) { years += r.meanYears * r.cells; cells += r.cells; }
     this.soilWarm = true;
     this.stats.soilYears = cells ? years / cells : 0;
     const ph = this.monthPh || (this.monthPh = Array.from({ length: 12 }, (_, m) => Math.floor(((monthPhase(m) % 1) + 1) % 1 * NP) % NP));

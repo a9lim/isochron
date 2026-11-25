@@ -30,7 +30,7 @@ boot.js           the page's first module (no imports): the seed, the engine's l
 main.js           the page: clock and dial, the engine's snapshots, views, scenarios, captions, figures, input, the loop
 src/clock.js      the dial's range and the Scheduler
 src/grid/         the geodesic grid and its operators, transfers between levels, multigrid
-src/engine/       the model, no DOM: one file per layer, planet.js steps them together; worker.js and people-worker.js are the threads
+src/engine/       the model, no DOM: one file per layer, planet.js steps them together; worker.js and people-worker.js are the threads, pool.js the engine's pool of threads for per-cell loops (kernels.js)
 src/gpu/          device.js, hierarchy.js, and each layer's GPU path
 src/render/       the globe and its shader, the overlay's lines and symbols, the chart, figures, the sky
 tests/            node:test files; gpu-*.test.mjs run on Dawn (webgpu-node.mjs sets it up)
@@ -46,6 +46,7 @@ about.md          the public about panel (the parent's build stages it)
 - Each source file's header holds its layer's forms; keep it current with the code, since it is the layer's documentation.
 - Tests guard what running the sim wouldn't show: conservation, analytic oracles of a layer's physics, exact steps and determinism, CPU–GPU parity. Add one where a new mechanism's failure would be silent, one case per mechanism, small and seeded. Never snapshot tuned values; the Earth scores in `tools/` track those.
 - New per-cell state lands with a CPU reference, because the headless tools and tests run without a GPU. Kernels bind at most eight storage buffers (the adapters' limit).
+- A per-cell loop moves onto the engine's pool (`src/engine/pool.js`, on a cross-origin isolated page) as a kernel in `kernels.js` over a range of cells, run with `yield* parallel(...)`; the arrays it touches are allocated with `shared` (`shared.js`), and its arguments join `tests/pool.test.mjs`, which checks its cells don't depend on the chunking. Headless and without isolation the same chunks run in order on the engine's thread.
 - WGSL compiles only in the browser and in Dawn. The GPU tests compile the engine's kernels and the weather's, not the globe's render shader, so check the page's console after shader edits. `fwidth` must stay in uniform control flow, which is why the globe's fragment shader computes sea and land and then selects.
 - Tuning is on today's Earth: after a change that moves the climate, re-score and, if needed, re-tune with `tools/earth/tune.mjs` on a copy of `src/`, `earth/` and `tools/earth/` (it spawns the scorer fresh, reading the source as it stands). Seeded planets may shift; report it.
 - The one red is where the mantle reaches the surface (ridges, arc volcanoes, hotspots, flood basalts, eruptions) and, with people, the people. The other inks: ocean prussian, land umber (`colors.js`).

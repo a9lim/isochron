@@ -1,0 +1,84 @@
+// A pool of threads for the engine's per-cell loops (the page's engine thread only: headless, and on a
+// page that isn't cross-origin isolated, every loop runs on its own thread as before).
+//
+// A kernel (src/engine/kernels.js) is a function over a range of cells, run on CHUNKS fixed chunks of
+// [0, n): the pool's threads and the engine's own claim chunks from a shared counter until none are
+// left, and the results come back by chunk, in order. So a kernel's work is the same per cell however
+// many threads share it, and what the results sum to is summed in the same order: a run on the pool
+// gives what one without it gives, to the bit.
+//
+// The arrays a kernel reads and writes live in SharedArrayBuffers (`shared`, src/engine/shared.js, on
+// once the engine starts the pool, before the planet is built), so the threads work on the planet's own
+// arrays; a kernel's arguments are those arrays and plain values, and one that isn't shared is refused
+// (the thread would have written a copy). Constants a kernel reads that the engine may set
+// (CLIMATE.CO2 and the like) go with its arguments.
+import { KERNELS } from './kernels.js';
+import { SHARED, CHUNKS, chunkOf } from './shared.js';
+
+const SLICE = 4;               // chunks between the turns a loop without the pool yields (as its slices did)
+
+let pool = null;
+
+/**
+ * The pool, from the engine's thread: `threads` workers (src/engine/pool-worker.js) beside it. Only
+ * where SharedArrayBuffer is there (a cross-origin isolated page); null otherwise, and loops run here.
+ */
+export function startPool(threads) {
+  if (pool || !(threads > 0) || typeof SharedArrayBuffer !== 'function' || !(globalThis.crossOriginIsolated)) return null;
+  SHARED.on = true;
+  const workers = Array.from({ length: threads }, () => new Worker(new URL('./pool-worker.js', import.meta.url), { type: 'module' }));
+  const jobs = new Map();
+  let ids = 0;
+  for (const w of workers) {
+    w.onmessage = e => {
+      const { id, results, error } = e.data, job = jobs.get(id);
+      if (!job) return;
+      if (error) job.error = error;
+      for (const [k, r] of results) job.results[k] = r;
+      if (++job.replies === workers.length) { jobs.delete(id); job.error ? job.reject(new Error(job.error)) : job.resolve(job.results); }
+    };
+    w.onerror = e => console.warn('[isochron] pool:', e.message);
+  }
+  pool = {
+    threads,
+    /** Run kernel `name` over n cells: the job's `results` (by chunk) once `done` resolves. */
+    run(name, args, n, chunks = CHUNKS) {
+      checkShared(name, args);
+      const ctl = new Int32Array(new SharedArrayBuffer(4)), id = ++ids;
+      const job = { results: new Array(chunks), replies: 0 };
+      job.done = new Promise((res, rej) => { job.resolve = res; job.reject = rej; });
+      jobs.set(id, job);
+      for (const w of workers) w.postMessage({ id, name, args, n, chunks, ctl });
+      // This thread takes chunks too, while the others start.
+      const f = KERNELS[name];
+      for (let k; (k = Atomics.add(ctl, 0, 1)) < chunks;) { const [a, b] = chunkOf(k, n, chunks); job.results[k] = f(args, a, b); }
+      return job;
+    },
+  };
+  return pool;
+}
+
+/** Refuse a kernel's typed array that isn't shared: the pool's threads would write a copy. */
+function checkShared(name, x, path = name) {
+  if (ArrayBuffer.isView(x)) { if (!(x.buffer instanceof SharedArrayBuffer)) throw new Error(`pool: ${path} isn't shared`); return; }
+  if (x && typeof x === 'object') for (const k in x) checkShared(name, x[k], `${path}.${k}`);
+}
+
+/**
+ * Kernel `name` over n cells by chunk (yield* it in a generator): on the pool where there is one, the
+ * engine's turns given to it while it runs; else here, yielding every SLICE chunks. Returns the
+ * results by chunk.
+ */
+export function* parallel(name, args, n, chunks = CHUNKS) {
+  if (pool) { const job = pool.run(name, args, n, chunks); yield job.done; return job.results; }
+  const f = KERNELS[name], out = new Array(chunks);
+  for (let k = 0; k < chunks; k++) {
+    const [a, b] = chunkOf(k, n, chunks);
+    out[k] = f(args, a, b);
+    if ((k + 1) % SLICE === 0 && k + 1 < chunks) yield;
+  }
+  return out;
+}
+
+/** The pool's threads (0 without it). */
+export const poolThreads = () => (pool ? pool.threads : 0);

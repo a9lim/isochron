@@ -76,6 +76,8 @@
 //                 over 1 K) it sheds half the month's rain and melt as quick
 //                 flow, and frozen ground below doesn't drain at all.
 //
+import { shared } from './shared.js';
+
 /** Groundwater over a month: the store at its end, from its start and the month's recharge (both mm); the outflow is g0 + rch − end. */
 export function groundwater(g0, rch) {
   const a = Math.exp(-1 / SOIL.TAU_G);
@@ -191,23 +193,30 @@ export class Soil {
   /** `n` cells; `Smax` (mm) a number or an array, ≤ 0 where there's no land. */
   constructor(n, Smax = SOIL.SMAX) {
     this.n = n;
-    this.Smax = new Float32Array(n);
-    this.S = new Float64Array(n);          // soil water, mm
-    this.SWE = new Float64Array(n);        // snowpack, mm of water
-    this.Tg = new Float64Array(n);         // the ground's temperature, °C
-    this.G = new Float64Array(n);          // groundwater, mm
-    const m12 = () => new Float32Array(12 * n);
+    // Shared with the engine's pool, which steps the periodic year (src/engine/kernels.js, soilYear).
+    this.Smax = shared(Float32Array, n);
+    this.S = shared(Float64Array, n);          // soil water, mm
+    this.SWE = shared(Float64Array, n);        // snowpack, mm of water
+    this.Tg = shared(Float64Array, n);         // the ground's temperature, °C
+    this.G = shared(Float64Array, n);          // groundwater, mm
+    const m12 = () => shared(Float32Array, 12 * n);
     // By month (12 i + m), the month's totals (mm: base is groundwater's outflow) and its end state.
     this.out = { quick: m12(), base: m12(), evap: m12(), S: m12(), SWE: m12(), Tg: m12(), G: m12() };
     // The last twelve months' aggregates.
-    this.runoff = new Float32Array(n);     // mm a year, quick and base
-    this.evap = new Float32Array(n);       // mm a year
-    this.wet = new Float32Array(n);        // mean S/S_max: the climate's land wetness
-    this.beta = new Float32Array(n);       // mean evaporative efficiency, β × the snow-free share
-    this.tgMean = new Float32Array(n);     // the ground's annual mean, °C
-    this.permafrost = new Float32Array(n); // soft: 1 where the ground's mean is well below 0 °C
+    this.runoff = shared(Float32Array, n);     // mm a year, quick and base
+    this.evap = shared(Float32Array, n);       // mm a year
+    this.wet = shared(Float32Array, n);        // mean S/S_max: the climate's land wetness
+    this.beta = shared(Float32Array, n);       // mean evaporative efficiency, β × the snow-free share
+    this.tgMean = shared(Float32Array, n);     // the ground's annual mean, °C
+    this.permafrost = shared(Float32Array, n); // soft: 1 where the ground's mean is well below 0 °C
     this.setCapacity(Smax);
     for (let i = 0; i < n; i++) this.S[i] = 0.5 * this.Smax[i];
+  }
+
+  /** Its arrays and n: what the engine's pool's threads rebuild it from (src/engine/kernels.js, soilYear). */
+  arrays() {
+    const { n, Smax, S, SWE, Tg, G, out, runoff, evap, wet, beta, tgMean, permafrost } = this;
+    return { n, Smax, S, SWE, Tg, G, out, runoff, evap, wet, beta, tgMean, permafrost };
   }
 
   /** The capacity (mm). Water past a cut one stays until the next month, which runs it off (as on the GPU). */

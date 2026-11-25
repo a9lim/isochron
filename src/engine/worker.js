@@ -60,6 +60,12 @@ import { GpuSurface } from '../gpu/surface.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong } from '../grid/transfer.js';
 import { PeopleLink, HarvestYears, fieldsOf, soilOf, peopleLevel } from './peoplelink.js';
+import { startPool, poolThreads } from './pool.js';
+
+// The pool of threads for the per-cell loops (src/engine/pool.js), started before the planet is built
+// so its arrays are shared: on a cross-origin isolated page, the cores less the page's, this one's and
+// the chart's, up to seven; elsewhere none, and the loops run here.
+startPool(Math.max(0, Math.min(7, (navigator.hardwareConcurrency || 4) - 3)));
 
 // The climate's slice (ms), and while it hasn't settled (the opening's ~10 cycles) the gap between its
 // slices while the plates pump, in slices: 10 after (a tenth of a busy thread), 3 before (a quarter).
@@ -72,7 +78,8 @@ let iceRouted = null, iceRouteKey = '';   // the drawn drainage over the ice's s
 let lakesSent = -1, lastLakes = 0;
 let coverSent = -1, lastCover = 0;
 
-const post = (m, transfer = []) => self.postMessage(m, transfer);
+// (A shared array's buffer can't be transferred: the messages carry copies.)
+const post = (m, transfer = []) => self.postMessage(m, transfer.filter(b => !(typeof SharedArrayBuffer === 'function' && b instanceof SharedArrayBuffer)));
 // The engine's own GPU device, asked for as the thread starts, so the GPU's own start overlaps the
 // planet's spin-up; the pump waits for it (a level-7 plate step on the CPU is ~250 ms cold) unless
 // there is none.
@@ -485,7 +492,7 @@ function sendFast(first) {
   // The live ground's last twelve months and this month's runoff, read back for the next message.
   if (P.ground.live && P.ground.gpu) P.ground.readBack(monthAt(((P.years % 1) + 1) % 1).i, P.years).catch(err => console.warn('[isochron] ground:', err.message));
   const m = {
-    type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast) }, years: P.years, seaLevel: tec.seaLevel, seaLevel0: P.seaLevel0, samples: Float64Array.from(samples),
+    type: 'fast', prof: { ...prof, span: lastFast - (sendFast.prev || lastFast), threads: poolThreads() }, years: P.years, seaLevel: tec.seaLevel, seaLevel0: P.seaLevel0, samples: Float64Array.from(samples),
     iceH: Float32Array.from(ice.H), iceVel: drawnFlow(ice), iceStats: { ...ice.stats },
     carbon: { pco2: carbon.pco2, flux: { ...carbon.flux }, wF: carbon.wF, wF0: carbon.wF0, balance: carbon.equilibrium(carbon.flux.out),
       sea: { ccd: carbon.sea.stats.ccd || 0, sat: carbon.sea.stats.saturation || 0 } },
