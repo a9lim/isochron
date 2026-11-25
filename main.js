@@ -18,7 +18,8 @@ import { buildGrid, cellCount } from './src/grid/icosphere.js';
 import { Record } from './src/engine/record.js';
 import { ClimateView, YearView } from './src/engine/mirror.js';
 import { OrbitCycles, EARTH_CYCLES } from './src/engine/orbit.js';
-import { isEarth, EARTH_SEED } from './src/engine/earth.js';
+import { seed, LEVEL, engine, takeEngine } from './boot.js';
+import { isEarth } from './src/engine/earth.js';
 import { GTS2012, CNS_START } from './src/engine/gpts.js';
 import { PARAMS } from './src/engine/plates.js';
 import { CLIMATE, NZ } from './src/engine/climate.js';
@@ -50,19 +51,14 @@ const POL_DT = 0.02;          // Myr per polarity-table entry
 const POL_SPAN = 420;         // Myr the table covers
 const PLATE_STEP = 5e5;       // years: the largest plate step (a tenth of a second's worth, down to 50 kyr)
 const WEATHER_GPU_MS = 12;    // the weather's share of the GPU's frame, when it runs live
-// The engine's grid: 55 km (level 7), or 110 km on phones and tablets and on machines of four cores
-// or 4 GB or fewer (a quarter of the work, and ~200 MB of the engine's arrays against ~650; ?level=
-// overrides), and the drawn mesh and the weather's (55 km), onto which a coarser engine's fields are refined.
-const LIGHT = matchMedia('(pointer: coarse)').matches || (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4;
-const LEVEL = Math.max(5, Math.min(7, +(new URLSearchParams(location.search).get('level') || (LIGHT ? 6 : 7))));
+// The engine's grid is LEVEL (boot.js); the drawn mesh and the weather's are 55 km.
 const MESH_LEVEL = 7;
 const SPINUP_DAYS = 5;        // the weather's spin-up from the climate's state (its storms reach their equilibrium in ~4)
 const RECORD_SECONDS = 40;    // the record's window, in seconds of the dial
 
 const query = new URLSearchParams(location.search);
-// The planet's seed: the link's, or today's Earth's for a link without one (New planet writes a
-// fresh one into the link, so a link always names its planet).
-const seed = query.get('seed') || EARTH_SEED;
+// The planet's seed is boot.js's (the link's, or today's Earth's); New planet writes a fresh one
+// into the link, so a link always names its planet.
 const freshSeed = () => Array.from(crypto.getRandomValues(new Uint32Array(6)), v => 'abcdefghijkmnpqrstuvwxyz23456789'[v % 32]).join('');
 const $ = id => document.getElementById(id);
 const els = {
@@ -86,7 +82,6 @@ const els = {
 // Mirrors of the engine's state, as of its last snapshots (src/engine/mirror.js).
 const grid = buildGrid(LEVEL);
 const mesh = LEVEL < MESH_LEVEL ? buildGrid(MESH_LEVEL) : grid;
-const engine = new Worker(new URL('./src/engine/worker.js', import.meta.url), { type: 'module' });
 let tecStats = { plates: 0, land: 0, seaLevel: 0, fastest: 0, meanOceanAge: 0 };
 const tec = { grid, t: 0, seaLevel: 0, elev: new Float32Array(grid.n), plates: [], stats: () => tecStats };
 const climate = new ClimateView(grid);
@@ -1248,7 +1243,7 @@ function tick(now) {
     const p = plan[0];
     // The engine's tick: the years, the plate steps, and the orbit the climate sees
     // (averaged over what the dial passes in ~2 s).
-    if (engineStarted && adv > 0) { engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2, rate: rate() }); stepsSent += Math.max(0, p.steps); }
+    if (adv > 0) { engine.postMessage({ type: 'tick', adv, steps: Array(Math.max(0, p.steps)).fill(p.step), window: rate() * 2, rate: rate() }); stepsSent += Math.max(0, p.steps); }
     if (people.msg && adv > 0) { people.worker.postMessage({ type: 'tick', adv }); people.sent += adv; }
     if (view === 'weather') stepWeather(adv);
     figuresDirty = true;
@@ -1315,8 +1310,7 @@ function tick(now) {
 }
 
 // ── The engine's snapshots ──
-let engineStarted = false;
-engine.onmessage = e => {
+function onEngine(e) {
   const m = e.data;
   if (m.type === 'ready') {
     // The ticks sent before the engine was ready still reach it, after its opening: the clock is the opening plus them.
@@ -1333,7 +1327,7 @@ engine.onmessage = e => {
   else if (m.type === 'lakes') onLakes(m);
   else if (m.type === 'cover') onCover(m);
   else if (m.type === 'sulfate') { sulfPattern = m.pat; if (globe) globe.setSulfate(m.pat); drawDirty = true; }
-};
+}
 engine.onerror = e => console.warn('[isochron] engine:', e.message);
 
 // Today's Earth opens at half a year a second: its seasons over its own continents (faster, its plates
@@ -1342,8 +1336,7 @@ if (isEarth(seed) && !peopleOn()) els.dial.value = String(EARTH_DIAL);
 syncDial();
 showPeopleParts();
 syncControls();
-engine.postMessage({ type: 'init', seed, level: LEVEL });
-engineStarted = true;
+takeEngine(onEngine);   // boot.js posted the engine's init; what it has sent since comes now
 engine.postMessage({ type: 'play', playing });
 
 gpuDevice().then(device => createGlobe(els.gpu, mesh, grid, device)).then(g => {

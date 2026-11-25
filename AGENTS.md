@@ -26,6 +26,7 @@ The other tools in `tools/` (surveys, fits, `hypsometry`) document their argumen
 
 ```
 earth/            today's Earth on the level-7 grid and its mantle's slabs, fetched only for its seed (made by tools/earth/)
+boot.js           the page's first module (no imports): the seed, the engine's level, the engine's thread started at once
 main.js           the page: clock and dial, the engine's snapshots, views, scenarios, captions, figures, input, the loop
 src/clock.js      the dial's range and the Scheduler
 src/grid/         the geodesic grid and its operators, transfers between levels, multigrid
