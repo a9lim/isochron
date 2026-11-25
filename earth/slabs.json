@@ -3,7 +3,7 @@
 "n": 2562,
 "bin": 10,
 "bins": 20,
-"file": "slabs-4.bin",
+"file": "slabs-4.bin.gz",
 "source": "M\u00fcller et al. 2019 (CC BY 4.0): subduction zones every 2 Myr to 200 Ma, km\u00b2 subducted per cell",
 "rate": [
 [

@@ -10,10 +10,11 @@ weights the bins by their age into today's slab graveyard (src/engine/mantle.js)
     node tools/earth/cells.mjs 4
     uv run --no-project --with numpy --with scipy --with pygplates python -I tools/earth/slabs.py
 
-Writes earth/slabs.json and earth/slabs-4.bin (Float32, bins × cells). Snapshots every STEP Myr (each
+Writes earth/slabs.json and earth/slabs-4.bin.gz (Float32, bins × cells, gzipped). Snapshots every STEP Myr (each
 standing for STEP Myr of subduction), boundary points every ~32 km, the convergence across each
 subduction zone's segments (pygplates's plate boundary statistics; positive closing).
 """
+import gzip
 import json
 import math
 import sys
@@ -58,10 +59,11 @@ for t in np.arange(STEP / 2, T_MAX, STEP):
     print(f'{t:6.1f} Ma: {len(pts)} trench points, {sum(area) / STEP / 1e6:.2f} M km² a Myr', file=sys.stderr)
 
 OUT.mkdir(exist_ok=True)
-bins.astype(np.float32).tofile(OUT / f'slabs-{LEVEL}.bin')
+with gzip.open(OUT / f'slabs-{LEVEL}.bin.gz', 'wb', compresslevel=9, mtime=0) as fh:
+    fh.write(bins.astype(np.float32).tobytes())
 json.dump({
-    'level': LEVEL, 'n': n, 'bin': BIN, 'bins': T_MAX // BIN, 'file': f'slabs-{LEVEL}.bin',
+    'level': LEVEL, 'n': n, 'bin': BIN, 'bins': T_MAX // BIN, 'file': f'slabs-{LEVEL}.bin.gz',
     'source': 'Müller et al. 2019 (CC BY 4.0): subduction zones every %d Myr to %d Ma, km² subducted per cell' % (STEP, T_MAX),
     'rate': [[round(t, 1), round(a)] for t, a in rates],
 }, open(OUT / 'slabs.json', 'w'), indent=0)
-print(f'wrote {OUT / ("slabs-%d.bin" % LEVEL)}', file=sys.stderr)
+print(f'wrote {OUT / ("slabs-%d.bin.gz" % LEVEL)}', file=sys.stderr)

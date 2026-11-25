@@ -1,5 +1,5 @@
 // Today's Earth (`?seed=earth`): the planet opened on data rather than from noise. tools/earth/bake.py
-// puts the data on the level-7 grid (earth/earth.json, earth/earth-7.bin): ETOPO 2022's bedrock and its
+// puts the data on the level-7 grid (earth/earth.json, earth/earth-7.bin.gz): ETOPO 2022's bedrock and its
 // grounded ice, Seton et al. 2020's seafloor ages, Müller et al. 2019's plates and their motions, ten
 // hotspots. Everything after the opening is the sim's own: the plates relax to their torque balance
 // within a few Myr (PARAMS.V_RELAX), and the climate, the ice and the rest find their own balance on
@@ -51,25 +51,36 @@ export function parseEarth(meta, buf) {
   return d;
 }
 
-/** Fetch (in a page or worker) or read (in node) the baked data. */
+/**
+ * Fetch (in a page or worker) or read (in node) the baked data. The binaries are gzipped (the site
+ * serves them as they are: its CDN doesn't compress application/octet-stream), 1.97 MB and 0.2 MB
+ * raw against 0.64 and 0.02 MB, and inflated here.
+ */
 export async function loadEarth() {
   const json = new URL('../../earth/earth.json', import.meta.url), sj = new URL('../../earth/slabs.json', import.meta.url);
+  const bin = new URL('../../earth/earth-7.bin.gz', import.meta.url);
   let d, sm, sb;
   if (json.protocol === 'file:') {
-    const { readFileSync } = await import('node:fs');
+    const { readFileSync } = await import('node:fs'), { gunzipSync } = await import('node:zlib');
+    const read = u => { const b = gunzipSync(readFileSync(u)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
     const meta = JSON.parse(readFileSync(json, 'utf8'));
-    const b = readFileSync(new URL(`../../earth/earth-${meta.level}.bin`, import.meta.url));
-    d = parseEarth(meta, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+    d = parseEarth(meta, read(bin));
     sm = JSON.parse(readFileSync(sj, 'utf8'));
-    const s = readFileSync(new URL(`../../earth/${sm.file}`, import.meta.url));
-    sb = s.buffer.slice(s.byteOffset, s.byteOffset + s.byteLength);
+    sb = read(new URL(`../../earth/${sm.file}`, import.meta.url));
   } else {
-    const [meta, buf, s] = await Promise.all([fetch(json).then(r => r.json()), fetch(new URL('../../earth/earth-7.bin', import.meta.url)).then(r => r.arrayBuffer()), fetch(sj).then(r => r.json())]);
-    if (meta.level !== 7) throw new Error(`earth: the data is level ${meta.level}`);
+    // Inflated here unless a server already did (it sent them with Content-Encoding: gzip): gzip's magic first.
+    const inflate = async r => {
+      if (!r.ok) throw new Error(`earth: ${r.status} ${r.url}`);
+      const b = await r.arrayBuffer(), u = new Uint8Array(b, 0, 2);
+      return u[0] === 0x1f && u[1] === 0x8b ? new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer() : b;
+    };
+    const slabs = fetch(sj).then(r => r.json());
+    const [meta, buf, s, sbuf] = await Promise.all([fetch(json).then(r => r.json()), fetch(bin).then(inflate), slabs,
+      slabs.then(m => fetch(new URL(`../../earth/${m.file}`, import.meta.url))).then(inflate)]);
     d = parseEarth(meta, buf);
-    sm = s;
-    sb = await (await fetch(new URL(`../../earth/${sm.file}`, import.meta.url))).arrayBuffer();
+    sm = s; sb = sbuf;
   }
+  if (d.level !== 7) throw new Error(`earth: the data is level ${d.level}`);
   // The slabs Müller et al. 2019's trenches sent down over the last 200 Myr (tools/earth/slabs.py): the mantle's graveyard.
   d.slabs = { bins: sm.bins, bin: sm.bin, level: sm.level, area: new Float32Array(sb) };
   return d;

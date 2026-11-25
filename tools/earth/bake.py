@@ -8,7 +8,7 @@
     uv run --no-project --with numpy --with scipy --with h5py --with pygplates python -I tools/earth/bake.py
 
 Reads tools/earth/.cache/ (ignored; where to fetch each file is in tools/earth/README.md) and writes
-earth/earth.json and earth/earth-7.bin. Each data point goes to its nearest cell centre (its Voronoi
+earth/earth.json and earth/earth-7.bin.gz. Each data point goes to its nearest cell centre (its Voronoi
 cell) and is weighted by its area (cos latitude). Per cell, little-endian, n cells each:
 
   bed    int16   m     the mean bedrock (ETOPO 2022's bed: under the ice sheets, the rock)
@@ -31,6 +31,7 @@ cell) and is weighted by its area (cos latitude). Per cell, little-endian, n cel
 Each plate's ω (rad/Myr, x y z) is its motion over the last Myr in the model's absolute frame;
 earth.json also carries the ten hotspots (Whittaker et al. 2015's compilation).
 """
+import gzip
 import json
 import pathlib
 import time
@@ -299,11 +300,11 @@ fields = [
 ]
 meta = {'level': LEVEL, 'n': n, 'fields': [], 'plates': plist, 'hotspots': hot}
 off = 0
-with open(OUT / f'earth-{LEVEL}.bin', 'wb') as fh:
+with gzip.open(OUT / f'earth-{LEVEL}.bin.gz', 'wb', compresslevel=9, mtime=0) as fh:
     for name, dt, a in fields:
         b = np.asarray(a).astype(dt).tobytes()
         meta['fields'].append({'name': name, 'type': dt.lstrip('<'), 'offset': off})
         fh.write(b)
         off += len(b)
 (OUT / 'earth.json').write_text(json.dumps(meta, separators=(',', ':')) + '\n')
-print(f'wrote {OUT / f"earth-{LEVEL}.bin"} ({off / 1e6:.2f} MB) and earth.json')
+print(f'wrote {OUT / f"earth-{LEVEL}.bin.gz"} ({off / 1e6:.2f} MB raw) and earth.json')

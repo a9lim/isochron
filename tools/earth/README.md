@@ -1,6 +1,6 @@
 # Today's Earth: data, bake and check
 
-`?seed=earth` opens on today's Earth (`src/engine/earth.js`), from data put on the sim's level-7 grid here. The outputs are committed (`earth/earth.json`, `earth/earth-7.bin`, `src/engine/gpts.js`, and `EARTH_CYCLES` in `src/engine/orbit.js`), so the site and the engine need none of this; it's here to remake them.
+`?seed=earth` opens on today's Earth (`src/engine/earth.js`), from data put on the sim's level-7 grid here. The outputs are committed (`earth/earth.json`, `earth/earth-7.bin.gz`, `src/engine/gpts.js`, and `EARTH_CYCLES` in `src/engine/orbit.js`), so the site and the engine need none of this; it's here to remake them.
 
 ## Fetch
 
@@ -38,7 +38,7 @@ node tools/earth/climate-score.mjs        # the climate against them (JSON=1: on
 node tools/earth/tune.mjs spec.json 12 reg   # a parallel pattern search (spec format in its header)
 node tools/earth/plates-score.mjs         # the plates' balance against Müller's motions, and their drift over 20 Myr
 node tools/earth/crust-table.mjs 6        # Earth's continental crust by distance from the ocean, for genesis.js
-node tools/earth/cells.mjs 4 && uv run --no-project --with numpy --with scipy --with pygplates python -I tools/earth/slabs.py   # the mantle's slabs (earth/slabs.json, slabs-4.bin)
+node tools/earth/cells.mjs 4 && uv run --no-project --with numpy --with scipy --with pygplates python -I tools/earth/slabs.py   # the mantle's slabs (earth/slabs.json, slabs-4.bin.gz)
 ```
 
 The scores these print are the calibration targets in `docs/MODEL.md`. Run `crust-table.mjs` again after a change to the crust fit or the isostasy, since seeded planets' continents are stood on its table.
