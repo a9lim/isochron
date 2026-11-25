@@ -2,6 +2,8 @@
 // edge, drawn by figures.js's drawModel. Each part comes with the era that brings it, so the figure
 // grows as the history does; an arrow is a coupling the people's code has, as heavy as what flows.
 //
+// Pathogens are born where people meet the wild and their herds, and their deaths go to the people.
+//
 // AI is compute's: it thinks (its research minds join people's, `E.AIr`) and works (its share of
 // the work, `sA`), and drives the robots' bodies, which work beside people. Knowledge is the
 // economy's one technology: what the land and the fields carry, output's productivity, energy's
@@ -17,7 +19,7 @@
 
 export const ECONOMY = {
   sea: [0.08, 0.04, 'Sea'], climate: [0.32, 0.04, 'Climate'], air: [0.6, 0.04, 'Air'], space: [0.88, 0.04, 'Space'],
-  land: [0.12, 0.21, 'Land'], energy: [0.8, 0.3, 'Energy'],
+  land: [0.12, 0.21, 'Land'], energy: [0.8, 0.3, 'Energy'], disease: [0.47, 0.19, 'Pathogens'],
   people: [0.3, 0.43, 'People'], farms: [0.1, 0.5, 'Farms'],
   output: [0.6, 0.55, 'Output'], knowledge: [0.34, 0.64, 'Knowledge'],
   minds: [0.14, 0.84, 'Minds'], compute: [0.58, 0.86, 'Compute'], robots: [0.88, 0.76, 'Robots'],
@@ -46,7 +48,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
   const ai = ind && h.AI >= 1e6, bots = ai && E.bodies >= 1e3, work = bots && h.Ap >= 1e3;
   const co2F = 5.35 * Math.log(pco2 / pco20), airF = co2F + m.forcing.aer, heat = m.forcing.heat || 0;
   const net = h.Ef * 3.15576e7 / 4e19 - (E ? E.cdrPg || 0 : 0), share = v => (allE > 0 ? v / allE : 0), inv = k => (Y > 0 ? (fl[k] || 0) / Y : 0);
-  const income = h.O / Math.max(h.earth, 1), ground = h.Ef + h.Er;
+  const income = h.O / Math.max(h.earth, 1), ground = h.Ef + h.Er, sick = h.earth >= 1 ? (h.pDeaths || 0) / h.earth : 0;
   // Off-world: the swarm's share of the Sun, the mass mined a year and from where, the asteroids'
   // share of building's materials, and Earth's robots against all of them.
   const off = m.off || {}, sunShare = m.sun ? (m.Es || h.Es || 0) / m.sun : 0, flow = off.flow || 0, aA = E ? E.aA || 0 : 0;
@@ -58,6 +60,7 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       // People and their fields leave the figure with the last of them on Earth (the minds stay: AI's research joins them).
       people: h.earth >= 1 ? count(h.earth) : null, minds: count(h.minds), knowledge: `z ${h.zmax.toFixed(2)}`,
       farms: farms && (h.earth >= 1 || farmed > 5e-4) ? `${pc(farmed)} of land` : null,
+      disease: h.nPath > 0 && h.earth >= 1 ? `deaths ${(1000 * sick).toFixed(sick < 0.001 ? 2 : 1)}‰/yr` : null,
       sea: boiled > 0 ? `${Math.round(100 * boiled)}% boiled` : null,
       air: ind ? `${Math.round(pco2)} ppm` : null,
       output: ind ? (h.earth >= 1e3 ? `income ${income >= 1e6 ? sci(income) : g2(income)}×` : `${sci(Y)} sy/yr`) : null,
@@ -80,6 +83,10 @@ export function economyOf({ m, npp = 0, meanT = 0, pco2 = 280, pco20 = 280, rain
       { from: 'farms', to: 'land', w: farmed / 0.1, label: 'tillage', bend: 0.25 },
       { from: 'land', to: 'farms', w: h.soil / 4, label: `soil ${h.soil.toFixed(1)} m`, bend: 0.25 },
       { from: 'knowledge', to: 'farms', w: 0.3, bend: -0.1 },
+      // Pathogens (src/engine/pathogens.js): born where people meet the wild and their herds; their deaths.
+      { from: 'land', to: 'disease', w: 0.2, label: 'wild hosts', bend: 0.1 },
+      { from: 'farms', to: 'disease', w: 0.2, label: 'herds', bend: -0.15 },
+      { from: 'disease', to: 'people', w: Math.min(1, sick / 0.01), bend: 0.1 },
       { from: 'air', to: 'land', w: Math.min(1, Math.max(0, co2F) / 4), label: 'CO₂', bend: 0.1, on: ind && co2F > 0.05 },
       // Industry: output from capital (output kept), the work and energy, at knowledge's productivity,
       // with the land's ores; invested back by return.

@@ -16,7 +16,7 @@ function uniformPlanet(level) {
   for (let i = 0; i < n; i++) f.zones[NZ * i + 2] = 1;
   return f;
 }
-const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, SIG_LUCK: 0 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, SIG_LUCK: 0, H_SPILL: 0 };
 /** The people's arrays under one name (each cell's numbers, knowledge, capacity and minds). */
 const pop = p => ({ N: p.Ntot, Z: p.zc, K: p.K, K2: p.K2, M: p.M });
 

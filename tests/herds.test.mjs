@@ -16,7 +16,7 @@ function planet(T, Pm, level = 3, zone = 5) {
   for (let i = 0; i < n; i++) { f.zones[NZ * i + zone] = 1; for (let m = 0; m < 12; m++) { f.T12[12 * i + m] = T(m); f.P12[12 * i + m] = Pm(m); } }
   return f;
 }
-const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, T_COLD0: -100, H_SPILL: 0 };
 const dzudland = m => 0 + 14 * Math.cos(2 * Math.PI * (m - 6) / 12);  // −14 °C winters
 
 test('the herd: logistic to 1 − loss/R under the closure; a dzud year takes a third, rebuilt over years', () => {

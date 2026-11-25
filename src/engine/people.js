@@ -191,6 +191,7 @@ import { Routes, sized } from './routes.js';
 import { Peoples } from './peoples.js';
 import { Polities, KP as KPOL } from './polities.js';
 import { Classes } from './classes.js';
+import { Pathogens } from './pathogens.js';
 import { COHORTS, MIG, stableMig, stable, stableLookup, stepPyramid, stepTables, ageClock, settle, reference } from './cohorts.js';
 
 export const PEOPLE = {
@@ -284,6 +285,7 @@ export const PEOPLE = {
   // ~3.5% → 3.4% in 1965 → 2.2% in 2000 → 1.7%; growth peaked ~2.1%/yr in the 1960s)
   B_PRE: 0.035, B_MIN: 0.01245, Y_B: 8, K_B: 3,   // births: the pre-industrial rate, the floor, falling with industrial income y_g past ~Y_B (8: England and Wales's crude births ~3.5% in 1870, ~2.4% in 1913, ~1.6% in 1950 at its goods then, as reported from the Registrar-General's and Mitchell's series; today's Earth at ~8–9 B at early takeoff; 5.5, set on the poorer one-world economy, had the industrial world's births fall a generation early); steepness K_B; the floor is replacement, the crude birth rate of the rich end's stationary life table (src/engine/cohorts.js, `replacement`: e₀ ~80, 22% over 65), so a rich population neither grows nor dies out (Earth's rich countries sit below it now, and heritable fertility would bring it back over generations: speculation)
   D_LO: 0.015, F_FAM: 0.2,         // deaths where food is plentiful (so a frontier grows at B_PRE − D_LO, 2%/yr), and famine's rate per unit shortfall
+  F_DIS: 0.5,                      // the share of the deaths here (the floor's and the density's) that stood for disease (batch 4a, src/engine/pathogens.js; pre-modern deaths were about half infection's, from memory): the pathogens' deaths take its place by a soft maximum, so they bite where they pass it (an epidemic, a plague, a people meeting pathogens it never had, a crowded city) and the stand-in holds where they don't (recalibrated at the batch's end)
   M_MIN: 0.25, Y_D: 3.2, M_SEN: 0.5,   // … and medicine's reach into senescence: its hazard × m^{M_SEN} (src/engine/cohorts.js)           // medicine: deaths × M_MIN + (1 − M_MIN) e^{−y_g/Y_D}
   // Industry's reach past its own works (synthesis on Preston's shifting curve, 1975, and the Green
   // Revolution; from memory): medicine and industry's farm inputs reached the agrarian world with its
@@ -596,6 +598,24 @@ export const PEOPLE = {
   // tributary's city falls to it at R_SEC × ψ × the tribute's saturation a year (conquest); the horse's edge
   // fades as the world's best production passes Z_GUN over W_GUN (gunpowder). A state's identity drawn
   // toward its capital's people over T_DYN.
+  // Pathogens (batch 4a, src/engine/pathogens.js; synthesis, the values speculation): the table's slots; births,
+  // H_SPILL a person a year at a whole herd's or K_WILD a whole wild host's contact × the crowding (the wild hosts
+  // W_WILD + (1 − W_WILD) × the vectors' climate), at most SPILL_MAX a step, stillborn where it can't pass and
+  // its reservoir there is under R_EPS; traits drawn at birth, R0 lognormal about R0_MED (σ R0_SIG), the
+  // infectious period D (yr), immunity's waning (/yr) and virulence log-uniform over their ranges, the vector's
+  // share uniform, a reservoir F_RES of the time, log-uniform from R_RES to 1; crowding (ρ/(ρ + RHO_PATH))^Q_PATH
+  // × (1 + K_CITY × the city's share), the host's envelope CLIM_S × ENV_W; persistence σ(ln(I*/I_MIN)/W_P)
+  // (I_MIN from measles' critical community size, ~2.5–5 × 10⁵: Bartlett 1957, from memory); an endemic
+  // pathogen's epidemics at L_END a year; introductions L_INTRO a year at a whole prevalence and contact, the
+  // land neighbours' at K_LAND of a market partner's, the reservoir's L_RES a year at its whole; deaths ×
+  // (1 + K_COLL × the share sick at once: an endemic childhood case kills ~1–2% (measles), a people meeting it for the
+  // first time a quarter and more, all ages sick together, from memory), a case again K_RE of a first; vaccination V_COV of medicine's reach × e^{−ω/OM_VAC}; gone after
+  // T_IDLE years with no case, or for a new one when the table's full, the least active under N_EVICT cases a year;
+  // stepped every DT_PATH years at least.
+  P_MAX: 32, H_SPILL: 4e-10, K_WILD: 0.5, W_WILD: 0.25, SPILL_MAX: 4, R_EPS: 1e-3,
+  R0_MED: 1.5, R0_SIG: 0.9, D_PATH: [0.01, 0.5], OM_PATH: [0.001, 0.3], V_PATH: [0.0003, 0.05], F_RES: 0.3, R_RES: 1e-3,
+  RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1,
+  K_COLL: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1,
   KAP0: 0.2, T_KUP: 100, T_KDN: 300, Z_KAP: 5, W_KAP: 0.75, F_TRIB: 0.3, K_RENT: 0.5,
   N_CAMP: 1e5, F_RIDE: 0.3, T_TRIB: 0.2, W_RAID: 0.01, Z_GUN: 6.6, W_GUN: 0.15, T_DYN: 150,
   // Migration (batch 3d, `diffuse`; synthesis, the values speculation): down one potential, crowding against real
@@ -756,11 +776,18 @@ export function taskLabor(Lh, A, beta, sigma) {
  * step that crosses K keeps its side's law (a small error). Returns the new total, the births' and
  * deaths' rates, famine's deaths and medicine's factor on senescence.
  */
-export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0, med = 0, heat = 0) {
+export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real = null, aging = null, city = 0, med = 0, heat = 0, path = 0) {
   const b = bf * (P.B_MIN + (P.B_PRE - P.B_MIN) / (1 + Math.pow(Math.max(0, yg) / P.Y_B, P.K_B)));
   // Medicine first; then, as fertility's fall ages the population, the crude death rate rises again.
-  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D - P.U_MED * med), ms = Math.pow(m, P.M_SEN), age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0) + heat;
-  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms, floor: m * P.D_LO + age };   // the land feeds no one (an ice sheet's or the sea's advance on the live planet)
+  // The pathogens' deaths (src/engine/pathogens.js) × medicine, as the density's are.
+  // The pathogens (src/engine/pathogens.js): F_DIS of the deaths below (the floor's and the density's, at the
+  // step's start) stood for disease, and the pathogens' deaths take that part's place by a soft maximum of
+  // order 8, so where they kill about as many the people stand where they did, and where more (a plague, a
+  // people meeting diseases it never had, a crowded city) the excess is theirs: a rate over the step, × medicine.
+  const S = P.F_DIS * (P.D_LO + (P.B_PRE - P.D_LO) * Math.min(1, K > 1e-9 ? N / K : 1)), hi = Math.max(S, path), lw = Math.min(S, path);
+  const ex = path > 0 && hi > 0 ? hi * Math.pow(1 + (lw / hi) ** 8, 0.125) - S : 0;
+  const m = P.M_MIN + (1 - P.M_MIN) * Math.exp(-Math.max(0, yg) / P.Y_D - P.U_MED * med), ms = Math.pow(m, P.M_SEN), dis = m * path, age = (aging !== null ? ms * aging : P.AGE * (1 - Math.exp(-Math.max(0, yg) / P.Y_AGE))) + (city > 0 ? P.D_CITY * city * ((m - P.M_MIN) / (1 - P.M_MIN)) ** 2 : 0) + heat + m * ex;
+  if (!(K > 1e-9)) return { N: N * Math.exp(-dt / 20), b, d: 0.05, famine: 0, m: ms, floor: m * P.D_LO + age, dis };   // the land feeds no one (an ice sheet's or the sea's advance on the live planet)
   let r, a;
   if (N <= K) { r = b - m * P.D_LO - age; a = m * (P.B_PRE - P.D_LO) / K; }
   else { r = b - m * P.B_PRE - age + P.F_FAM; a = P.F_FAM / K; }
@@ -774,7 +801,7 @@ export function demography(N, K, yg, dt, P, sigma = 0, store = 0, bf = 1, real =
   }
   const e = Math.exp(Math.max(-50, Math.min(50, r * dt)));
   const Nn = Math.abs(r) > 1e-12 ? r * N * e / (r + a * N * (e - 1)) : N / (1 + a * N * dt);
-  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, b, d: b - (r - a * N), famine: dv, m: ms, floor: m * P.D_LO + age };   // m: senescence's medicine; floor: the well-fed death rate (classes: the elites')
+  return { N: Nn > 0 && Number.isFinite(Nn) ? Nn : 0, b, d: b - (r - a * N), famine: dv, m: ms, floor: m * P.D_LO + age, dis };   // m: senescence's medicine; floor: the well-fed death rate (classes: the elites'); dis: the pathogens' deaths a year
 }
 
 /**
@@ -1201,6 +1228,8 @@ export class People {
     // States (src/engine/polities.js): who people deliver to; classes (src/engine/classes.js): who takes.
     this.pol = new Polities(this);
     this.classes = new Classes(this);
+    // Pathogens (src/engine/pathogens.js): what people catch from their animals and each other.
+    this.pathogens = new Pathogens(this); this.disD = 0;
   }
 
   /** The ending, by chance on two axes (a9): aligned, misaligned or paused; Earth preserved or sacrificed. */
@@ -2115,6 +2144,11 @@ export class People {
     const rt = this.trading();
     if (rt && this.yrTake > 0) this.pooledYears(rt);
     lap('trade');
+    // Pathogens (src/engine/pathogens.js): their births, epidemics and endemic cases over the step, its deaths a rate.
+    const pg = this.pathogens, dPg = pg.d;
+    pg.step(dt, rt);
+    this.disD = 0;
+    lap('disease');
     // The cohorts' clock: this step moves every pyramid on by `shift` whole years.
     const [shift, clk] = ageClock(this.ageClk || 0, dt); this.ageClk = clk;
     // A step past most of a lifetime leaves nothing of the pyramids but their rates' stable
@@ -2131,7 +2165,8 @@ export class People {
       const z = this.zc ? this.zc[c] : 0, fc = this.f[c], tp = rt ? rt.pool(c) : null, sg = this.harvestSigma(c, fc) / (tp ? tp.pool : 1);
       const st = this.reserve(c, fc, z);
       const real = this.realYears(c, fc, tp, ry);
-      const { N: Nn, famine, b: bc, d: dc, m: mc, floor } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c), this.dHeat[c]);
+      const { N: Nn, famine, b: bc, d: dc, m: mc, floor, dis } = demography(Nt, Kh, this.goods[c] / Nt, dt, P, sg, st, bf, real, this.aging[c], this.cityShare ? this.cityShare[c] : 0, this.modern(c), this.dHeat[c], dPg[c]);
+      this.disD += dis * Nt;
       // (demography takes a total that isn't finite as none: said here, where it arose)
       if (this.debug && !Number.isFinite(famine)) throw new Error(`growth: famine at ${c} = ${famine} (N ${Nt}, K ${Kh}, goods ${this.goods[c]}, σ ${sg}, store ${st}, years ${real ? `φ ${real.phi} m ${real.m} s ${real.s}` : 'none'}, the years' moments ${this.yr ? this.yr.map(a => a[c]).join(' ') : '–'} over ${this.yrW}, pool ${tp ? `${tp.pool} τ ${tp.tau} market ${tp.k} mean ${this.yrM ? this.yrM[tp.k] : '–'}` : '–'}, harvest ${this.harvestCoef(c, fc).join(' ')}, sR ${this.H.sR[c]}) at t ${this.t.toFixed(1)}; not finite there: ${this.unfinite(c)}`);
       this.famine += famine * Nt;
@@ -2289,7 +2324,7 @@ export class People {
     const lump = nsub > this.P.NSUB_MAX, pol = this.pol, T = ids.T, eps = this.P.ID_EPS;
     const xs = this.dEdges || (this.dEdges = { e: new Int32Array(F.m), c: new Int32Array(F.m), d: new Int32Array(F.m), k: new Float64Array(F.m), fw: new Float64Array(F.m), bk: new Float64Array(F.m), gc: new Float64Array(F.m), gd: new Float64Array(F.m) });
     const xe = xs.e, xc = xs.c, xd = xs.d, xk = xs.k, fw = xs.fw, bk = xs.bk, gC = xs.gc, gD = xs.gd, Fa = F.a, Fb = F.b, Fk = F.k, Fh = F.hop;
-    const nat = pol ? pol.nat : null, P = this.P, kch = P.K_CHAIN;
+    const nat = pol ? pol.nat : null, P = this.P, kch = P.K_CHAIN, pg = this.pathogens;
     let nx = 0;
     for (let s = 0; s < nsub; s++) {
       for (let q = 0; q < na; q++) { const c = act[q]; dN[c] = 0; dZ[c] = 0; dL[c] = 0; u[c] = Y2[c] > 1e-12 ? N[c] / Y2[c] : 0; }
@@ -2322,17 +2357,19 @@ export class People {
         let zc, zl;
         // Migrants carry who they are (src/engine/peoples.js, `carries`), where they're more than a trickle;
         // across the sea, settlers carry their state too (src/engine/polities.js, `carry`).
+        // And their susceptibility to each pathogen (src/engine/pathogens.js), mixed in at the substep's end.
         if (flux > 0) {
           zc = Z[d]; zl = ZL[d];
-          const t = T[c]; if (flux > eps * t || !(t > 0)) ids.carry(d, c, flux);
+          const t = T[c]; if (flux > eps * t || !(t > 0)) { ids.carry(d, c, flux); pg.flow(d, c, flux); }
           if (hop && pol) { if (lump) fw[x] += flux; else pol.carry(d, c, flux); }
         } else {
           zc = Z[c]; zl = ZL[c];
-          const t = T[d]; if (-flux > eps * t || !(t > 0)) ids.carry(c, d, -flux);
+          const t = T[d]; if (-flux > eps * t || !(t > 0)) { ids.carry(c, d, -flux); pg.flow(c, d, -flux); }
           if (hop && pol) { if (lump) bk[x] -= flux; else pol.carry(c, d, -flux); }
         }
         dN[c] += flux; dN[d] -= flux; dZ[c] += flux * zc; dZ[d] -= flux * zc; dL[c] += flux * zl; dL[d] -= flux * zl;
       }
+      pg.settle(N);
       for (let q = 0; q < na; q++) {
         const c = act[q];
         if (dN[c] === 0) continue;
@@ -2361,7 +2398,7 @@ export class People {
       const b = E.nb[e], x = g * Math.max(0, K[b] - N[b]) / w;
       if (!(x > 0)) continue;
       Z[b] = (N[b] * Z[b] + x * Z[c]) / (N[b] + x); ZL[b] = (N[b] * ZL[b] + x * ZL[c]) / (N[b] + x);
-      this.ids.carry(c, b, x); N[b] += x;
+      this.ids.carry(c, b, x); this.pathogens.mix(c, b, x, N[b]); N[b] += x;
     }
     N[c] -= g; this.fled = (this.fled || 0) + g;
     return g;
@@ -2412,6 +2449,7 @@ export class People {
       const h = P.S_SEA * this.speed(ZL[c]) / P.V0 * Math.min(1, N[c] / Math.max(K[c], 1e-9)) * Math.exp(-F.k[e] / reach);
       if (r.uniform() > 1 - Math.exp(-h * dt)) continue;
       const n = Math.min(P.FOUNDERS, 0.1 * N[c]);
+      this.pathogens.mix(c, d, n, N[d]);
       Z[d] = (N[d] * Z[d] + n * Z[c]) / (N[d] + n); ZL[d] = (N[d] * ZL[d] + n * ZL[c]) / (N[d] + n); N[d] += n; N[c] -= n;
       this.ids.carry(c, d, n); this.pol.carry(c, d, n);
     }
@@ -3310,7 +3348,7 @@ export class People {
     h.push({ t: this.t, dt, people, minds, O: this.O, food: this.food, zmax, peoples: this.ids.nPeoples, states: this.pol.nStates, stTop: this.pol.topShare, stHeld: people > 0 ? this.pol.heldN / people : 0, farm: earth > 0 ? farm / earth : 0, ind: earth > 0 ? indp / earth : 0,
       Y: E.Y, Kf: E.Kf, Kc: E.Kc, Kq: E.Kq, Kr: E.Kr, AI: E.AAI, x: E.x, ze: E.z, za: E.za, Ap: E.Ap, beta: E.beta, betaP: E.betaP, avail: E.avail, Ef: E.Ef, Er: E.Er, Eu: E.Eu, Emat: E.Emat, Ecomp: E.Ecomp,
       energy: E.Ef + E.Er + E.Eu + (E.Es || 0), Es: E.Es || 0, co2: this.co2, earth, space: this.space, fert: this.fert, room: this.room, hab: this.hab, mined: this.mined, flow: this.flow, ApE: E.ApE || 0, hE: this.hE, boiled: this.boiled, dis: this.dis, sA: E.sA || 0, geo: this.forcing.geo, removed: this.removed, Ft: this.Ft, fossil: E.S, X: E.X, heat: this.forcing.heat, aer: this.forcing.aer,
-      soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0 });
+      soil: farmA > 0 ? soilF / farmA : 0, farmA, famine: earth > 0 ? this.famine / earth : 0, pDeaths: this.disD, nPath: this.pathogens.circulating() });
     // The dial runs out where the minds double in under a day over the last few steps (one step's
     // blip isn't it); for T_FINE years after, a step is at most a year, so the ending resolves.
     const n = h.length;

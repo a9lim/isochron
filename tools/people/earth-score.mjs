@@ -32,7 +32,7 @@ async function one(ov, run) {
   const { People } = await import('../../src/engine/people.js');
   const { stream } = await import('../../src/rng.js');
   const pp = new People(await planetFields('earth', 6), ov);
-  pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples'); pp.pol.rng = stream(`earth/${run}`, 'people:polities');
+  pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples'); pp.pol.rng = stream(`earth/${run}`, 'people:polities'); pp.pathogens.rng = stream(`earth/${run}`, 'people:pathogens');
   const H = pp.H, deg = 180 / Math.PI, regOf = new Int16Array(pp.nL);
   for (let c = 0; c < pp.nL; c++) { const la = H.lat[c] * deg, lo = H.lon[c] * deg; regOf[c] = REGIONS.findIndex(([, a, b, x, y]) => la >= a && la < b && lo >= x && lo < y); }
   const ev = {};

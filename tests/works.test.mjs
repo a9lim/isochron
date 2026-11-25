@@ -15,7 +15,7 @@ function dryPlanet(level, { slope = 0, rain = 20, saw = 0 } = {}) {
   for (let i = 0; i < n; i++) { f.zones[NZ * i + 4] = 1; f.elev[i] = 0.3 + slope * (grid.pos[3 * i + 2] + 1) + saw * (i % 2); }
   return f;
 }
-const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9 };
+const quiet = { H_FARM: 0, Z_IND: 1e9, Z_AI: 1e9, Z_BOAT: 1e9, H_SPILL: 0 };
 
 test('the canals\' salt rises toward a/(a + b) exactly, at any step, and leaves as they go', () => {
   const p = new People(dryPlanet(3), quiet), H = p.H, P = p.P, c = 1;

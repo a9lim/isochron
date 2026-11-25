@@ -29,6 +29,11 @@
 //                   stable pyramid's (the emigration hump) at 1870, 1913, 1950 and its most; at industry and early
 //                   takeoff the people-weighted hottest month's wet bulb, the share past 28 °C, heat's deaths
 //                   a year, cooling's power and Earth's habitability
+//   pathogens (4a)  at 3 and 1 kyr before industry, at industry and at early takeoff the pathogens' deaths a
+//                   thousand a year and those circulating; the table's births, stillborn and gone; the largest
+//                   share of the people the Americas and Europe lost within 150 and 100 years (and when), and
+//                   the falls of a region's people by a fifth or more within 50 years a kyr, before industry
+//                   (regions with 1% of the people at industry); the most lethal pathogens' traits
 //   the industrial era   the share under unlike rulers at 1870, 1913, 1950 (industry's start as 1760),
 //                   the effective states at early takeoff
 //   classes' economy (3f)  at 1 CE, 1500, 1820, 1913, 1980 and early takeoff: the cities' share of the people
@@ -50,14 +55,14 @@ async function one(ov, run) {
   const { stream } = await import('../../src/rng.js');
   const { REGIONS } = await import('./earth-score.mjs');
   const pp = new People(await planetFields('earth', 6), ov);
-  pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples'); pp.pol.rng = stream(`earth/${run}`, 'people:polities');
+  pp.rng = stream(`earth/${run}`, 'people'); pp.seaRng = stream(`earth/${run}`, 'people:sea'); pp.ids.rng = stream(`earth/${run}`, 'people:peoples'); pp.pol.rng = stream(`earth/${run}`, 'people:polities'); pp.pathogens.rng = stream(`earth/${run}`, 'people:pathogens');
   const H = pp.H, deg = 180 / Math.PI, nL = pp.nL, regOf = new Int16Array(nL);
   for (let c = 0; c < nL; c++) { const la = H.lat[c] * deg, lo = H.lon[c] * deg; regOf[c] = REGIONS.findIndex(([, a, b, x, y]) => la >= a && la < b && lo >= x && lo < y); }
   const ev = {}, evText = {};
   pp.onEvent = (t, k, x) => { if (!(k in ev)) { ev[k] = t; evText[k] = x; } };
   pp.seed();
   // The regions' people every EVERY years once any state stands; stress and the unlike rule's share alongside.
-  const series = [], stress = [], unlike = [], econ = [];
+  const series = [], stress = [], unlike = [], econ = [], dis = [];
   let next = null;
   const sample = () => {
     const r = new Float64Array(REGIONS.length), N = pp.Ntot, cl = pp.classes;
@@ -77,6 +82,8 @@ async function one(ov, run) {
     stress.push({ t: pp.t, psi: all > 0 ? ps / all : 0, hi: all > 0 ? hi / all : 0, kap: kn > 0 ? kw / kn : 0, trib: tax > 0 ? trib / tax : 0,
       N: all, tw: all > 0 ? tw / all : 0, hot: all > 0 ? hot / all : 0, dh: all > 0 ? dh / all : 0, cool: pp.Ecool || 0, hE: pp.hE, mig: all > 0 ? mw / all : 1, migMax: mx, fled: pp.fled || 0 });
     unlike.push({ t: pp.t, s: all > 0 ? un / all : 0 });
+    const hh = pp.history.at(-1);
+    dis.push({ t: pp.t, d: all > 0 && hh ? hh.pDeaths / all : 0, n: hh ? hh.nPath : 0 });
     // Classes' economy: the cities' share, the world's Gini and top decile over its places' two classes.
     let city = 0;
     const g = [], gi = [];
@@ -163,6 +170,28 @@ async function one(ov, run) {
   const un = t => unlike.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b), unlike[0] || { s: 0 }).s;
   const secs = pol.secs, agr = secs.filter(x => x.t < tI), ind = secs.filter(x => x.t >= tI);
   const span = pol.first !== null ? Math.max(1, tI - pol.first) : 1;
+  // Pathogens: the largest fall of a series within `w` years (and when), and the falls by a fifth within 50 years.
+  const fall = (xs, w) => {
+    let f = 0, when = null;
+    for (let i = 0; i < xs.length; i++) for (let j = i + 1; j < xs.length && xs[j].t - xs[i].t <= w; j++) if (xs[i].v > 0) { const x = 1 - xs[j].v / xs[i].v; if (x > f) { f = x; when = 1760 + xs[i].t - tI; } }
+    return { f, at: when };
+  };
+  const sumOf = rs => series.map(x => ({ t: x.t, v: rs.reduce((a, g) => a + x.r[g], 0) }));
+  const AM = [28, 29, 30, 31, 32, 33, 34], EU = [0, 1, 2, 3], pre = series.filter(x => x.t <= tI), atI = pre.at(-1);
+  let crashes = 0;
+  if (atI) {
+    const tot = atI.r.reduce((a, b) => a + b, 0);
+    for (let g = 0; g < atI.r.length; g++) {
+      if (!(atI.r[g] > 0.01 * tot)) continue;
+      for (let i = 0; i < pre.length; i++) {
+        let hit = -1;
+        for (let j = i + 1; j < pre.length && pre[j].t - pre[i].t <= 50; j++) if (pre[i].r[g] > 0 && pre[j].r[g] < 0.8 * pre[i].r[g]) { hit = j; break; }
+        if (hit > 0) { crashes++; i = hit; }
+      }
+    }
+  }
+  const dAt = t => dis.reduce((b, x) => (Math.abs(x.t - t) < Math.abs(b.t - t) ? x : b), dis[0] || { d: 0, n: 0 });
+  const pg = pp.pathogens, worst = pg.live.concat(pg.past).sort((a, b) => b.dead - a.dead).slice(0, 3);
   const wave = xs => ({ n: xs.length, at: xs.length ? xs.map(x => 1760 + x.t - tI).sort((a, b) => a - b)[xs.length >> 1] : null });
   return {
     sec: { agrKyr: 1000 * agr.length / span, settler: wave(ind.filter(x => x.overseas && x.alike >= 0.5)), nation: wave(ind.filter(x => x.alike < 0.5)), other: ind.filter(x => !x.overseas && x.alike >= 0.5).length },
@@ -174,6 +203,9 @@ async function one(ov, run) {
       fledAgr: 1000 * (at(tI).fled || 0) / span, fledInd: Math.max(0, (at(tP).fled || 0) - (at(tI).fled || 0)) / Math.max(1, tP - tI) } : null,
     heat: [tI, tP].map(t => { const s = at(t); return { tw: s.tw, hot: s.hot, dh: s.dh, cool: s.cool, hE: s.hE }; }),
     econ: [-1759, -260, 60, 153, 220].map(d => econ.reduce((b, s) => (Math.abs(s.t - (tI + d)) < Math.abs(b.t - (tI + d)) ? s : b), econ[0] || {})).concat([econ.at(-1) || {}]), spark: evText.industry || null,
+    disease: { d: [tI - 3000, tI - 1000, tI, tP].map(t => dAt(t).d), n: [tI - 3000, tI - 1000, tI, tP].map(t => dAt(t).n), born: pg.born, still: pg.still, gone: pg.gone,
+      americas: fall(sumOf(AM), 150), europe: fall(sumOf(EU).filter(x => x.t <= tI), 100), crashes: 1000 * crashes / span,
+      worst: worst.map(q => `R0 ${q.R0.toFixed(1)}, ${(52 * q.D).toFixed(0)} wk, immunity ${q.om < 0.01 ? 'lifelong' : `${(1 / q.om).toFixed(0)} yr`}, v ${q.v.toFixed(3)}, vector ${q.x.toFixed(2)}, reservoir ${q.r.toFixed(3)}: ${(q.dead / 1e6).toPrecision(2)} M dead`) },
     classes: c1, unlike: 'industry' in ev ? [110, 153, 190].map(d => un(tI + d)) : null, states: pol.nStates, yrs: 'industry' in ev ? tP - tI : null,
   };
 }
@@ -212,6 +244,9 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   const ec = runs.map(r => r.econ), EY = ['1 CE', '1500', '1820', '1913', '1980', 'early takeoff'], col = (i, k, f) => f(md(ec.map(e => e[i] && e[i][k])));
   console.log(`classes' economy at ${EY.join(', ')}: the cities' share ${EY.map((_, i) => col(i, 'urb', pc)).join(', ')}; the world's Gini ${EY.map((_, i) => col(i, 'gini', f2)).join(', ')} (~0.5 in 1820, ~0.65 late in the twentieth century); the top decile's share ${EY.map((_, i) => col(i, 'top', pc)).join(', ')}, among industrial places ${EY.slice(3).map((_, j) => col(j + 3, 'topI', pc)).join(', ')} (~35–50%)`);
   console.log(`capital at 1913, 1980, early takeoff: K/Y ${[3, 4, 5].map(i => col(i, 'KY', f2)).join(', ')} (Earth's ~3–4), saving ${[3, 4, 5].map(i => col(i, 'sv', pc)).join(', ')}, railways built ${[3, 4, 5].map(i => col(i, 'rail', pc)).join(', ')} of their room`);
+  const dz = runs.map(r => r.disease), pm = x => (Number.isFinite(x) ? (1e3 * x).toFixed(2) : '–');
+  console.log(`pathogens at 3 and 1 kyr before industry, at industry, at early takeoff: deaths ${[0, 1, 2, 3].map(i => pm(md(dz.map(x => x.d[i])))).join(', ')} a thousand a year, circulating ${[0, 1, 2, 3].map(i => f0(md(dz.map(x => x.n[i])))).join(', ')}; born ${f0(md(dz.map(x => x.born)))} a draw (stillborn ${f0(md(dz.map(x => x.still)))}, gone ${f0(md(dz.map(x => x.gone)))}); the Americas' largest fall within 150 yr ${pc(md(dz.map(x => x.americas.f)))} (median ${f0(md(dz.map(x => x.americas.at)))}; history ~50–90% after 1492), Europe's before industry within 100 yr ${pc(md(dz.map(x => x.europe.f)))} (median ${f0(md(dz.map(x => x.europe.at)))}; the Black Death ~30–50%); a region's people falling a fifth within 50 yr ${f2(md(dz.map(x => x.crashes)))} times a kyr before industry`);
+  for (const [k, r] of runs.entries()) console.log(`draw ${k}'s most lethal pathogens: ${r.disease.worst.join(' · ')}`);
   for (const [k, r] of runs.entries()) if (r.spark) console.log(`draw ${k}: ${r.spark}`);
   console.log(`the industrial era: under unlike rulers at 1870, 1913, 1950 ${[0, 1, 2].map(i => pc(md(runs.filter(r => r.unlike).map(r => r.unlike[i])))).join(', ')} (~31% in 1913); effective states at early takeoff ${f2(md(runs.map(r => r.states)))} (~14); early takeoff ${f0(md(runs.map(r => r.yrs)))} yr after industry`);
 }
