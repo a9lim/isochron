@@ -141,7 +141,8 @@
 // the look resembles those of the states it meets, then of those near, then of the world's (`pick`: e^{−v/
 // LOOK_T}, v a sum of Gaussians in the hues' and tones' distance), at its founding and again when it meets a
 // larger state of nearly its hue and the same tone (`recolour`; states outgrow the region they were founded
-// in). A contested place is striped equally in both states' looks.
+// in). A contested place is striped equally in both states' looks. Drawn hard where a hold is and soft where it
+// fades (a9): a hold's edge and a border between two states are lines; a hold thinning over many places fades.
 // The capitals as marks (`capitals`); counted (`count`): the effective number of states.
 import { stream } from '../rng.js';
 import { CITY, wrap } from './peoples.js';
@@ -161,6 +162,7 @@ const TONES = [-1, 0, 1]; // the tones a pick weighs: contrast with the paper (s
 const TONE_SIG = 0.8;     // how near two tones look alike: e^{−(Δt/σ)²} (a step apart, a fifth as alike)
 const LOOK_T = 0.1;       // a look's odds e^{−v/LOOK_T}: a met state's own look ~e^{−10} against open hue, the open hues near even
 const MARCH = [0.2, 0.4]; // the second state's share over which a place turns to equal stripes
+const SEEN = 0.3;         // the share its states hold past which the States map draws a place held (its wash's start: src/render/globe.js)
 
 /** A hue's angle (src/render/globe.js, idWheel, which reads v = h/2π + ½, the States map's circle uniform) from its place u round it. */
 const HUE = u => 2 * Math.PI * (u - Math.floor(u) - 0.5);
@@ -1084,35 +1086,47 @@ export class Polities {
   take(k) { const q = this.list[k], kap = q.kap ?? 1; return kap + this.pp.P.F_TRIB * (1 - kap); }
 
   /**
-   * The States map's fields, three vec4s a cell of the people's grid (as the Culture map's,
-   * src/engine/peoples.js, `drawn`): the first the hues of the place's two bands, each (cos, sin) of its
-   * wheel angle × the share F its two largest states hold of those who deliver; the second's x F alone, its
-   * y and z the bands' tones × F (so interpolated toward a place no state holds, a tone keeps its own). A
-   * place one state holds is one look in both bands; where the second holds past MARCH its band turns to
-   * the second's, so a contested place is striped equally in both. The bands go by the states' order, not their shares, so a march's
-   * stripes keep their colours across it while the larger flickers place by place. The third's x the
+   * The States map's fields, three vec4s a cell of the people's grid (as the Culture map's, src/engine/peoples.js,
+   * `drawn`), drawn hard where a state's hold is and soft where it fades (a9). Where the share F its two largest
+   * states hold of those who deliver reaches SEEN (where the wash begins), the place is held (H 1, else 0, the
+   * rest 0 with it): the globe draws a held place's wash to where H passes ½, a curve midway to the places no
+   * state holds, at the strength F of the held places alone (each value × H, over H's interpolation), so the
+   * edge of a hold is a line and a hold that thins over many places fades. Its pair of looks, the first vec4,
+   * each band (cos, sin) of its hue × (1.5 + ½ its tone), by the states' order (not their shares, so a pair's
+   * bands are the same in every place that draws it): where it's contested (its second holding past MARCH),
+   * its two states; else its own and the strongest other among its neighbours (by their two largest shares),
+   * so the places on either side of a border draw the same pair and the side (which of the two fills the
+   * place) turns at a line between them; else its own twice. The second vec4: H, F, the side (0 the pair's
+   * first, 1 its second), how contested (equal stripes of both at 1, MARCH's step). The third's x the
    * fishers' parcels (Settlement, Density).
    */
   drawn(out = null) {
-    const pp = this.pp, n = pp.planet.grid.n, id = this.id, s = this.s, list = this.list;
+    const pp = this.pp, g = pp.planet.grid, n = g.n, id = this.id, s = this.s, list = this.list, loc = pp.loc, d = this.d;
     out = out || new Float32Array(12 * n); out.fill(0);
+    const look = (k, o) => { const q = list[k], h = HUE(q.hue), r = 1.5 + 0.5 * (q.tone || 0); out[o] = r * Math.cos(h); out[o + 1] = r * Math.sin(h); };
     for (let c = 0; c < pp.nL; c++) {
-      const o = 12 * pp.cells[c], d = Math.max(this.d[c], 1e-9), k0 = id[KP * c], k1 = id[KP * c + 1];
+      const i = pp.cells[c], o = 12 * i, dc = Math.max(d[c], 1e-9), k0 = id[KP * c], k1 = id[KP * c + 1];
       out[o + 8] = pp.fishU ? pp.fishU[c] : 0;
       if (k0 < 0) continue;
-      const f1 = k1 >= 0 ? Math.min(1, s[KP * c + 1] / d) : 0, F = Math.min(1, s[KP * c] / d + f1);
-      const h0 = HUE(list[k0].hue), x0 = Math.cos(h0), y0 = Math.sin(h0), t0 = list[k0].tone || 0;
-      let x1 = x0, y1 = y0, t1 = t0;
-      if (k1 >= 0) {
-        const t = smooth((f1 - MARCH[0]) / (MARCH[1] - MARCH[0])), h1 = HUE(list[k1].hue);
-        x1 = (1 - t) * x0 + t * Math.cos(h1); y1 = (1 - t) * y0 + t * Math.sin(h1); t1 = (1 - t) * t0 + t * (list[k1].tone || 0);
+      const f1 = k1 >= 0 ? Math.min(1, s[KP * c + 1] / dc) : 0, F = Math.min(1, s[KP * c] / dc + f1);
+      if (!(F >= SEEN)) continue;
+      const t = k1 >= 0 ? smooth((f1 - MARCH[0]) / (MARCH[1] - MARCH[0])) : 0;
+      let p = t > 0 ? k1 : -1;
+      if (p < 0) {
+        let best = f1;
+        if (k1 >= 0) p = k1;
+        for (let e = g.nbrOff[i]; e < g.nbrOff[i + 1]; e++) {
+          const b = loc[g.nbr[e]];
+          if (b < 0) continue;
+          const db = Math.max(d[b], 1e-9);
+          for (let j = 0; j < 2; j++) { const k = id[KP * b + j]; if (k < 0) break; const v = s[KP * b + j] / db; if (k !== k0 && v > best) { best = v; p = k; } }
+        }
       }
-      const sw = k1 >= 0 && k1 < k0;
-      out[o] = F * (sw ? x1 : x0); out[o + 1] = F * (sw ? y1 : y0);
-      out[o + 2] = F * (sw ? x0 : x1); out[o + 3] = F * (sw ? y0 : y1);
-      out[o + 4] = F; out[o + 5] = F * (sw ? t1 : t0); out[o + 6] = F * (sw ? t0 : t1);
+      const lo = p >= 0 && p < k0 ? p : k0, hi = p > k0 ? p : k0;
+      look(lo, o); look(hi, o + 2);
+      out[o + 4] = 1; out[o + 5] = F; out[o + 6] = k0 === hi && hi !== lo ? 1 : 0; out[o + 7] = t;
     }
-    coastward(this.pp, out, 7);
+    coastward(this.pp, out, 8, 5);
     return out;
   }
 

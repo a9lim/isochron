@@ -91,7 +91,8 @@
 // (People.drawnB). Culture: each place's way of life as a
 // wash of its hue and a hatch at its angle, a second way's hatch between the
 // first's lines (Peoples.drawn). States: each place's state as a wash of its hue
-// and tone (a step of lightness), as strong as the share its states hold, a
+// and tone (a step of lightness), as strong as the share its states hold, its
+// edge and its borders lines where a hold ends and soft only where it thins, a
 // contested place in equal stripes of both states' looks (Polities.drawn). Of the
 // land's uses, these three keep the cities, datacenters and factories, not the
 // fields. The ice is plain on the People charts.
@@ -829,24 +830,33 @@ fn contour(x: f32, fx: f32) -> f32 {
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
     } else if (folkS) {
       // States: each place's state as a wash of its look, as strong as the share F its states hold
-      // (Polities.drawn), so the wash fades to the chart only where no state holds the people; no border
-      // drawn. The hue is each band's direction (its vector the hue × F, interpolated, turning where two
-      // states meet), the tone its share of F, a step of contrast with the paper in lightness and the
-      // wash's strength. (By the vector's length, as the wash was once, a border between far hues faded to
-      // a band of paper and one between near hues didn't, so states seemed parted by stateless land that
-      // wasn't.) A contested place is striped equally in its two states' looks (the second band turned to
-      // the second's).
+      // (Polities.drawn), hard where a hold is and soft where it fades (a9): the wash ends in a line where
+      // its places' held field H passes ½ (midway to the places no state holds, a curve on the refined
+      // mesh, as the Settlement map's frontier), its strength F over the held places alone (each value × H,
+      // over H), so a hold that thins over many places fades and one that ends doesn't. Each place draws a
+      // pair of looks, the same on either side of a border (its own and its neighbour's), each band's hue
+      // its direction and its tone its length (1.5 + ½ the tone, × H); the side, which of the pair fills it,
+      // turns in a line between them, so a border is a line too; a contested place is striped equally in
+      // the two, as contested as MARCH's step. No border drawn. (By the vector's length, as the wash was
+      // once, a border between far hues faded to a band of paper and one between near hues didn't.)
       let had = explored * (1.0 - sheet);
       let a = select(0.42, 0.48, dark);
-      let F = max(i.wx.y, 1e-3);
+      let H = i.wx.y;
+      let hn = max(H, 1e-3);
+      let F = i.wx.z / hn;
+      let sd = i.wx.w / hn;
+      let ct = clamp(i.wp.w / hn, 0.0, 1.0);
+      let edge = clamp(0.5 + (H - 0.5) / max(fwidth(H), 1e-3), 0.0, 1.0);
+      let side = clamp(0.5 + (sd - 0.5) / max(fwidth(sd), 1e-3), 0.0, 1.0);
       let b0 = i.td.xy;
       let b1 = i.td.zw;
-      let t0 = clamp(i.wx.z / F, -1.0, 1.0);
-      let t1 = clamp(i.wx.w / F, -1.0, 1.0);
+      let t0 = clamp(2.0 * (length(b0) / hn - 1.5), -1.0, 1.0);
+      let t1 = clamp(2.0 * (length(b1) / hn - 1.5), -1.0, 1.0);
       let sp = stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z);
+      let m = mix(side, sp, ct);
       let c0 = idWheel(atan2(b0.y, b0.x), t0, dark, 0.0);
       let c1 = idWheel(atan2(b1.y, b1.x), t1, dark, 0.0);
-      pland = mix(pland, mix(c0, c1, sp), a * (1.0 + 0.3 * mix(t0, t1, sp)) * smoothstep(0.3, 0.8, F) * had);
+      pland = mix(pland, mix(c0, c1, m), a * (1.0 + 0.3 * mix(t0, t1, m)) * smoothstep(0.3, 0.8, F) * edge * had);
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
       // hatch at the torus's first angle (over 180°) in the hue of its second (a wheel), over a wash of
