@@ -418,7 +418,8 @@ export class Routes {
    * roads and canals built at their ends and by steam by their railways (`landCost`), a river both
    * cells ply at C_DOWN or C_UP, a short crossing (up to HOPS sea cells) at two ports and the sea's
    * C_SEA a km), up to M_CATCH cells within C_CATCH; with each one's cost by sail and by steam
-   * (rail, barge, steamship). Into this.catch = { off, idx, cS, cI }, the cell itself first at none.
+   * (rail, barge, steamship). Into this.catch = { off, idx, cS, cI }, the cell itself first at none; the edges' costs
+   * into this.edgeS and this.edgeI.
    */
   catchments(f) {
     const C = this.C, pp = this.pp, E = pp.E, H = pp.H, nL = pp.nL, cells = pp.cells, P = pp.P;
@@ -462,6 +463,7 @@ export class Routes {
       seen[a] = -1;
     }
     this.catch = { off, idx: Int32Array.from(idx), cS: Float32Array.from(cS), cI: Float32Array.from(cI) };
+    this.edgeS = eS; this.edgeI = eI;   // the local routes' costs, each directed edge of the people's graph (a herders' state's riders: Polities.ridden)
   }
 
   /** What the graph depends on: which coarse cells are land and living (a sea's rise, an ice sheet). */

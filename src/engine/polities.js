@@ -37,7 +37,8 @@
 //   founding    a place mostly stateless with a fed city founds a polity, at R_FORM × x²/(1 + x²) a
 //               year, x its city's people over N_STATE (Carneiro's circumscription is in π₀'s exit),
 //               uniting its region: the free share of its catchment, e-fold over its reach, its
-//               founders' cohesion COH0 brought to the places it takes (Ibn Khaldun's dynasty).
+//               founders' cohesion COH0 brought to the places it takes (Ibn Khaldun's dynasty), its own
+//               cohesion (and a herders' state's riders) theirs from its first step (`tally`).
 //               A polity that loses its capital moves it to its largest city held, its cohesion ×
 //               CAP_LOSS; one holding fewer than N_DIE people is gone.
 // Empires (batch 2b, landing 1; synthesis):
@@ -106,8 +107,10 @@
 //               herders × its settled people / N_CAMP² (Barfield's nomads, who needed the sown to milk), where
 //               no state already rules them (× π₀^γ against the states' powers there), uniting
 //               its region's herders. Herders deliver wholly to it, DL_HERD to a settled state; it reaches
-//               as its riders do (× (1 + the horse × its camp's herders' share)), masses F_RIDE of its riders'
-//               arms anywhere in reach (Barfield's imperial confederacy: the steppe fielded its men), and
+//               as its riders do, by land from its camp (`ridden`: the local routes' roads and rivers, never
+//               the sea) × (1 + the horse × its camp's herders' share), masses F_RIDE of its riders' arms
+//               anywhere in reach of its pastures (where it holds some of a place's region, as every state's
+//               power reads its arms there: Barfield's imperial confederacy, the steppe fielded its men), and
 //               administers its herders alone: it holds at most their share of a place, by that share of its
 //               power, the riders and the sown two pools in allegiance (its herders first, the settled
 //               sharing the rest). Its power past them is tribute: T_TRIB × ρ^γ/(1 + ρ^γ) of what a place's
@@ -142,6 +145,7 @@
 // The capitals as marks (`capitals`); counted (`count`): the effective number of states.
 import { stream } from '../rng.js';
 import { CITY, wrap } from './peoples.js';
+import { Heap } from './routes.js';
 
 export const KP = 3;      // the polities a place keeps
 const KC = 4;             // the candidates a place weighs a step
@@ -338,6 +342,7 @@ export class Polities {
       const near = q.near || (q.near = new Map());
       near.clear();
       for (let e = cof[cap]; e < cof[cap + 1]; e++) near.set(cix[e], (1 - q.sI) * cS[e] + q.sI * cI[e]);
+      if (q.camp) this.ridden(q);
       q.prepV = prepN;
     };
     for (const k of live) {
@@ -351,6 +356,7 @@ export class Polities {
     const stamp = this.ver, nmk = rt.nm;
     const capCost = (q, c) => {
       if (q.prepV !== prepN) prep(q);
+      if (q.camp) return q.xr[c];   // a herders' state's by land (`ridden`)
       const nx = q.near.get(c);
       if (nx !== undefined) return nx;
       const m = mo[c];
@@ -366,11 +372,15 @@ export class Polities {
     // Curtin's settler mortality, from memory), × their medicine and quinine's (People.mortF). Each market keeps
     // the KJ_PROJ projecting most into it (that weight × the state's cohesion and arms' edge).
     // And the herders' states, whose riders mass: F_RIDE of a camp's riders' arms (its herders held × their
-    // arms) reach any place by its reach as its own arms there do (Barfield's imperial confederacy, from
-    // memory: the steppe's armies were its men, mobile and massed, so a thin steppe could field what a
-    // crowded plain did). Bounded by the herders it holds, and ruling the settled only where stress lets it in.
+    // arms) reach a place in reach of its pastures (where it holds some of the place's region, as any state's arms
+    // there) by its reach as its own arms there do, the cost by land from its camp (Barfield's imperial
+    // confederacy, from memory: the steppe's armies were its men, mobile and massed, so a thin steppe could field
+    // what a crowded plain did). Bounded by the herders it holds, and ruling the settled only where stress lets it
+    // in. (Candidates everywhere, their costs by the markets' routes, a camp's riders had sailed: the Kalahari's
+    // held thin herders' pockets from the Sahara to India and Australia, ~3,000 places in ~75 pieces.) A herders'
+    // state projects nothing by sail.
     const rA = this.rA, nat = this.nat, nm = rt.nm, KJ = P.KJ_PROJ;
-    const camps = live.filter(k => list[k].camp && list[k].R > 0), proj = live.filter(k => list[k].LP > 1e-2 * P.L_PROJ);
+    const proj = live.filter(k => !list[k].camp && list[k].LP > 1e-2 * P.L_PROJ);
     const pj = this.pj && this.pj.length === nm * KJ ? this.pj : (this.pj = new Int32Array(nm * KJ)), pjv = this.pjv && this.pjv.length === nm * KJ ? this.pjv : (this.pjv = new Float64Array(nm * KJ));
     pj.fill(-1); pjv.fill(0);
     for (const k of live) list[k].pjOn = false;
@@ -439,7 +449,6 @@ export class Polities {
         }
       }
       const add = k => { let h = 0; while (h < nk && lk[h] !== k) h++; if (h === nk && nk < 64) { lk[nk] = k; la[nk] = 0; nk++; } };
-      for (const k of camps) add(k);
       for (let j = 0, m = mo[c] * KJ; j < KJ; j++) { const k = pj[m + j]; if (k < 0) break; add(k); }
       // The share of the place its states hold, for balancing: a state's power where another holds it.
       let held = 0;
@@ -736,6 +745,31 @@ export class Polities {
   }
 
   /**
+   * A herders' state's costs from its camp by land alone, as its riders ride (not across the sea, not even a short
+   * crossing): Dijkstra over the people's graph's land edges at the local routes' costs (Routes.catchments: roads,
+   * rivers; steam's share by its camp's industry, as a catchment's), out to where e^{−x/L} passes 10⁻⁶. Into q.xr,
+   * Infinity past it.
+   */
+  ridden(q) {
+    const pp = this.pp, rt = pp.routes, E = pp.E, nL = pp.nL, eS = rt.edgeS, eI = rt.edgeI, far = 13.8 * q.L, sI = q.sI, m = E.off[nL];
+    const xr = q.xr && q.xr.length === nL ? q.xr : (q.xr = new Float64Array(nL));
+    const dS = this.rS && this.rS.length === nL ? this.rS : (this.rS = new Float64Array(nL)), dI = this.rI && this.rI.length === nL ? this.rI : (this.rI = new Float64Array(nL));
+    const heap = this.heap && this.heap.k.length === m + 2 ? this.heap : (this.heap = new Heap(m + 1));
+    dS.fill(Infinity); xr.fill(Infinity); heap.n = 0;
+    dS[q.cap] = 0; dI[q.cap] = 0; heap.push(0, q.cap);
+    while (heap.n) {
+      const u = heap.pop(), d = heap.top;
+      if (d > dS[u]) continue;
+      xr[u] = (1 - sI) * d + sI * dI[u];
+      for (let o = E.off[u]; o < E.off[u + 1]; o++) {
+        if (E.hop[o]) continue;
+        const v = E.nb[o], nd = d + eS[o];
+        if (nd < dS[v] && nd <= far) { dS[v] = nd; dI[v] = dI[u] + eI[o]; heap.push(nd, v); }
+      }
+    }
+  }
+
+  /**
    * Coercion's weight at place c (Domar's serfdom; batch 4b's abolition, speculation as a mechanism): K_COER ×
    * (1 − its schooling)(1 − its holders' capitals' schooling)(1 − the media's span), one norm for serfdom and
    * slavery, so the schooled abolish where they live and where they rule, and the media carry it everywhere.
@@ -877,6 +911,29 @@ export class Polities {
         if (f > 0.05 * d) { this.claim(b, k, f); S[b] += Math.max(0, P.COH0 - S[b]) * Math.min(1, f / d); ids.replace(b, qn.X, qn.kap * f / d); }
       }
     }
+    this.tally(k);
+  }
+
+  /**
+   * A new state's cohesion and (a herders' state's) riders from what it holds, as each step counts them once
+   * allegiance has moved (`advance`), for its first step's candidates: they had read its seat's cohesion before its
+   * founders brought theirs (often a decayed core's), and a camp's none of its riders, so with steps of a century
+   * against T_WAR a new state lost most of what it united in its first.
+   */
+  tally(k) {
+    const pp = this.pp, q = this.list[k], N = pp.Ntot, ids = pp.ids, id = this.id, s = this.s, S = this.S;
+    let cw = 0, coh = 0, R = 0;
+    for (let c = 0; c < pp.nL; c++) for (let j = 0; j < KP; j++) {
+      const kk = id[KP * c + j];
+      if (kk < 0) break;
+      if (kk !== k) continue;
+      const wk = s[KP * c + j] * N[c] * ids.simX(c, q.X);
+      cw += wk; coh += wk * S[c];
+      if (q.camp && ids.T[c] > 0) R += Math.min(s[KP * c + j], ids.W[5 * c + 1] / ids.T[c]) * N[c] * this.arm[c];   // its herders held × their arms
+      break;
+    }
+    if (cw > 0) q.coh = coh / cw;
+    q.R = R;
   }
 
   /** Polity k takes share f of place c (its own share if it holds some, else the first free slot or the weakest's), strongest first. */
@@ -917,6 +974,7 @@ export class Polities {
       S[b] += Math.max(0, P.COH0 - S[b]) * Math.min(1, f / db);
       pp.ids.replace(b, q.X, q.kap * f / db);
     }
+    this.tally(k2);
     const ids = pp.ids, m = this.massOf(), cap0 = q0.cap;
     this.secs.push({ t: pp.t, parent: k, child: k2, c, alike: ids.simX(c, q0.X), overseas: m[c] !== m[cap0], nat: this.nat[c], ind: pp.econ && pp.econ.on ? 1 : 0 });
   }

@@ -35,9 +35,11 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
     for (const b of near) { cix.push(b); cc.push(cost(a, b)); }
     cof[a + 1] = cix.length;
   }
+  const eS = new Float32Array(m);   // the local routes' cost of each directed edge (a herders' state's riders: Polities.ridden)
+  for (let c = 0; c < n; c++) for (let o = off[c]; o < off[c + 1]; o++) eS[o] = cost(c, E.nb[o]);
   pp.routes = {
     key: 1, nm: n, marketOf: Int32Array.from({ length: n }, (_, c) => c), nodeOf: Int32Array.from({ length: n }, (_, c) => c), ownCost: new Float32Array(n),
-    catch: { off: cof, idx: Int32Array.from(cix), cS: Float32Array.from(cc), cI: Float32Array.from(cc) }, cost, between: (a, b) => cost(a, b), reach: () => 0,
+    catch: { off: cof, idx: Int32Array.from(cix), cS: Float32Array.from(cc), cI: Float32Array.from(cc) }, cost, between: (a, b) => cost(a, b), reach: () => 0, edgeS: eS, edgeI: eS,
   };
   pp.ids = new Peoples(pp);
   for (let c = 0; c < n; c++) { pp.ids.W[5 * c + 3] = N; pp.ids.T[c] = N; }
@@ -341,6 +343,45 @@ test("a herders' state holds its herders wholly, and its power over the settled 
   }
   assert.ok(tested >= 3, `${tested} places tested`);
   assert.ok(held(pol, ks, n)[160] > 0.9, 'the settled state keeps its own');
+});
+
+test("a herders' state's riders mass from its pastures by land: not across the sea, nor past its region", () => {
+  // Herders along the line, camped at 100 and holding 70–130, a reach far past the line, and no other state. The
+  // crossing between 39 and 40 is the sea's (a hop, no dearer than the land beside it), and 161–230 are empty, wider
+  // than a region (the catchment's 60), past which thin herders live again. The camp spreads to the shore and to the
+  // empty land's edge and no farther: its riders ride (its cost across the sea is none to be had), and its power at
+  // a place reads its arms in that place's region. (Its riders had massed anywhere by the markets' routes, sailing:
+  // it took both.)
+  const n = 300, N = 1e4, pp = line({ n, N, c0: 100, L: 1e5, params: { W_RAID: 0, Z_RIDE: -50 } }), pol = pp.pol, ids = pp.ids, E = pp.E;
+  for (let c = 0; c < n; c++) {
+    const v = c > 160 && c <= 230 ? 0 : c > 230 ? 0.1 * N : N;
+    pp.Ntot[c] = v; pp.K[c] = v; ids.T[c] = v; ids.W[5 * c + 1] = v; ids.W[5 * c + 3] = 0; pp.wol[5 * c + 1] = 1; pp.wol[5 * c + 3] = 0;
+  }
+  for (let c = 39; c <= 40; c++) for (let o = E.off[c]; o < E.off[c + 1]; o++) if (E.nb[o] === 79 - c) E.hop[o] = 1;
+  const k = pol.list.length;
+  pol.found(100, 1, true);
+  for (let b = 70; b <= 130; b++) if (b !== 100) pol.claim(b, k, 1);
+  for (let t = 0; t < 400; t++) { pol.advance(10); pp.t += 10; }
+  const s = held(pol, k, n), q = pol.list[k];
+  assert.ok(q.camp && s[41] > 0.5 && s[160] > 0.5, `the camp holds to the shore (${s[41].toFixed(3)}) and to the empty land (${s[160].toFixed(3)})`);
+  assert.ok(s.slice(0, 40).every(x => x === 0) && q.xr.slice(0, 40).every(x => x === Infinity), `across the sea: ${Math.max(...s.slice(0, 40))} held`);
+  assert.ok(s.slice(231).every(x => x === 0), `past its region: ${Math.max(...s.slice(231))} held`);
+});
+
+test("a state's first step reads the cohesion its founders bring, not its seat's before them", () => {
+  // Farmers on decayed land (cohesion A_MIN everywhere), a state founded at 100 uniting its region, its founders'
+  // COH0 brought to the places it takes, and one step five times T_WAR. Its power reads its people's cohesion as
+  // each step counts it, so it keeps its seat; read from the seat's cohesion before its founders came (as the
+  // step had, counting a state's cohesion only once allegiance moved), it lost its seat.
+  const n = 200, pp = line({ n, L: 2000, params: { T_WAR: 20 } }), pol = pp.pol, P = pp.P;
+  pol.advance(10);   // (the places' deliverers, arms and kernel, as a founding finds them)
+  pol.S.fill(P.A_MIN);
+  const k = pol.list.length;
+  pol.found(100, 1);
+  assert.ok(pol.list[k].coh > 5 * P.A_MIN, `its cohesion at founding ${pol.list[k].coh.toFixed(3)} against its seat's ${P.A_MIN} before`);
+  pol.advance(100);
+  const s = held(pol, k, n);
+  assert.ok(s[100] > 0.9, `its seat after its first step ${s[100].toFixed(3)}`);
 });
 
 test("a herders' state conquers a tributary's city where stress breaks it, taking its holdings nearer the city", () => {
