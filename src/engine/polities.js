@@ -163,6 +163,7 @@ const TONE_SIG = 0.8;     // how near two tones look alike: e^{−(Δt/σ)²} (a
 const LOOK_T = 0.1;       // a look's odds e^{−v/LOOK_T}: a met state's own look ~e^{−10} against open hue, the open hues near even
 const MARCH = [0.2, 0.4]; // the second state's share over which a place turns to equal stripes
 const SEEN = 0.3;         // the share its states hold past which the States map draws a place held (its wash's start: src/render/globe.js)
+const BANDS = 3;          // the States map's bands, among which states that meet are parted (`bands`; the globe reads three)
 
 /** A hue's angle (src/render/globe.js, idWheel, which reads v = h/2π + ½, the States map's circle uniform) from its place u round it. */
 const HUE = u => 2 * Math.PI * (u - Math.floor(u) - 0.5);
@@ -1090,44 +1091,70 @@ export class Polities {
    * `drawn`), drawn hard where a state's hold is and soft where it fades (a9). Where the share F its two largest
    * states hold of those who deliver reaches SEEN (where the wash begins), the place is held (H 1, else 0, the
    * rest 0 with it): the globe draws a held place's wash to where H passes ½, a curve midway to the places no
-   * state holds, at the strength F of the held places alone (each value × H, over H's interpolation), so the
-   * edge of a hold is a line and a hold that thins over many places fades. Its pair of looks, the first vec4,
-   * each band (cos, sin) of its hue × (1.5 + ½ its tone), by the states' order (not their shares, so a pair's
-   * bands are the same in every place that draws it): where it's contested (its second holding past MARCH),
-   * its two states; else its own and the strongest other among its neighbours (by their two largest shares),
-   * so the places on either side of a border draw the same pair and the side (which of the two fills the
-   * place) turns at a line between them; else its own twice. The second vec4: H, F, the side (0 the pair's
-   * first, 1 its second), how contested (equal stripes of both at 1, MARCH's step). The third's x the
-   * fishers' parcels (Settlement, Density).
+   * state holds, at the strength F of the held places alone (each value × H, over H), so the edge of a hold is a
+   * line and a hold that thins over many places fades. Each state has one of BANDS bands (`bands`), states that
+   * meet in different bands where they can be; a place writes its largest state's look into that state's band at
+   * weight 2 and, where it's contested (its second holding past MARCH), its second's into its own at weight 1
+   * (another, where they share one), each look (cos, sin) of its hue × (1.5 + ½ its tone) × the weight. So a
+   * band is one state's look wherever it's drawn near a place, and the heaviest band, which fills the place, turns
+   * in a line where states in different bands meet. Laid out as the globe reads it: the two first bands' looks;
+   * H, F, how contested (equal stripes of the two at 1, MARCH's step), the first band's weight; the third band's
+   * look, the second's and the third's weights.
    */
   drawn(out = null) {
-    const pp = this.pp, g = pp.planet.grid, n = g.n, id = this.id, s = this.s, list = this.list, loc = pp.loc, d = this.d;
+    const pp = this.pp, n = pp.planet.grid.n, nL = pp.nL, id = this.id, s = this.s, list = this.list, d = this.d;
     out = out || new Float32Array(12 * n); out.fill(0);
-    const look = (k, o) => { const q = list[k], h = HUE(q.hue), r = 1.5 + 0.5 * (q.tone || 0); out[o] = r * Math.cos(h); out[o + 1] = r * Math.sin(h); };
-    for (let c = 0; c < pp.nL; c++) {
-      const i = pp.cells[c], o = 12 * i, dc = Math.max(d[c], 1e-9), k0 = id[KP * c], k1 = id[KP * c + 1];
-      out[o + 8] = pp.fishU ? pp.fishU[c] : 0;
-      if (k0 < 0) continue;
-      const f1 = k1 >= 0 ? Math.min(1, s[KP * c + 1] / dc) : 0, F = Math.min(1, s[KP * c] / dc + f1);
+    const LOOK = [0, 2, 8], WT = [7, 10, 11];   // each band's look and weight in a cell's twelve
+    const put = (k, b, wt, o) => { const q = list[k], h = HUE(q.hue), r = wt * (1.5 + 0.5 * (q.tone || 0)); out[o + LOOK[b]] = r * Math.cos(h); out[o + LOOK[b] + 1] = r * Math.sin(h); out[o + WT[b]] = wt; };
+    // Each held place's largest state, its second where it's contested, and how contested.
+    const K0 = new Int32Array(nL).fill(-1), K1 = new Int32Array(nL).fill(-1), FF = new Float32Array(nL), TT = new Float32Array(nL);
+    for (let c = 0; c < nL; c++) {
+      const dc = Math.max(d[c], 1e-9), a = id[KP * c], b = id[KP * c + 1];
+      if (a < 0) continue;
+      const f1 = b >= 0 ? Math.min(1, s[KP * c + 1] / dc) : 0, F = Math.min(1, s[KP * c] / dc + f1);
       if (!(F >= SEEN)) continue;
-      const t = k1 >= 0 ? smooth((f1 - MARCH[0]) / (MARCH[1] - MARCH[0])) : 0;
-      let p = t > 0 ? k1 : -1;
-      if (p < 0) {
-        let best = f1;
-        if (k1 >= 0) p = k1;
-        for (let e = g.nbrOff[i]; e < g.nbrOff[i + 1]; e++) {
-          const b = loc[g.nbr[e]];
-          if (b < 0) continue;
-          const db = Math.max(d[b], 1e-9);
-          for (let j = 0; j < 2; j++) { const k = id[KP * b + j]; if (k < 0) break; const v = s[KP * b + j] / db; if (k !== k0 && v > best) { best = v; p = k; } }
-        }
-      }
-      const lo = p >= 0 && p < k0 ? p : k0, hi = p > k0 ? p : k0;
-      look(lo, o); look(hi, o + 2);
-      out[o + 4] = 1; out[o + 5] = F; out[o + 6] = k0 === hi && hi !== lo ? 1 : 0; out[o + 7] = t;
+      K0[c] = a; FF[c] = F;
+      const t = b >= 0 ? smooth((f1 - MARCH[0]) / (MARCH[1] - MARCH[0])) : 0;
+      if (t > 0) { K1[c] = b; TT[c] = t; }
     }
-    coastward(this.pp, out, 8, 5);
+    this.bands(K0, K1);
+    for (let c = 0; c < nL; c++) {
+      const o = 12 * pp.cells[c], k = K0[c];
+      if (k < 0) continue;
+      const b0 = list[k].band | 0;
+      put(k, b0, 2, o);
+      if (K1[c] >= 0) { const b1 = list[K1[c]].band | 0; put(K1[c], b1 === b0 ? (b0 + 1) % BANDS : b1, 1, o); }
+      out[o + 4] = 1; out[o + 5] = FF[c]; out[o + 6] = TT[c];
+    }
+    coastward(this.pp, out, 12, 5);
     return out;
+  }
+
+  /**
+   * Each state's band on the States map (`drawn`), one of BANDS, kept as `band`: the states that meet (neighbouring
+   * places each holds most of, or a place they contest) in different bands where they can be, so their border is a
+   * line. A local search (three bands part all but a few percent of the borders on Earth's maps, two a fifth): each
+   * state takes the band its meetings weigh least in (by the places along them), first among those already placed
+   * and then moving while that parts more, so a state keeps its band unless the map about it changes. Drawing only.
+   */
+  bands(K0, K1) {
+    const pp = this.pp, g = pp.planet.grid, loc = pp.loc, list = this.list, w = new Map(), x = new Float64Array(BANDS);
+    const add = (a, b) => { for (const [p, q] of [[a, b], [b, a]]) { let m = w.get(p); if (!m) w.set(p, m = new Map()); m.set(q, (m.get(q) || 0) + 1); } };
+    for (let c = 0; c < pp.nL; c++) {
+      const k = K0[c];
+      if (k < 0) continue;
+      if (K1[c] >= 0 && K1[c] !== k) add(k, K1[c]);
+      const i = pp.cells[c];
+      for (let e = g.nbrOff[i]; e < g.nbrOff[i + 1]; e++) { const b = loc[g.nbr[e]]; if (b > c && K0[b] >= 0 && K0[b] !== k) add(k, K0[b]); }
+    }
+    const weigh = k => { x.fill(0); for (const [j, v] of w.get(k)) { const bj = list[j].band; if (bj !== undefined && bj < BANDS) x[bj] += v; } let b = 0; for (let i = 1; i < BANDS; i++) if (x[i] < x[b]) b = i; return b; };
+    const order = [...w.keys()].sort((a, b) => a - b);
+    for (const k of order) if (list[k].band === undefined || list[k].band >= BANDS) list[k].band = weigh(k);
+    for (let pass = 0; pass < 8; pass++) {
+      let moves = 0;
+      for (const k of order) { const q = list[k], b = weigh(k); if (x[b] < x[q.band]) { q.band = b; moves++; } }
+      if (!moves) break;
+    }
   }
 
   /** Each place's strongest polity where it holds most of those who deliver, else −1. */

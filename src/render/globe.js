@@ -195,7 +195,9 @@ fn toView(p: vec3f) -> vec3f {
   let id1 = ident[3u * vi + 1u];
   o.wp = vec4f(p, select(past[vi].x, id1.w, cult));
   o.c = c;
-  o.z0 = z0; o.z1 = z1; o.z2 = z2; o.z3 = z3;
+  // (The zones' first four, read only on the Zones map, carry on the States map Polities.drawn's third vec4:
+  // its bands' weights.)
+  o.z0 = select(z0, ident[3u * vi + 2u], u.mode.x > 10.5 && u.mode.x < 11.5); o.z1 = z1; o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
   // sulfate's optical depth, its haze where the winds carry it, and the knowledge, its lag and the
@@ -833,30 +835,42 @@ fn contour(x: f32, fx: f32) -> f32 {
       // (Polities.drawn), hard where a hold is and soft where it fades (a9): the wash ends in a line where
       // its places' held field H passes ½ (midway to the places no state holds, a curve on the refined
       // mesh, as the Settlement map's frontier), its strength F over the held places alone (each value × H,
-      // over H), so a hold that thins over many places fades and one that ends doesn't. Each place draws a
-      // pair of looks, the same on either side of a border (its own and its neighbour's), each band's hue
-      // its direction and its tone its length (1.5 + ½ the tone, × H); the side, which of the pair fills it,
-      // turns in a line between them, so a border is a line too; a contested place is striped equally in
-      // the two, as contested as MARCH's step. No border drawn. (By the vector's length, as the wash was
-      // once, a border between far hues faded to a band of paper and one between near hues didn't.)
+      // over H), so a hold that thins over many places fades and one that ends doesn't. Each state has one of
+      // three bands (Polities.bands parts states that meet), a place writing its largest state's look into
+      // that band at weight 2 and its contester's into its own at 1, so a band is one state's look wherever
+      // it's drawn near a place, its hue its direction and its tone its length (1.5 + ½ the tone) over its
+      // weight. The heaviest band fills the place, so where states in different bands meet the fill turns in
+      // a line (its margin over the next antialiased over a pixel); a contested place is striped equally with
+      // the next heaviest band, as contested as MARCH's step. No border drawn. (By the vector's length, as the
+      // wash was once, a border between far hues faded to a band of paper and one between near hues didn't.)
       let had = explored * (1.0 - sheet);
       let a = select(0.42, 0.48, dark);
       let H = i.wx.y;
       let hn = max(H, 1e-3);
       let F = i.wx.z / hn;
-      let sd = i.wx.w / hn;
-      let ct = clamp(i.wp.w / hn, 0.0, 1.0);
+      let ct = clamp(i.wx.w / hn, 0.0, 1.0);
       let edge = clamp(0.5 + (H - 0.5) / max(fwidth(H), 1e-3), 0.0, 1.0);
-      let side = clamp(0.5 + (sd - 0.5) / max(fwidth(sd), 1e-3), 0.0, 1.0);
-      let b0 = i.td.xy;
-      let b1 = i.td.zw;
-      let t0 = clamp(2.0 * (length(b0) / hn - 1.5), -1.0, 1.0);
-      let t1 = clamp(2.0 * (length(b1) / hn - 1.5), -1.0, 1.0);
-      let sp = stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z);
-      let m = mix(side, sp, ct);
-      let c0 = idWheel(atan2(b0.y, b0.x), t0, dark, 0.0);
-      let c1 = idWheel(atan2(b1.y, b1.x), t1, dark, 0.0);
-      pland = mix(pland, mix(c0, c1, m), a * (1.0 + 0.3 * mix(t0, t1, m)) * smoothstep(0.3, 0.8, F) * edge * had);
+      let wb = vec3f(i.wp.w, i.z0.z, i.z0.w);
+      let bx = array<vec2f, 3>(i.td.xy, i.td.zw, i.z0.xy);
+      // Each band's margin over the heaviest other, its share of the fill antialiased where that crosses 0.
+      let m0 = wb.x - max(wb.y, wb.z);
+      let m1 = wb.y - max(wb.x, wb.z);
+      let m2 = wb.z - max(wb.x, wb.y);
+      var al = vec3f(clamp(0.5 + m0 / max(fwidth(m0), 1e-3), 0.0, 1.0), clamp(0.5 + m1 / max(fwidth(m1), 1e-3), 0.0, 1.0), clamp(0.5 + m2 / max(fwidth(m2), 1e-3), 0.0, 1.0));
+      al = al / max(al.x + al.y + al.z, 1e-3);
+      let tb = clamp(2.0 * (vec3f(length(bx[0]), length(bx[1]), length(bx[2])) / max(wb, vec3f(1e-3)) - 1.5), vec3f(-1.0), vec3f(1.0));
+      let c0 = idWheel(atan2(bx[0].y, bx[0].x), tb.x, dark, 0.0);
+      let c1 = idWheel(atan2(bx[1].y, bx[1].x), tb.y, dark, 0.0);
+      let c2 = idWheel(atan2(bx[2].y, bx[2].x), tb.z, dark, 0.0);
+      let solid = al.x * c0 + al.y * c1 + al.z * c2;
+      let ts = dot(al, tb);
+      // The contester's band: the heaviest but one.
+      let hi = select(select(2, 1, wb.y >= wb.z), 0, wb.x >= wb.y && wb.x >= wb.z);
+      let nx = select(select(select(1, 0, wb.x >= wb.y), select(0, 2, wb.z > wb.x), hi == 1), select(1, 2, wb.z > wb.y), hi == 0);
+      let cn = select(select(c0, c1, nx == 1), c2, nx == 2);
+      let tn = select(select(tb.x, tb.y, nx == 1), tb.z, nx == 2);
+      let sp = stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z) * ct;
+      pland = mix(pland, mix(solid, cn, sp), a * (1.0 + 0.3 * mix(ts, tn, sp)) * smoothstep(0.3, 0.8, F) * edge * had);
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
       // hatch at the torus's first angle (over 180°) in the hue of its second (a wheel), over a wash of
