@@ -181,6 +181,28 @@ export function disturbance(g, dry, P, mega = 1) {
 }
 
 /**
+ * The climate the cover answers on cells [a, b) (Vegetation.setClimate, and with the cover's climate the
+ * engine's pool's kernel, src/engine/life.js): each cell's equilibrium cover, its trees' share past fire
+ * and browsing, its NPP and its soil's respiration, into the cover's arrays `v`.
+ */
+export function climateCells(x, a, b) {
+  const { land, gdd, precip, temp, soil, dry, co2, v } = x, V = VEG, eq = [0, 0], lq = Math.log(V.Q10) / 10;
+  for (let i = a; i < b; i++) {
+    const T = temp[i];
+    v.temp[i] = T; v.gdd[i] = gdd[i];
+    v.kS[i] = 1 / Math.min(V.TAU_SOIL_MAX, V.TAU_SOIL * Math.exp(lq * (V.T_SOIL - T)));
+    if (!land[i]) { v.vEq[i] = 0; v.sEq[i] = 0; v.pi[i] = 0; v.dist[i] = 0; continue; }
+    equilibrium(gdd[i], precip[i], soil ? soil[i] : -1, eq);
+    const u = Math.min(1, Math.max(0, (T - V.T_HOT[0]) / (V.T_HOT[1] - V.T_HOT[0]))), hot = 1 - u * u * (3 - 2 * u);
+    // Fire and browsing on the grass there now (a bare cell, new land, has none to burn).
+    const D = dry ? disturbance(v.fg[i], dry[i], precip[i], v.mega ? v.mega[i] : 1) : 0;
+    v.dist[i] = D;
+    v.vEq[i] = hot * eq[1]; v.sEq[i] = eq[1] > 0 ? (1 - D) * eq[0] / eq[1] : 0;
+    v.pi[i] = hot * npp(T, precip[i], co2);
+  }
+}
+
+/**
  * Land's planetary albedo with cover (f_t, f_g) and a snow share, in the
  * climate's terms: base is its snow-free land albedo for grass (ALB_LAND plus
  * the polar term), snowAlb its snow (ALB_SNOW). Trees mask the snow.
@@ -240,14 +262,15 @@ export class Vegetation {
     this.share = new Float64Array(n);
     this.ft = shared(Float32Array, n);       // trees, grass: shares of the cell (shared with the engine's pool)
     this.fg = shared(Float32Array, n);
-    this.vEq = new Float64Array(n); this.sEq = new Float64Array(n);
-    this.pi = new Float64Array(n);       // NPP per m² of vegetation, kg C/yr
-    this.kS = new Float64Array(n).fill(1 / VEG.TAU_SOIL);   // soil respiration, 1/yr
+    // (These and the climate's below shared with the engine's pool: the cover's climate is a kernel, `climateCells`.)
+    this.vEq = shared(Float64Array, n); this.sEq = shared(Float64Array, n);
+    this.pi = shared(Float64Array, n);       // NPP per m² of vegetation, kg C/yr
+    this.kS = shared(Float64Array, n).fill(1 / VEG.TAU_SOIL);   // soil respiration, 1/yr
     this.Ct = new Float64Array(n);       // carbon in trees, grass and soil, kg C/m² of cell
     this.Cg = new Float64Array(n);
     this.Cs = new Float64Array(n);
-    this.temp = new Float32Array(n); this.gdd = new Float32Array(n);
-    this.dist = new Float32Array(n);     // fire's and browsing's share of the trees' room kept open
+    this.temp = shared(Float32Array, n); this.gdd = shared(Float32Array, n);
+    this.dist = shared(Float32Array, n);     // fire's and browsing's share of the trees' room kept open
     this.flux = { npp: 0, litter: 0, resp: 0, air: 0 };     // Pg C/yr over the last step
     this.climate = false;
   }
@@ -259,21 +282,12 @@ export class Vegetation {
    * Elsewhere the cover goes and its carbon respires to the air.
    */
   setClimate({ land, gdd, precip, temp, soil = null, dry = null, co2 = VEG.CO2_0 }) {
-    const V = VEG, eq = [0, 0], lq = Math.log(V.Q10) / 10;
-    for (let i = 0; i < this.n; i++) {
-      const T = temp[i];
-      this.temp[i] = T; this.gdd[i] = gdd[i];
-      this.kS[i] = 1 / Math.min(V.TAU_SOIL_MAX, V.TAU_SOIL * Math.exp(lq * (V.T_SOIL - T)));
-      if (!land[i]) { this.vEq[i] = 0; this.sEq[i] = 0; this.pi[i] = 0; this.dist[i] = 0; continue; }
-      equilibrium(gdd[i], precip[i], soil ? soil[i] : -1, eq);
-      const u = Math.min(1, Math.max(0, (T - V.T_HOT[0]) / (V.T_HOT[1] - V.T_HOT[0]))), hot = 1 - u * u * (3 - 2 * u);
-      // Fire and browsing on the grass there now (a bare cell, new land, has none to burn).
-      const D = dry ? disturbance(this.fg[i], dry[i], precip[i], this.mega ? this.mega[i] : 1) : 0;
-      this.dist[i] = D;
-      this.vEq[i] = hot * eq[1]; this.sEq[i] = eq[1] > 0 ? (1 - D) * eq[0] / eq[1] : 0;
-      this.pi[i] = hot * npp(T, precip[i], co2);
-    }
+    climateCells(this.climateArgs({ land, gdd, precip, temp, soil, dry, co2 }), 0, this.n);
     this.climate = true;
+  }
+  /** `climateCells`' arguments: the climate given, and this cover's arrays it writes and reads. */
+  climateArgs({ land, gdd, precip, temp, soil = null, dry = null, co2 = VEG.CO2_0 }) {
+    return { land, gdd, precip, temp, soil, dry, co2, v: { temp: this.temp, gdd: this.gdd, kS: this.kS, vEq: this.vEq, sEq: this.sEq, pi: this.pi, dist: this.dist, fg: this.fg, mega: this.mega || null } };
   }
 
   /** Advance dt years, exactly: the cover, then carbon in trees, grass and soil. */

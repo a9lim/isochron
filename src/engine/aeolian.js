@@ -138,6 +138,25 @@ export function sourceCells(x, a, b) {
   return [gs, gw];
 }
 
+/**
+ * The deposition's effects on cells [a, b) (Aeolian.effects, and the engine's pool's kernel): dust in the
+ * year's snow (the deposition over the snowfall, mm/yr = kg m⁻² yr⁻¹), the darkening it gives (into `da`
+ * and, on the planetary albedo, `dark`), the degree-day factors' scale, and the crust's net budget.
+ */
+export function effectCells(x, a, b) {
+  const { dep, emit, T12, P12, A, PLANETARY, conc, dark, ddf, net, da } = x;
+  for (let i = a; i < b; i++) {
+    let snow = 0;
+    for (let m = 0; m < 12; m++) { const T = T12[12 * i + m]; snow += P12[12 * i + m] * (T <= -2 ? 1 : T >= 2 ? 0 : (2 - T) / 4); }
+    const cc = conc[i] = dep[i] / Math.max(A.SNOW_MIN, snow);
+    const d = da[i] = Math.min(A.DARK_MAX, A.DARK_A * Math.pow(cc / A.DARK_C, A.DARK_P));
+    dark[i] = -PLANETARY * d;
+    ddf[2 * i] = 1 + A.SW_SHARE * d / (1 - A.ALB_SNOW);
+    ddf[2 * i + 1] = 1 + A.SW_SHARE * d / (1 - A.ALB_ICE);
+    net[i] = dep[i] - emit[i];
+  }
+}
+
 export class Aeolian {
   /** On the planet's layers: { grid, tec, climate, ice, lakes, regolith, life }; opts override AEOLIAN and (DUST) the balance's. */
   constructor({ grid, tec, climate, ice = null, lakes = null, regolith = null, life = null }, opts = {}) {
@@ -153,12 +172,12 @@ export class Aeolian {
     this.sourceAnn = shared(Float32Array, n);     // the year's mean S (figures, tests)
     this.parts = shared(Float32Array, 3 * n);     // the year's mean of each share: bare and dry, salt flats, outwash (the figure's attribution)
     this.outRate = shared(Float32Array, n);       // m/yr of the ice's meltwater leaving it at each cell, eased
-    this.dark = new Float32Array(n);          // the climate's planetary albedo change on snow and ice (≤ 0)
+    this.dark = shared(Float32Array, n);          // the climate's planetary albedo change on snow and ice (≤ 0)
     this.forcing = new Float32Array(n);       // W/m², into the energy balance
-    this.ddf = new Float32Array(2 * n).fill(1);   // the ice's degree-day factors' scale: snow, ice
-    this.conc = new Float32Array(n);          // dust in the year's snow, kg/kg
+    this.ddf = shared(Float32Array, 2 * n).fill(1);   // the ice's degree-day factors' scale: snow, ice
+    this.conc = shared(Float32Array, n);          // dust in the year's snow, kg/kg
     this.load = new Float32Array(n);          // kg/m², the year's mean load (drawn)
-    this.net = new Float32Array(n);           // kg m⁻² yr⁻¹: deposition less emission (the crust's budget)
+    this.net = shared(Float32Array, n);           // kg m⁻² yr⁻¹: deposition less emission (the crust's budget)
     this.gpu = null;                          // src/gpu/dust.js on the engine's device, in the page
     this.solved = 0;                          // balances solved
     this.ref = null;                          // the opening's iron to the cold box
@@ -232,31 +251,25 @@ export class Aeolian {
   /** The balance's outputs (at the albedo the forcing's sign reads: the climate's at each cell's annual mean), routed. */
   route() { const it = this.routeSteps(); while (!it.next().done); }
   *routeSteps() {
-    const c = this.climate, n = this.n, alb = this.alb || (this.alb = new Float32Array(n));
+    const c = this.climate, n = this.n, alb = this.alb || (this.alb = shared(Float32Array, n));
     for (let i = 0; i < n; i++) alb[i] = c.albedo(i, c.Tf[0][i]);
     yield* this.dust.finishSteps(alb);
     yield;
-    this.effects();
+    yield* this.effectsSteps();
   }
 
   /** The deposition routed: the snow's darkening, the ice's melt, the forcing; the stats. */
-  effects() {
+  *effectsSteps() {
     const c = this.climate, A = this.A, n = this.n, L = c.landMask, H = this.ice ? this.ice.H : null;
     const o = this.dust.out, s = this.dust.stats;
     this.forcing.set(o.forcing);
     this.load.set(o.loadAnn);
+    // Each cell's (effectCells, by chunk on the engine's pool), then the sums in order.
+    const darkF = this.darkF || (this.darkF = shared(Float64Array, n));
+    yield* parallel('dustEffects', effectCells, { dep: o.depAnn, emit: o.emitAnn, T12: c.T12, P12: c.P12, A: { ...A }, PLANETARY: VEG.PLANETARY, conc: this.conc, dark: this.dark, ddf: this.ddf, net: this.net, da: darkF }, n);
     let land = 0, sea = 0, ice = 0, dsum = 0, dA = 0, src = 0, eb = 0, es = 0, eo = 0;
     for (let i = 0; i < n; i++) {
-      const a = this.areaM[i], dep = o.depAnn[i];
-      // Dust in the year's snow: the deposition over the snowfall (mm/yr = kg m⁻² yr⁻¹).
-      let snow = 0;
-      for (let m = 0; m < 12; m++) { const T = c.T12[12 * i + m]; snow += c.P12[12 * i + m] * (T <= -2 ? 1 : T >= 2 ? 0 : (2 - T) / 4); }
-      const conc = this.conc[i] = dep / Math.max(A.SNOW_MIN, snow);
-      const da = Math.min(A.DARK_MAX, A.DARK_A * Math.pow(conc / A.DARK_C, A.DARK_P));
-      this.dark[i] = -VEG.PLANETARY * da;
-      this.ddf[2 * i] = 1 + A.SW_SHARE * da / (1 - A.ALB_SNOW);
-      this.ddf[2 * i + 1] = 1 + A.SW_SHARE * da / (1 - A.ALB_ICE);
-      this.net[i] = dep - o.emitAnn[i];
+      const a = this.areaM[i], dep = o.depAnn[i], da = darkF[i];
       const iced = H && H[i] > A.ICE;
       if (iced) { ice += a * dep; dsum += a * da; dA += a; } else if (L[i]) land += a * dep; else sea += a * dep;
       src += a * this.sourceAnn[i] * (L[i] ? 1 : 0);

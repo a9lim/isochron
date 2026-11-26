@@ -35,7 +35,8 @@ const R_M = 6.371e6;
 import { nearest } from '../grid/icosphere.js';
 import { restrict, prolong } from '../grid/transfer.js';
 import { CLIMATE } from './climate.js';
-import { SEAHEAT, stressSpeed } from './seaheat.js';
+import { SEAHEAT, stressSpeed, meanStressCells } from './seaheat.js';
+import { parallel } from './pool.js';
 
 export const OCEAN = {
   LAYER_CELLS: 2,     // the western boundary layer's width, in cells
@@ -61,7 +62,7 @@ export class Ocean {
     this.psi = new Float64Array(n);       // m³/s
     this.sst = shared(Float32Array, n);       // the anomaly T′, K (shared with the engine's pool: the clouds read it)
     this.vel = new Float32Array(3 * n);   // surface current, m/s
-    this.tau = new Float64Array(3 * n);   // annual-mean wind stress, N/m²
+    this.tau = shared(Float64Array, 3 * n);   // annual-mean wind stress, N/m²
     this.curl = new Float64Array(n);
     this.sea = new Uint8Array(n);
     this.ws = {};
@@ -82,7 +83,7 @@ export class Ocean {
       const idx = Array.from({ length: n }, (_, i) => i);
       const byLon = idx.slice().sort((a, b) => lon(a) - lon(b)), byLat = idx.slice().sort((a, b) => lat(a) - lat(b));
       this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
-      this.tauF = new Float64Array(3 * fn); this.landC = new Float64Array(n); this.comp = [new Float64Array(fn), new Float64Array(n)]; this.up = [new Float64Array(fn), new Float64Array(fn)];
+      this.tauF = shared(Float64Array, 3 * fn); this.landC = new Float64Array(n); this.comp = [new Float64Array(fn), new Float64Array(n)]; this.up = [new Float64Array(fn), new Float64Array(fn)];
     }
   }
 
@@ -110,19 +111,11 @@ export class Ocean {
   }
 
   /** Annual-mean wind stress and its curl, from the climate's last winds. */
-  forcing() {
-    const c = this.climate, g = this.grid, n = g.n, W = c.windPhase, np = W.length, fn = c.grid.n;
-    // The stress on the climate's grid (it's nonlinear in the wind), then on this one.
+  *forcing() {
+    const c = this.climate, g = this.grid, n = g.n, fn = c.grid.n;
+    // The stress on the climate's grid (it's nonlinear in the wind; meanStressCells, by chunk on the engine's pool), then on this one.
     const tf = this.coarse ? this.tauF : this.tau;
-    for (let i = 0; i < fn; i++) {
-      let tx = 0, ty = 0, tz = 0;
-      const k = SEAHEAT.RHO_A * SEAHEAT.CD, z = c.grid.pos[3 * i + 2];
-      for (let p = 0; p < np; p++) {
-        const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = stressSpeed(Math.sqrt(u * u + v * v + w * w), z);
-        tx += k * s * u; ty += k * s * v; tz += k * s * w;
-      }
-      tf[3 * i] = tx / np; tf[3 * i + 1] = ty / np; tf[3 * i + 2] = tz / np;
-    }
+    yield* parallel('meanStress', meanStressCells, { W: c.windPhase, pos: c.grid.pos, tf, SEAHEAT: { ...SEAHEAT } }, fn);
     if (this.coarse) {
       const [a, b] = this.comp;
       for (let k = 0; k < 3; k++) {
@@ -328,7 +321,7 @@ export class Ocean {
   /** Every climate cycle: SST; every third, the wind's forcing and the gyres too. */
   *solve() {
     if ((this.cycles = (this.cycles || 0) + 1) % 3 === 1) {
-      this.forcing();
+      yield* this.forcing();
       yield;
       yield* this.gyres();
     }

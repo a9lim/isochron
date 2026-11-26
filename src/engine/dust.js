@@ -61,6 +61,8 @@
 import { CLIMATE } from './climate.js';
 import { buildGrid } from '../grid/icosphere.js';
 import { parents } from '../grid/transfer.js';
+import { shared, toShared } from './shared.js';
+import { parallel } from './pool.js';
 
 export const DUST = {
   C: 6.5e-12,         // kg s² m⁻⁵: GOCART's 1e-9 calibrated down, on phase 9's sources at level 7: the calibration (see the header)
@@ -178,7 +180,7 @@ export function windFactor(V, ut, sigma) {
  * geostrophic part and CARRY of the frictional drift. The template's balance
  * r u + f k×u = G gives G back from u, and carry = u − (1 − CARRY) r G/(r² + f²).
  */
-export function carryingWind(grid, wind, out = new Float32Array(3 * grid.n), C = CLIMATE) {
+export function carryingWind(grid, wind, out = shared(Float32Array, 3 * grid.n), C = CLIMATE) {
   const r = C.FRICTION, cy = C.CARRY, pos = grid.pos;
   for (let i = 0; i < grid.n; i++) {
     const px = pos[3 * i], py = pos[3 * i + 1], pz = pos[3 * i + 2], f = 2 * C.OMEGA * pz;
@@ -201,22 +203,52 @@ export function carryingWind(grid, wind, out = new Float32Array(3 * grid.n), C =
 // cells receive sums exactly to what the solve deposits, which is what the fine
 // cells emitted.
 
-function down(steps, x, k) {
-  for (const { nc, nf, par } of steps) {
-    const y = new Float64Array(nc * k);
-    for (let q = 0; q < nc * k; q++) y[q] = x[q];
-    for (let i = nc; i < nf; i++) {
-      const a = par[2 * (i - nc)] * k, b = par[2 * (i - nc) + 1] * k, o = i * k;
-      for (let q = 0; q < k; q++) { const v = 0.5 * x[o + q]; y[a + q] += v; y[b + q] += v; }
-    }
+function down(steps, x, k, out = null) {
+  for (let s = 0; s < steps.length; s++) {
+    const st = steps[s], y = out && s === steps.length - 1 ? out : new Float64Array(st.nc * k);
+    downCells({ kidOff: st.kidOff, kids: st.kids, f: x, k, y }, 0, st.nc);
     x = y;
   }
   return x;
 }
 
-function up(steps, x, k) {
+/** `down` by chunk of the coarse cells on the engine's pool (a generator), its levels between in shared arrays kept per step. */
+function* downSteps(steps, x, k, out) {
+  for (let s = 0; s < steps.length; s++) {
+    const st = steps[s], key = 'y' + k, y = s === steps.length - 1 ? out : st[key] || (st[key] = shared(Float64Array, st.nc * k));
+    yield* parallel('dustDown', downCells, { kidOff: st.kidOff, kids: st.kids, f: x, k, y }, st.nc);
+    x = y;
+  }
+  return x;
+}
+
+/**
+ * One level of `down` on coarse cells [a, b) (and the engine's pool's kernel): each its own value, then
+ * half of each fine midpoint's beside it, its children in order (as the fine cells were once scattered,
+ * so the sums are added in the same order).
+ */
+export function downCells(x, a, b) {
+  const { kidOff, kids, f, k, y } = x;
+  for (let q = a; q < b; q++) {
+    const o = q * k;
+    for (let r = 0; r < k; r++) y[o + r] = f[o + r];
+    for (let t = kidOff[q], e = kidOff[q + 1]; t < e; t++) { const c = kids[t] * k; for (let r = 0; r < k; r++) y[o + r] += 0.5 * f[c + r]; }
+  }
+}
+
+/** Each coarse cell's fine midpoints (CSR, ascending) from a level's parents. */
+function children(nc, nf, par) {
+  const kidOff = shared(Int32Array, nc + 1), kids = shared(Int32Array, 2 * (nf - nc));
+  for (let i = nc; i < nf; i++) { kidOff[par[2 * (i - nc)] + 1]++; kidOff[par[2 * (i - nc) + 1] + 1]++; }
+  for (let q = 0; q < nc; q++) kidOff[q + 1] += kidOff[q];
+  const at = Int32Array.from(kidOff.subarray(0, nc));
+  for (let i = nc; i < nf; i++) { kids[at[par[2 * (i - nc)]]++] = i; kids[at[par[2 * (i - nc) + 1]]++] = i; }
+  return { kidOff, kids };
+}
+
+function up(steps, x, k, out = null) {
   for (let s = steps.length - 1; s >= 0; s--) {
-    const { nc, nf, par } = steps[s], y = new Float32Array(nf * k);
+    const { nc, nf, par } = steps[s], y = out && s === 0 ? out : new Float32Array(nf * k);
     y.set(x.subarray(0, nc * k));
     for (let i = nc; i < nf; i++) {
       const a = par[2 * (i - nc)] * k, b = par[2 * (i - nc) + 1] * k, o = i * k;
@@ -225,6 +257,78 @@ function up(steps, x, k) {
     x = y;
   }
   return x;
+}
+
+// ------------------------------------------------------------- the pool's kernels
+// Each over cells [a, b) (src/engine/pool.js, by name in src/engine/kernels.js), as the loops they were.
+
+/** A point of the year's emission and rain on the engine's cells [a, b), and their area-weighted inputs to `down`. */
+export function emitCells(x, a, b) {
+  const { wind, cw, rain, source, ut, gust, emission, C, Af, E, Rn, aw, ar, ae } = x;
+  for (let i = a; i < b; i++) {
+    const S = source ? source[i] : 0;
+    let e = emission ? emission[i] : 0;
+    if (S > 0) {
+      const ux = wind[3 * i], uy = wind[3 * i + 1], uz = wind[3 * i + 2], V = Math.sqrt(ux * ux + uy * uy + uz * uz);
+      e += C * S * windFactor(V, typeof ut === 'number' ? ut : ut[i], typeof gust === 'number' ? gust : gust[i]);
+    }
+    const P = Math.max(0, rain[i]);
+    E[i] = e; Rn[i] = P;
+    ae[i] = Af[i] * e; ar[i] = Af[i] * P;
+    aw[3 * i] = Af[i] * cw[3 * i]; aw[3 * i + 1] = Af[i] * cw[3 * i + 1]; aw[3 * i + 2] = Af[i] * cw[3 * i + 2];
+  }
+}
+
+/** A point of the year's packed coefficients and source on the solve's cells [a, b) (its mean wind AW, rain AR, emission AE). */
+export function coeffCells(x, a, b) {
+  const { p, nbrOff, nbr, AW, AR, AE, ch, el, kd, co, src } = x;
+  for (let i = a; i < b; i++) {
+    const o = 8 * (i * NP + p), t0 = nbrOff[i];
+    for (let k = 0; k < 6; k++) co[o + k] = 0;
+    let base = 0;
+    for (let t = t0, e = nbrOff[i + 1]; t < e; t++) {
+      const j = nbr[t];
+      const f = 0.5 * ((AW[3 * i] + AW[3 * j]) * ch[3 * t] + (AW[3 * i + 1] + AW[3 * j + 1]) * ch[3 * t + 1] + (AW[3 * i + 2] + AW[3 * j + 2]) * ch[3 * t + 2]) * el[t];
+      if (f > 0) base += f; else co[o + t - t0] -= f;
+      co[o + t - t0] += kd[t]; base += kd[t];
+    }
+    co[o + 6] = base; co[o + 7] = AR[i];
+    src[i * NP + p] = AE[i];
+  }
+}
+
+/**
+ * The outputs on the engine's cells [a, b) from the loads L (on them), and those cells' sums for the stats:
+ * [emission, dry, wet, burden, τ, forcing, ...deposition by bin, ...burden by bin].
+ */
+export function finishCells(x, a, b) {
+  const { L, rain, emit, albedo, area, m2, nb, kdry, scav, mee, yr, K_FORCE, ALB_CRIT, o } = x;
+  let em = 0, dry = 0, wet = 0, burden = 0, tauM = 0, forM = 0;
+  const bins = new Float64Array(nb), loads = new Float64Array(nb);
+  for (let i = a; i < b; i++) {
+    let la = 0, ea = 0, da = 0, wa = 0, ta = 0;
+    const ar = area[i] * m2;
+    for (let q = 0; q < nb; q++) o.depBin[q][i] = 0;
+    for (let p = 0; p < NP; p++) {
+      let l = 0, d = 0;
+      const P = rain[p][i];
+      for (let q = 0; q < nb; q++) {
+        const v = L[(i * NP + p) * nb + q], dr = v * kdry[q], we = v * scav[q] * P;
+        l += v; d += dr + we; da += dr; wa += we; loads[q] += ar * v / NP;
+        o.depBin[q][i] += (dr + we) * yr;
+        ta += v * mee[q];
+      }
+      o.load[p][i] = l; o.dep[p][i] = d;
+      la += l; ea += emit[p][i];
+    }
+    o.loadAnn[i] = la / NP; o.emitAnn[i] = ea * yr; o.dryAnn[i] = da * yr; o.wetAnn[i] = wa * yr; o.depAnn[i] = (da + wa) * yr;
+    o.tau[i] = ta / NP;
+    o.forcing[i] = -K_FORCE * o.tau[i] * (1 - (albedo ? albedo[i] : 0) / ALB_CRIT);
+    em += ar * o.emitAnn[i]; dry += ar * o.dryAnn[i]; wet += ar * o.wetAnn[i]; burden += ar * o.loadAnn[i];
+    tauM += area[i] * o.tau[i]; forM += area[i] * o.forcing[i];
+    for (let q = 0; q < nb; q++) bins[q] += ar * o.depBin[q][i];
+  }
+  return [em, dry, wet, burden, tauM, forM, ...bins, ...loads];
 }
 
 // ------------------------------------------------------------------ the solve
@@ -245,13 +349,14 @@ export class Dust {
     this.steps = [];
     for (let l = grid.level, fg = grid; l > level; l--) {
       const cg = l - 1 === level ? sg : buildGrid(l - 1);
-      this.steps.push({ nf: fg.n, nc: cg.n, par: parents(fg, cg.n) });
+      const par = parents(fg, cg.n);
+      this.steps.push({ nf: fg.n, nc: cg.n, par, ...children(cg.n, fg.n, par) });
       fg = cg;
     }
     const n = this.n = sg.n;
     const { nbrOff, nbr, ell, dist, pos } = sg, m = nbrOff[n];
     // Per edge: the chord's unit vector (exactly antisymmetric), its length factor, the mixing.
-    this.chord = new Float32Array(3 * m); this.elen = new Float64Array(m); this.kdiff = new Float64Array(m);
+    this.chord = shared(Float32Array, 3 * m); this.elen = shared(Float64Array, m); this.kdiff = shared(Float64Array, m);
     for (let i = 0; i < n; i++) for (let t = nbrOff[i]; t < nbrOff[i + 1]; t++) {
       const j = nbr[t];
       const dx = pos[3 * j] - pos[3 * i], dy = pos[3 * j + 1] - pos[3 * i + 1], dz = pos[3 * j + 2] - pos[3 * i + 2], d = Math.hypot(dx, dy, dz);
@@ -266,15 +371,15 @@ export class Dust {
       if (d > 6) throw new Error('dust: a cell with more than six neighbours');
       for (let k = 0; k < 6; k++) this.nbr6[6 * i + k] = k < d ? nbr[o + k] : i;
     }
-    this.areaF = Float64Array.from(grid.area, a => a * R_KM * R_KM);    // km², the engine's cells
+    this.areaF = toShared(Float64Array.from(grid.area, a => a * R_KM * R_KM));    // km², the engine's cells
     this.areaKm = Float32Array.from(down(this.steps, this.areaF, 1));   // km², the solve's cells: Pᵀ(area)
     // Packed coefficients per (cell, phase), 8 floats: six inflow coefficients, the
     // diagonal's transport part (outflow + mixing), the area × rain (km² mm/day).
-    this.co = new Float32Array(8 * NP * n);
-    this.src = new Float32Array(NP * n);     // area × emission, km² kg m⁻² day⁻¹
-    this.emit = Array.from({ length: NP }, () => new Float32Array(nf));   // kg m⁻² day⁻¹, the engine's cells
-    this.rain = Array.from({ length: NP }, () => new Float32Array(nf));   // mm/day, the engine's cells
-    this.L = new Float32Array(NP * n * nb);
+    this.co = shared(Float32Array, 8 * NP * n);
+    this.src = shared(Float32Array, NP * n);     // area × emission, km² kg m⁻² day⁻¹
+    this.emit = Array.from({ length: NP }, () => shared(Float32Array, nf));   // kg m⁻² day⁻¹, the engine's cells
+    this.rain = Array.from({ length: NP }, () => shared(Float32Array, nf));   // mm/day, the engine's cells
+    this.L = shared(Float32Array, NP * n * nb);
     this.warm = false;
     // Per bin: dry removal (1/day), the share of emission, scavenging per mm.
     this.kdry = P.BINS.map(b => b.vd / P.H * DAY);
@@ -286,7 +391,10 @@ export class Dust {
     const idx = Array.from({ length: n }, (_, i) => i);
     const byLon = idx.slice().sort((a, b) => lon[a] - lon[b]), byLat = idx.slice().sort((a, b) => lat[a] - lat[b]);
     this.orders = [Int32Array.from(byLon), Int32Array.from(byLon.reverse()), Int32Array.from(byLat), Int32Array.from(byLat.reverse())];
-    this.aw = new Float64Array(3 * nf); this.ar = new Float64Array(nf); this.ae = new Float64Array(nf);
+    // (The arrays the pool's kernels touch are shared: `emitCells`, `coeffCells`, `finishCells`.)
+    this.aw = shared(Float64Array, 3 * nf); this.ar = shared(Float64Array, nf); this.ae = shared(Float64Array, nf);
+    this.dAW = shared(Float64Array, 3 * n); this.dAR = shared(Float64Array, n); this.dAE = shared(Float64Array, n);   // `down`'s, on the solve's cells
+    this.Lf = shared(Float32Array, NP * nf * nb);   // the loads on the engine's cells (`up`'s)
     this.out = null;
     this.stats = null;
   }
@@ -304,40 +412,16 @@ export class Dust {
   phase(p, inputs) { const it = this.phaseSteps(p, inputs); while (!it.next().done); }
   /** `phase` in pieces (a generator: the climate's cycle yields between them). */
   *phaseSteps(p, { wind, carry = null, rain, source = null, ut = this.P.U_T, gust = this.P.GUST, emission = null }) {
-    const g = this.grid, nf = this.nf, Af = this.areaF;
+    const g = this.grid, nf = this.nf;
     const cw = carry || carryingWind(g, wind);
-    const C = this.P.C * DAY, E = this.emit[p], Rn = this.rain[p], aw = this.aw, ar = this.ar, ae = this.ae;
-    for (let i = 0; i < nf; i++) {
-      const S = source ? source[i] : 0;
-      let e = emission ? emission[i] : 0;
-      if (S > 0) {
-        const ux = wind[3 * i], uy = wind[3 * i + 1], uz = wind[3 * i + 2], V = Math.sqrt(ux * ux + uy * uy + uz * uz);
-        e += C * S * windFactor(V, typeof ut === 'number' ? ut : ut[i], typeof gust === 'number' ? gust : gust[i]);
-      }
-      const P = Math.max(0, rain[i]);
-      E[i] = e; Rn[i] = P;
-      ae[i] = Af[i] * e; ar[i] = Af[i] * P;
-      aw[3 * i] = Af[i] * cw[3 * i]; aw[3 * i + 1] = Af[i] * cw[3 * i + 1]; aw[3 * i + 2] = Af[i] * cw[3 * i + 2];
-    }
+    yield* parallel('dustEmit', emitCells, { wind, cw, rain, source, ut, gust, emission, C: this.P.C * DAY, Af: this.areaF, E: this.emit[p], Rn: this.rain[p], aw: this.aw, ar: this.ar, ae: this.ae }, nf);
     yield;
     // Down to the solve's grid: sums of area × value, and the area-weighted mean wind.
-    const AE = down(this.steps, ae, 1), AR = down(this.steps, ar, 1), AW = down(this.steps, aw, 3);
+    const AE = yield* downSteps(this.steps, this.ae, 1, this.dAE), AR = yield* downSteps(this.steps, this.ar, 1, this.dAR), AW = yield* downSteps(this.steps, this.aw, 3, this.dAW);
     yield;
-    const sg = this.solveGrid, n = this.n, { nbrOff, nbr } = sg, ch = this.chord, el = this.elen, kd = this.kdiff, co = this.co, A = this.areaKm;
+    const sg = this.solveGrid, n = this.n, A = this.areaKm;
     for (let i = 0; i < n; i++) { const r = 1 / A[i]; AW[3 * i] *= r; AW[3 * i + 1] *= r; AW[3 * i + 2] *= r; }
-    for (let i = 0; i < n; i++) {
-      const o = 8 * (i * NP + p), t0 = nbrOff[i];
-      for (let k = 0; k < 6; k++) co[o + k] = 0;
-      let base = 0;
-      for (let t = t0, e = nbrOff[i + 1]; t < e; t++) {
-        const j = nbr[t];
-        const f = 0.5 * ((AW[3 * i] + AW[3 * j]) * ch[3 * t] + (AW[3 * i + 1] + AW[3 * j + 1]) * ch[3 * t + 1] + (AW[3 * i + 2] + AW[3 * j + 2]) * ch[3 * t + 2]) * el[t];
-        if (f > 0) base += f; else co[o + t - t0] -= f;
-        co[o + t - t0] += kd[t]; base += kd[t];
-      }
-      co[o + 6] = base; co[o + 7] = AR[i];
-      this.src[i * NP + p] = AE[i];
-    }
+    yield* parallel('dustCoeffs', coeffCells, { p, nbrOff: sg.nbrOff, nbr: sg.nbr, AW, AR, AE, ch: this.chord, el: this.elen, kd: this.kdiff, co: this.co, src: this.src }, n);
   }
 
   /** The CPU's reference: Gauss–Seidel sweeps over all phases and bins; stops when the largest change is below tol of the largest load. */
@@ -402,42 +486,29 @@ export class Dust {
     return this.out;
   }
 
-  /** `finish` a slice of the cells at a time (a generator: the climate's cycle yields between slices). */
-  *finishSteps(albedo = null, slice = Math.ceil(this.nf / 4)) {
-    const n = this.nf, nb = this.nb, A = this.grid.area, Pp = this.P;
-    const L = up(this.steps, this.L, NP * nb);
-    yield;
+  /** `finishCells`' arguments: the loads brought up to the engine's cells, and the outputs (made the first time). */
+  finishArgs(albedo = null) {
+    const n = this.nf, nb = this.nb, Pp = this.P, sh = () => shared(Float32Array, n);
     const o = this.out || (this.out = {
-      load: Array.from({ length: NP }, () => new Float32Array(n)), dep: Array.from({ length: NP }, () => new Float32Array(n)),
-      loadAnn: new Float32Array(n), emitAnn: new Float32Array(n), depAnn: new Float32Array(n), dryAnn: new Float32Array(n), wetAnn: new Float32Array(n),
-      depBin: Pp.BINS.map(() => new Float32Array(n)), tau: new Float32Array(n), forcing: new Float32Array(n),
+      load: Array.from({ length: NP }, sh), dep: Array.from({ length: NP }, sh),
+      loadAnn: sh(), emitAnn: sh(), depAnn: sh(), dryAnn: sh(), wetAnn: sh(),
+      depBin: Pp.BINS.map(sh), tau: sh(), forcing: sh(),
     });
-    const m2 = R_M * R_M, yr = YEAR_DAYS / NP, mee = Pp.BINS.map(b => 1000 * b.mee), kdry = this.kdry, scav = this.scav;
+    return { L: up(this.steps, this.L, NP * nb, this.Lf), rain: this.rain, emit: this.emit, albedo, area: this.grid.area, m2: R_M * R_M, nb, kdry: this.kdry, scav: this.scav,
+      mee: Pp.BINS.map(b => 1000 * b.mee), yr: YEAR_DAYS / NP, K_FORCE: Pp.K_FORCE, ALB_CRIT: Pp.ALB_CRIT, o };
+  }
+
+  /** `finish` on the engine's pool by chunk (a generator: the climate's cycle yields between its parts). */
+  *finishSteps(albedo = null) {
+    const n = this.nf, nb = this.nb;
+    const x = this.finishArgs(albedo), o = this.out;
+    yield;
+    // The chunks' sums, added in their order (the stats, which nothing in the model reads, move in their last bits with the chunks).
     let emit = 0, dry = 0, wet = 0, burden = 0, tauM = 0, forM = 0;
     const bins = new Float64Array(nb), loads = new Float64Array(nb);
-    for (let i = 0; i < n; i++) {
-      if (i > 0 && i % slice === 0) yield;
-      let la = 0, ea = 0, da = 0, wa = 0, ta = 0;
-      const a = A[i] * m2;
-      for (let b = 0; b < nb; b++) o.depBin[b][i] = 0;
-      for (let p = 0; p < NP; p++) {
-        let l = 0, d = 0;
-        const P = this.rain[p][i];
-        for (let b = 0; b < nb; b++) {
-          const x = L[(i * NP + p) * nb + b], dr = x * kdry[b], we = x * scav[b] * P;
-          l += x; d += dr + we; da += dr; wa += we; loads[b] += a * x / NP;
-          o.depBin[b][i] += (dr + we) * yr;
-          ta += x * mee[b];
-        }
-        o.load[p][i] = l; o.dep[p][i] = d;
-        la += l; ea += this.emit[p][i];
-      }
-      o.loadAnn[i] = la / NP; o.emitAnn[i] = ea * yr; o.dryAnn[i] = da * yr; o.wetAnn[i] = wa * yr; o.depAnn[i] = (da + wa) * yr;
-      o.tau[i] = ta / NP;
-      o.forcing[i] = -Pp.K_FORCE * o.tau[i] * (1 - (albedo ? albedo[i] : 0) / Pp.ALB_CRIT);
-      emit += a * o.emitAnn[i]; dry += a * o.dryAnn[i]; wet += a * o.wetAnn[i]; burden += a * o.loadAnn[i];
-      tauM += A[i] * o.tau[i]; forM += A[i] * o.forcing[i];
-      for (let b = 0; b < nb; b++) bins[b] += a * o.depBin[b][i];
+    for (const r of yield* parallel('dustFinish', finishCells, x, n)) {
+      emit += r[0]; dry += r[1]; wet += r[2]; burden += r[3]; tauM += r[4]; forM += r[5];
+      for (let q = 0; q < nb; q++) { bins[q] += r[6 + q]; loads[q] += r[6 + nb + q]; }
     }
     const Tg = 1e-9;
     this.stats = {

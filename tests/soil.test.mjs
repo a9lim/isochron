@@ -1,7 +1,7 @@
 // The ground (src/engine/soil.js): water kept every month, and the bucket's analytic steady state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Soil, SOIL, potentialEvaporation, aquifer } from '../src/engine/soil.js';
+import { Soil, SOIL, potentialEvaporation, aquifer, riverBase } from '../src/engine/soil.js';
 
 const season = m => Math.cos(2 * Math.PI * (m - 6) / 12);     // July warmest
 /** Forcing for n cells from f(i, m) → [T, P]: T, P, PET, 12 per cell. */
@@ -73,7 +73,7 @@ test('the aquifer steps exactly and keeps its water, drawn dry or not, and at it
   s.aquiferStep(Infinity);
   for (let i = 0; i < n; i++) {
     let g = 0, b = 0;
-    for (let m = 0; m < 12; m++) { g += s.out.base[12 * i + m]; b += s.riverBase(12 * i + m); }
+    for (let m = 0; m < 12; m++) { g += s.out.base[12 * i + m]; b += riverBase(s.out.base, s.A, 12 * i + m); }
     assert.ok(Math.abs(b - g) < 1e-6 * Math.max(1, g), `cell ${i}: the rivers' ${b} mm against the ground's ${g}`);
     assert.ok(Math.abs(s.A[i] - tau * SOIL.F_AQ * g) < 1e-6 * Math.max(1, s.A[i]));
   }

@@ -53,7 +53,9 @@
 //                     cold box's edge (1.5 K). Per cell, g C m⁻² yr⁻¹.
 //
 // Units: years, Pg C; per cell as noted.
-import { Vegetation, gdd, dryMonths } from './vegetation.js';
+import { Vegetation, VEG, gdd, dryMonths, climateCells } from './vegetation.js';
+import { shared } from './shared.js';
+import { parallel } from './pool.js';
 import { OC } from './oceancarbon.js';
 import { prolong } from '../grid/transfer.js';
 
@@ -79,23 +81,38 @@ const R2 = 6.371e6 * 6.371e6;
 
 /**
  * Vegetation's climate from a climate's last cycle into `veg` (also for the tools, which have
- * no planet): ice-free land, degree-days, rain and mean temperature.
+ * no planet): ice-free land, degree-days, rain and mean temperature (`coverCells`, whole).
  */
 export function coverClimate(veg, climate, co2, scratch = {}) {
-  const n = climate.grid.n, T12 = climate.T12, P12 = climate.P12, L = climate.landMask, H = climate.ice ? climate.ice.H : null;
-  const land = scratch.land || (scratch.land = new Uint8Array(n));
-  const G = scratch.gdd || (scratch.gdd = new Float32Array(n)), P = scratch.P || (scratch.P = new Float32Array(n));
-  const T = scratch.T || (scratch.T = new Float32Array(n)), D = scratch.dry || (scratch.dry = new Float32Array(n));
-  const tm = new Float64Array(12);
-  for (let i = 0; i < n; i++) {
+  const x = coverArgs(veg, climate, co2, scratch);
+  coverCells(x, 0, climate.grid.n);
+  veg.climate = true;
+  return x.land;
+}
+
+/** `coverCells`' arguments, its arrays (shared with the engine's pool) kept in `scratch`. */
+export function coverArgs(veg, climate, co2, scratch = {}) {
+  const n = climate.grid.n, f32 = k => scratch[k] || (scratch[k] = shared(Float32Array, n));
+  const land = scratch.land || (scratch.land = shared(Uint8Array, n)), G = f32('gdd'), P = f32('P'), T = f32('T'), D = f32('dry');
+  return { T12: climate.T12, P12: climate.P12, L: climate.landMask, H: climate.ice ? climate.ice.H : null, ICE: LIFE.ICE, land, G, P, T, D,
+    veg: veg.climateArgs({ land, gdd: G, precip: P, temp: T, dry: D, co2 }), VEG: { ...VEG } };
+}
+
+/**
+ * The cover's climate on cells [a, b) (coverClimate, and the engine's pool's kernel): each cell's
+ * ice-free land, degree-days, rain, mean temperature and warm dry months, then the climate its cover
+ * answers there (`climateCells`, which reads only the cell's own).
+ */
+export function coverCells(x, a, b) {
+  const { T12, P12, L, H, ICE, land, G, P, T, D } = x, tm = new Float64Array(12);
+  for (let i = a; i < b; i++) {
     let p = 0, t = 0;
     for (let m = 0; m < 12; m++) { tm[m] = T12[12 * i + m]; p += P12[12 * i + m]; t += tm[m]; }
-    land[i] = L[i] && !(H && H[i] > LIFE.ICE) ? 1 : 0;
+    land[i] = L[i] && !(H && H[i] > ICE) ? 1 : 0;
     G[i] = land[i] ? gdd(tm) : 0; P[i] = p; T[i] = t / 12;
     D[i] = land[i] ? dryMonths(P12, T12, 12 * i) : 0;
   }
-  veg.setClimate({ land, gdd: G, precip: P, temp: T, dry: D, co2 });
-  return land;
+  climateCells(x.veg, a, b);
 }
 
 export class Life {
@@ -133,7 +150,10 @@ export class Life {
   *afterClimateSteps() {
     const c = this.climate, co2 = c.co2Seen || 280;
     this.cycles++;
-    this.landMask = coverClimate(this.veg, c, co2, this.scratch);
+    const x = coverArgs(this.veg, c, co2, this.scratch);
+    yield* parallel('cover', coverCells, x, c.grid.n);
+    this.veg.climate = true;
+    this.landMask = x.land;
     // People's land use, on the cover's new balance (src/engine/peoplelink.js).
     if (this.onCover) this.onCover();
     yield;

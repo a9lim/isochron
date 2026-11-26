@@ -147,6 +147,9 @@ function PhiN(x) {
   return x >= 0 ? 1 - d : d;
 }
 
+/** The rivers' baseflow in month k (12 i + m, mm): the groundwater's outflow `base` less the aquifer's recharge, and the aquifer's (A) outflow. */
+export const riverBase = (base, A, k, C = SOIL) => (1 - C.F_AQ) * base[k] + A[(k / 12) | 0] / C.TAU_A / 12;
+
 /** Potential evaporation (mm a month) from monthly temperatures (°C), element by element. */
 export function potentialEvaporation(T, out = new Float32Array(T.length)) {
   for (let k = 0; k < T.length; k++) out[k] = SOIL.PET_K * Math.max(0, T[k] + SOIL.PET_T0);
@@ -237,7 +240,7 @@ export class Soil {
     this.Tg = shared(Float64Array, n);         // the ground's temperature, °C
     this.G = shared(Float64Array, n);          // groundwater, mm
     // The aquifer (`aquiferStep`): its store (mm), its recharge (mm/yr), the people's wells' draw (mm/yr; null without them).
-    this.A = new Float64Array(n); this.Ar = new Float32Array(n); this.draw = null; this.aqOpen = true;
+    this.A = shared(Float64Array, n); this.Ar = new Float32Array(n); this.draw = null; this.aqOpen = true;
     const m12 = () => shared(Float32Array, 12 * n);
     // By month (12 i + m), the month's totals (mm: base is groundwater's outflow) and its end state.
     this.out = { quick: m12(), base: m12(), evap: m12(), S: m12(), SWE: m12(), Tg: m12(), G: m12() };
@@ -393,8 +396,6 @@ export class Soil {
     }
     return acc;
   }
-  /** The rivers' baseflow in month k (12 i + m, mm): the groundwater's outflow less the aquifer's recharge, and the aquifer's outflow. */
-  riverBase(k) { return (1 - SOIL.F_AQ) * this.out.base[k] + this.A[(k / 12) | 0] / SOIL.TAU_A / 12; }
 
   /** Copy the state at the start of calendar month m from the periodic year in `out`. */
   stateAt(m) {

@@ -30,6 +30,7 @@ import { NZ, CLIMATE } from './climate.js';
 import { restrict, prolong } from '../grid/transfer.js';
 import { Dust, NP } from './dust.js';
 import { LIFE } from './life.js';
+import { shared } from './shared.js';
 
 // Coal's sulfate as a haze carried by the climate's winds (src/engine/dust.js's balance, one bin,
 // solved on level 5): lifted where industry's workers are, washed out by rain and settled, so its
@@ -213,7 +214,7 @@ export class PeopleLink {
     if (Ef) put(Ef, this.ef, 'tillage');
     if (w) { const soil = this.P.climate.soil; if (!soil.draw) soil.draw = new Float32Array(this.P.grid.n); put(w, soil.draw, 'wells\' draw'); }
     if (x) put(x, this.x, 'sulfate');
-    if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = new Float32Array(this.P.grid.n).fill(1); put(m, veg.mega, 'large game'); }
+    if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = shared(Float32Array, this.P.grid.n).fill(1); put(m, veg.mega, 'large game'); }
     this.carbon += num(carbon, 0, 'carbon');
     this.F = num(F, this.F, 'forcing'); CLIMATE.F_PEOPLE = this.F;
     this.aerC = num(aerC, this.aerC, 'sulfate forcing'); this.applySulfate();

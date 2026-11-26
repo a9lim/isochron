@@ -45,6 +45,8 @@ import { nearest } from '../grid/icosphere.js';
 import { restrict } from '../grid/transfer.js';
 import { LaplaceMG, mgcg } from '../grid/multigrid.js';
 import { CLIMATE } from './climate.js';
+import { shared, toShared } from './shared.js';
+import { parallel } from './pool.js';
 
 /** Tunable; tools and tests may change them. */
 export const SEAHEAT = {
@@ -80,6 +82,36 @@ export function stressSpeed(sp, z) {
   if (!(C.GUST > 0)) return sp;
   const la = Math.asin(Math.min(1, Math.abs(z))) * 180 / Math.PI, G = C.GUST * (0.1 + 0.9 * smooth(la, C.GUST_LAT[0], C.GUST_LAT[1]));
   return Math.sqrt(sp * sp + G * G);
+}
+
+/**
+ * The year's eastward wind stress on cells [a, b) over the climate's points of the year (SeaHeat.flowSteps,
+ * and the engine's pool's kernel): Σ k |τ|′ (east · u) for each point's surface wind u, into tx.
+ */
+export function eastStressCells(x, a, b) {
+  const { W, pos, east, k, tx } = x;
+  for (let i = a; i < b; i++) {
+    let t = 0;
+    for (const w of W) {
+      const u = w[3 * i], v = w[3 * i + 1], s = w[3 * i + 2], sp = stressSpeed(Math.sqrt(u * u + v * v + s * s), pos[3 * i + 2]);
+      t += k * sp * (east[2 * i] * u + east[2 * i + 1] * v);   // the stress's eastward part
+    }
+    tx[i] = t;
+  }
+}
+
+/** The year's mean wind stress on cells [a, b), as 3-vectors (Ocean.forcing, and the engine's pool's kernel), into tf. */
+export function meanStressCells(x, a, b) {
+  const { W, pos, tf } = x, np = W.length;
+  for (let i = a; i < b; i++) {
+    let tx = 0, ty = 0, tz = 0;
+    const k = SEAHEAT.RHO_A * SEAHEAT.CD, z = pos[3 * i + 2];
+    for (let p = 0; p < np; p++) {
+      const u = W[p][3 * i], v = W[p][3 * i + 1], w = W[p][3 * i + 2], s = stressSpeed(Math.sqrt(u * u + v * v + w * w), z);
+      tx += k * s * u; ty += k * s * v; tz += k * s * w;
+    }
+    tf[3 * i] = tx / np; tf[3 * i + 1] = ty / np; tf[3 * i + 2] = tz / np;
+  }
 }
 
 export class SeaHeat {
@@ -288,13 +320,10 @@ export class SeaHeat {
   *flowSteps() {
     const c = this.c, C = SEAHEAT, g = c.grid, n = g.n, cg = c.coarse, nc = cg.n, np = c.windPhase.length;
     if (!this.pat) return;
-    const tx = new Float64Array(n), tc = new Float64Array(nc), pos = g.pos, k = C.RHO_A * C.CD / np;
+    const tx = this.txF || (this.txF = shared(Float64Array, n)), tc = new Float64Array(nc), pos = g.pos, k = C.RHO_A * C.CD / np;
     // Each cell's east, (−y, x)/|(x, y)|, once.
-    const east = this.east || (this.east = Float64Array.from({ length: 2 * n }, (_, j) => { const i = j >> 1, x = pos[3 * i], y = pos[3 * i + 1], h = Math.sqrt(x * x + y * y) || 1; return (j & 1 ? x : -y) / h; }));
-    for (const w of c.windPhase) for (let i = 0; i < n; i++) {
-      const u = w[3 * i], v = w[3 * i + 1], s = w[3 * i + 2], sp = stressSpeed(Math.sqrt(u * u + v * v + s * s), pos[3 * i + 2]);
-      tx[i] += k * sp * (east[2 * i] * u + east[2 * i + 1] * v);   // the stress's eastward part
-    }
+    const east = this.east || (this.east = toShared(Float64Array.from({ length: 2 * n }, (_, j) => { const i = j >> 1, x = pos[3 * i], y = pos[3 * i + 1], h = Math.sqrt(x * x + y * y) || 1; return (j & 1 ? x : -y) / h; })));
+    yield* parallel('eastStress', eastStressCells, { W: c.windPhase, pos, east, k, tx, SEAHEAT: { ...SEAHEAT } }, n);
     restrict(c.T, tx, tc);
     // Over the channel's band (its open circles ± CHANNEL, the current's width: Earth's westerlies peak
     // at 50–55° S, over the current but north of Drake Passage's own latitudes), the stress on its sea.

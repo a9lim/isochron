@@ -79,7 +79,7 @@
 import { buildGrid, gradient } from '../grid/icosphere.js';
 import { makeTransfer, prolong, prolongT, restrict } from '../grid/transfer.js';
 import { EARTH_ORBIT, S0, insolation, solarLongitude, monthPhase } from './orbit.js';
-import { Soil, SOIL, potentialEvaporation, soilYearCells } from './soil.js';
+import { Soil, SOIL, potentialEvaporation, soilYearCells, riverBase } from './soil.js';
 import { landAlbedo, VEG } from './vegetation.js';
 import { ICE } from './ice.js';
 import { SeaHeat } from './seaheat.js';
@@ -316,6 +316,96 @@ export function pressureCells(x, a, b) {
     const NL = Math.min(1.2, C.LOWS * phiH) + 0.3 * pi, SL = -Math.min(1.2, C.LOWS * phiH) + 0.3 * pi;
     pres[i] = -7 * G(la - pi, 0.2) + 11 * (1 - C.HIGH_LAND * landSmooth[i]) * (G(la - N, 0.17) + G(la - S, 0.17)) - 13 * (G(la - NL, 0.2) + G(la - SL, 0.2))
       + 8 * polarHi[i] + thermal(anom[i]);
+  }
+}
+
+/** The zonal mean `zm` (by 2° band) at latitude la, between its bands' centres. */
+const zonalAt = (zm, la) => { const x = (la + Math.PI / 2) / Math.PI * 90 - 0.5, b = Math.max(0, Math.min(88, Math.floor(x))), w = Math.min(1, Math.max(0, x - b)); return zm[b] * (1 - w) + zm[b + 1] * w; };
+
+/**
+ * A point of the year's sea-level temperature on cells [a, b), and in the ITCZ's bands (±30°) each cell's
+ * score: its temperature (at sea, the water's surface) less `dry` per mm its air is short of R of saturation
+ * (Climate.phase, and the engine's pool's kernel).
+ */
+export function phaseCells(x, a, b) {
+  const { tau, Tf, T, band, land, elev, sst, W, dry, R, LAPSE, score } = x, T0 = Tf[0], T1 = Tf[1], T2 = Tf[2], T3 = Tf[3], T4 = Tf[4];
+  const c = Math.cos(2 * Math.PI * tau), sv = Math.sin(2 * Math.PI * tau), c2 = c * c - sv * sv, s2 = 2 * sv * c;
+  for (let i = a; i < b; i++) {
+    const Ti = T[i] = T0[i] + T1[i] * c - T2[i] * sv + T3[i] * c2 - T4[i] * s2, bd = band[i];
+    if (bd >= 30 && bd < 60) {
+      const L = land[i], t = Ti + (!L ? sst[i] : 0);
+      const short = dry > 0 ? Math.max(0, R * wsat(L ? Ti - LAPSE * elev[i] : Math.max(-1.8, t)) - W[i]) : 0;
+      score[i] = t - dry * short;
+    }
+  }
+}
+
+/** The land's departure from its latitude's zonal mean `zm` on cells [a, b) (the thermal pressure's; the engine's pool's kernel). */
+export function anomCells(x, a, b) {
+  const { T, lat, zm, anom } = x;
+  for (let i = a; i < b; i++) anom[i] = T[i] - zonalAt(zm, lat[i]);
+}
+
+/**
+ * The ground's year's outputs on cells [a, b) (Climate.groundYear, and the engine's pool's kernel): rain and
+ * open water's balance over the year, the runoff by month with the aquifer's baseflow (`riverBase`, src/engine/soil.js), and
+ * the evaporative efficiency and evaporation at each point of the year, the months' means in it.
+ */
+export function groundCells(x, a, b) {
+  const { Smax, A, SWE, quick, base, S, evap, P12, PET12, land, pAnn, peAnn, runoff, runoffM, betaPh, evapPh, ph, FC, CV, AQ } = x;
+  const cnt = new Float64Array(NP);
+  for (let m = 0; m < 12; m++) cnt[ph[m]]++;
+  for (let i = a; i < b; i++) {
+    const smax = Smax[i], o = 12 * i;
+    let pa = 0, ea = 0;
+    for (let m = 0; m < 12; m++) { pa += P12[o + m]; ea += PET12[o + m]; }
+    pAnn[i] = land[i] ? pa / 1000 : 0; peAnn[i] = land[i] ? (pa - ea) / 1000 : 0;
+    if (!(smax > 0)) {
+      runoff[i] = 0;
+      for (let m = 0; m < 12; m++) runoffM[o + m] = 0;
+      for (let p = 0; p < NP; p++) betaPh[p][i] = evapPh[p][i] = 0;
+      continue;
+    }
+    for (let p = 0; p < NP; p++) betaPh[p][i] = evapPh[p][i] = 0;
+    let ro = 0;
+    for (let m = 0; m < 12; m++) {
+      const k = o + m, sw = SWE[k];
+      runoffM[k] = (quick[k] + riverBase(base, A, k, AQ)) / 1000; ro += runoffM[k];   // the rivers' months, with the aquifer's baseflow
+      betaPh[ph[m]][i] += Math.min(1, S[k] / smax / FC) * (1 - sw / (sw + CV)) / cnt[ph[m]];
+      evapPh[ph[m]][i] += evap[k] / 30.44 / cnt[ph[m]];
+    }
+    runoff[i] = ro;
+  }
+}
+
+/**
+ * The clouds' longwave on cells [a, b) (Climate.cloudLongwave, and the engine's pool's kernel): each
+ * cell's area × the year-mean high cloud's over the clear sky's A + B T at its annual mean (less the drop
+ * its outgoing longwave reads over land, `olrDrop`), into out.
+ */
+export function olrCells(x, a, b) {
+  const { hi, T, land, elev, area, n, A, B, OLR_Z, LAPSE, out } = x;
+  for (let i = a; i < b; i++) {
+    let h = 0;
+    for (let p = 0; p < NP; p++) h += hi[p * n + i];
+    out[i] = area[i] * longwave(A + B * (T[i] - (land[i] ? OLR_Z * LAPSE * elev[i] : 0)), h / NP);
+  }
+}
+
+/**
+ * Moist static energy's humidity on cells [a, b) at each of the six points of the year (Climate.latent,
+ * and the engine's pool's kernel): the column's water over saturation's at the surface's temperature
+ * (−LAPSE z on land, the gyres' anomaly at sea), held softly at 1, into out[p].
+ */
+export function humidCells(x, a, b) {
+  const { Tf, W, land, elev, sst, lapse, out } = x, T0 = Tf[0], T1 = Tf[1], T2 = Tf[2], T3 = Tf[3], T4 = Tf[4];
+  for (let p = 0; p < NP; p++) {
+    const tau = (p + 0.5) / NP, c = Math.cos(2 * Math.PI * tau), s = Math.sin(2 * Math.PI * tau), c2 = c * c - s * s, s2 = 2 * s * c, Wp = W[p], f = out[p];
+    for (let i = a; i < b; i++) {
+      const T = T0[i] + T1[i] * c - T2[i] * s + T3[i] * c2 - T4[i] * s2;
+      const v = Wp[i] / wsat(land[i] ? T - lapse * elev[i] : Math.max(-1.8, T + sst[i]));
+      f[i] = v / Math.sqrt(Math.sqrt(1 + v * v * v * v));
+    }
   }
 }
 
@@ -896,29 +986,26 @@ export class Climate {
    * saturates, or the steam's (src/engine/runaway.js), from the last step's mean absorbed
    * sunlight. Zero below the curve's knee, and with no runaway attached (headless climate alone).
    */
-  olrCorrection() {
+  *olrCorrection() {
     const C = CLIMATE;
     if (this.runaway && this.absMean !== undefined) {
       // The limit is the planet's outgoing longwave: the clear sky's A + BT less the clouds' (their
       // mean from the last state), so the curve's knee stands where it did before the clouds.
-      const Lc = this.cloudLongwave();
+      const Lc = yield* this.cloudLongwave();
       C.F_OLR = this.runaway.correction(this.absMean - Lc, this.externalForcing(), C.A - Lc, C.B);
     } else C.F_OLR = 0;
     this.forcingUsed = this.externalForcing() + C.F_OLR;
   }
 
   /** The clouds' longwave, its global mean (W/m²), from each cell's year-mean high cloud and annual-mean temperature (both paths alike). */
-  cloudLongwave() {
+  *cloudLongwave() {
     const cl = CLOUDS.ON ? this.clouds : null;
     if (!cl) return 0;
-    const C = CLIMATE, n = this.grid.n, a = this.grid.area, T = this.Tf[0];
+    const C = CLIMATE, n = this.grid.n, a = this.grid.area, out = this.lwCell || (this.lwCell = shared(Float64Array, n));
+    // Each cell's (olrCells, by chunk on the engine's pool where there is one), then summed in order.
+    yield* parallel('olr', olrCells, { hi: cl.hi, T: this.Tf[0], land: this.landMask, elev: this.elevPos, area: a, n, A: C.A, B: C.B, OLR_Z: C.OLR_Z, LAPSE: C.LAPSE, out, CLOUDS: { ...CLOUDS } }, n);
     let s = 0, w = 0;
-    for (let i = 0; i < n; i++) {
-      let h = 0;
-      for (let p = 0; p < NP; p++) h += cl.hi[p * n + i];
-      s += a[i] * longwave(C.A + C.B * (T[i] - this.olrDrop(i)), h / NP);
-      w += a[i];
-    }
+    for (let i = 0; i < n; i++) { s += out[i]; w += a[i]; }
     return s / w;
   }
 
@@ -1029,18 +1116,18 @@ export class Climate {
    * surface's offset from the sea-level temperature (−LAPSE z on land, the gyres' anomaly at sea); and each
    * edge's moist factor from the state now, the next energy balance's start (`moistWeights`).
    */
-  latent() {
+  *latent() {
     const C = CLIMATE, n = this.grid.n, nc = this.coarse.n;
     if (!(C.MSE > 0)) { this.mseOn = false; return; }
     const f = this.scratch.f6, c = this.scratch.c5, sst = this.ocean ? this.ocean.fine.sst : null, lapse = C.LAPSE;
     const om = this.mseOn ? C.MSE_RELAX : 1;
+    // Each fine cell's at the six points (humidCells, by chunk on the engine's pool where there is one), then each restricted.
+    const H = this.humidF || (this.humidF = Array.from({ length: NP }, () => shared(Float64Array, n)));
+    if (!this.sstZero && !sst) this.sstZero = shared(Float32Array, n);
+    yield* parallel('humid', humidCells, { Tf: this.Tf, W: this.W, land: this.landMask, elev: this.elevPos, sst: sst || this.sstZero, lapse, out: H }, n);
     for (let p = 0; p < NP; p++) {
-      const tau = (p + 0.5) / NP, W = this.W[p], r = this.rc[p];
-      for (let i = 0; i < n; i++) {
-        const land = this.landMask[i], T = this.tAt(i, tau), x = W[i] / wsat(land ? T - lapse * this.elevPos[i] : Math.max(-1.8, T + (sst ? sst[i] : 0)));
-        f[i] = x / Math.sqrt(Math.sqrt(1 + x * x * x * x));
-      }
-      restrict(this.T, f, c);
+      const r = this.rc[p];
+      restrict(this.T, H[p], c);
       for (let I = 0; I < nc; I++) r[I] += om * (c[I] - r[I]);
     }
     for (let i = 0; i < n; i++) f[i] = this.landMask[i] ? -lapse * this.elevPos[i] : (sst ? sst[i] : 0);
@@ -1219,7 +1306,7 @@ export class Climate {
     }
     if (ws.hist > 1) { mix(); start(); } else for (let k = 0; k < 5; k++) x.set(Tc[k], k * nc);
     for (let it = 0; it < maxIt; it++) {
-      this.olrCorrection();
+      yield* this.olrCorrection();
       if (this.mseOn) this.latentSource();
       if (gpu) {
         gpu.setSeaHeat(this.seaTerms(Tc[0]));
@@ -1251,25 +1338,19 @@ export class Climate {
     const C = CLIMATE, g = this.grid, n = g.n, nbrOff = g.nbrOff, nbr = g.nbr, tan = g.tan, pos = g.pos;
     const tau = (p + 0.5) / NP;
     const T = this.scratch.f6, Tf = this.Tf;
-    {
-      // tAt, its phase's cosines taken once.
-      const c = Math.cos(2 * Math.PI * tau), sv = Math.sin(2 * Math.PI * tau), c2 = c * c - sv * sv, s2 = 2 * sv * c;
-      for (let i = 0; i < n; i++) T[i] = Tf[0][i] + Tf[1][i] * c - Tf[2][i] * sv + Tf[3][i] * c2 - Tf[4][i] * s2;
-    }
     // Zonal means and the ITCZ by sector (at sea, the water's surface).
     const zm = new Float64Array(90), za = new Float64Array(90), sstA = this.ocean ? this.ocean.fine.sst : null;
     // A band's score is its temperature less ITCZ_DRY per mm its air is short of ITCZ_R of saturation, by
-    // the last cycle's water at this point of the year (none before there is one).
+    // the last cycle's water at this point of the year (none before there is one): each cell's
+    // temperature and score (phaseCells, by chunk on the engine's pool), then summed in order.
     const sec = new Float64Array(36 * 30), secA = new Float64Array(36 * 30);   // ±30° in 2° bands
-    const Wp = this.W[p], dry = this.warm ? C.ITCZ_DRY : 0;
+    const Wp = this.W[p], dry = this.warm ? C.ITCZ_DRY : 0, sc = this.scoreF || (this.scoreF = shared(Float64Array, n));
+    if (!this.sstZero && !sstA) this.sstZero = shared(Float32Array, n);
+    yield* parallel('phaseT', phaseCells, { tau, Tf, T, band: this.band, land: this.landMask, elev: this.elevPos, sst: sstA || this.sstZero, W: Wp, dry, R: C.ITCZ_R, LAPSE: C.LAPSE, score: sc }, n);
     for (let i = 0; i < n; i++) {
       const b = this.band[i], a = g.area[i];
       zm[b] += T[i] * a; za[b] += a;
-      if (b >= 30 && b < 60) {
-        const k = this.sector[i] * 30 + b - 30, land = this.landMask[i], t = T[i] + (sstA && !land ? sstA[i] : 0);
-        const short = dry > 0 ? Math.max(0, C.ITCZ_R * wsat(land ? T[i] - C.LAPSE * this.elevPos[i] : Math.max(-1.8, t)) - Wp[i]) : 0;
-        sec[k] += (t - dry * short) * a; secA[k] += a;
-      }
+      if (b >= 30 && b < 60) { const k = this.sector[i] * 30 + b - 30; sec[k] += sc[i] * a; secA[k] += a; }
     }
     for (let b = 0; b < 90; b++) zm[b] = za[b] > 0 ? zm[b] / za[b] : 0;
     // Each sector's bands weighted by e^{score/ITCZ_SOFT} (the best band's alone at 0).
@@ -1296,14 +1377,14 @@ export class Climate {
     }
     for (let s = 0; s < 36; s++) { itcz[s] = Math.max(-C.ITCZ_MAX, Math.min(C.ITCZ_MAX, itcz[s])); this.itcz[p * 36 + s] = itcz[s]; }
     // Hadley edge: Held and Hou's scaling from the equator-to-pole contrast and the spin.
-    const zAt = la => { const x = (la + Math.PI / 2) / Math.PI * 90 - 0.5, b = Math.max(0, Math.min(88, Math.floor(x))), w = Math.min(1, Math.max(0, x - b)); return zm[b] * (1 - w) + zm[b + 1] * w; };
+    const zAt = la => zonalAt(zm, la);
     const dT = Math.max(5, zAt(0) - 0.5 * (zAt(1.05) + zAt(-1.05)));
     const phiH = Math.max(0.2, Math.min(1.0, (C.HADLEY * Math.PI / 180) * Math.sqrt(dT / C.HADLEY_DT) * (7.292e-5 / C.OMEGA)));
     this.stats.hadley = phiH * 180 / Math.PI;
     yield;
     // The thermal part of pressure: land warmer or colder than its latitude, smoothed (coarse).
     const anom = this.scratch.F[0], c5 = this.scratch.c5, c5b = this.scratch.c5b;
-    for (let i = 0; i < n; i++) anom[i] = T[i] - zAt(this.lat[i]);
+    yield* parallel('anom', anomCells, { T, lat: this.lat, zm: Array.from(zm), anom }, n);
     restrict(this.T, anom, c5);
     {
       const cg = this.coarse, w = this.ws.w;
@@ -1548,30 +1629,8 @@ export class Climate {
     s.aquiferStep(open || now === null || this.aqT == null ? Infinity : Math.max(0, now - this.aqT));
     this.aqT = now;
     const ph = this.monthPh || (this.monthPh = Array.from({ length: 12 }, (_, m) => Math.floor(((monthPhase(m) % 1) + 1) % 1 * NP) % NP));
-    const cnt = new Float64Array(NP);
-    for (let m = 0; m < 12; m++) cnt[ph[m]]++;
-    for (let i = 0; i < n; i++) {
-      const smax = s.Smax[i], b = 12 * i;
-      let pa = 0, ea = 0;
-      for (let m = 0; m < 12; m++) { pa += this.P12[b + m]; ea += this.PET12[b + m]; }
-      const land = this.landMask[i];
-      this.pAnn[i] = land ? pa / 1000 : 0; this.peAnn[i] = land ? (pa - ea) / 1000 : 0;
-      if (!(smax > 0)) {
-        this.runoff[i] = 0;
-        for (let m = 0; m < 12; m++) this.runoffM[b + m] = 0;
-        for (let p = 0; p < NP; p++) this.betaPh[p][i] = this.evapPh[p][i] = 0;
-        continue;
-      }
-      for (let p = 0; p < NP; p++) this.betaPh[p][i] = this.evapPh[p][i] = 0;
-      let ro = 0;
-      for (let m = 0; m < 12; m++) {
-        const k = b + m, sw = o.SWE[k];
-        this.runoffM[k] = (o.quick[k] + s.riverBase(k)) / 1000; ro += this.runoffM[k];   // the rivers' months, with the aquifer's baseflow
-        this.betaPh[ph[m]][i] += Math.min(1, o.S[k] / smax / FC) * (1 - sw / (sw + CV)) / cnt[ph[m]];
-        this.evapPh[ph[m]][i] += o.evap[k] / 30.44 / cnt[ph[m]];
-      }
-      this.runoff[i] = ro;
-    }
+    yield* parallel('groundTail', groundCells, { Smax: s.Smax, A: s.A, SWE: o.SWE, quick: o.quick, base: o.base, S: o.S, evap: o.evap, P12: this.P12, PET12: this.PET12, land: this.landMask,
+      pAnn: this.pAnn, peAnn: this.peAnn, runoff: this.runoff, runoffM: this.runoffM, betaPh: this.betaPh, evapPh: this.evapPh, ph: Array.from(ph), FC, CV, AQ: { F_AQ: SOIL.F_AQ, TAU_A: SOIL.TAU_A } }, n);
     if (this.land) this.land.runoff.set(this.runoff);
   }
 
@@ -1623,7 +1682,7 @@ export class Climate {
     // The moisture's geography on the GPU, once for the six points (it was packed at each: ~3 ms).
     if (this.gpu && this.gpu.solveFrom) this.gpu.setGeography(this, CLIMATE, VEG);
     for (let p = 0; p < NP; p++) yield* this.phase(p);
-    this.latent();   // moist static energy's humidity, for the next energy balance
+    yield* this.latent();   // moist static energy's humidity, for the next energy balance
     // The year's winds carry the air's heat in the next cycle's energy balance (src/engine/airheat.js).
     if (this.airHeat) yield* this.airHeat.windSteps();
     // The gyres after the winds they're driven by (before them, the first cycle's saw none), and
