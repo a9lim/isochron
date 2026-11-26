@@ -393,15 +393,16 @@ export class Peoples {
   }
 
   /**
-   * The Culture map's fields, three vec4s a cell of the people's grid: its largest way's point as
-   * (cos, sin) of each axis' angle (the hatch's 2θ and the hue's), its second's the same scaled by the
-   * second's share of the cell's people, and the fishers' parcels (a share of the cell; `People.drawn`).
+   * The Culture map's fields, four vec4s a cell of the people's grid (the globe's identity fields, the States
+   * map's too: src/engine/polities.js, ID): its largest way's point as (cos, sin) of each axis' angle (the hatch's
+   * 2θ and the hue's), its second's the same scaled by the second's share of the cell's people, and the fishers'
+   * parcels (a share of the cell; `People.drawn`); the fourth unused.
    */
   drawn(out = null) {
     const pp = this.pp, n = pp.planet.grid.n, S = pp.P.TOR, W = this.W, X = this.X, tw = 2 * Math.PI / S;
-    out = out || new Float32Array(12 * n); out.fill(0);
+    out = out || new Float32Array(16 * n); out.fill(0);
     for (let c = 0; c < pp.nL; c++) {
-      const o = 12 * pp.cells[c];
+      const o = 16 * pp.cells[c];
       out[o + 8] = pp.fishU ? pp.fishU[c] : 0;
       if (!(pp.Ntot[c] > 0) || !(this.T[c] > 0)) continue;
       let a = -1, b = -1;

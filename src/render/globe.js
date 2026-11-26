@@ -92,8 +92,8 @@
 // wash of its hue and a hatch at its angle, a second way's hatch between the
 // first's lines (Peoples.drawn). States: each place's state as a wash of its hue
 // and tone (a step of lightness), as strong as the share its states hold, its
-// edge and its borders lines where a hold ends and soft only where it thins, a
-// contested place in equal stripes of both states' looks (Polities.drawn). Of the
+// edge and its settled borders lines, a contested place its states' looks
+// blended by their shares, a fuzzy border (Polities.drawn). Of the
 // land's uses, these three keep the cities, datacenters and factories, not the
 // fields. The ice is plain on the People charts.
 // Night: where the dial resolves the day (u.sun.w), every map darkens the side
@@ -144,7 +144,7 @@ struct U {
 // The people, two a vertex: per km², and the shares of farms, cities, factories; of datacenters and solar farms, robots at work per km², and reached.
 @group(0) @binding(4) var<storage, read> sulf: array<vec4f>;    // x coal's sulfate's burden's pattern (mean 1, src/engine/peoplelink.js); y the upwelling's cooling of the sea's surface (K), z the overturning's sinking (m/yr) (src/engine/ocean.js, seaheat.js)
 @group(0) @binding(5) var<storage, read> past: array<vec4f>;    // People.drawnB: x the herders' pasture (a share of the cell), y production's knowledge there, z learning's, w the works a km²
-@group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // Peoples.drawn, three a vertex: the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels; on the States map Polities.drawn, the largest state's and the second's alike, × their shares
+@group(0) @binding(6) var<storage, read> ident: array<vec4f>;   // four a vertex: Peoples.drawn, the largest way's identity (cos, sin of its hatch's 2θ and its hue), the second's × its share, the fishers' parcels; on the States map Polities.drawn, its four bands' looks and shares, its held field, share held and contest
 
 struct VOut {
   @builtin(position) clip: vec4f,
@@ -192,19 +192,20 @@ fn toView(p: vec3f) -> vec3f {
   // parcels in the tides' x.
   let cult = u.mode.x > 9.5 && u.mode.x < 11.5;
   let seaV = u.mode.x > 11.5;
-  let id1 = ident[3u * vi + 1u];
+  let id1 = ident[4u * vi + 1u];
   o.wp = vec4f(p, select(past[vi].x, id1.w, cult));
   o.c = c;
-  // (The zones' first four, read only on the Zones map, carry on the States map Polities.drawn's third vec4:
-  // its bands' weights.)
-  o.z0 = select(z0, ident[3u * vi + 2u], u.mode.x > 10.5 && u.mode.x < 11.5); o.z1 = z1; o.z2 = z2; o.z3 = z3;
+  // (The zones' first eight, read only on the Zones map, carry on the States map Polities.drawn's third and
+  // fourth vec4s: its last two bands.)
+  let stM = u.mode.x > 10.5 && u.mode.x < 11.5;
+  o.z0 = select(z0, ident[4u * vi + 2u], stM); o.z1 = select(z1, ident[4u * vi + 3u], stM); o.z2 = z2; o.z3 = z3;
   o.iv = iv;                           // the ice's flow in the globe's frame, as long as its sliding share; its speed
   // The weather's fields, in its charts; in the Air and People maps (which draw no weather) coal's
   // sulfate's optical depth, its haze where the winds carry it, and the knowledge, its lag and the
   // works (People.drawnB; the vertex has no varyings to spare). In the Sea map (no tide) the tide's
   // carries the upwelling and the sinking.
   o.wx = select(wx, vec4f(sulf[vi].x * u.steam.y, select(past[vi].yzw, id1.xyz, cult)), u.mode.x > 5.5 && u.mode.x < 11.5);
-  o.td = select(select(select(td, vec4f(ident[3u * vi + 2u].x, td.yzw), u.mode.x > 6.5 && u.mode.x < 8.5), ident[3u * vi], cult), vec4f(sulf[vi].yz, 0.0, td.w), seaV);
+  o.td = select(select(select(td, vec4f(ident[4u * vi + 2u].x, td.yzw), u.mode.x > 6.5 && u.mode.x < 8.5), ident[4u * vi], cult), vec4f(sulf[vi].yz, 0.0, td.w), seaV);
   // The lakes eased from the last drawn to the new here (linear, so as the fragments would), which
   // leaves room beside them for the sea's ice (c holds the land's snow) and their tint.
   o.lw = vec4f(mix(lw.x, lw.z, u.tide2.w), mix(lw.y, lw.w, u.tide2.w), c2.x, mix(lt.x, lt.y, u.tide2.w));
@@ -301,19 +302,6 @@ fn hatchP(T: Tri, dir: vec2f, periodPx: f32, wpx: f32, ph: f32) -> f32 {
   let b = lineAA(dot(T.y, dir) * o.x + ph, T.f.y * o.x, wpx);
   let c = lineAA(dot(T.z, dir) * o.x + ph, T.f.z * o.x, wpx);
   return T.w.x * a + T.w.y * b + T.w.z * c;
-}
-// Equal stripes, 1 on one band and 0 on the other, antialiased over a pixel (a contested place's two
-// states); the next octave's blended in as the zoom crosses it, as hatch's lines are.
-fn halves(c: f32, fwc: f32) -> f32 {
-  return clamp(0.5 + (0.25 - abs(fract(c) - 0.5)) / max(fwc, 1e-7), 0.0, 1.0);
-}
-fn stripes1(uv: vec2f, fw: f32, dir: vec2f, o: vec2f) -> f32 {
-  let c = dot(uv, dir) * o.x;
-  return mix(halves(c, fw * o.x), halves(2.0 * c, 2.0 * fw * o.x), o.y);
-}
-fn stripes(T: Tri, dir: vec2f, periodPx: f32) -> f32 {
-  let o = octave(periodPx);
-  return T.w.x * stripes1(T.x, T.f.x, dir, o) + T.w.y * stripes1(T.y, T.f.y, dir, o) + T.w.z * stripes1(T.z, T.f.z, dir, o);
 }
 // The peoples' hue wheel (Miasma's strain wheel, its src/strain-style.js): OKLCH at one lightness and
 // chroma a theme, fitted like the inks, its zero opposite the accent's hue, hurried through the accent
@@ -832,45 +820,41 @@ fn contour(x: f32, fx: f32) -> f32 {
       pland = mix(pland, u.text.rgb, 0.55 * stipple(T, mix(12.0, 4.0, wd) * u.mode.z, 0.8 * u.mode.z) * smoothstep(1.3, 1.7, wl) * had);
     } else if (folkS) {
       // States: each place's state as a wash of its look, as strong as the share F its states hold
-      // (Polities.drawn), hard where a hold is and soft where it fades (a9): the wash ends in a line where
-      // its places' held field H passes ½ (midway to the places no state holds, a curve on the refined
-      // mesh, as the Settlement map's frontier), its strength F over the held places alone (each value × H,
-      // over H), so a hold that thins over many places fades and one that ends doesn't. Each state has one of
-      // three bands (Polities.bands parts states that meet), a place writing its largest state's look into
-      // that band at weight 2 and its contester's into its own at 1, so a band is one state's look wherever
-      // it's drawn near a place, its hue its direction and its tone its length (1.5 + ½ the tone) over its
-      // weight. The heaviest band fills the place, so where states in different bands meet the fill turns in
-      // a line (its margin over the next antialiased over a pixel); a contested place is striped equally with
-      // the next heaviest band, as contested as MARCH's step. No border drawn. (By the vector's length, as the
-      // wash was once, a border between far hues faded to a band of paper and one between near hues didn't.)
+      // (Polities.drawn), a border drawn as it stands (a9): a line where it's settled, fuzzy where it's fought
+      // over. The wash ends in a line where its places' held field H passes ½ (midway to the places no state
+      // holds, a curve on the refined mesh, as the Settlement map's frontier), its strength F over the held
+      // places alone (each value × H, over H), so a hold that thins over many places fades and one that ends
+      // doesn't. Each state has one of four bands (Polities.bands parts states that meet), a place writing its
+      // states' looks into their bands by their shares, so a band is one state's look wherever it's drawn near
+      // a place, its hue its direction and its tone its length (1.5 + ½ the tone) over its share. The heaviest
+      // band fills the place, turning in a line where states in different bands meet (its margin over the next
+      // antialiased over a pixel); as far as the place is contested (MARCH's step), the bands blend by their
+      // shares, so a march fades from one state's look to the other's. No border drawn. (By the vector's
+      // length, as the wash was once, a border between far hues faded to a band of paper and one between near
+      // hues didn't.)
       let had = explored * (1.0 - sheet);
       let a = select(0.42, 0.48, dark);
       let H = i.wx.y;
       let hn = max(H, 1e-3);
       let F = i.wx.z / hn;
-      let ct = clamp(i.wx.w / hn, 0.0, 1.0);
+      let kc = clamp(i.wx.w / hn, 0.0, 1.0);
       let edge = clamp(0.5 + (H - 0.5) / max(fwidth(H), 1e-3), 0.0, 1.0);
-      let wb = vec3f(i.wp.w, i.z0.z, i.z0.w);
-      let bx = array<vec2f, 3>(i.td.xy, i.td.zw, i.z0.xy);
-      // Each band's margin over the heaviest other, its share of the fill antialiased where that crosses 0.
-      let m0 = wb.x - max(wb.y, wb.z);
-      let m1 = wb.y - max(wb.x, wb.z);
-      let m2 = wb.z - max(wb.x, wb.y);
-      var al = vec3f(clamp(0.5 + m0 / max(fwidth(m0), 1e-3), 0.0, 1.0), clamp(0.5 + m1 / max(fwidth(m1), 1e-3), 0.0, 1.0), clamp(0.5 + m2 / max(fwidth(m2), 1e-3), 0.0, 1.0));
-      al = al / max(al.x + al.y + al.z, 1e-3);
-      let tb = clamp(2.0 * (vec3f(length(bx[0]), length(bx[1]), length(bx[2])) / max(wb, vec3f(1e-3)) - 1.5), vec3f(-1.0), vec3f(1.0));
-      let c0 = idWheel(atan2(bx[0].y, bx[0].x), tb.x, dark, 0.0);
-      let c1 = idWheel(atan2(bx[1].y, bx[1].x), tb.y, dark, 0.0);
-      let c2 = idWheel(atan2(bx[2].y, bx[2].x), tb.z, dark, 0.0);
-      let solid = al.x * c0 + al.y * c1 + al.z * c2;
-      let ts = dot(al, tb);
-      // The contester's band: the heaviest but one.
-      let hi = select(select(2, 1, wb.y >= wb.z), 0, wb.x >= wb.y && wb.x >= wb.z);
-      let nx = select(select(select(1, 0, wb.x >= wb.y), select(0, 2, wb.z > wb.x), hi == 1), select(1, 2, wb.z > wb.y), hi == 0);
-      let cn = select(select(c0, c1, nx == 1), c2, nx == 2);
-      let tn = select(select(tb.x, tb.y, nx == 1), tb.z, nx == 2);
-      let sp = stripes(T, vec2f(0.7071, 0.7071), 10.0 * u.mode.z) * ct;
-      pland = mix(pland, mix(solid, cn, sp), a * (1.0 + 0.3 * mix(ts, tn, sp)) * smoothstep(0.3, 0.8, F) * edge * had);
+      let wb = vec4f(i.wp.w, i.z0.z, i.z0.w, i.z1.z);
+      let v0 = i.td.xy;
+      let v1 = i.td.zw;
+      let v2 = i.z0.xy;
+      let v3 = i.z1.xy;
+      let m0 = wb.x - max(max(wb.y, wb.z), wb.w);
+      let m1 = wb.y - max(max(wb.x, wb.z), wb.w);
+      let m2 = wb.z - max(max(wb.x, wb.y), wb.w);
+      let m3 = wb.w - max(max(wb.x, wb.y), wb.z);
+      var al = clamp(vec4f(0.5) + vec4f(m0, m1, m2, m3) / max(vec4f(fwidth(m0), fwidth(m1), fwidth(m2), fwidth(m3)), vec4f(1e-3)), vec4f(0.0), vec4f(1.0));
+      al = al / max(dot(al, vec4f(1.0)), 1e-3);
+      let mw = mix(al, wb / max(dot(wb, vec4f(1.0)), 1e-3), kc);
+      let tb = clamp(2.0 * (vec4f(length(v0), length(v1), length(v2), length(v3)) / max(wb, vec4f(1e-3)) - 1.5), vec4f(-1.0), vec4f(1.0));
+      let fill = mw.x * idWheel(atan2(v0.y, v0.x), tb.x, dark, 0.0) + mw.y * idWheel(atan2(v1.y, v1.x), tb.y, dark, 0.0)
+               + mw.z * idWheel(atan2(v2.y, v2.x), tb.z, dark, 0.0) + mw.w * idWheel(atan2(v3.y, v3.x), tb.w, dark, 0.0);
+      pland = mix(pland, fill, a * (1.0 + 0.3 * dot(mw, tb)) * smoothstep(0.3, 0.8, F) * edge * had);
     } else if (folkU) {
       // Culture: each place's largest way of life's identity drawn directly, as Miasma draws a strain: a
       // hatch at the torus's first angle (over 180°) in the hue of its second (a wheel), over a wash of
@@ -1021,7 +1005,7 @@ export async function createGlobe(canvas, mesh, coarse, device) {
   const pastBuf = storage(device, nm * 16);
   let pastS = null;
   // The peoples' identities and the fishers' parcels, three vec4s a vertex (Peoples.drawn), refined as the folk are.
-  const identBuf = storage(device, nm * 48);
+  const identBuf = storage(device, nm * 64);
   let identS = null;
   // Coal's sulfate's pattern a vertex (the People scenario: src/engine/peoplelink.js) and the Sea map's upwelling and sinking, one vec4 for the refiner.
   const sulfBuf = storage(device, nm * 16), sulfS = refining ? storage(device, n * 16) : sulfBuf, aux = new Float32Array(4 * n);
@@ -1178,12 +1162,12 @@ export async function createGlobe(canvas, mesh, coarse, device) {
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
       device.queue.writeBuffer(pastS, 0, l); folkRef.run(pastS, pastBuf, 1);
     },
-    /** Per cell of the people's grid `pg`, three vec4s (Peoples.drawn): the largest way's identity, the second's × its share, the fishers' parcels. */
+    /** Per cell of the people's grid `pg`, four vec4s (Peoples.drawn: the largest way's identity, the second's × its share, the fishers' parcels; or Polities.drawn on the States map). */
     setPeopleC(d, pg) {
       if (pg === mesh) { device.queue.writeBuffer(identBuf, 0, d); return; }
-      if (!identS) identS = storage(device, pg.n * 48);
+      if (!identS) identS = storage(device, pg.n * 64);
       if (!folkRef) folkRef = refiner && refiner.coarse === pg ? refiner : new Refiner(device, mesh, pg);
-      device.queue.writeBuffer(identS, 0, d); folkRef.run(identS, identBuf, 3);
+      device.queue.writeBuffer(identS, 0, d); folkRef.run(identS, identBuf, 4);
     },
     /** Per cell of the engine's grid: coal's sulfate's burden, its pattern (mean 1), or null for none. */
     setSulfate(p) {
