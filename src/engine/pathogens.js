@@ -50,9 +50,16 @@
 //                de/dt = b (cov − e) + λ Z(R s) (1 − e),
 //                and the naive are always among the susceptibles (1 − e ≤ s; the rest of them are those
 //                whose immunity waned).
-//   deaths       v (1 + K_COLL a) a first case and K_RE of that a case again (partial immunity: a waning
-//                pathogen's reinfections are milder; synthesis), a the share sick at once (virgin-soil
-//                epidemics' excess: the sick nurse the sick, the fields go untended; Crosby, from memory), at
+//   deaths       v (1 + K_COLL S^Q_COLL (1 − med)) a first case and K_RE of that a case again (partial immunity:
+//                a waning pathogen's reinfections are milder; synthesis), S the place's virgin soil: its grown
+//                taken sick for the first time by cases brought in, ι (1 − e e^{b A_NURSE})⁺ × the never-exposed's
+//                attack (ι the introductions' share of the force, 1 in an introduction's epidemic: an endemic
+//                pool's own cases are none; the exposed taken to be the grown first: no ages), with its recent
+//                pathogens' fading over T_SICK (a crowd's endemic pathogens take its children; a pathogen new to
+//                the place, or gone longer than a life, all ages at once) (virgin-soil epidemics' excess: the
+//                sick nurse the sick and the fields go untended, worst when the diseases come together, as the
+//                Old World's came to the Americas within decades; Crosby, from memory; med medicine's reach,
+//                People.modern: care and industry's logistics end it), at
 //                most every case; a rate over the step, × medicine. People's `demography` already stood for the
 //                diseases a people usually bears (up to F_DIS of its deaths, the well-fed floor's and the
 //                density's), so the pathogens' deaths take the place of each place's usual, its own pathogens'
@@ -64,7 +71,7 @@
 //   carried      migrants carry their susceptibility as they carry who they are (People.diffuse, flee,
 //                voyages, captives): settlers from where a pathogen is endemic come immune, and those they meet don't.
 //   strangers    (batch 4b; Curtin's settler mortality, from memory) a stranger from place a at place b dies at
-//                m = Σ f_b v [n_a (1 + K_COLL) + K_RE (s_a − n_a)] a year, f_b = inf/s the force of infection on b's
+//                m = Σ f_b v [n_a (1 + K_ADULT) + K_RE (s_a − n_a)] a year, f_b = inf/s the force of infection on b's
 //                susceptible, n_a = 1 − e_a a's naive share (an adult's first case, as a virgin people's) and
 //                s_a − n_a those whose immunity waned, × a's medicine (People.mortF) and quinine past Z_QUIN; a tour
 //                of T_TOUR years keeps 1/(1 + m T_TOUR) of those sent (a garrison, its officials, settlers' first
@@ -152,6 +159,8 @@ export class Pathogens {
     this.inf = new Float64Array(K * nL);         // its infections a person a year over the last step
     this.d = new Float64Array(nL);               // deaths a person a year, before medicine, over the step
     this.usual = new Float64Array(nL);           // each place's usual: its pathogens' deaths over T_USUAL (People's demography: what its deaths already stood for)
+    this.sick = new Float64Array(nL);            // each place's recent virgin soil: the never-exposed shares its arrivals took sick, fading over T_SICK (the excess's)
+    this.sickNew = new Float64Array(nL);         // and this step's, added at its end
     this.dtLast = 0;
     this.kap = new Float64Array(nL); this.med = new Float64Array(nL); this.wild = new Float64Array(nL); this.anim = new Float64Array(nL); this.hz = new Float64Array(nL); this.lam = new Float64Array(nL); this.Rc = new Float64Array(nL);
     this.acc = 0;                                // the years owed (stepped every DT_PATH at least: their state moves over years)
@@ -236,8 +245,10 @@ export class Pathogens {
     if (this.acc < P.DT_PATH) return;
     const dt = this.acc;
     this.acc = 0;
-    // The usual moves toward the last step's deaths over T_USUAL (exact), before this step's are found.
+    // The usual moves toward the last step's deaths over T_USUAL (exact), before this step's are found; the recent
+    // virgin soil fades over T_SICK.
     if (this.dtLast > 0) { const k = Math.exp(-this.dtLast / P.T_USUAL), d = this.d, us = this.usual; for (let c = 0; c < nL; c++) us[c] = d[c] + (us[c] - d[c]) * k; }
+    { const k = Math.exp(-dt / P.T_SICK), sk = this.sick; for (let c = 0; c < nL; c++) sk[c] *= k; this.sickNew.fill(0); }
     this.dtLast = dt;
     for (let c = 0; c < nL; c++) {
       const rho = N[c] / H.area[c];
@@ -285,6 +296,9 @@ export class Pathogens {
       }
     }
     const Rc = this.Rc, vec = H.path;
+    // Each place's e^{b A_NURSE}, its grown's share's inverse (the virgin soil's, below), once a step.
+    const eA = this.eA || (this.eA = new Float64Array(nL));
+    for (let c = 0; c < nL; c++) eA[c] = Math.exp(b[c] * P.A_NURSE);
     for (const q of this.live) {
       const o = q.slot * nL, D = q.D, om = q.om, R0 = q.R0, x1 = 1 - q.x, x = q.x;
       pN.fill(0); pR.fill(0); pB.fill(0); pA.fill(0); pL.fill(0);
@@ -296,21 +310,26 @@ export class Pathogens {
       // Each pool's persistence (its hosts in contact) and its partners' prevalence.
       for (let k = 0; k < np; k++) {
         if (!(pN[k] > 0)) { pP[k] = 0; pre[k] = 0; continue; }
+        // (Where the pool has none infectious its persistence is none, × 1 − e^0, so its hosts in contact aren't
+        // needed, and only the partners that have it add to its prevalence: the same sums, skipping their zeros.)
         let Nc = pN[k], pr = 0;
+        const here = pA[k] > 0;
         if (k < off) {
           for (let i = 0; i < KP; i++) {
             const j = pk[k * KP + i];
             if (j < 0) break;
+            const has = pN[j] > 0 && pA[j] > 0;
+            if (!here && !has) continue;
             // A traveller must arrive while the infection lasts: e^{−T/(D G_TRANS)}, the party carrying G_TRANS generations.
             const w = pw[k * KP + i] * Math.exp(-Tk[k * KP + i] / (D * P.G_TRANS));
             Nc += w * (mN[j] + NM);
-            if (pN[j] > 0) pr += w * pA[j] / pN[j] * D;
+            if (has) pr += w * pA[j] / pN[j] * D;
           }
-        } else { const c = k - off; for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e]) Nc += N[E.nb[e]]; }
+        } else if (here) { const c = k - off; for (let e = E.off[c]; e < E.off[c + 1]; e++) if (!E.hop[e]) Nc += N[E.nb[e]]; }
         // Persisting needs it there: the pool's infectious at the step's start, I = Σ N inf D, as a soft
         // presence 1 − e^{−I} (read as the chance of keeping it anywhere it could, a pathogen had been endemic in
         // every great pool from its birth: none came anywhere new, and no people fell).
-        pP[k] = persistence(Nc, pB[k] / pN[k], om, pR[k] / pN[k], D, P) * (1 - Math.exp(-pA[k] * D)); pre[k] = pr;
+        pP[k] = here ? persistence(Nc, pB[k] / pN[k], om, pR[k] / pN[k], D, P) * (1 - Math.exp(-pA[k] * D)) : 0; pre[k] = pr;
       }
       // Each place's introductions a year from outside its pool: its pool's partners, its land neighbours in
       // other pools, the reservoir.
@@ -334,28 +353,45 @@ export class Pathogens {
       q.seed = -1;
       // Each place's susceptibles over the step; its infections and deaths.
       let cases = 0, dead = 0;
+      const vacE = Math.exp(-om / P.OM_VAC);
       for (let c = 0; c < nL; c++) {
         if (!(N[c] > 0)) { inf[o + c] = 0; continue; }
-        const k = pool[c], R = Rc[c], p = pP[k], s0 = s[o + c], bc = b[c];
-        const lmf = p * P.L_END + (ev[k] < 0 ? (1 - p) * lam[c] : 0), cov = P.V_COV * this.med[c] * Math.exp(-om / P.OM_VAC);
+        const k = pool[c], R = Rc[c], p = pP[k], s0 = s[o + c], bc = b[c], e0 = e[o + c];
+        const lmf = p * P.L_END + (ev[k] < 0 ? (1 - p) * lam[c] : 0), cov = P.V_COV * this.med[c] * vacE;
+        // (A place it has never reached, with nothing coming in and no one vaccinated, stays as it is: s 1, e 0,
+        // no case. The step below would leave it so to the bit.)
+        if (lmf === 0 && ev[k] !== 1 && s0 === 1 && e0 === 0 && cov === 0) { inf[o + c] = 0; continue; }
         // The step's infections are backward Euler's own flux, dt λ Z(R s₁) s₁ (vaccination isn't infection),
         // the naive's dt λ Z (1 − e₁) of them; the never-exposed share by backward Euler at the same rate.
-        let s1 = susceptible(s0, dt, bc, om, cov, lmf, R), a;
+        let s1 = susceptible(s0, dt, bc, om, cov, lmf, R);
         const lz = lmf > 0 && R > 1 ? lmf * finalSize(R * s1) : 0;
         let e1 = (e[o + c] + dt * (bc * cov + lz)) / (1 + dt * (bc + lz));
         let I = dt * lz * s1, In = dt * lz * (1 - e1);
-        if (ev[k] === 1 && R * s1 > 1) { const z = finalSize(R * s1), x = s1 * z, xn = Math.max(0, 1 - e1) * z; s1 -= x; e1 += xn; I += x; In += xn; a = x; } else a = I / Math.max(1, dt);
+        if (ev[k] === 1 && R * s1 > 1) { const z = finalSize(R * s1), x = s1 * z, xn = Math.max(0, 1 - e1) * z; s1 -= x; e1 += xn; I += x; In += xn; }
         if (!(I > 0)) I = 0;
         In = Math.min(Math.max(0, In), I);
         e1 = Math.min(1, Math.max(e1, 1 - s1));
         s[o + c] = s1; e[o + c] = e1; inf[o + c] = I / dt;
-        const dd = Math.min(I, q.v * (1 + P.K_COLL * Math.min(1, a)) * (In + P.K_RE * (I - In)));
+        // The virgin-soil excess by the place's virgin soil: its grown people taken sick for the first time, this
+        // pathogen's and its recent ones' (fading over T_SICK). With no ages, the exposed are taken to be the
+        // grown first: the grown's never-exposed share 1 − e e^{b A_NURSE} (those older than A_NURSE are e^{−b A}
+        // of a people whose deaths match its births), × the never-exposed's attack this step. A crowd's
+        // endemic pathogens and those back within a generation find its grown immune, whose children they take;
+        // a pathogen new to the place, or gone from it longer than a life, takes all ages at once: one plague costs
+        // little past its own toll, a run of them within T_SICK (a package of the Old World's, the sick nursing
+        // the sick) much more.
+        // (Only the introduced cases: those an endemic pool keeps among its own, p L_END of the force, aren't
+        // virgin soil, whatever its age.)
+        const intro = ev[k] === 1 ? 1 : ev[k] < 0 && lmf > 0 ? (1 - p) * lam[c] / lmf : 0;
+        const vs = intro > 0 ? intro * Math.max(0, 1 - e0 * eA[c]) * Math.min(1, In / Math.max(1e-12, 1 - e0)) : 0, sk = Math.min(1, this.sick[c] + vs), dd = Math.min(I, q.v * (1 + P.K_COLL * Math.pow(sk, P.Q_COLL) * (1 - this.med[c])) * (In + P.K_RE * (I - In)));
+        this.sickNew[c] += vs;
         this.d[c] += dd / dt; cases += I * N[c]; dead += dd * N[c];
       }
       q.cases += cases; q.dead += dead; this.deaths += dead; q.rate = cases / dt;
       if (q.rate > q.peak) q.peak = q.rate;
       if (cases >= 1) q.last = pp.t + dt;
     }
+    { const sk = this.sick, sn = this.sickNew; for (let c = 0; c < nL; c++) sk[c] += sn[c]; }
     // Those with no case for T_IDLE are gone; their slots are cleared for the next.
     for (let i = this.live.length - 1; i >= 0; i--) if (pp.t + dt - this.live[i].last > P.T_IDLE) this.retire(this.live[i]);
   }
@@ -421,11 +457,11 @@ export class Pathogens {
     }
     return h;
   }
-  /** A stranger's case from place a's people, by slot (K): its naive share's first case (1 + K_COLL) and its waned share's K_RE. */
+  /** A stranger's case from place a's people, by slot (K): its naive share's first case (1 + K_ADULT) and its waned share's K_RE. */
   vulnerable(a, out = new Float64Array(this.K)) {
     const P = this.pp.P, nL = this.pp.nL;
     out.fill(0);
-    for (const q of this.live) { const o = q.slot * nL + a, n = 1 - this.e[o]; out[q.slot] = n * (1 + P.K_COLL) + P.K_RE * Math.max(0, this.s[o] - n); }
+    for (const q of this.live) { const o = q.slot * nL + a, n = 1 - this.e[o]; out[q.slot] = n * (1 + P.K_ADULT) + P.K_RE * Math.max(0, this.s[o] - n); }
     return out;
   }
   /** The share of strangers from place a who outlast a tour of T_TOUR years at place b: 1/(1 + m T_TOUR), m their deaths a year there (× `mf`, their medicine). */
@@ -437,7 +473,7 @@ export class Pathogens {
       const ob = q.slot * nL + b, f = this.inf[ob];
       if (!(f > 0)) continue;
       const oa = q.slot * nL + a, n = 1 - this.e[oa];
-      m += q.v * f / Math.max(this.s[ob], S_EPS) * (n * (1 + P.K_COLL) + P.K_RE * Math.max(0, this.s[oa] - n));
+      m += q.v * f / Math.max(this.s[ob], S_EPS) * (n * (1 + P.K_ADULT) + P.K_RE * Math.max(0, this.s[oa] - n));
     }
     return 1 / (1 + m * mf * P.T_TOUR);
   }

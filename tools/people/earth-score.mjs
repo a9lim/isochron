@@ -8,7 +8,7 @@
 // era against history's dates, industry's start read as 1760; then on to the dial (the minds doubling in under a day:
 // the singularity), dated by industry's start and by the world's passing 6 billion (1999), with the world's
 // milestones between (its people passing 1, 1.5, 2, 3, 4, 5, 6 billion) against history's.
-// usage: node tools/people/earth-score.mjs ['{PEOPLE overrides}'] [draws=4]
+// usage: node tools/people/earth-score.mjs ['{PEOPLE overrides}'] [draws=4] [first=0]   (draws first…first+draws−1: past the joint fit's own, an out-of-sample read)
 //   env: ENGINE=7 the page's desktop engine restricted to the people's grid (tools/people/planet.mjs)
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -61,11 +61,18 @@ async function one(ov, run) {
   // The world's milestones (its people passing 1, 1.5, 2, 3, 4, 5 and 6 billion), and the regions' shares at early takeoff.
   const MILE = [1, 1.5, 2, 3, 4, 5, 6], mile = {};
   const shares = () => { const b = new Float64Array(REGIONS.length); let tot = 0; for (let c = 0; c < pp.nL; c++) { tot += pp.Ntot[c]; if (regOf[c] >= 0) b[regOf[c]] += pp.Ntot[c]; } return { b, tot }; };
-  while (pp.t < 6e6 && !ev.dial) {
+  // The continents' shares at industry's start (with India and China), and the Americas' and Europe's people every
+  // 10 years from the first fields on, for their largest falls (the virgin-soil and the plague's).
+  let atInd = null, tS = -1e9;
+  const fallS = [];
+  // A draw whose industry hasn't come by T_NOIND (its agrarian world held down) stops there: its industrial marks missing.
+  while (pp.t < (ev.industry ? 6e6 : +(process.env.T_NOIND || 3.5e5)) && !ev.dial) {
     pp.step(pp.nextDt());
     const N = pp.history[pp.history.length - 1].people;
     for (const x of MILE) if (mile[x] == null && N >= x * 1e9) mile[x] = pp.t;
     if (ev.present && !by) by = shares();
+    if (ev.industry && !atInd) atInd = shares();
+    if (ev.farming && pp.t - tS >= 10) { tS = pp.t; let a = 0, e = 0; for (let c = 0; c < pp.nL; c++) { const k = contOf[c]; if (k === CN.indexOf('Americas')) a += pp.Ntot[c]; else if (k === CN.indexOf('Europe')) e += pp.Ntot[c]; } fallS.push([pp.t, a, e]); }
     if (pp.t - chk >= 500) {
       chk = pp.t;
       const bc = new Float64Array(CN.length), ba = new Float64Array(CN.length);
@@ -76,6 +83,11 @@ async function one(ov, run) {
     if (ev.industry && pp.t - ev.industry.t > 3000) break;
   }
   if (!by) by = shares();
+  // The largest fall of a series within w years (before t1).
+  const fall = (k, w, t1 = Infinity) => { let f = 0; for (let i = 0; i < fallS.length && fallS[i][0] <= t1; i++) for (let j = i + 1; j < fallS.length && fallS[j][0] - fallS[i][0] <= w && fallS[j][0] <= t1; j++) if (fallS[i][k] > 0) f = Math.max(f, 1 - fallS[j][k] / fallS[i][k]); return f; };
+  const falls = { americas: fall(1, 150), europe: fall(2, 100, ev.industry ? ev.industry.t : Infinity) };
+  const cont = x => { if (!x) return null; const o = Object.fromEntries(Object.entries(CONT).map(([n, ks]) => [n, ks.reduce((a, k) => a + x.b[k], 0) / x.tot])); o.India = x.b[19] / x.tot; o.China = (x.b[20] + x.b[21] + x.b[22]) / x.tot; return o; };
+  const sharesI = cont(atInd), sharesP = cont(by);
   const tot = by.tot;
   by = by.b;
   const at = e => (e ? (/at (-?\d+°, -?\d+°)/.exec(e.s) || [])[1] : null);
@@ -88,7 +100,7 @@ async function one(ov, run) {
     pop: [11.76e3, 1.76e3, 0.26e3].map(b => near(ev.industry.t - b).people) } : null;
   const states = ev.industry ? [ev.industry.t - 3000, ev.industry.t - 1000, ev.industry.t, ev.present ? ev.present.t : pp.t].map(t => { const x = near(t); return [x.states || 0, x.stTop || 0, x.stHeld || 0]; }) : null;
   const dialN = ev.dial ? near(ev.dial.t).people : null;
-  return { agr, states, emp, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
+  return { agr, states, emp, sharesI, sharesP, falls, shares: Array.from(by, n => n / tot), people: tot, yrs: ev.present && ev.industry ? ev.present.t - ev.industry.t : null,
     dial: ev.dial && ev.industry ? { ind: ev.dial.t - ev.industry.t, six: mile[6] != null ? ev.dial.t - mile[6] : null, people: dialN, after: ev.present ? ev.dial.t - ev.present.t : null } : null,
     miles: MILE.slice(1).map((x, i) => mile[x] != null && mile[MILE[i]] != null ? mile[x] - mile[MILE[i]] : null), lead: mile[1] != null && ev.industry ? mile[1] - ev.industry.t : null,
     farm: ev.farming ? at(ev.farming) : null, ind: ev.industry ? at(ev.industry) : null, farmToInd: ev.farming && ev.industry ? ev.industry.t - ev.farming.t : null, packages: pp.packages.length,
@@ -100,9 +112,9 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
 } else if (process.argv[2] === '--one') {
   process.stdout.write(JSON.stringify(await one(JSON.parse(process.argv[3]), process.argv[4])));
 } else {
-  const ov = process.argv[2] || '{}', draws = +(process.argv[3] || 4), self = fileURLToPath(import.meta.url);
+  const ov = process.argv[2] || '{}', draws = +(process.argv[3] || 4), first = +(process.argv[4] || 0), self = fileURLToPath(import.meta.url);
   const runs = await Promise.all(Array.from({ length: draws }, (_, k) => new Promise((ok, fail) => {
-    const p = spawn(process.execPath, [self, '--one', ov, String(k)], { env: process.env });
+    const p = spawn(process.execPath, [self, '--one', ov, String(first + k)], { env: process.env });
     let out = '', err = '';
     p.stdout.on('data', d => (out += d)); p.stderr.on('data', d => (err += d));
     p.on('close', code => (code ? fail(new Error(err)) : ok(JSON.parse(out))));
@@ -114,7 +126,7 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
   console.log('region'.padEnd(18) + 'model %'.padStart(8) + '  now %');
   REGIONS.forEach((r, k) => console.log(r[0].padEnd(18) + (100 * sh[k]).toFixed(1).padStart(8) + (100 * obs[k] / os).toFixed(1).padStart(7)));
   console.log(Object.entries(CONT).map(([n, ks]) => `${n} ${(100 * ks.reduce((a, k) => a + sh[k], 0)).toFixed(0)}% (now ${(100 * ks.reduce((a, k) => a + obs[k], 0) / os).toFixed(0)}%)`).join(' · '));
-  for (const [k, r] of runs.entries()) console.log(`draw ${k}: score ${sc[k].toFixed(3)} · farming first at ${r.farm} (${r.packages} origins), industry ${r.farmToInd ? (r.farmToInd / 1e3).toFixed(1) : '-'} kyr later at ${r.ind} · early takeoff ${r.yrs ? r.yrs.toFixed(0) : '-'} yr after industry, ${(r.people / 1e9).toFixed(2)} billion people\n         origins in order: ${r.origins.join(', ')}`);
+  for (const [k, r] of runs.entries()) console.log(`draw ${first + k}: score ${sc[k].toFixed(3)} · farming first at ${r.farm} (${r.packages} origins), industry ${r.farmToInd ? (r.farmToInd / 1e3).toFixed(1) : '-'} kyr later at ${r.ind} · early takeoff ${r.yrs ? r.yrs.toFixed(0) : '-'} yr after industry, ${(r.people / 1e9).toFixed(2)} billion people\n         origins in order: ${r.origins.join(', ')}`);
   const st = runs.filter(r => r.states);
   if (st.length) console.log('states (effective number · the largest\'s share · the people held) at ' + ['3 kyr before industry', '1 kyr before', 'industry', 'early takeoff'].map((w, i) => `${w} ${mean(st.map(r => r.states[i][0])).toFixed(1)} · ${(100 * mean(st.map(r => r.states[i][1]))).toFixed(0)}% · ${(100 * mean(st.map(r => r.states[i][2]))).toFixed(0)}%`).join('; '));
   // History: Europe ~45 kyr (Ranis), Sahul 47–65 (the short and long chronologies), the Americas by ~21–23 (White
@@ -134,5 +146,8 @@ if (process.argv[1] !== fileURLToPath(import.meta.url)) {
     const HM = [86, 37, 33, 14, 13, 12], NM = ['1→1.5', '1.5→2', '2→3', '3→4', '4→5', '5→6'];
     console.log(`the takeoff, medians: early takeoff ${md(runs.map(r => r.yrs)).toFixed(0)} yr after industry · the dial ${md(dl.map(r => r.dial.after)).toFixed(1)} yr after it: ${(1760 + md(dl.map(r => r.dial.ind))).toFixed(1)} by industry's start as 1760 (the draws ${Math.min(...dl.map(r => 1760 + r.dial.ind)).toFixed(0)}–${Math.max(...dl.map(r => 1760 + r.dial.ind)).toFixed(0)}), ${(1999 + md(dl.map(r => r.dial.six))).toFixed(1)} by the world's 6 billion as 1999 (late 2027), ${(md(dl.map(r => r.dial.people)) / 1e9).toFixed(2)} billion people (~8.3)\n  the world's milestones, years between (history's): ${NM.map((nm, i) => `${nm} ${md(runs.map(r => r.miles[i])).toFixed(0)} (${HM[i]})`).join(' · ')} · industry to 1 billion ${md(runs.map(r => r.lead)).toFixed(0)} (~44)`);
   }
+  const si = runs.filter(r => r.sharesI);
+  if (si.length) console.log(`the continents' shares at industry's start, medians: ${Object.keys(si[0].sharesI).map(k => `${k} ${(100 * md(si.map(r => r.sharesI[k]))).toFixed(1)}%`).join(' · ')}`);
+  console.log(`the largest falls, medians: the Americas' within 150 yr ${(100 * md(runs.map(r => r.falls.americas))).toFixed(0)}% (50–90% after 1492), Europe's before industry within 100 yr ${(100 * md(runs.map(r => r.falls.europe))).toFixed(0)}% (the Black Death ~30–50%)`);
   console.log(`score ${mean(sc).toFixed(3)} ± ${Math.sqrt(mean(sc.map(s => (s - mean(sc)) ** 2))).toFixed(3)} over ${draws} draws`);
 }

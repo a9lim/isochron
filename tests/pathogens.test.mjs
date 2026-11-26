@@ -94,3 +94,32 @@ test("a pathogen persists only where it is: a great people it never reached stay
   assert.equal(ever, 0);
   assert.ok(pg.s[2] === 1 && pg.s[3] === 1 && pg.e[2] === 0 && pg.e[3] === 0);
 });
+
+test("the virgin-soil excess is the grown taken sick for the first time by cases brought in: a crowd's churn carries none, arrivals together compound, medicine ends it", () => {
+  // Isolated places of 5 M (no edges, no routes), the excess's form at K_COLL 10, Q_COLL 2.
+  const world = (nL, med) => {
+    const P = { ...PEOPLE, H_SPILL: 0, K_COLL: 10, Q_COLL: 2 }, N = new Float64Array(nL).fill(5e6);
+    const E = { off: new Int32Array(nL + 1), nb: new Int32Array(0), hop: new Uint8Array(0) };
+    const pp = { nL, P, Ntot: N, E, t: 0, planet: { seed: 'test' }, bR: new Float64Array(nL).fill(0.04), cityShare: null,
+      H: { area: new Float64Array(nL).fill(1e4), path: new Float64Array(nL), clim: new Float32Array(4 * nL) }, econ: { on: !!med }, animHere: () => 0, modern: c => (med ? med[c] : 0) };
+    return { pp, pg: new Pathogens(pp) };
+  };
+  const mk = (slot, R0) => ({ id: slot, t: 0, c: 0, slot, R0, D: 2 / 52, om: 0, v: 0.01, x: 0, r: 0, hw: 0, clim: new Float32Array(4), last: 0, cases: 0, dead: 0, peak: 0, rate: Infinity, seed: -1 });
+  const add = (pg, q) => { pg.slots[q.slot] = q; pg.live.push(q); };
+  const perCase = (q, c0, d0) => (q.dead - d0) / (q.cases - c0) / q.v;
+  // Measles endemic at its balance: a case kills v, year on year (every case's share summed over a decade, ~0.4
+  // here, made it ×2.5).
+  { const { pp, pg } = world(1), q = mk(0, 15); add(pg, q); pg.s[0] = 0.08; pg.e[0] = 0.92; pg.inf[0] = 0.037;
+    let x = 0;
+    for (let k = 0; k < 100; k++) { const c0 = q.cases, d0 = q.dead; pg.step(1, null); pp.t += 1; x = Math.max(x, perCase(q, c0, d0)); }
+    assert.ok(pg.inf[0] > 0.03 && x < 1 + 1e-9, `endemic: inf ${pg.inf[0]}, a case ×${x}`); }
+  // A virgin people's second arrival within T_SICK of its first kills more a case than the same arrival alone.
+  { const { pp, pg } = world(2), A = mk(0, 1.6), B = mk(1, 1.6), C = mk(2, 1.6); add(pg, A); A.seed = 0;
+    for (let k = 0; k < 3; k++) { pg.step(1, null); pp.t += 1; }
+    add(pg, B); add(pg, C); B.seed = 0; C.seed = 1; pg.step(1, null);
+    const after = perCase(B, 0, 0), alone = perCase(C, 0, 0);
+    assert.ok(B.cases > 1e6 && C.cases > 1e6 && after > 1.8 * alone && alone > 2, `after another ×${after}, alone ×${alone}`); }
+  // Under medicine's whole reach a virgin epidemic kills v a first case and no more.
+  { const { pg } = world(1, [1]), q = mk(0, 1.6); add(pg, q); q.seed = 0; pg.step(1, null);
+    const x = perCase(q, 0, 0); assert.ok(q.cases > 1e6 && x <= 1 + 1e-9 && x > 0.9, `medicine: a case ×${x}`); }
+});

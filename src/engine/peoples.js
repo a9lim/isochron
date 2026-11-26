@@ -72,8 +72,9 @@ export const WAY = ['foragers', 'herders', 'fishers', 'farmers', 'city'];
 
 /** The shortest way round on a circle of side S. */
 export const wrap = (d, S) => d - S * Math.round(d / S);
-/** v on the circle [0, S). */
-const mod = (v, S) => ((v % S) + S) % S;
+/** v on the circle [0, S): ((v % S) + S) % S to the bit, its remainders taken only where they aren't v itself (a
+ * remainder is exact, so within ±S it is v; and t = r + S lies in (0, 2S], where t % S is t, t − S or 0). */
+const mod = (v, S) => { const r = v < S && v > -S ? v : v % S, t = r + S; return t < S ? t : t < 2 * S ? t - S : 0; };
 /** Contact's rate's falloff with identity distance d (squared: d2), to its floor g0. */
 export const pull = (d2, D, g0 = 0) => g0 + (1 - g0) / (1 + d2 / (D * D));
 /**
@@ -133,7 +134,7 @@ export class Peoples {
     for (let k = 1; k < WAYS; k++) {
       const a = c * WAYS + k;
       if (!(W[a] > 0)) continue;
-      for (let i = 0; i < 2; i++) { const v = eX[2 * a + i] + f * wrap(x[i] - eX[2 * a + i], S); eX[2 * a + i] = ((v % S) + S) % S; }
+      for (let i = 0; i < 2; i++) { const v = eX[2 * a + i] + f * wrap(x[i] - eX[2 * a + i], S); eX[2 * a + i] = mod(v, S); }
     }
   }
   /** How alike place c's learned identity's people are to their own elite, as `sim` (1 for foragers, who have none). */
@@ -160,6 +161,24 @@ export class Peoples {
       this.mix(b * WAYS + k, m, X[2 * sa] + (settle ? kick * this.rng.normal() : 0), X[2 * sa + 1] + (settle ? kick * this.rng.normal() : 0), this.eX[2 * sa], this.eX[2 * sa + 1]);
     }
     this.T[a] -= moved; this.T[b] += moved;
+  }
+  /**
+   * q settlers of a's ways into b, a's own left as they were: a sample of a's people, whose numbers leave
+   * their market's places elsewhere (People.settlers), mixed into b as `carry` mixes them.
+   */
+  send(a, b, q) {
+    const W = this.W, X = this.X, s0 = this.T[a];
+    if (!(s0 > 0) || !(q > 0)) return;
+    const f = q / s0, settle = !(this.T[b] > 0), kick = settle ? Math.sqrt(this.pp.P.ID_KICK) : 0;
+    let moved = 0;
+    for (let k = 0; k < WAYS; k++) {
+      const sa = a * WAYS + k, w = W[sa];
+      if (!(w > 0)) continue;
+      const m = w * f;
+      moved += m;
+      this.mix(b * WAYS + k, m, X[2 * sa] + (settle ? kick * this.rng.normal() : 0), X[2 * sa + 1] + (settle ? kick * this.rng.normal() : 0), this.eX[2 * sa], this.eX[2 * sa + 1]);
+    }
+    this.T[b] += moved;
   }
   /** Whether migrants into c are carried: always into a cell with no one, else past ID_EPS of its people. */
   carries(c, q) { return q > this.pp.P.ID_EPS * this.T[c] || !(this.T[c] > 0); }
@@ -308,8 +327,8 @@ export class Peoples {
       for (let k = 0; k < WAYS; k++) {
         const a = o + k;
         if (!(W[a] > 1e-12 * N[c])) continue;
-        X[2 * a] = ((Xn[2 * a] % S) + S) % S; X[2 * a + 1] = ((Xn[2 * a + 1] % S) + S) % S;
-        for (let i = 0; i < 2; i++) { const e = eX[2 * a + i], v = e + fe * (wa * wrap(X[2 * a + i] - e, S) + (rx ? wb * wrap(rx[i] - e, S) : 0)); eX[2 * a + i] = ((v % S) + S) % S; }
+        X[2 * a] = mod(Xn[2 * a], S); X[2 * a + 1] = mod(Xn[2 * a + 1], S);
+        for (let i = 0; i < 2; i++) { const e = eX[2 * a + i], v = e + fe * (wa * wrap(X[2 * a + i] - e, S) + (rx ? wb * wrap(rx[i] - e, S) : 0)); eX[2 * a + i] = mod(v, S); }
       }
       this.lead[c] = W[o + CITY] > 0 ? o + CITY : this.main(c);
     }

@@ -22,7 +22,7 @@ function line({ n = 200, N = 1e4, c0 = 100, L = 2000, J = 0, at = 99, params = {
     nL: n, P, E, t: 0, packages: [1], planet: { seed: 'polities' }, Ntot: new Float64Array(n).fill(N), K: new Float64Array(n).fill(N),
     zc: new Float64Array(n), zl: new Float64Array(n), ind: new Float32Array(n), city: null, wol, cityShare: null, dx: 100,
     H: { slope: new Float64Array(n), area: new Float64Array(n).fill(1e4) }, nav: () => 0, mortF: () => 1,
-    goods: new Float64Array(n), works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) }, wi: { F: new Float64Array(n), L: new Float64Array(n), P: new Float64Array(n), D: new Float64Array(n), B: new Float64Array(n) },
+    goods: new Float64Array(n), works: new Float64Array(n), wk: { T: new Float64Array(n), C: new Float64Array(n), P: new Float64Array(n), G: new Float64Array(n), R: new Float64Array(n) }, wi: { F: new Float64Array(n), L: new Float64Array(n), P: new Float64Array(n), D: new Float64Array(n), B: new Float64Array(n) },
   };
   // Each place's catchment: the places within M of it along the line, itself first, the strait's cost J
   // added across it.
@@ -182,7 +182,7 @@ test('within one pool, capital goes where it earns: income a worker e^{θΔz/(1�
   const P = { ...PEOPLE }, dz = 0.4, nL = 2;
   const pp = { P, nL, Ntot: Float64Array.of(1e6, 1e6), ind: Float32Array.of(1, 1), zc: Float64Array.of(7 + dz, 7), lfp: Float64Array.of(0.5, 0.5),
     wi: { F: Float64Array.of(25, 25), L: new Float64Array(nL), P: new Float64Array(nL), D: new Float64Array(nL), B: new Float64Array(nL) },
-    goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL), wk: { T: new Float64Array(nL), C: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) }, railRoom: () => 0, workRoom: () => 0, syncCapital: People.prototype.syncCapital,
+    goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL), wk: { T: new Float64Array(nL), C: new Float64Array(nL), P: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) }, railRoom: () => 0, workRoom: () => 0, syncCapital: People.prototype.syncCapital,
     pol: { id: new Int32Array(KP * nL).fill(-1), s: new Float64Array(KP * nL), list: [] } };
   const E = { Y: 100, sA: 0, Ef: 0, lamE: 0, burned: 0, Kf: 50, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0, 0] }, Lh = 1e6, K0 = () => ({ F: E.Kf, D: 0, B: 0, P: 0 });
   for (let k = 0; k < 400; k++) { pp.goods.fill(0); People.prototype.regional.call(pp, E, Lh, 1, K0(), 10); }
@@ -201,7 +201,7 @@ test("industry's works stay where they're built: the places' stocks are the worl
   const P = { ...PEOPLE }, nL = 2, dt = 10;
   const pp = { P, nL, Ntot: Float64Array.of(1e6, 1e6), ind: Float32Array.of(1, 1), zc: Float64Array.of(7.2, 7), lfp: Float64Array.of(0.5, 0.5), t: 0,
     wi: { F: Float64Array.of(25, 25), L: new Float64Array(nL), P: new Float64Array(nL), D: new Float64Array(nL), B: new Float64Array(nL) },
-    goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL), wk: { T: new Float64Array(nL), C: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) },
+    goods: new Float64Array(nL), Out: new Float64Array(nL), fos: new Float64Array(nL), wk: { T: new Float64Array(nL), C: new Float64Array(nL), P: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) },
     railRoom: () => 40, workRoom: () => 0, syncCapital: People.prototype.syncCapital,
     pol: { id: new Int32Array(KP * nL).fill(-1), s: new Float64Array(KP * nL), list: [] } };
   const E = { Y: 100, sA: 0, Ef: 0, lamE: 0, burned: 0, Kf: 50 * Math.exp(-P.DELTA_F * dt) + 10, Kc: 0, Kq: 0, Kr: 0, Ke: [0, 0, 0, 0] }, Kf = E.Kf;
@@ -399,6 +399,34 @@ test('captives are carried where coerced labour earns, made and lost by none: th
   People.prototype.capture.call(pp, 0, 40);
   People.prototype.captives.call(pp);
   assert.ok(Math.abs(pp.Ntot[0] - 1e5 - 40) < 1e-9 && cp.carried === 150);
+});
+
+test('settlers cross the open ocean toward room, made and lost by none: a pair relaxes exactly toward equal crowding and never past it', () => {
+  // Two markets across the sea: the first at its capacity (u = 1), the second emptied (u = 0.25), its room
+  // 0.9 and 0.6 of a place's capacity. Over a step the gap falls by e^{−2 r dt}, r = R_SET e^{−cost/reach};
+  // over a long one it closes and doesn't reverse; the landed land by room; D_PASS's dead are those sent less those landed.
+  const mk = (P) => ({
+    P, nL: 4, Ntot: Float64Array.of(1e5, 1e5, 1e4, 4e4), zc: new Float64Array(4).fill(5), zl: new Float64Array(4).fill(5),
+    K2: new Float64Array(4).fill(1e5), goods: new Float64Array(4),
+    routes: { nm: 2, oc: {}, active: [0, 1], tTrade: 0, marketOf: Int32Array.of(0, 0, 1, 1), mN: new Float64Array(2), mLead: Int32Array.of(0, 2), mZ: Float64Array.of(5, 5), mZL: Float64Array.of(5, 5),
+      mNu: Float64Array.of(1, 1), mS: new Float64Array(2), reach: () => 1e4, between: (a, b) => (a === b ? 0 : 5000), years: (a, b) => (a === b ? 0 : 0.1), oceanic: (a, b) => a !== b },
+    pol: null, ids: { sim: () => 1, send() {} }, pathogens: { seasoning: () => 1, mix() {} }, mortF: () => 1,
+  });
+  const u = pp => [(pp.Ntot[0] + pp.Ntot[1]) / 2e5, (pp.Ntot[2] + pp.Ntot[3]) / 2e5], sum = pp => pp.Ntot.reduce((a, b) => a + b, 0);
+  const P = { ...PEOPLE, R_SET: 0.01, D_PASS: 0 }, r = P.R_SET * Math.exp(-0.5), dt = 20;
+  let pp = mk(P);
+  const g0 = u(pp)[0] - u(pp)[1], n0 = sum(pp), r3 = 1e5 - 1e4, r4 = 1e5 - 4e4;
+  People.prototype.settlers.call(pp, dt);
+  const g1 = u(pp)[0] - u(pp)[1], x2 = pp.Ntot[2] - 1e4, x3 = pp.Ntot[3] - 4e4;
+  assert.ok(Math.abs(g1 - g0 * Math.exp(-2 * r * dt)) < 1e-12, `the gap ${g1} against ${g0 * Math.exp(-2 * r * dt)}`);
+  assert.ok(Math.abs(sum(pp) - n0) < 1e-6 && Math.abs(x2 / x3 - r3 / r4) < 1e-9, `people ${sum(pp) - n0}; landed ${x2 / x3} against ${r3 / r4}`);
+  pp = mk(P);
+  People.prototype.settlers.call(pp, 1e5);
+  assert.ok(u(pp)[0] - u(pp)[1] >= -1e-12 && u(pp)[0] - u(pp)[1] < 1e-9, `a long step's gap ${u(pp)[0] - u(pp)[1]}`);
+  pp = mk({ ...P, D_PASS: 2 });
+  People.prototype.settlers.call(pp, dt);
+  const sl = pp.setl;
+  assert.ok(Math.abs(sl.landed - sl.sent * Math.exp(-0.2)) < 1e-6 && Math.abs(n0 - sum(pp) - (sl.sent - sl.landed)) < 1e-6, `sent ${sl.sent}, landed ${sl.landed}, lost ${n0 - sum(pp)}`);
 });
 
 test('a ruler renews the elites of the places it rules at κ × its share / T_REN, and of no others', () => {

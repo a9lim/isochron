@@ -324,12 +324,12 @@ export class Polities {
     // the elite itself toward its commoners, src/engine/peoples.js), so a dynasty that moves into a conquered
     // city rules as strangers until it assimilates.
     const live = this.live, own = rt.ownCost, node = rt.nodeOf, mo = rt.marketOf, TOR = P.TOR, fX = 1 - Math.exp(-dt / P.T_DYN), X = ids.eX;
-    for (const k of live) {
-      const q = list[k], cap = q.cap, zk = zc[cap];
-      q.w = q.coh * Math.exp(Math.min(zk / P.Z_MIL, 600));
+    // A state's reach and its costs from its capital this step: for those alive at its start, and for one
+    // founded later in it (a secession's) when it's first reached (`capCost`).
+    const prepN = this.prepN = (this.prepN || 0) + 1;
+    const prep = q => {
+      const cap = q.cap, zk = zc[cap];
       q.L = this.reachAt(zk) * (q.camp && T[cap] > 0 ? 1 + mH * W[5 * cap + 1] / T[cap] : 1); q.sI = ind[cap]; q.nu = pp.nav(zk); q.m0 = mo[cap]; q.o0 = own[node[cap]];
-      const a = T[cap] > 0 ? (ids.lead[cap] >= 0 ? ids.lead[cap] : ids.main(cap)) : -1;
-      if (a >= 0) for (let i = 0; i < 2; i++) { const x = q.X[i] + fX * wrap(X[2 * a + i] - q.X[i], TOR); q.X[i] = ((x % TOR) + TOR) % TOR; }
       // Its reach by projection: by sail once its capital navigates the open ocean (batch 4b), toward steam's
       // as its core has industry (steam navies: some industry builds them; it carries power up rivers and
       // along railways: Headrick, from memory).
@@ -338,10 +338,19 @@ export class Polities {
       const near = q.near || (q.near = new Map());
       near.clear();
       for (let e = cof[cap]; e < cof[cap + 1]; e++) near.set(cix[e], (1 - q.sI) * cS[e] + q.sI * cI[e]);
+      q.prepV = prepN;
+    };
+    for (const k of live) {
+      const q = list[k], cap = q.cap, zk = zc[cap];
+      q.w = q.coh * Math.exp(Math.min(zk / P.Z_MIL, 600));
+      prep(q);
+      const a = T[cap] > 0 ? (ids.lead[cap] >= 0 ? ids.lead[cap] : ids.main(cap)) : -1;
+      if (a >= 0) for (let i = 0; i < 2; i++) { const x = q.X[i] + fX * wrap(X[2 * a + i] - q.X[i], TOR); q.X[i] = ((x % TOR) + TOR) % TOR; }
     }
     // (Each state's cost to a market once a step: the places of a market share it.)
     const stamp = this.ver, nmk = rt.nm;
     const capCost = (q, c) => {
+      if (q.prepV !== prepN) prep(q);
       const nx = q.near.get(c);
       if (nx !== undefined) return nx;
       const m = mo[c];

@@ -59,7 +59,10 @@
 //             shore is settled by a founding party, an event whose chance falls as e^{−km/reach}
 //             (rafts from the start, boats with knowledge; `voyages`), the flux only between coasts
 //             both settled; every crossing to 6 sea cells, past that each group of landmasses its
-//             nearest other's (`graph`).
+//             nearest other's (`graph`). Across the open ocean, settlers by sail and steam
+//             between markets (round 2, `settlers`): each oceanic pair relaxed exactly toward equal
+//             crowding at R_SET × navigation's or steam's share × e^{−cost/reach} × survival among the destination's pathogens × chains ×
+//             borders, D_PASS dying a year at sea, landing by the open room, carrying their state.
 //   food      K = area × cold limit(z) × [(1 − f) max(b_L meat P_F(z) e^{K_G g}, herd) + b_S F P_F e^{K_G g}
 //             + Y(f) s P_A(z) CO₂ / sick]: foraging's base density on land b_L from the accessible
 //             NPP and water, its productivity P_F capped at CAP_F (the wild food, a flow), its large
@@ -71,8 +74,11 @@
 //             river's floodplain first (watered, renewed by its floods, cropped as often as the
 //             growing season's degree-days allow), then the land water control waters (a river's
 //             canals, the wet season's surplus held in bunds and tanks, the wells on the aquifer:
-//             cropped as the floodplain is, `water`), and then the uplands (rain-fed, cropped only as
-//             far as the rain hasn't leached the soil and dust and fresh rock haven't renewed it: the
+//             cropped as the floodplain is, `water`), then the paddies (the wet season's crop in bunded,
+//             puddled fields on the flat land its surplus ponds, where that season is warm, cropped every
+//             year at Y_PAD on a soil its pond keeps: works, as far as the crops farmed carry the paddy
+//             from their origin's wetland, `padRoom`), and then the uplands (rain-fed, cropped only as
+//             far as the rain hasn't leached the soil and dust, fresh rock and the land's own floor (B_FERT) haven't renewed it: the
 //             rest lies fallow, until industry's fertilizer; and as deep as the regolith,
 //             `soilYield`); P_A capped by the organic
 //             economy (Wrigley, from memory) until industry's energy lifts it; f the farmed share,
@@ -250,6 +256,19 @@ export const PEOPLE = {
   // Crops' land (synthesis): a river's floodplain is watered and renewed by its floods (the Nile's,
   // the Ganges'), the uplands rain-fed on soils the rain leaches and fresh rock renews.
   W_FP: 0.3, FP_MAX: 0.6, P_IRR: 1500,          // the floodplain's width, km per √(m³/s) of discharge (hydraulic geometry's width ∝ √Q, standard; the belt's multiple of the channel from memory: the Nile's ~15 km, the Yangtze's ~50), and its most of a cell; the water (mm a year) a floodplain's fields get, for their crops' climate
+  B_FERT: 1.5,   // the uplands' renewal's floor in L_FERT's units, beside fresh rock's and dust's: low, an old, stable, dusted-little land (a shield's) farms poor however little its rain leaches it (Walker and Syers, from memory). Round 2's fit took 1 → 1.5, within eight draws' noise of 1; it bites only where the rain leaches (the Amazon's, West Africa's), not a dry old shield (Australia's: its soils' age, which the model doesn't carry, docs/ROADMAP.md)
+  // Paddies (round 2, synthesis; a9: paddies as works, not a kind): bunded, puddled fields hold the wet
+  // season's rain, so the wet season's crop is cropped every year on land whose standing water keeps
+  // F_PAD of what the rain would leach (and its algae fix nitrogen), at Y_PAD times a dry field's crop
+  // (rice's yield and the water never short; monsoon Asia's ~60–80 people a km² against dry farming's
+  // far fewer, from memory). Room: the flat uplands (slopes under S_PAD's e-folding), as far as the year's
+  // surplus of rain over the potential evaporation ponds them (SUR_PAD mm for all), where the wet
+  // season is warm (its months' surplus-weighted mean past T_PAD, softly over W_PAD); built as works,
+  // W_PADDY person-years a km² (~250 person-days a hectare of bunding and levelling, from memory). A crop
+  // package carries the paddy as far as its origin's uplands were paddies' room (`pad`: wild rice's seasonal
+  // marshes), so wet rice spreads with the farmers whose crops began in a warm, ponding lowland (monsoon
+  // Asia's, the Niger's), not wherever the rain would pond one (the Amazon's and the Congo's had none).
+  F_PAD: 0.7, Y_PAD: 1.5, S_PAD: 0.004, SUR_PAD: 600, T_PAD: 20, W_PAD: 2, W_PADDY: 100,
   L_FERT: 0.6, T_LEACH: 15, E_FERT: 0.05, D_FERT: 0.02, FP_RENEW: 0.5,   // the uplands' fertility 1/(1 + leaching/(L_FERT (1 + erosion/E_FERT + dust/D_FERT))), dust's deposition in kg m⁻² yr⁻¹ (batch 4c: the loess's, Saharan dust's on the Amazon, a few g m⁻² yr⁻¹; from memory; its weight speculation): leaching is the drainage (m/yr) × e^{(T − 15)/T_LEACH} (weathering's Arrhenius, ~doubling per 10 K), renewal fresh rock's (mm/yr of erosion); old leached tropical soils lose their nutrients, young temperate and eroding ones keep them (Walker and Syers; Porder and Vitousek; from memory). Where it is low the land lies fallow most years (swidden: the cropped share is the fertility), until industry's fertilizer makes it up. The floods make up FP_RENEW of what the uplands lack (the Nile's silt; the Amazon's and the Congo's floodplains, where rivers drain old shields, less)
   PATH: 2, T_PATH: 20, W_PATH: 2.5, P_PATH: 1200,   // the warm, wet tropics' diseases (malaria, sleeping sickness: the pathogens' latitudinal gradient, standard; their weight synthesis): capacity ÷ (1 + PATH × warmth × wetness × what medicine leaves), warmth a logistic in the annual mean, wetness the rain over P_PATH
   LGP_DRY: 1.5, LGP_WET: 4, LGP_SOIL: 100, PET_K: 55 / 12,   // rain-fed fields none with a growing period of LGP_DRY months or less, all from LGP_WET (a rain-fed grain needs ~90–120 days, FAO's zones from memory); the soil water (mm) a month carries on; the ground's PET_K (T + 4) mm a month
@@ -663,14 +682,28 @@ export const PEOPLE = {
   // pathogen's epidemics at L_END a year; introductions L_INTRO a year at a whole prevalence and contact (a trade
   // partner's × e^{−T/(D G_TRANS)}, its journey's years T against G_TRANS generations of infection on the way), the
   // land neighbours' at K_LAND of a market partner's, the reservoir's L_RES a year at its whole; deaths ×
-  // (1 + K_COLL × the share sick at once: an endemic childhood case kills ~1–2% (measles), a people meeting it for the
+  // (1 + K_COLL × S^Q_COLL × (1 − medicine's reach), S the place's virgin soil: its grown people taken sick for the
+  // first time by cases brought in (not those an endemic pool keeps among its own), this pathogen's and its recent
+  // ones' fading over T_SICK years, the exposed taken to be the grown first (no ages: the grown's never-exposed share
+  // 1 − e e^{b A_NURSE}, A_NURSE the years a child is nursed by the grown): the virgin-soil excess is the sick nursing
+  // the sick and the fields untended, worst when the diseases come together, and medicine ends it (round 2: ungated
+  // and by one epidemic alone, raising it swept industry's own new pathogens through the world at ×31, and at 40 the
+  // agrarian world's plagues held it under 50 M people; S as every case's share made a crowd's endemic churn an
+  // excess, and less its usual over T_USUAL still did, the pathogens circulating growing from ~7 to the table's 32
+  // through the agrarian boom faster than a usual follows: at 10 the industrial era stalled at ~0.3 B; S as an
+  // introduction's event alone missed a continent's spread from place to place, the Americas falling ~10% at 30;
+  // the grown's first cases whole, an endemic pool's too, held the industrial era to ~1.5 B in 2000 at 10; a
+  // stranger's first case, an adult's alone, is K_ADULT's);
+  // an endemic childhood case kills ~1–2% (measles), a people meeting it for the
   // first time a quarter and more, all ages sick together, from memory), a case again K_RE of a first; vaccination V_COV of medicine's reach × e^{−ω/OM_VAC}; gone after
   // T_IDLE years with no case, or for a new one when the table's full, the least active under N_EVICT cases a year;
   // stepped every DT_PATH years at least; a reservoir's host ranging where land joins it to its origin within R_ENV σ of its climate.
+  // Round 2's values: K_COLL 30 (the virgin-soil form's survey: the Americas' fall ~35–50%, the industrial era whole) and
+  // G_TRANS 4 → 1.6 (the joint fit's step; on eight draws within the noise of 2).
   P_MAX: 32, H_SPILL: 4e-10, K_WILD: 0.5, W_WILD: 0.25, SPILL_MAX: 4, R_EPS: 1e-3,
   R0_MED: 1.5, R0_SIG: 0.9, D_PATH: [0.01, 0.5], OM_PATH: [0.001, 0.3], V_PATH: [0.0003, 0.05], F_RES: 0.3, R_RES: 1e-3,
-  RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1, G_TRANS: 4,
-  K_COLL: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1, R_ENV: 2,
+  RHO_PATH: 2, Q_PATH: 0.5, K_CITY: 1, ENV_W: 1, I_MIN: 450, W_P: 0.5, L_END: 2, L_INTRO: 1e4, K_LAND: 0.01, L_RES: 1, G_TRANS: 1.6,
+  K_COLL: 30, Q_COLL: 2, T_SICK: 10, A_NURSE: 15, K_ADULT: 10, K_RE: 0.1, V_COV: 0.95, OM_VAC: 0.05, T_IDLE: 2000, N_EVICT: 1e3, DT_PATH: 1, R_ENV: 2,
   KAP0: 0.2, T_KUP: 100, T_KDN: 300, Z_KAP: 5, W_KAP: 0.75, F_TRIB: 0.3, K_RENT: 0.5,
   // A ruler renews its places' elites from its capital at κ × its share / T_REN a year (its officials, planters and
   // garrisons: the recalibration after batch 4c; speculation, an official's term and a planter's generation), against
@@ -687,6 +720,11 @@ export const PEOPLE = {
   // carrying who they are but not their state (refugees; 0.5 until batch 4b took its captives, F_CAPT, from them,
   // so war's deaths stay half its toll).
   B_MIG: 0.1, K_CHAIN: 1, F_FLEE: 0.3,
+  // Settlers across the open ocean (round 2, `settlers`; synthesis, the rate speculation): R_SET a year, each
+  // oceanic pair of markets relaxing toward equal crowding at it × e^{−cost/reach} × survival × chains × borders
+  // (Earth's Europe sent ~50–60 M overseas 1820–1930, ~1% of its people a decade at the peak; before 1800 a few
+  // million in three centuries: from memory). Without it the Americas refilled only from their own survivors.
+  R_SET: 0.001, DT_SET: 10, KL_SET: 8,
   // The Histomap's record (Fig. 9, Polities.snapshot): every DT_HIST years (DT_HIST_IND with industry), the
   // states holding HIST_MIN of the world's people or more, the HIST_K largest; past HIST_MAX entries the
   // oldest half is thinned to every other.
@@ -720,7 +758,7 @@ export const PEOPLE = {
 };
 
 const ZN = ['Af', 'Am', 'Aw', 'As', 'BW', 'BS', 'Cf', 'Cs', 'Cw', 'Df', 'Ds', 'Dw', 'ET', 'EF'];
-const KINDS = ['T', 'C', 'G', 'R'];   // the land's works: terraces, canals, granaries, roads
+const KINDS = ['T', 'C', 'P', 'G', 'R'];   // the land's works: terraces, canals (water control), paddies, granaries, roads
 const R = 6371, YEAR_S = 3.156e7, AREA_M2 = 4 * Math.PI * (R * 1e3) ** 2;
 const sig = x => 1 / (1 + Math.exp(-x));
 const T_SEA = 25;      // years a sea crossing's settlers' seasoning is read for (`diffuse`)
@@ -1271,7 +1309,7 @@ export class People {
     this.bR = new Float64Array(nL).fill(this.P.B_PRE); this.gR = new Float64Array(nL);   // each cell's births and growth a year, the last step's (3d's hump reads the stable pyramid at them)
     this.senRef = reference(this.P).sen; this.sen = new Float64Array(nL).fill(this.senRef); this.aging = new Float64Array(nL); this.lfp = new Float64Array(nL).fill(this.P.LFP);
     this.works = new Float64Array(nL);   // learning's works a cell (person-years, `stocks`)
-    this.wk = { T: new Float64Array(nL), C: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) };   // the land's works by kind (terraces, canals, granaries, roads; person-years)
+    this.wk = { T: new Float64Array(nL), C: new Float64Array(nL), P: new Float64Array(nL), G: new Float64Array(nL), R: new Float64Array(nL) };   // the land's works by kind (terraces, canals, paddies, granaries, roads; person-years)
     this.landLab = new Float64Array(nL); this.salt = new Float64Array(nL);   // the cities' labour on the land that feeds them (person-years a year), the canals' salt
     this.pyrTmp = new Float64Array(KC + 1); this.Ng = new Float64Array(nL); this.pyrSum = new Float64Array(nL).fill(1); this.pyrOut = { sen: 0, work: 0 };
     this.econ = newEconomy(this.P);
@@ -1345,6 +1383,7 @@ export class People {
       alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), sigP: new Float64Array(nL), sigT: new Float64Array(nL), sigTy: new Float64Array(nL), sR: new Float64Array(nL), irr: new Float64Array(nL), bF: new Float64Array(nL), bW: new Float64Array(nL), bL: new Float64Array(nL), bS: new Float64Array(nL), herd: new Float64Array(nL), fg: new Float64Array(nL), sumH: new Float64Array(nL), winH: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
       hot: new Float64Array(nL), tHot: new Float64Array(nL), rh: new Float64Array(nL), sun: new Float64Array(nL), arable: new Float64Array(nL), terrPot: new Float64Array(nL), irrPot: new Float64Array(nL), aridS: new Float64Array(nL), sLeach: new Float64Array(nL),
       irrQ: new Float64Array(nL), irrT: new Float64Array(nL), gDry: new Float64Array(nL), irrW: new Float64Array(nL), need: new Float64Array(nL), wCap: new Float64Array(nL), Pa: new Float64Array(nL), aqR: new Float64Array(nL),
+      padPot: new Float64Array(nL), padS: new Float64Array(nL), phiPad: new Float64Array(nL), aPad: new Float64Array(nL),   // paddies' room (share of the cell; of its uplands), fertility and yield a km² of field
       sfp: new Float64Array(nL), phi: new Float64Array(nL), sod: new Float64Array(nL), phiFP: new Float64Array(nL), path: new Float64Array(nL), afp: new Float64Array(nL), aup: new Float64Array(nL), clim: new Float32Array(4 * nL),
       // The hungry season (`calendar`): the floodplain's and the uplands' longest gaps between harvests
       // (years), the fields' gap by their yields, the crops' rain spread against a single grain's
@@ -1404,7 +1443,7 @@ export class People {
       // and renewed by its floods; on the uplands rain-fed, on soil the rain leaches.
       const sfp = Math.min(P.FP_MAX, P.W_FP * Math.sqrt(Math.max(0, f.discharge[i])) / Math.sqrt(H.area[c]));
       const leach = (f.runoff ? Math.max(0, f.runoff[i]) : 0.3) * Math.exp((Ta - 15) / P.T_LEACH), ero = f.ero ? Math.max(0, f.ero[i]) : 0, dep = f.dep ? Math.max(0, f.dep[i]) : 0;
-      const phi = 1 / (1 + leach / (P.L_FERT * (1 + ero / P.E_FERT + dep / P.D_FERT)));
+      const lr = leach / (P.L_FERT * (P.B_FERT + ero / P.E_FERT + dep / P.D_FERT)), phi = 1 / (1 + lr);
       // The uplands a plough can work: not frozen, wet enough, not too steep (hillslopes steeper than
       // a plough's, their slopes spread exponentially about ~20× the cell's gradient between cells).
       // Wet enough is a growing season long enough (FAO's length of growing period, standard: months
@@ -1421,7 +1460,7 @@ export class People {
       const wet = Math.min(1, Math.max(0, (lgp - P.LGP_DRY) / (P.LGP_WET - P.LGP_DRY)));
       const cold = (1 - f.perma[i]) * (f.elev[i] < 3 ? 1 : 0.3), up = P.ARABLE_MAX * cold * wet * (1 - Math.exp(-P.S_ARABLE / Math.max(slope, 1e-6)));
       const ok = H.alive[c] ? 1 - H.hot[c] : 0;
-      H.sfp[c] = sfp * cold; H.phi[c] = phi;
+      H.sfp[c] = sfp * cold; H.phi[c] = phi; H.phiPad[c] = 1 / (1 + (1 - P.F_PAD) * lr);
       H.phiFP[c] = 1 - (1 - phi) * (1 - P.FP_RENEW);
       H.path[c] = sig((Ta - P.T_PATH) / P.W_PATH) * Math.min(1, Pa / P.P_PATH);
       H.sod[c] = fg * sig(-Tc / 5);   // the cold grasslands' sod (the steppe's, the prairies', the pampas')
@@ -1456,6 +1495,13 @@ export class People {
       // the rain's ramp): a monsoon's and a desert's, not the humid temperate lands' or the perhumid tropics'.
       H.gDry[c] = Math.min(1, Math.max(0, warmM - lgp) / P.LGP_WET);
       H.irrT[c] = H.alive[c] ? cold * H.gDry[c] * Math.min(Math.max(0, arable - H.sfp[c]) + H.terrPot[c], P.ETA_TANK * sur * 1e-3 / need) : 0;
+      // Paddies' room (`P`): the flat uplands the wet season's surplus ponds, where that season is warm.
+      { let ws = 0, wt = 0;
+        for (let m = 0; m < 12; m++) { const T = f.T12[12 * i + m], x = Math.max(0, f.P12[12 * i + m] - P.PET_K * Math.max(0, T + 4)); ws += x; wt += x * T; }
+        const warmWet = ws > 0 ? sig((wt / ws - P.T_PAD) / P.W_PAD) : 0, flat = (1 - Math.exp(-P.S_PAD / Math.max(slope, 1e-6))) / Math.max(1e-6, 1 - Math.exp(-P.S_ARABLE / Math.max(slope, 1e-6)));
+        H.padPot[c] = H.alive[c] ? Math.max(0, arable - H.sfp[c]) * Math.min(1, flat) * Math.min(1, sur / P.SUR_PAD) * warmWet : 0;
+        H.padS[c] = H.padPot[c] / Math.max(1e-9, arable - H.sfp[c]);
+        H.aPad[c] = ok * P.Y_PAD * P.F0 * 0.45e-3 * warm / P.NPP_REF; }
       H.need[c] = need; H.wCap[c] = H.alive[c] ? cold * Math.min(1 - H.sfp[c], P.IRR_MAX) : 0; H.Pa[c] = Pa;
       H.aqR[c] = f.aqR ? Math.max(0, f.aqR[i]) : 0;
       this.aq[c] = f.aq ? Math.max(0, f.aq[i]) : SOIL.TAU_A * H.aqR[c];   // the planet's store (live: its wells' draw written back)
@@ -1572,18 +1618,18 @@ export class People {
       // land can't use goes to learning.
       const ew = Math.exp(-dt / P.T_WORK), ec = Math.exp(-dt / P.T_CANAL), wk = this.wk, lab = this.landLab[c] + this.landCap[c];
       // Farmers' own labour (batch 4c, Boserup's): S_FARM of the farmers' year, as far as crowding presses,
-      // into their terraces and water control.
+      // into their terraces, water control and paddies.
       const wl = this.wol, o5 = 5 * c, wsum = wl[o5] + wl[o5 + 1] + wl[o5 + 2] + wl[o5 + 3] + wl[o5 + 4];
       const labF = this.f[c] > 0 && wsum > 0 && this.K[c] > 0 ? P.S_FARM * N * wl[o5 + 3] / wsum * Math.min(1, N / this.K[c]) : 0;
       let build = this.city ? P.F_LEARN * P.S_WORK * this.city[c] : 0;
-      if (lab > 0 || labF > 0 || wk.T[c] > 0 || wk.C[c] > 0 || wk.G[c] > 0 || wk.R[c] > 0) {
+      if (lab > 0 || labF > 0 || wk.T[c] > 0 || wk.C[c] > 0 || wk.P[c] > 0 || wk.G[c] > 0 || wk.R[c] > 0) {
         let gs = 0;
-        const gap = this.gapW || (this.gapW = { T: 0, C: 0, G: 0, R: 0 });
+        const gap = this.gapW || (this.gapW = { T: 0, C: 0, P: 0, G: 0, R: 0 });
         for (const k of KINDS) { const r = this.workRoom(c, k); gap[k] = Math.max(0, r - wk[k][c]); gs += gap[k]; }
-        const gF = gap.T + gap.C;
+        const gF = gap.T + gap.C + gap.P;
         for (const k of KINDS) {
           const e = k === 'C' ? ec : ew, T = k === 'C' ? P.T_CANAL : P.T_WORK;
-          const b = (gs > 0 ? lab * gap[k] / gs : 0) + (gF > 0 && (k === 'T' || k === 'C') ? labF * gap[k] / gF : 0), w = wk[k][c] * e + b * T * (1 - e), r = this.workRoom(c, k);
+          const b = (gs > 0 ? lab * gap[k] / gs : 0) + (gF > 0 && (k === 'T' || k === 'C' || k === 'P') ? labF * gap[k] / gF : 0), w = wk[k][c] * e + b * T * (1 - e), r = this.workRoom(c, k);
           wk[k][c] = b > 0 ? Math.min(w, Math.max(r, wk[k][c] * e)) : w;
         }
         if (!(gs > 0)) build += lab;
@@ -2207,6 +2253,7 @@ export class People {
     switch (k) {
       case 'T': return P.W_TERR * H.area[c] * H.terrPot[c];
       case 'C': return P.W_CANAL * H.area[c] * H.irrPot[c] * (1 - this.salt[c]);
+      case 'P': return P.W_PADDY * H.area[c] * this.padRoom(c);
       case 'G': return this.f[c] > 0 ? P.W_GRAN * this.Ntot[c] : 0;
       default: return this.uSent ? P.W_ROAD * H.area[c] * this.uSent[c] : 0;
     }
@@ -2215,7 +2262,7 @@ export class People {
   built(c, k) {
     const w = this.wk[k][c];
     if (!(w > 0)) return 0;
-    const P = this.P, H = this.H, room = k === 'T' ? P.W_TERR * H.area[c] * H.terrPot[c] : k === 'C' ? P.W_CANAL * H.area[c] * H.irrPot[c] : k === 'G' ? P.W_GRAN * this.Ntot[c] : P.W_ROAD * H.area[c];
+    const P = this.P, H = this.H, room = k === 'T' ? P.W_TERR * H.area[c] * H.terrPot[c] : k === 'C' ? P.W_CANAL * H.area[c] * H.irrPot[c] : k === 'P' ? P.W_PADDY * H.area[c] * this.padRoom(c) : k === 'G' ? P.W_GRAN * this.Ntot[c] : P.W_ROAD * H.area[c];
     return room > 0 ? Math.min(1, w / room) : 0;
   }
   /**
@@ -2241,10 +2288,16 @@ export class People {
   fieldYield(c, f = this.f[c], l = 0) {
     const H = this.H, s = H.sfp[c], lr = l * H.rot[c], kf = l > 0 ? kept(H.gapFP[c], lr) : 1, ku = l > 0 ? kept(H.gapUp[c], lr) : 1;
     // The floodplain's soil is its alluvium; then the watered land, cropped as the floodplain is on soil
-    // its standing water renews and losing to the salt; the uplands' the regolith (soilYield).
-    const f1 = Math.min(f, s), f2 = Math.min(Math.max(0, f - s), this.watered(c)), fw = this.fertility(c, H.phiFP[c]);
-    return f1 * H.afp[c] * fw * kf + f2 * H.afp[c] * fw * (1 - this.salt[c]) * kf + Math.max(0, f - s - f2) * H.aup[c] * this.fertility(c) * this.soilYield(c) * ku;
+    // its standing water renews and losing to the salt; then the paddies (the wet season's crop, its pond
+    // keeping the soil); the uplands' the regolith (soilYield).
+    const f1 = Math.min(f, s), f2 = Math.min(Math.max(0, f - s), this.watered(c)), fw = this.fertility(c, H.phiFP[c]), f3 = Math.min(Math.max(0, f - s - f2), this.paddied(c)), sy = this.soilYield(c);
+    return f1 * H.afp[c] * fw * kf + f2 * H.afp[c] * fw * (1 - this.salt[c]) * kf + f3 * H.aPad[c] * this.fertility(c, H.phiPad[c]) * sy * ku
+      + Math.max(0, f - s - f2 - f3) * H.aup[c] * this.fertility(c) * sy * ku;
   }
+  /** Paddies' room for the crops farmed here: the cell's, as far as their package carries the paddy (`pad`). */
+  padRoom(c) { const q = this.pkg[c]; return q >= 0 && this.H.padPot[c] > 0 ? this.H.padPot[c] * (this.packages[q].pad || 0) : 0; }
+  /** The paddied share of the cell: paddies' room as far as their works fill it. */
+  paddied(c) { const r = this.padRoom(c); return r > 0 ? r * this.built(c, 'P') : 0; }
   /** A store's loss a year at knowledge z: L_KEEP at farming's start, e-fold less per Z_KEEP, to L_KEEP_MIN. */
   keepRate(z) { const P = this.P; return P.L_KEEP_MIN + (P.L_KEEP - P.L_KEEP_MIN) * Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_KEEP); }
   /** The animals kept here against a full herd of a full set of domesticates: their availability × the herd's share × what the tropics' trypanosomes leave. */
@@ -2252,7 +2305,7 @@ export class People {
   /** The years of food kept against bad years (`demography`'s store): the granary's room past the season's need, S_MAX + 1 − G of a year (G the fields' gap: a single harvest's S_MAX), as knowledge builds it. */
   reserve(c, fc, z) { const P = this.P; return fc * Math.max(0, P.S_MAX + 1 - this.H.gapY[c]) * (1 - Math.exp(-Math.max(0, z - P.Z_FARM) / P.Z_STORE)) * (1 + P.G_X * this.built(c, 'G')) * (1 + P.G_STATE * this.pol.held(c)); }
   /** The share of the cell under crops this year (the rest of the farmed share fallow). */
-  cropped(c) { const f = this.f[c], s = this.H.sfp[c], w = Math.min(Math.max(0, f - s), this.watered(c)); return (Math.min(f, s) + w) * this.fertility(c, this.H.phiFP[c]) + Math.max(0, f - s - w) * this.fertility(c); }
+  cropped(c) { const f = this.f[c], s = this.H.sfp[c], w = Math.min(Math.max(0, f - s), this.watered(c)), p = Math.min(Math.max(0, f - s - w), this.paddied(c)); return (Math.min(f, s) + w) * this.fertility(c, this.H.phiFP[c]) + p * this.fertility(c, this.H.phiPad[c]) + Math.max(0, f - s - w - p) * this.fertility(c); }
   /**
    * A package's suitability here: its crops' climate (its origin's) against the cell's, a Gaussian
    * in the coldest month, the warmest, log rain and the summer's share of rain (CLIM_S), the
@@ -2371,7 +2424,7 @@ export class People {
     if (this.debug) this.check('growth');
     // Spread: Fisher–KPP, knowledge carried with the migrants (upwind).
     const Ng = this.Ng; Ng.set(Ntot);
-    this.diffuse(dt); this.voyages(dt);
+    this.diffuse(dt); this.voyages(dt); this.settlers(dt);
     if (this.debug) this.check('spread');
     lap('spread');
     // The pyramids: migrants by their schedule, then each cell's aging and workers' share.
@@ -2643,7 +2696,9 @@ export class People {
       tk.fill(-1); tw.fill(0);
       const mf = this.mortF(e.rep);
       for (let m = 0; m < nm; m++) {
-        if (!(dm[m] > 0)) continue;
+        // (A market's weight is at most its demand, the route's e^{−cost/reach} at most one: one no more than the
+        // KD-th best so far can't enter.)
+        if (!(dm[m] > 0) || !(dm[m] > tw[KD - 1])) continue;
         const L = rt.reach(Math.max(mZ[ms], mZ[m])), v = nu ? Math.max(nu[ms], nu[m]) : 0, sI = mS ? Math.max(mS[ms], mS[m]) : 0, x = rt.between(ms, m, v, sI, L);
         let w = dm[m] * Math.exp(-x / L);
         if (!(w > tw[KD - 1])) continue;   // (survival only lowers it)
@@ -2672,6 +2727,126 @@ export class People {
       }
     }
     Q.clear();
+  }
+
+  /**
+   * Settlers (round 2; synthesis, the values speculation): free migrants carried by sail and steam across the
+   * open ocean, where `diffuse`'s sea edges, one pair of coasts each, carry only a trickle. Between two markets
+   * joined only across the open ocean (Routes.oceanic), people move down `diffuse`'s potential, crowding against
+   * real income u = N/(K + goods), at R_SET × the ocean-going ship's or the steamer's share (ν or industry's,
+   * at the more advanced end: coasting craft carry no people's move across an ocean) × e^{−x/L} (the passage's
+   * cost against the trade's reach there: Routes.between, the ocean's legs by navigation, steam's by industry) × their survival among
+   * the destination's pathogens they lack (`seasoning`) × (1 + K_CHAIN likeness)/(1 + K_CHAIN) (chains) × the
+   * border's cut into a schooled place (B_MIG), D_PASS of them dying a year of the passage. Each pair relaxes
+   * exactly toward equal crowding over the step, n*(1 − e^{−2 r dt}) with n* = Δu/(1/Y_i + 1/Y_j), and no market
+   * sends or takes more than its largest pair's n* (so none overshoots its partners), every DT_SET years. They
+   * leave their market's places by their people and land on the destination's KL_SET roomiest by their open room
+   * (K + goods − N)⁺ (by capacity where none has room: the ports and the frontier; `diffuse` spreads them on), carrying their town's ways, the market's knowledge, its immunity and their state
+   * (colonies of settlement). The pairs' rates are read again with each trade's kernel.
+   */
+  settlers(dtStep) {
+    const rt = this.routes, P = this.P;
+    if (!rt || !rt.oc || !rt.active || !(P.R_SET > 0) || !rt.mN || rt.mN.length !== rt.nm || !(dtStep > 0)) return;
+    // Every DT_SET years at most, over the years owed (each pair's relaxation is exact over any span).
+    this.setDt = (this.setDt || 0) + dtStep;
+    if (this.setDt < P.DT_SET) return;
+    const dt = this.setDt;
+    this.setDt = 0;
+    const nm = rt.nm, nL = this.nL, N = this.Ntot, K2 = this.K2, gd = this.goods, mo = rt.marketOf, lead = rt.mLead;
+    if (this.setT !== rt.tTrade) {
+      this.setT = rt.tTrade;
+      const act = rt.active, mZ = rt.mZ, nu = rt.mNu, mS = rt.mS, pg = this.pathogens, ids = this.ids, pol = this.pol, nat = pol ? pol.nat : null, pr = [];
+      for (let x = 0; x < act.length; x++) {
+        const i = act[x], a = lead[i];
+        if (a < 0) continue;
+        for (let y = x + 1; y < act.length; y++) {
+          const j = act[y], b = lead[j];
+          if (b < 0 || !rt.oceanic(i, j)) continue;
+          const L = rt.reach(Math.max(mZ[i], mZ[j])), v = Math.max(nu[i], nu[j]), sI = Math.max(mS[i], mS[j]), k = Math.max(v, sI) * Math.exp(-rt.between(i, j, v, sI, L) / L);
+          if (!(P.R_SET * k > 1e-7)) continue;   // (relaxing over more than 10⁷ years: none cross)
+          const ch = ids ? (1 + P.K_CHAIN * ids.sim(a, b)) / (1 + P.K_CHAIN) : 1;
+          const bij = nat && nat[b] > 0 ? pol.border(b, a, 1 - (1 - P.B_MIG) * nat[b]) : 1, bji = nat && nat[a] > 0 ? pol.border(a, b, 1 - (1 - P.B_MIG) * nat[a]) : 1;
+          const rij = P.R_SET * k * ch * bij * pg.seasoning(a, b, this.mortF(a)), rji = P.R_SET * k * ch * bji * pg.seasoning(b, a, this.mortF(b));
+          if (rij > 0 || rji > 0) pr.push(i, j, rij, rji, Math.exp(-P.D_PASS * rt.years(i, j, v, sI, L)));
+        }
+      }
+      this.setPairs = Float64Array.from(pr);
+    }
+    const pr = this.setPairs, np = pr ? pr.length / 5 : 0;
+    if (!np) return;
+    // Each market's people, capacity and open room now.
+    const mN = sized(this, 'setN', Float64Array, nm), mY = sized(this, 'setY', Float64Array, nm), mR = sized(this, 'setR', Float64Array, nm);
+    mN.fill(0); mY.fill(0); mR.fill(0);
+    for (let c = 0; c < nL; c++) { const m = mo[c], y = K2[c] + (gd ? Math.max(0, gd[c]) : 0); mN[m] += N[c]; mY[m] += y; mR[m] += Math.max(0, y - N[c]); }
+    // Each pair's settlers over the step (> 0 from i to j), and each market's most against its largest pair's.
+    const fl = sized(this, 'setF', Float64Array, np), out = sized(this, 'setO', Float64Array, nm), inn = sized(this, 'setIn', Float64Array, nm), mo1 = sized(this, 'setMo', Float64Array, nm), mi1 = sized(this, 'setMi', Float64Array, nm);
+    out.fill(0); inn.fill(0); mo1.fill(0); mi1.fill(0);
+    let any = false;
+    for (let p = 0; p < np; p++) {
+      const i = pr[5 * p], j = pr[5 * p + 1];
+      fl[p] = 0;
+      if (!(mY[i] > 0 && mY[j] > 0 && (mN[i] > 0 || mN[j] > 0))) continue;
+      const du = mN[i] / mY[i] - mN[j] / mY[j], r = du > 0 ? pr[5 * p + 2] : pr[5 * p + 3];
+      if (!(r > 0) || du === 0) continue;
+      const ns = Math.abs(du) / (1 / mY[i] + 1 / mY[j]), n = ns * -Math.expm1(-2 * r * dt), s = du > 0 ? i : j, d = du > 0 ? j : i;
+      if (!(n > 1)) continue;
+      fl[p] = du > 0 ? n : -n; out[s] += n; inn[d] += n; any = true;
+      if (ns > mo1[s]) mo1[s] = ns;
+      if (ns > mi1[d]) mi1[d] = ns;
+    }
+    if (!any) return;
+    // Each market's places (grouped by market), for the leaving and the landing.
+    const st = sized(this, 'setSt', Int32Array, nm + 1), cl = sized(this, 'setCl', Int32Array, nL);
+    st.fill(0);
+    for (let c = 0; c < nL; c++) st[mo[c] + 1]++;
+    for (let m = 0; m < nm; m++) st[m + 1] += st[m];
+    { const at = sized(this, 'setAt', Int32Array, nm); at.set(st.subarray(0, nm)); for (let c = 0; c < nL; c++) cl[at[mo[c]]++] = c; }
+    const Z = this.zc, ZL = this.zl, ids = this.ids, pg = this.pathogens, pol = this.pol, mZ = rt.mZ, mZL = rt.mZL, tot = this.setl || (this.setl = { sent: 0, landed: 0 });
+    const leave = sized(this, 'setLv', Float64Array, nm);
+    leave.fill(0);
+    // Each destination's landing places: its KL_SET roomiest (by capacity where none has room), weighed by it.
+    const KL = P.KL_SET, lc = sized(this, 'setLc', Int32Array, nm * KL), lw = sized(this, 'setLw', Float64Array, nm * KL), lk = sized(this, 'setLk', Uint8Array, nm);
+    lk.fill(0);
+    const landing = d => {
+      if (lk[d]) return; lk[d] = 1;
+      const o = d * KL, roomy = mR[d] > 0;
+      lc.fill(-1, o, o + KL); lw.fill(0, o, o + KL);
+      for (let q = st[d]; q < st[d + 1]; q++) {
+        const c = cl[q], cap = K2[c] + (gd ? Math.max(0, gd[c]) : 0), v = roomy ? cap - N[c] : cap;
+        if (!(v > lw[o + KL - 1])) continue;
+        let r = KL - 1;
+        while (r > 0 && lw[o + r - 1] < v) { lw[o + r] = lw[o + r - 1]; lc[o + r] = lc[o + r - 1]; r--; }
+        lw[o + r] = v; lc[o + r] = c;
+      }
+    };
+    for (let p = 0; p < np; p++) {
+      if (fl[p] === 0) continue;
+      const s = fl[p] > 0 ? pr[5 * p] : pr[5 * p + 1], d = fl[p] > 0 ? pr[5 * p + 1] : pr[5 * p], a = lead[s];
+      const n = Math.abs(fl[p]) * Math.min(1, mo1[s] / out[s], mi1[d] / inn[d], 0.5 * mN[s] / out[s]), y = n * pr[5 * p + 4];
+      if (!(n > 1) || a < 0 || !(N[a] > 0)) continue;
+      leave[s] += n; tot.sent += n; tot.landed += y;
+      if (!(y > 0)) continue;
+      landing(d);
+      const o = d * KL;
+      let w = 0;
+      for (let r = 0; r < KL; r++) w += lw[o + r];
+      if (!(w > 0)) continue;
+      for (let r = 0; r < KL; r++) {
+        const c = lc[o + r], x = y * lw[o + r] / w;
+        if (c < 0 || !(x > 0)) continue;
+        Z[c] = (N[c] * Z[c] + x * mZ[s]) / (N[c] + x); ZL[c] = (N[c] * ZL[c] + x * mZL[s]) / (N[c] + x);
+        if (ids) ids.send(a, c, x);
+        pg.mix(a, c, x, N[c]);
+        if (pol) pol.carry(a, c, x);
+        N[c] += x;
+      }
+    }
+    // Those leaving, from each market's places by their people (as the market stood at the step's start).
+    for (let m = 0; m < nm; m++) {
+      if (!(leave[m] > 0) || !(mN[m] > 0)) continue;
+      const k = 1 - leave[m] / mN[m];
+      for (let q = st[m]; q < st[m + 1]; q++) { const c = cl[q]; if (N[c] > 0) N[c] *= k; }
+    }
   }
 
   /**
@@ -3407,7 +3582,7 @@ export class People {
       let mg = this.mega[c];
       for (let o = E.off[c]; o < E.off[c + 1]; o++) if (!E.hop[o]) mg = Math.max(mg, this.mega[E.nb[o]]);
       const anim = Math.min(1, mg / P.MG_REF);
-      this.packages.push({ c, t: this.t, lat: H.lat[c], lon: H.lon[c], clim, zone: ZN[zk], anim });
+      this.packages.push({ c, t: this.t, lat: H.lat[c], lon: H.lon[c], clim, zone: ZN[zk], anim, pad: H.padS[c] });
       pkg[c] = q; this.pkgT[c] = this.t; f[c] = Math.max(f[c], 0.01 * H.arable[c] + 1e-4);
       this.tame(c, anim);
       this.event('farming', `farming begins (package ${q}) at ${deg(H.lat[c]).toFixed(0)}°, ${deg(H.lon[c]).toFixed(0)}° in ${this.packages[q].zone} (z ${zc[c].toFixed(2)})`);
@@ -3960,7 +4135,7 @@ export class People {
       if (this.Ntot[c] > 0) { if (this.zc[c] > fP) fP = this.zc[c]; if (this.zl[c] > fL) fL = this.zl[c]; }
       const o = 4 * this.cells[c];
       out[o] = this.past[c];
-      out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.G[c] + wk.R[c]) / A[c];
+      out[o + 3] = (this.works[c] + wk.T[c] + wk.C[c] + wk.P[c] + wk.G[c] + wk.R[c]) / A[c];
     }
     this.zfP = fP; this.zfL = fL;
     // Knowledge carried from where people live now onto every cell beyond, ring by ring, each its

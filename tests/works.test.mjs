@@ -63,6 +63,27 @@ test('watered land yields the floodplain\'s where its water lasts the year, and 
   assert.equal(q.wk.G[c], 0); assert.equal(q.wk.R[c], 0);
 });
 
+test('paddies: a package that carries them crops its paddied fields every year at Y_PAD times the warm crop, on the pond\'s fertility', () => {
+  // A wet monsoon's flat land (five months of 500 mm, warm all year, no river): the surplus ponds its uplands.
+  const f = dryPlanet(3, { rain: 10 }), n = f.n;
+  for (let i = 0; i < n; i++) for (let m = 5; m < 10; m++) f.P12[12 * i + m] = 500;
+  f.discharge.fill(0); f.runoff.fill(1.2);
+  const p = new People(f, quiet), H = p.H, P = p.P, c = 2, up = H.arable[c] - H.sfp[c];
+  assert.ok(H.padPot[c] > 0.5 * up && H.phiPad[c] > H.phi[c], `room ${H.padPot[c]} of ${up}, fertility ${H.phiPad[c]} against ${H.phi[c]}`);
+  // Without the trait (a dry origin's crops) there's no room; with it, the room is the cell's × the trait.
+  p.packages.push({ c, pad: 0 }, { c, pad: 0.8 }); p.pkg[c] = 0;
+  assert.equal(p.padRoom(c), 0);
+  p.pkg[c] = 1; p.wk.P[c] = P.W_PADDY * H.area[c] * p.padRoom(c);
+  const r = p.paddied(c), s = H.sfp[c];
+  assert.ok(Math.abs(r - 0.8 * H.padPot[c]) < 1e-12);
+  const yP = p.fieldYield(c, s + r) - p.fieldYield(c, s), want = r * H.aPad[c] * p.fertility(c, H.phiPad[c]) * p.soilYield(c);
+  assert.ok(Math.abs(yP / want - 1) < 1e-9, `paddied ${yP} against ${want}`);
+  assert.ok(H.aPad[c] >= P.Y_PAD * H.aup[c] * (1 - 1e-12), `a paddy's crop ${H.aPad[c]} at least Y_PAD × the rain-fed ${H.aup[c]} (its water never short)`);
+  p.f[c] = s + r;
+  const fc = p.f[c];   // stored as f32
+  assert.ok(Math.abs(p.cropped(c) - (Math.min(fc, s) * p.fertility(c, H.phiFP[c]) + Math.min(Math.max(0, fc - s), r) * p.fertility(c, H.phiPad[c]) + Math.max(0, fc - s - r) * p.fertility(c))) < 1e-12, 'cropped every year on the pond\'s fertility');
+});
+
 test('the wells draw the aquifer exactly: two steps make one, and its water is kept', () => {
   const f = dryPlanet(3, { rain: 2 }), n = f.n;
   f.aqR = new Float32Array(n).fill(20); f.aq = new Float32Array(n).fill(2e4);

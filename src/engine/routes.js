@@ -459,7 +459,7 @@ export class Routes {
   }
 
   /** The round trip's mean cost between markets a and b on a layer ('S' the coasting sail, 'O' the ocean's, 'I' steam). */
-  cost(a, b, L = 'S') { return this.R[L][a * this.nm + b]; }
+  cost(a, b, L = 'S') { return (L === 'S' ? this.R.S : L === 'O' ? (this.oc || this.ocean()).R : (this.st || this.steam()).R)[a * this.nm + b]; }
 
   /**
    * The cost between markets a and b for a carrier with navigation ν and industry's share sI, its reach L
