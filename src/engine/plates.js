@@ -608,6 +608,13 @@ export class Tectonics {
    * With `patch`, the changed cells' elevation is restood (the GPU's step drew it before). Returns the
    * cells changed.
    */
+  /** The plateau's scratch (`deform`): per plate, dense sums and the sweep's stamps; the touched cells' keys in order. */
+  plateauScratch() {
+    const n = this.grid.n;
+    if (!this._plateau || this._plateau.n !== n) this._plateau = { n, gen: 0, by: [], keyK: new Int32Array(1024), keyJ: new Int32Array(1024), seen: new Int32Array(n) };
+    return this._plateau;
+  }
+
   deform(t1, dt, patch = false) {
     const g = this.grid, n = g.n, area = g.area, nbrOff = g.nbrOff, nbr = g.nbr, owner = this.owner, ref = this.ref, plates = this.plates, h = this.h, H = PARAMS.H_PLATEAU;
     // The frame cells changed, for the GPU's mirror (its step syncs the top cells at the next step's start; this keeps it exact between).
@@ -659,17 +666,29 @@ export class Tectonics {
         queue.push(q);
       }
     }
-    // The plateau.
+    // The plateau. Each sweep's volume, felsic volume and flexure memory (carryMemory) per frame cell, in
+    // dense scratch by plate (`plateauScratch`), taken in the order the cells were first touched (as the
+    // Maps they were in kept them), so every sum adds in the same order.
     let list = [];
     for (let i = 0; i < n; i++) if (plates[owner[i]].h[ref[i]] > H) list.push(i);
-    const dv = new Map(), dm = new Map(), dq = new Map(), rec = [];   // volume, its felsic volume, its flexure memory (carryMemory)
+    const PS = this.plateauScratch(), by = PS.by, rec = [];
     for (let sweep = 0; sweep < 48 && list.length; sweep++) {
-      dv.clear(); dm.clear(); dq.clear();
-      const src = new Set();
+      const gen = ++PS.gen;
+      let nk = 0;
+      const keyK = PS.keyK, keyJ = PS.keyJ;
+      const at = (k, j) => {
+        const b = by[k] || (by[k] = { dv: new Float64Array(n), dm: new Float64Array(n), dq: new Float64Array(n), at: new Int32Array(n), src: new Int32Array(n) });
+        if (b.at[j] !== gen) {
+          b.at[j] = gen; b.dv[j] = 0; b.dm[j] = 0; b.dq[j] = 0;
+          if (nk === keyK.length) { PS.keyK = new Int32Array(2 * nk); PS.keyK.set(keyK); PS.keyJ = new Int32Array(2 * nk); PS.keyJ.set(keyJ); return at(k, j); }
+          PS.keyK[nk] = k; PS.keyJ[nk] = j; nk++;
+        }
+        return b;
+      };
       for (const i of list) {
-        const k = owner[i], j = ref[i], p = plates[k], key = k * n + j;
-        if (src.has(key) || !(p.h[j] > H)) continue;
-        src.add(key);
+        const k = owner[i], j = ref[i], p = plates[k], bk = by[k];
+        if ((bk && bk.src[j] === gen) || !(p.h[j] > H)) continue;
+        (bk || at(k, j)).src[j] = gen;
         rec.length = 0;
         let room = 0, ar = 0;
         for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) {
@@ -680,31 +699,33 @@ export class Tectonics {
         if (!rec.length) continue;
         const ex = (p.h[j] - H) * area[j], fill = Math.min(1, ex / Math.max(room, 1e-30)), over = Math.max(0, ex - room) / ar;
         const mk = RHO_OCEANIC + (RHO_CONTINENTAL - RHO_OCEANIC) * p.phi[j];   // the memory a unit of the excess takes (carryMemory)
-        dv.set(key, (dv.get(key) || 0) - ex);
-        dq.set(key, (dq.get(key) || 0) - mk * ex);
+        const b = at(k, j);
+        b.dv[j] -= ex;
+        b.dq[j] -= mk * ex;
         for (const q of rec) {
-          const jq = ref[q], kq = k * n + jq, v = fill * Math.max(0, H - p.h[jq]) * area[jq] + over * area[jq];
-          dv.set(kq, (dv.get(kq) || 0) + v);
-          dm.set(kq, (dm.get(kq) || 0) + v * p.phi[j]);
-          dq.set(kq, (dq.get(kq) || 0) + mk * v);
+          const jq = ref[q], v = fill * Math.max(0, H - p.h[jq]) * area[jq] + over * area[jq], bq = at(k, jq);
+          bq.dv[jq] += v;
+          bq.dm[jq] += v * p.phi[j];
+          bq.dq[jq] += mk * v;
         }
       }
-      if (!dv.size) break;
+      if (!nk) break;
       touched = true;
-      const next = [];
-      for (const [key, v] of dv) {
-        const k = Math.floor(key / n), j = key - k * n, p = plates[k];
-        if (v > 0) { const hv = p.h[j] * area[j]; p.phi[j] = Math.min(1, (p.phi[j] * hv + dm.get(key)) / (hv + v)); }
+      const keyK2 = PS.keyK, keyJ2 = PS.keyJ;
+      for (let u = 0; u < nk; u++) {
+        const k = keyK2[u], j = keyJ2[u], p = plates[k], b = by[k], v = b.dv[j];
+        if (v > 0) { const hv = p.h[j] * area[j]; p.phi[j] = Math.min(1, (p.phi[j] * hv + b.dm[j]) / (hv + v)); }
         p.h[j] += v / area[j];
-        if (p.mq[j] >= 0) p.mq[j] += dq.get(key) / area[j];
+        if (p.mq[j] >= 0) p.mq[j] += b.dq[j] / area[j];
         mark(k, j);
       }
-      // The world cells over the plateau now (the receivers that filled), by their frame cells' state.
+      // The world cells over the plateau now (the receivers that filled), by their frame cells' state, each once in first-seen order.
+      const next = [], seen = PS.seen;
       for (const i of list) for (let t = nbrOff[i] - 1, e = nbrOff[i + 1]; t < e; t++) {
         const q = t < nbrOff[i] ? i : nbr[t];
-        if (plates[owner[q]].h[ref[q]] > H) next.push(q);
+        if (seen[q] !== gen && plates[owner[q]].h[ref[q]] > H) { seen[q] = gen; next.push(q); }
       }
-      list = [...new Set(next)];
+      list = next;
     }
     if (!touched) return 0;
     // Every world cell reads its frame cell back (world cells sharing one all see it).
@@ -843,7 +864,11 @@ export class Tectonics {
     const heap = new TrenchHeap();
     for (let i = 0; i < n; i++) {
       if (this.phi[i] >= CONTINENTAL) continue;
-      const a = owner[i], wa = plates[a].w, xi = pos[3 * i], yi = pos[3 * i + 1], zi = pos[3 * i + 2], bi = this.buoyancyAt(i);
+      const a = owner[i];
+      let edge = false;   // (a cell inside its plate has no boundary to read: most are)
+      for (let t = nbrOff[i], e = nbrOff[i + 1]; t < e; t++) if (owner[nbr[t]] !== a) { edge = true; break; }
+      if (!edge) continue;
+      const wa = plates[a].w, xi = pos[3 * i], yi = pos[3 * i + 1], zi = pos[3 * i + 2], bi = this.buoyancyAt(i);
       let best = 0, half = 0;
       // Each other plate beside the cell: the boundary's normal toward it (the sum of the edges to it, as
       // slabs hang), its relative motion closing across that, and whether this side is the denser.

@@ -53,6 +53,21 @@ export function startPool(threads) {
       for (let k; (k = Atomics.add(ctl, 0, 1)) < chunks;) { const [a, b] = chunkOf(k, n, chunks); job.results[k] = f(args, a, b); }
       return job;
     },
+    /**
+     * Run kernel `name` over n cells and wait here for every chunk (Atomics.wait: the engine's thread
+     * is a worker), for loops inside a step that isn't a generator. The kernel's results aren't kept:
+     * it writes shared arrays. ctl: [claimed, done, failed].
+     */
+    runSync(name, f, args, n, chunks = CHUNKS) {
+      checkShared(name, args);
+      const ctl = new Int32Array(new SharedArrayBuffer(12));
+      for (const w of workers) w.postMessage({ id: 0, name, args, n, chunks, ctl, sync: true });
+      for (let k; (k = Atomics.add(ctl, 0, 1)) < chunks;) { const [a, b] = chunkOf(k, n, chunks); f(args, a, b); Atomics.add(ctl, 1, 1); }
+      for (let d; (d = Atomics.load(ctl, 1)) < chunks;) {
+        if (Atomics.load(ctl, 2)) throw new Error(`pool: ${name} failed on a thread`);
+        if (Atomics.wait(ctl, 1, d, 5000) === 'timed-out') throw new Error(`pool: ${name} timed out`);
+      }
+    },
   };
   return pool;
 }
@@ -77,6 +92,15 @@ export function* parallel(name, f, args, n, chunks = CHUNKS) {
     if ((k + 1) % SLICE === 0 && k + 1 < chunks) yield;
   }
   return out;
+}
+
+/**
+ * Kernel `name` (here `f`) over n cells by chunk, waiting for them all: on the pool where there is one,
+ * else here in order. For kernels that only write their shared arrays (nothing comes back).
+ */
+export function parallelSync(name, f, args, n, chunks = CHUNKS) {
+  if (pool) { pool.runSync(name, f, args, n, chunks); return; }
+  for (let k = 0; k < chunks; k++) { const [a, b] = chunkOf(k, n, chunks); f(args, a, b); }
 }
 
 /** The pool's threads (0 without it). */

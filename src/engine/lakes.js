@@ -303,7 +303,7 @@ export class Lakes {
    * twice its depth below the mean. Returns rebuild's.
    */
   reroute(elev, sea, iceH = null, extra = null, chan = null) {
-    const n = this.n, z = this.zr || (this.zr = new Float64Array(n)), base = this.baseR || (this.baseR = new Uint8Array(n)), dry = this.dryR || (this.dryR = new Uint8Array(n));
+    const n = this.n, z = this.zr || (this.zr = shared(Float64Array, n)), base = this.baseR || (this.baseR = shared(Uint8Array, n)), dry = this.dryR || (this.dryR = new Uint8Array(n));
     const cut = this.cut;
     for (let i = 0; i < n; i++) {
       const h = iceH ? iceH[i] : 0, c = chan && !(h > 1) ? Math.min(elev[i], chan[i]) : elev[i];

@@ -20,6 +20,10 @@ import { People, marks } from './people.js';
 import { solarSystem } from './solar.js';
 import { figureOf, histomapOf } from './peoplefit.js';
 import { stable } from './cohorts.js';
+import { startPool } from './pool.js';
+// A pool of threads for the routes' Dijkstras (src/engine/pool.js, `Routes.layer`: ~1 s a layer at level 6
+// on one thread, held here while it ran), started before the people are built so their arrays are shared.
+startPool(Math.max(0, Math.min(7, (navigator.hardwareConcurrency || 4) - 3)));
 let pyrRef = null, routesAt = null;   // Fig. 10's reference; the trade kernel last drawn
 let capsAt = -1;   // the states' step whose capitals were last sent
 

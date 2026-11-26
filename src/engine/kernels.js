@@ -1,4 +1,4 @@
-// The kernels the engine's pool's threads run (src/engine/pool.js), by name: each a layer's own function
+// The kernels the engine's pool's threads run (src/engine/pool.js; the people's worker's pool, its routes'), by name: each a layer's own function
 // over a range of cells [a, b) (the one the layer hands `parallel`), after the constants the engine may
 // have set, which come with its arguments. Only the pool's threads import this.
 import { soilYearCells, SOIL } from './soil.js';
@@ -10,6 +10,8 @@ import { VEG } from './vegetation.js';
 import { emitCells, coeffCells, finishCells as dustFinishCells, downCells } from './dust.js';
 import { coverCells } from './life.js';
 import { SEAHEAT, eastStressCells, meanStressCells } from './seaheat.js';
+import { diffuseCells, descentCells } from './landscape.js';
+import { layerCells } from './routes.js';
 
 export const KERNELS = {
   /** The ground's periodic year (Soil.equilibrium). */
@@ -34,6 +36,12 @@ export const KERNELS = {
   humid: humidCells,
   /** A point of the year's dust sources. */
   dustSources(x, a, b) { Object.assign(VEG, x.VEG); return sourceCells(x, a, b); },
+  /** A routes layer's Dijkstras, by market (the people's worker's pool). */
+  routeLayer: layerCells,
+  /** The routing's steepest descent on its filled surface. */
+  descent: descentCells,
+  /** A substep of the landscape's diffusion. */
+  diffuse: diffuseCells,
   /** The year's eastward wind stress (the overturning's channels). */
   eastStress(x, a, b) { Object.assign(SEAHEAT, x.SEAHEAT); eastStressCells(x, a, b); },
   /** The year's mean wind stress (the gyres). */

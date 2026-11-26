@@ -55,6 +55,8 @@
 // between markets over D_DRAW apart) are drawn along the routes as lines as heavy as their flux.
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer } from '../grid/transfer.js';
+import { shared, toShared } from './shared.js';
+import { parallelSync } from './pool.js';
 
 const R = 6371;
 const OPEN_X = 1.5;   // a pair joined only across the open ocean: the coasting way this much dearer (`oceanic`, the counts)
@@ -121,6 +123,18 @@ export function dijkstra(g, cost, src, dist, pred, heap, owner = null, own = nul
       const w = nbr[o], nd = d + cost[o];
       if (nd < dist[w]) { dist[w] = nd; if (pred) pred[w] = u; if (owner) owner[w] = owner[u]; if (extra) acc[w] = acc[u] + extra[o]; heap.push(nd, w); }
     }
+  }
+}
+
+/**
+ * Markets [a, b)'s Dijkstras on a layer's edge costs (Routes.layer, and the pool's kernel): each one's
+ * paths into its row of pred (n each) and its costs to every market into its row of D (nm each).
+ */
+export function layerCells(x, a, b) {
+  const { off, nbr, cost, mk, D, pred, n, nm } = x, g = { nbrOff: off, nbr }, dist = new Float64Array(n), heap = new Heap(off[n] + n + 1);
+  for (let s = a; s < b; s++) {
+    dijkstra(g, cost, mk[s], dist, pred.subarray(s * n, (s + 1) * n), heap);
+    for (let t = 0; t < nm; t++) D[s * nm + t] = dist[mk[t]];
   }
 }
 
@@ -195,7 +209,7 @@ export class Routes {
       alive[i] = land[i] && pp.loc[i] >= 0 && pp.H.alive[pp.loc[i]] ? 1 : 0;
     }
     const T = this.T = g6.level > lv ? makeTransfer(g6, g) : null;
-    this.G = twelve(g);
+    this.G = twelve(g); this.G.nbrOff = toShared(this.G.nbrOff); this.G.nbr = toShared(this.G.nbr);
     // Each sea node's distance to land (km, along the ring's edges), for the open ocean's legs.
     {
       const km = new Float64Array(g.nbrOff[n]), lands = [];
@@ -230,7 +244,7 @@ export class Routes {
       mk.push(far);
     }
     const nm = this.nm = mk.length;
-    this.mnode = Int32Array.from(mk);
+    this.mnode = toShared(Int32Array.from(mk));
     this.owner = owner; this.ownCost = Float32Array.from(dist);
     this.mpos = new Float64Array(3 * nm);
     for (let k = 0; k < nm; k++) for (let j = 0; j < 3; j++) this.mpos[3 * k + j] = g.pos[3 * mk[k] + j];
@@ -337,7 +351,7 @@ export class Routes {
     // once (a hexagonal grid's metric is ~15% long off its axes), and flows sharing a first leg and
     // parting at the turn drew triangles.
     const G = this.G, m2 = G.nbrOff[n];
-    const eS = this.eS = new Float32Array(m2), eO = this.eO = new Float32Array(m2), eI = this.eI = new Float32Array(m2);
+    const eS = this.eS = shared(Float32Array, m2), eO = this.eO = shared(Float32Array, m2), eI = this.eI = shared(Float32Array, m2);
     const edge = this.edgeOf || (this.edgeOf = (u, v) => { for (let o = g.nbrOff[u]; o < g.nbrOff[u + 1]; o++) if (g.nbr[o] === v) return o; return -1; });
     for (let u = 0; u < n; u++) for (let o = G.nbrOff[u]; o < G.nbrOff[u + 1]; o++) {
       const v = G.nbr[o], d = edge(u, v);
@@ -352,14 +366,14 @@ export class Routes {
     }
   }
 
-  /** One layer's Dijkstras from every market on edge costs `cost`: { D, pred, R (the round trips' mean) }. */
+  /**
+   * One layer's Dijkstras from every market on edge costs `cost`: { D, pred, R (the round trips' mean) }. Each
+   * market's alone (layerCells, by chunk of the markets on the people's worker's pool where there is one).
+   */
   layer(cost) {
-    const n = this.g.n, nm = this.nm, mk = this.mnode, dist = new Float64Array(n);
-    const D = new Float32Array(nm * nm), pred = new Uint16Array(nm * n), Rm = new Float32Array(nm * nm);
-    for (let a = 0; a < nm; a++) {
-      dijkstra(this.G, cost, mk[a], dist, pred.subarray(a * n, (a + 1) * n), this.heap);
-      for (let b = 0; b < nm; b++) D[a * nm + b] = dist[mk[b]];
-    }
+    const n = this.g.n, nm = this.nm, mk = this.mnode;
+    const D = shared(Float32Array, nm * nm), pred = shared(Uint16Array, nm * n), Rm = new Float32Array(nm * nm);
+    parallelSync('routeLayer', layerCells, { off: this.G.nbrOff, nbr: this.G.nbr, cost: toShared(cost), mk, D, pred, n, nm }, nm);
     for (let a = 0; a < nm; a++) for (let b = 0; b < nm; b++) Rm[a * nm + b] = 0.5 * (D[a * nm + b] + D[b * nm + a]);
     return { D, pred, R: Rm };
   }

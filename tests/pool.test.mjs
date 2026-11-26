@@ -20,6 +20,9 @@ const ARGS = {
   pressure: () => { const c = P.climate; return { lat: c.lat, secX: c.secX, landSmooth: c.landSmooth, polarHi: c.polarHi, anom: c.Tf[1], itcz: Array.from(c.itcz.subarray(36, 72)), phiH: 0.55, pres: c.pres, C: { ...CLIMATE } }; },
   finish: () => P.climate.finishArgs(),
   dustSources: () => P.aeolian.sourceArgs(3, P.climate.Tf[0]),
+  routeLayer: () => { const g = P.grid, n = g.n, mk = Int32Array.from([0, 17, 400, 1201, 2000, 2561]), nm = mk.length; return { off: g.nbrOff, nbr: g.nbr, cost: Float32Array.from({ length: g.nbrOff[n] }, (_, o) => 1 + Math.abs(Math.sin(o))), mk, D: new Float32Array(nm * nm), pred: new Uint16Array(nm * n), n, nm }; },
+  descent: () => { const g = P.grid, r = P.land.r, n = g.n; return { nbrOff: g.nbrOff, nbr: g.nbr, dist: g.dist, z: P.land.zr, base: P.land.base, zf: r.zf, rcv: new Int32Array(n), rlen: new Float32Array(n), lake: new Uint8Array(n) }; },
+  diffuse: () => { const L = P.land; L.diffuse(5e5); const pl = L.plan(5e5); return { C: pl.C, kap: pl.kap, kapT: pl.kapT, loc: L.loc, off: L.dOff, edge: L.dEdge, other: L.dOther, EG: L.dEG, ds: pl.ds, thick: true, hc: L.hc, hn: new Float64Array(L.hn.length), Ac: L.Ac, dT: L.dT }; },
   eastStress: () => { const c = P.climate, g = P.grid, n = g.n; return { W: c.windPhase, pos: g.pos, east: Float64Array.from({ length: 2 * n }, (_, j) => (j & 1 ? 0.6 : -0.8)), k: 2e-3, tx: new Float64Array(n), SEAHEAT: { ...SEAHEAT } }; },
   meanStress: () => { const c = P.climate, g = P.grid; return { W: c.windPhase, pos: g.pos, tf: new Float64Array(3 * g.n), SEAHEAT: { ...SEAHEAT } }; },
   cover: () => coverArgs(P.life.veg, P.climate, 280, {}),
@@ -35,6 +38,8 @@ const ARGS = {
   dustFinish: () => P.aeolian.dust.finishArgs(P.aeolian.alb),
   wind: () => { const c = P.climate, g = c.grid; return { g: { n: g.n, pos: g.pos, nbrOff: g.nbrOff, nbr: g.nbr, gw: g.gw }, pres: c.presPhase[2], omega: CLIMATE.OMEGA, wind: c.windPhase[2], carry: c.carry, gp: c.gp, C: { ...CLIMATE } }; },
 };
+// The kernels that run over something other than the planet's cells: the routes' markets, the dust's coarse cells.
+const COUNT = { routeLayer: x => x.nm, dustDown: x => x.kidOff.length - 1 };
 const nans = x => ArrayBuffer.isView(x) ? x.reduce((s, v) => s + (v !== v ? 1 : 0), 0) : x && typeof x === 'object' ? Object.values(x).reduce((s, v) => s + nans(v), 0) : 0;
 const clone = x => ArrayBuffer.isView(x) ? x.slice() : Array.isArray(x) ? x.map(clone) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, clone(v)])) : x;
 
@@ -43,8 +48,9 @@ test('pool: every kernel gives each cell the same, over all its cells at once or
   for (const name of Object.keys(KERNELS)) {
     assert.ok(ARGS[name], `${name} has arguments in this test`);
     const base = ARGS[name](), whole = clone(base), chunked = clone(base);
-    KERNELS[name](whole, 0, n);
-    for (let k = 7; k >= 0; k--) { const [a, b] = chunkOf(k, n, 8); KERNELS[name](chunked, a, b); }
+    const m = COUNT[name] ? COUNT[name](base) : n;
+    KERNELS[name](whole, 0, m);
+    for (let k = 7; k >= 0; k--) { const [a, b] = chunkOf(k, m, 8); KERNELS[name](chunked, a, b); }
     assert.deepStrictEqual(chunked, whole, name);
     assert.ok(nans(whole) <= nans(base), `${name} writes no NaN`);
   }

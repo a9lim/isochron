@@ -29,6 +29,8 @@
 // Lengths in km, time in years, areas in km².
 import { RHO_MANTLE, RHO_OCEANIC, RHO_CONTINENTAL } from './crust.js';
 import { channel } from './plates.js';
+import { shared, toShared, isShared } from './shared.js';
+import { parallelSync } from './pool.js';
 
 export const LAND = {
   K: 1.2e-7,         // 1/yr: erodibility for Q in km² of drainage at reference runoff (m = ½)
@@ -98,12 +100,12 @@ class Heap {
  */
 export function route(grid, z, base, out) {
   const n = grid.n, nbrOff = grid.nbrOff, nbr = grid.nbr, dist = grid.dist;
-  const zf = out?.zf || new Float64Array(n);
-  const rcv = out?.rcv || new Int32Array(n);
-  const rlen = out?.rlen || new Float32Array(n);
+  const zf = out?.zf || shared(Float64Array, n);
+  const rcv = out?.rcv || shared(Int32Array, n);
+  const rlen = out?.rlen || shared(Float32Array, n);
   const order = out?.order || new Int32Array(n);
   const seen = out?.seen || new Uint8Array(n);
-  const lake = out?.lake || new Uint8Array(n);
+  const lake = out?.lake || shared(Uint8Array, n);
   const heap = out?.heap || new Heap(n + 8);
   seen.fill(0); heap.n = 0;
   const EPS = 1e-6;
@@ -125,9 +127,16 @@ export function route(grid, z, base, out) {
       heap.push(zf[j], j);
     }
   }
-  // Steepest descent on the filled surface. Outlets drain nowhere. A cell
-  // filled more than 10 cm is under a lake.
-  for (let i = 0; i < n; i++) {
+  // Steepest descent on the filled surface (descentCells: by chunk on the engine's pool where the arrays are shared).
+  const x = { nbrOff, nbr, dist, z, base, zf, rcv, rlen, lake };
+  if (isShared(z, base, zf, rcv, rlen, lake)) parallelSync('descent', descentCells, x, n); else descentCells(x, 0, n);
+  return { zf, rcv, rlen, order, seen, lake, heap, count: no };
+}
+
+/** Each cell's steepest descent on the filled surface zf, cells [a, b) (`route`, and the pool's kernel): outlets drain nowhere; a cell filled more than 10 cm is under a lake. */
+export function descentCells(x, a, b) {
+  const { nbrOff, nbr, dist, z, base, zf, rcv, rlen, lake } = x;
+  for (let i = a; i < b; i++) {
     if (base[i]) { lake[i] = 0; rcv[i] = -1; rlen[i] = 0; continue; }
     lake[i] = zf[i] > z[i] + 1e-4 ? 1 : 0;
     let best = 0, r = -1, len = 0;
@@ -138,7 +147,6 @@ export function route(grid, z, base, out) {
     }
     rcv[i] = r; rlen[i] = len * R_KM;
   }
-  return { zf, rcv, rlen, order, seen, lake, heap, count: no };
 }
 
 /** Accumulate w down a drainage { order, count, rcv, pass }: out_i = w_i + Σ donors' out × their pass. */
@@ -188,13 +196,35 @@ function factor(phi) {
 }
 
 /** The landscape layer, wired to the crust of a Tectonics. */
+/**
+ * One substep of the landscape's diffusion on its packed continental cells [a, b) (Landscape.diffuse, and
+ * the engine's pool's kernel): each cell's flow with its continental neighbours, κ̄ ds ℓ/d per km of
+ * difference (the thick crust's share of it summed into dT), into hn = hc + its change. Each edge's flow is
+ * the other cell's height less this one's, so the scatter's −(flow) on an edge's second cell is this exactly.
+ */
+export function diffuseCells(x, a, b) {
+  const { C, kap, kapT, loc, off, edge, other, EG, ds, thick, hc, hn, Ac, dT } = x;
+  for (let c = a; c < b; c++) {
+    const i = C[c], ki = kap[i], ti = kapT[i], hi = hc[c], ac = Ac[c];
+    let dh = 0, dt = dT[c];
+    for (let t = off[i], e = off[i + 1]; t < e; t++) {
+      const j = other[t], kj = kap[j];
+      if (kj < 0) continue;
+      const eg = EG[edge[t]], d = hc[loc[j]] - hi;
+      dh += 0.5 * (ki + kj) * ds * eg * d * ac;   // km³ of flow, per km² of the cell
+      if (thick) dt += 0.5 * (ti + kapT[j]) * ds * eg * d * ac;
+    }
+    hn[c] = hi + dh; dT[c] = dt;
+  }
+}
+
 export class Landscape {
   constructor(tec) {
     const n = tec.grid.n;
     this.tec = tec;
     this.grid = tec.grid;
     this.runoff = new Float32Array(n).fill(LAND.RUNOFF0);   // m/yr, from the climate
-    this.base = new Uint8Array(n);
+    this.base = shared(Uint8Array, n);
     this.z = new Float64Array(n);
     this.z0 = new Float64Array(n);
     this.f = new Float64Array(n);
@@ -222,7 +252,7 @@ export class Landscape {
    */
   reroute() {
     const tec = this.tec, n = this.grid.n, R = LAND.ROUGH;
-    const zr = this.zr || (this.zr = new Float64Array(n)), ch = channel(tec, this.zc || (this.zc = new Float64Array(n)));
+    const zr = this.zr || (this.zr = shared(Float64Array, n)), ch = channel(tec, this.zc || (this.zc = new Float64Array(n)));
     for (let i = 0; i < n; i++) {
       this.z[i] = tec.elev[i];
       this.base[i] = tec.sea[i];              // the ocean (src/engine/plates.js, solveSea): a basin below sea level it doesn't reach is a depression
@@ -295,7 +325,7 @@ export class Landscape {
     let any = false;
     for (let i = 0; i < n; i++) if (!base[i] && iceH[i] > sheet) { any = true; break; }
     if (!any) return null;
-    const z = this.zi || (this.zi = new Float64Array(n)), ice = new Uint8Array(n);
+    const z = this.zi || (this.zi = shared(Float64Array, n)), ice = new Uint8Array(n);
     for (let i = 0; i < n; i++) { const h = base[i] ? 0 : iceH[i]; z[i] = zr[i] + h / 1000; ice[i] = h > sheet ? 1 : 0; }
     this.ri = route(this.grid, z, base, this.ri);
     return { r: this.ri, ice };
@@ -439,8 +469,8 @@ export class Landscape {
    */
   plan(dt) {
     const tec = this.tec, n = this.grid.n, h = tec.h, phi = tec.phi, A = this.areaKm;
-    if (!this.kap) { this.kap = new Float64Array(n); this.cont = new Int32Array(n); }
-    if (!this.kapT || this.kapT.length !== n) this.kapT = new Float64Array(n);
+    if (!this.kap) { this.kap = shared(Float64Array, n); this.cont = shared(Int32Array, n); }   // (shared with the engine's pool: diffuseCells)
+    if (!this.kapT || this.kapT.length !== n) this.kapT = shared(Float64Array, n);
     const kap = this.kap, kapT = this.kapT, C = this.cont;
     let kmax = 0, nc = 0;
     for (let i = 0; i < n; i++) {
@@ -470,39 +500,35 @@ export class Landscape {
    */
   diffuse(dt) {
     const tec = this.tec, g = this.grid, n = g.n, h = tec.h, A = this.areaKm;
-    // The grid's edges (i < j, in the order cells list their neighbours) with ell/dist, once.
-    if (!this.edges) {
-      const ei = [], ej = [], eg = [];
-      for (let i = 0; i < n; i++) for (let t = g.nbrOff[i], e = g.nbrOff[i + 1]; t < e; t++) if (g.nbr[t] > i) { ei.push(i); ej.push(g.nbr[t]); eg.push(g.ell[t] / g.dist[t]); }
-      const m = ei.length;
-      this.edges = { i: Int32Array.from(ei), j: Int32Array.from(ej), g: Float64Array.from(eg), m };
-      this.dI = new Int32Array(m); this.dJ = new Int32Array(m); this.dW = new Float64Array(m); this.dWT = new Float64Array(m);
-      this.loc = new Int32Array(n); this.hc = new Float64Array(n); this.ddh = new Float64Array(n); this.dT = new Float64Array(n); this.Ac = new Float64Array(n);   // 1 / area (km⁻²)
+    // Each cell's edges, once (i < j over the grid's edges in the order cells list their neighbours, their
+    // ell/dist EG): first those where it is the second cell (its lower neighbours, ascending), then those
+    // where it is the first (its higher ones, in its list's order), the order a scatter over the edges
+    // would add them to the cell in, so the gather by cell (diffuseCells) gives each cell the same sums.
+    if (!this.dOff) {
+      const lo = Array.from({ length: n }, () => []), hi = Array.from({ length: n }, () => []), eg = [];
+      for (let i = 0; i < n; i++) for (let t = g.nbrOff[i], e = g.nbrOff[i + 1]; t < e; t++) {
+        const j = g.nbr[t];
+        if (j <= i) continue;
+        const k = eg.length;
+        eg.push(g.ell[t] / g.dist[t]); hi[i].push(k, j); lo[j].push(k, i);
+      }
+      this.dOff = shared(Int32Array, n + 1); this.dEdge = shared(Int32Array, 2 * eg.length); this.dOther = shared(Int32Array, 2 * eg.length); this.dEG = toShared(Float64Array.from(eg));
+      let q = 0;
+      for (let i = 0; i < n; i++) {
+        for (const L of [lo[i], hi[i]]) for (let u = 0; u < L.length; u += 2) { this.dEdge[q] = L[u]; this.dOther[q] = L[u + 1]; q++; }
+        this.dOff[i + 1] = q;
+      }
+      this.loc = shared(Int32Array, n); this.hc = shared(Float64Array, n); this.hn = shared(Float64Array, n); this.dT = shared(Float64Array, n); this.Ac = shared(Float64Array, n);   // 1 / area (km⁻²)
     }
     // The substeps run on the continental cells packed together (local index c, cell C[c]),
     // which keeps them in cache (scattered over the grid they cost twice as much), and multiply
     // by each cell's 1/area (dividing cost half again).
-    const { kap, kapT, C, nc, sub, ds } = this.plan(dt), loc = this.loc, hc = this.hc, dh = this.ddh, dT = this.dT, Ac = this.Ac;
-    for (let c = 0; c < nc; c++) { const i = C[c]; loc[i] = c; hc[c] = h[i]; Ac[c] = 1 / A[i]; dT[c] = 0; }
-    // Each continental edge's flow per km of difference (km²), and its thick crust's share.
-    const E = this.edges, EI = E.i, EJ = E.j, EG = E.g, I = this.dI, J = this.dJ, Wt = this.dW, WT = this.dWT;
-    let m = 0, thick = false;
-    for (let e = 0; e < E.m; e++) {
-      const i = EI[e], j = EJ[e], ki = kap[i], kj = kap[j];
-      if (ki < 0 || kj < 0) continue;
-      I[m] = loc[i]; J[m] = loc[j]; Wt[m] = 0.5 * (ki + kj) * ds * EG[e]; WT[m] = 0.5 * (kapT[i] + kapT[j]) * ds * EG[e];
-      if (WT[m] > 0) thick = true;
-      m++;
-    }
+    const { kap, kapT, C, nc, sub, ds } = this.plan(dt), loc = this.loc, dT = this.dT, Ac = this.Ac;
+    let hc = this.hc, hn = this.hn, thick = false;
+    for (let c = 0; c < nc; c++) { const i = C[c]; loc[i] = c; hc[c] = h[i]; Ac[c] = 1 / A[i]; dT[c] = 0; if (kapT[i] > 0) thick = true; }
     for (let s = 0; s < sub; s++) {
-      dh.fill(0, 0, nc);
-      for (let k = 0; k < m; k++) {
-        const i = I[k], j = J[k], d = hc[j] - hc[i], flow = Wt[k] * d;   // km³
-        dh[i] += flow * Ac[i];
-        dh[j] -= flow * Ac[j];
-        if (thick) { const ft = WT[k] * d; dT[i] += ft * Ac[i]; dT[j] -= ft * Ac[j]; }
-      }
-      for (let c = 0; c < nc; c++) hc[c] += dh[c];
+      parallelSync('diffuse', diffuseCells, { C, kap, kapT, loc, off: this.dOff, edge: this.dEdge, other: this.dOther, EG: this.dEG, ds, thick, hc, hn, Ac, dT }, nc);
+      const t = hc; hc = hn; hn = t;
     }
     // The change into the plates' crust: the surface's gain at sea goes on seaward; then every
     // world cell reads its frame cell back, so world cells that share one all see its sum.

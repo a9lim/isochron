@@ -19,3 +19,6 @@ export function toShared(a) {
 
 /** Chunk k's cells of n: [from, to). */
 export const chunkOf = (k, n, chunks = CHUNKS) => [Math.floor(k * n / chunks), Math.floor((k + 1) * n / chunks)];
+
+/** Whether every typed array given lives in a SharedArrayBuffer (a kernel's on the pool only then). */
+export const isShared = (...as) => as.every(a => a && typeof SharedArrayBuffer === 'function' && a.buffer instanceof SharedArrayBuffer);
