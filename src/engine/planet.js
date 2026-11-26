@@ -28,7 +28,7 @@
 // lakes carry their water over, and what they hold is off the sea's.
 import { buildGrid } from '../grid/icosphere.js';
 import { Tectonics, channel } from './plates.js';
-import { Landscape } from './landscape.js';
+import { Landscape, accumulatePass } from './landscape.js';
 import { Climate, CLIMATE } from './climate.js';
 import { Runaway } from './runaway.js';
 import { Ice } from './ice.js';
@@ -43,7 +43,7 @@ import { Moon } from './tides.js';
 import { Volcanoes } from './volcanoes.js';
 import { Year, monthIndex } from './year.js';
 import { Ground } from './ground.js';
-import { Lakes } from './lakes.js';
+import { Lakes, drainage, lakesKey } from './lakes.js';
 import { Flexure } from './flexure.js';
 import { Regolith } from './regolith.js';
 import { CrustFlex, CRUSTFLEX } from './crustflex.js';
@@ -370,6 +370,29 @@ export class Planet {
     const c = this.climate;
     while (!this.opened()) { c.solve(1); this.afterClimate(); this.openingIce(); this.openingLakes(); }
     return c.stats.settled;
+  }
+  /**
+   * The rivers, as drawn and as the people and the sea's river mouths read them: the lakes' drainage
+   * (src/engine/lakes.js, `drainage`: closed lakes end their rivers, a spilling one passes its overflow)
+   * over the ice's surface where there are sheets (Landscape.iceRoute, routed again when the landscape
+   * steps or the lakes rebuild), and the year's mean discharge down it from the climate's runoff (Q,
+   * m³/s: the drawn rivers' months' mean). Kept until the landscape, the lakes or the climate move. (The
+   * landscape's own discharge is its erosion's, routed only when it steps, and every depression spilling:
+   * read between its steps, as the people's era always was, it was a uniform 0.3 m a year's, a desert's
+   * wadis rivers of hundreds of m³/s and the Amazon a fifth of itself.)
+   */
+  rivers() {
+    const L = this.land, n = this.grid.n, ik = `${L.steps}:${this.lakes.builds || 0}`, key = `${ik}:${this.climate.version}:${lakesKey(this.lakes)}`;
+    const R = this.riversNow || (this.riversNow = { ik: null, key: null, iceR: null, rt: null, w: new Float64Array(n), q: new Float64Array(n), Q: new Float32Array(n) });
+    if (R.key === key) return R;
+    if (R.ik !== ik) { R.iceR = L.iceRoute(this.ice.H); R.ik = ik; }
+    R.rt = drainage(this.grid, L, this.lakes, R.iceR);
+    const A = L.areaKm, base = L.base, run = this.climate.runoff, w = R.w, toM3s = 1e6 / 3.156e7;   // km² · m a year → m³/s
+    for (let i = 0; i < n; i++) w[i] = base[i] ? 0 : A[i] * run[i];
+    accumulatePass(R.rt, w, R.q);
+    for (let i = 0; i < n; i++) R.Q[i] = base[i] ? 0 : R.q[i] * toM3s;
+    R.key = key;
+    return R;
   }
   /** The ice's volume (m × km² of the unit sphere: comparable with itself). */
   iceVolume() { const H = this.ice.H, A = this.grid.area; let v = 0; for (let i = 0; i < this.grid.n; i++) v += H[i] * A[i]; return v; }

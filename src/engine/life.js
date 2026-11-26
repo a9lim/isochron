@@ -121,6 +121,7 @@ export class Life {
     const { grid, tec, land, climate, ocean, carbon } = p;
     Object.assign(this, { grid, tec, landscape: land, climate, ocean, carbon });
     this.opened = typeof p.opened === 'function' ? () => p.opened() : () => !!climate.stats.settled;
+    this.riverQ = typeof p.rivers === 'function' ? () => p.rivers().Q : null;   // the year's mean discharge (Planet.rivers)
     this.closed = false;                   // the opening's closure is done (the climate settled and a seeded planet's ice grown: Planet.opened)
     if (carbon) carbon.holdOpening = true;   // the air held at the opening's CO₂ until the sea settles
     const n = grid.n;
@@ -219,7 +220,7 @@ export class Life {
     const sstCold = cA > 0 ? cT / cA : 1.5, sstWarm = wA > 0 ? wT / wA : 21;
     // The cold box's open water; the coasts' upwelling on this grid; the rivers' mouths.
     const up = this.upFine ? (prolong(c.T, o.upwell || new Float64Array(o.grid.n), this.upFine), this.upFine) : (o && o.upwell) || null;
-    const Q = this.landscape ? this.landscape.discharge : null;
+    const Q = this.riverQ ? this.riverQ() : null;   // the rivers' mouths (Planet.rivers)
     let iceA = 0, upS = 0, runS = 0;
     for (let i = 0; i < n; i++) {
       const a = g.area[i];

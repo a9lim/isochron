@@ -9,7 +9,8 @@
 import { openPlanet } from '../src/engine/planet.js';
 import { surfaceFields } from '../src/render/surface.js';
 import { traceBoundaries } from '../src/render/lines.js';
-import { traceRivers, drainage, RIVER_MIN } from '../src/render/rivers.js';
+import { traceRivers, RIVER_MIN } from '../src/render/rivers.js';
+import { drainage } from '../src/engine/lakes.js';
 import { route } from '../src/engine/landscape.js';
 
 const level = +(process.argv[2] || 7), steps = +(process.argv[3] || 20), dt = +(process.argv[4] || 0.1);

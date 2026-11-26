@@ -4,7 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Planet } from '../src/engine/planet.js';
 import { accumulatePass } from '../src/engine/landscape.js';
-import { drainage, traceRivers } from '../src/render/rivers.js';
+import { traceRivers } from '../src/render/rivers.js';
+import { drainage } from '../src/engine/lakes.js';
+import { fieldsOf } from '../src/engine/peoplelink.js';
 
 const R2 = 6371 * 6371;
 let shared = null;
@@ -117,4 +119,19 @@ test('rivers run off an ice sheet over its surface: never up it, and none drawn 
   const rivers = traceRivers(g, land, null, land.monthly(P.climate.runoffM, rt), 1, rt);
   assert.ok(rivers.length > 0, 'rivers drawn');
   for (const r of rivers) for (const c of r.cells) assert.ok(!(H[c] > 50), `a river drawn on the sheet at ${c}`);
+});
+
+test("the rivers the people and the sea's mouths read follow the climate's runoff", () => {
+  // Planet.rivers: the year's mean discharge down the lakes' drainage from the climate's runoff as it is now (the
+  // landscape's own discharge, routed only when it steps, had held its opening's uniform runoff through the people's era).
+  const P = planet(), c = P.climate, n = P.grid.n, base = P.land.base, run0 = Float32Array.from(c.runoff);
+  const at = () => Float64Array.from(fieldsOf(P).discharge);   // as the people's fields carry it (and the sea's mouths, Life.seaInputs)
+  const Q1 = at();
+  for (let i = 0; i < n; i++) c.runoff[i] = 2 * run0[i];
+  c.version++;
+  const Q2 = at();
+  c.runoff.set(run0); c.version++;
+  let land = 0, off = 0, top = 0;
+  for (let i = 0; i < n; i++) if (!base[i]) { land++; top = Math.max(top, Q1[i]); if (Math.abs(Q2[i] - 2 * Q1[i]) > 1e-4 * Math.max(1, Q1[i])) off++; }
+  assert.ok(top > 0 && off === 0, `twice the runoff twice the discharge (${off} of ${land} land cells off)`);
 });

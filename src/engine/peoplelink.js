@@ -76,11 +76,12 @@ export function fieldsOf(P, f = null, T = null) {
   const sp = P.year.spreadFine(), sigT = sp.T, ex = P.life.export, G = P.grid;
   const coastSea = i => { if (tec.sea[i] || !ex) return 0; let m = 0; for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) { const j = G.nbr[t]; if (tec.sea[j]) m = Math.max(m, ex[j] || 0); } return m; };
   const dustOut = P.aeolian && P.aeolian.dust ? P.aeolian.dust.out : null;
+  const Qr = P.rivers().Q;   // the rivers' year's mean discharge (Planet.rivers), not the landscape's own (its erosion's, read between its steps)
   const pp = P.life.lakePP, lw = c.lakeWet, lakeAt = j => (!tec.sea[j] && lw[j] > LAKE_SHORE ? LIFE.E_LAKE * (pp[j] || 0) : 0);
   const shoreLake = i => { if (tec.sea[i] || !pp) return 0; let m = lakeAt(i); for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) m = Math.max(m, lakeAt(G.nbr[t])); return m; };
   const src = {
     elev: i => tec.sea[i] ? Math.min(-1e-3, tec.elev[i] - s) : Math.max(1e-3, tec.elev[i] - s), ice: i => P.ice.H[i], ft: i => P.life.veg.ft[i], fg: i => P.life.veg.fg[i], npp: i => P.life.veg.pi[i],
-    runoff: i => c.runoff[i], discharge: i => P.land.discharge[i], lake: i => c.lakeWet[i], perma: i => c.soil.permafrost[i],
+    runoff: i => c.runoff[i], discharge: i => Qr[i], lake: i => c.lakeWet[i], perma: i => c.soil.permafrost[i],
     sigT: i => sigT[i], sigTy: i => sigT[i] * Math.sqrt(sp.mem[i]), sigP: i => (map[i] > 1 ? P.year.annualRainSpread(i, map[i]) : 0),
     sea: coastSea, lakeEx: shoreLake, reg: i => P.regolith.h[i], p0: i => P.regolith.p0(i), ero: i => P.land.erosion[i] || 0,
     arc: i => tec.arc[i], phi: i => tec.phi[i], age: i => Math.max(0, tec.t - tec.tf[i]),   // the ores' geology: arc volcanism, the felsic fraction, the crust's age (Myr)
