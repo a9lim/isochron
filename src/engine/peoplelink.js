@@ -237,7 +237,7 @@ export class PeopleLink {
     for (let i = 0; i < n; i++) { s += x[i] * area[i]; A += area[i]; }
     if (!(this.aerC < -1e-4) || !(s > 0)) { this.pat = null; this.applySulfate(); return; }
     if (!this.sulf) this.sulf = new Dust(g, { LEVEL: SULF.LEVEL, H: SULF.H, SCAV: SULF.SCAV, BINS: [{ name: 'sulfate', share: 1, vd: SULF.VD, mee: SULF.MEE }] });
-    const d = this.sulf, e = this.e || (this.e = new Float32Array(n)), k = A / s;
+    const d = this.sulf, e = this.e || (this.e = shared(Float32Array, n)), k = A / s;
     for (let i = 0; i < n; i++) e[i] = x[i] * k;      // mean 1: only the pattern is carried
     for (let p = 0; p < NP; p++) yield* d.phaseSteps(p, { wind: C.windPhase[p], rain: C.Pph[p], emission: e });
     d.solve();
