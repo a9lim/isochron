@@ -1,5 +1,8 @@
-// A pool of threads for the engine's per-cell loops (the page's engine thread only: headless, and on a
-// page that isn't cross-origin isolated, every loop runs on its own thread as before).
+// A pool of threads for a worker's per-cell loops: the engine's (src/engine/worker.js) and the people's
+// (src/engine/people-worker.js, for the routes' layers), each its own. Headless, and on a page that isn't
+// cross-origin isolated, every loop runs on its own thread as before. A loop in a generator runs with
+// `parallel` (its turns given to the worker while the pool works); one inside a step that isn't, with
+// `parallelSync`, which waits for the chunks with Atomics.wait (a worker may block).
 //
 // A kernel is a layer's function over a range of cells (which the layer hands `parallel`, and the
 // pool's threads find by name in src/engine/kernels.js), run on CHUNKS fixed chunks of
