@@ -50,7 +50,7 @@
 // by ~0.45 at 1,000 mm/yr, more where it's drier (∝ MAP^−0.3, synthesis).
 import { buildGrid } from '../grid/icosphere.js';
 import { makeTransfer, prolong, restrict } from '../grid/transfer.js';
-import { CLIMATE } from './climate.js';
+import { CLIMATE, heatCapacity } from './climate.js';
 import { stream } from '../rng.js';
 import { VOLC, bandLat } from './volcanoes.js';
 import { shared } from './shared.js';
@@ -214,18 +214,15 @@ export class Year {
     return out;
   }
 
-  /** Heat capacity per cell from the climate's land and sea ice (when its cycle has moved on). */
+  /** Heat capacity per cell, the climate's (`heatCapacity`: land with its lakes, the sea under its ice) over the cell, and its land share (when its cycle has moved on). */
   capacity(force = false) {
     const c = this.climate, key = c.stats.cycles;
     if (!force && key === this.capKey) return;
     this.capKey = key;
-    const C = CLIMATE, f6 = this.scratch.f6, f6b = this.scratch.f6b, n = this.n, lf = this.land, ice = this.scratch.a;
-    for (let i = 0; i < this.fine.n; i++) { f6[i] = c.landMask[i]; f6b[i] = c.landMask[i] ? 0 : c.snowAnn[i]; }
-    if (this.T) { restrict(this.T, f6, lf); restrict(this.T, f6b, ice); } else { lf.set(f6); ice.set(f6b); }
-    for (let i = 0; i < n; i++) {
-      const l = Math.min(1, Math.max(0, lf[i])), si = Math.min(1, ice[i] / Math.max(1e-6, 1 - l));
-      this.C[i] = l * C.C_LAND + (1 - l) * (C.C_OCEAN + (C.C_ICE - C.C_OCEAN) * si);
-    }
+    const f6 = this.scratch.f6, f6b = this.scratch.f6b, lf = this.land;
+    const lake = c.lakeHeat;
+    for (let i = 0; i < this.fine.n; i++) { f6[i] = c.landMask[i]; f6b[i] = heatCapacity(c.landMask[i], lake ? lake[i] : 0, c.snowAnn[i]); }
+    if (this.T) { restrict(this.T, f6, lf); restrict(this.T, f6b, this.C); } else { lf.set(f6); this.C.set(f6b); }
     this.closure();
     if (this.tagInfo) this.tagTheory();
     // Each engine cell's monthly log-rain spread, from its mean rain (the climate's, this cycle).

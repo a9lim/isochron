@@ -196,7 +196,8 @@ fn main(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) g: vec3u)
 // Each fine cell's absorbed sunlight through the year, as harmonics; its snow-and-ice share; the
 // continental seasons' admittances and forcing; the fields to restrict (rf, field-major over all levels).
 // pa: (o, c0, c1, c2): v = T + o, albedo c0 + c1 r₁(v) + c2 ramp(−v, 0, 4.5), r₁ land's ramp(−v, −1, 5)
-// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land, dust's forcing). The clouds
+// or the sea's ramp(−v, 1.5, 6); pb: (latitude row, its weight, land as 1 + its lakes' heat or 0 at
+// sea, dust's forcing). The clouds
 // (src/engine/clouds.js): cld, each cell's low and high shares at the six points of the year (12 a
 // cell), over the clear sky's albedo by the adding formula, and the high cloud's longwave over
 // A + B T (at most L_MAX); k (A, B, σT_TOP⁴, on), h (the layers' albedos A_LO, A_HI, Z, and L_MAX), o
@@ -261,8 +262,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let F = vec4f(2.0 * a1, 2.0 * b1, 2.0 * a2, 2.0 * b2) / ${NS}.0;
   let snow = cold / ${NS}.0;
   fh[i] = F;
-  // Heat capacity: land, or the sea by its share of the year under ice; the admittances (c: B + K, C_LAND, C_OCEAN, C_ICE).
-  let C = select(U.c.z + (U.c.w - U.c.z) * snow, U.c.y, land);
+  // Heat capacity (\`heatCapacity\`): land with its lakes' open water for the share of the year they
+  // aren't frozen (P.z − 1), or the sea by its share of the year under ice; the admittances (c: B + K, C_LAND, C_OCEAN, C_ICE).
+  let C = select(U.c.z + (U.c.w - U.c.z) * snow, U.c.y + (P.z - 1.0) * (1.0 - snow), land);
   let bk = U.c.x;
   let z1 = 6.283185307 * C;
   let m1 = 1.0 / (bk * bk + z1 * z1);

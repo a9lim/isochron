@@ -194,7 +194,7 @@ if (process.env.JSON) { console.log(JSON.stringify(J)); process.exit(0); }
 const f1 = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
 const groups = r => [...'ABCDE'].map((c, k) => `${c}${Math.round(100 * r.gs[k] / r.a)}/${Math.round(100 * r.go[k] / r.a)}`).join(' ');
 const sum = `land T rms: year ${f1(Math.sqrt(e2y / la))} K (bias ${f1(bias / la)}), Jan ${f1(Math.sqrt(e2j / la))}, Jul ${f1(Math.sqrt(e2l / la))} · rain log-ratio rms ${f1(Math.sqrt(lp2 / la), 2)} · Köppen class ${f1(100 * agree / la, 0)}%, group ${f1(100 * agreeG / la, 0)}%`;
-console.log(`settled ${s.settled || 'not'} (${((performance.now() - t0) / 1000).toFixed(0)} s) · mean ${f1(s.meanT)} °C · rain ${f1(s.meanP, 0)} mm/yr (land ${f1(s.landP, 0)}) · lakes ${f1(lakes.stats ? lakes.stats.area / 1e6 : NaN, 2)} M km²`);
+console.log(`settled ${s.settled || 'not'} (${((performance.now() - t0) / 1000).toFixed(0)} s) · mean ${f1(s.meanT)} °C · rain ${f1(s.meanP, 0)} mm/yr (land ${f1(s.landP, 0)}) · lakes ${f1(lakes.built ? lakes.stats().area / 1e6 : NaN, 2)} M km²`);
 { const o = clim.seaHeat, L = [-50, -30, 0, 26, 45, 60, 70], h = o.transport(L);
   console.log(`sea: overturning ${f1(o.stats.sv)} Sv (channels' Ekman S ${f1(o.ek.S)} N ${f1(o.ek.N)}; sinking ${f1(o.deep)} °C), gyres ${f1(o.stats.gyre)} Sv at most, ${o.stats.sweeps} sweeps · its heat north, PW: ${L.map((la, k) => `${la}° ${h[k].toFixed(2)}`).join(', ')}`); }
 { const a = clim.airHeat;

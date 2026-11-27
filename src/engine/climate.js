@@ -4,7 +4,8 @@
 // Temperature. A seasonal energy-balance model (standard: Budyko, Sellers,
 // North): C ∂T/∂t = S(1 − α) − (A + B T) + 5.35 ln(CO₂/CO₂₀) + ∇·(D ∇T), with
 // the heat capacity of the ocean's mixed layer at sea and of the air over
-// land. The year is solved as harmonics, T = T̄ + Σₖ Re(T̂ₖ e^{ikωt}), each
+// land, and over a lake's share of a cell its water's mixed layer while it
+// isn't frozen (`heatCapacity`). The year is solved as harmonics, T = T̄ + Σₖ Re(T̂ₖ e^{ikωt}), each
 // one elliptic: (B + ikωC) T̂ₖ − ∇·D∇T̂ₖ = F̂ₖ, so the oceans' seasonal lag and
 // the continents' wide seasons come straight out of it. Albedo (snow, sea
 // ice, deserts) depends on the temperature through the year, so the absorbed
@@ -150,7 +151,12 @@ export const CLIMATE = {
   C_OCEAN: 7.9,            // W yr m⁻² K⁻¹: a 60 m mixed layer
   C_LAND: 0.6,             // Earth (from 0.3, then 0.46, 0.61: the air's column with the ground's seasonal layer)
   C_ICE: 1.2,
-  LAPSE: 5.4,              // K/km. Earth (from 6.5, then 5.6): the surface's, which broad uplands warm (Tibet's air)
+  // A lake's share of a land cell (`heatCapacity`): its water's to the depth a season's mixing reaches,
+  // C_WATER a metre (ρ c_p over a year's seconds, standard), at least land's, and land's under its ice
+  // (the ice insulates the water below it; synthesis). LAKE_MIX: a lake's seasonal mixed layer (temperate
+  // lakes' summer thermocline lies ~5–20 m down, and the autumn's overturn reaches deeper; from memory).
+  C_WATER: 0.1325, LAKE_MIX: 20,
+  LAPSE: 5.4,             // K/km. Earth (from 6.5, then 5.6): the surface's, which broad uplands warm (Tibet's air)
   OLR_Z: 0.65,             // the share of the lapse rate's drop over land the outgoing longwave reads (`olrDrop`). Earth (tuned: Tibet's OLR 248 → 233 W/m², CERES's 218; 0.45 before moist static energy)
   // The clear sky's albedo at the top of the atmosphere (the surface and the clear air; the clouds
   // are src/engine/clouds.js's, over it), + ALB_POLAR·sin²φ at sea and ALB_POLAR_LAND·sin²φ on land
@@ -268,6 +274,14 @@ const W0 = 25, WA = 0.065;     // saturated column water (mm) = W0 e^{WA (T − 
 const sigmoid = x => 1 / (1 + Math.exp(-x));
 const ramp = (x, a, b) => { const t = (x - a) / (b - a); return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t); };
 export const wsat = T => W0 * Math.exp(WA * (Math.max(-45, Math.min(45, T)) - 15));
+/**
+ * A cell's heat capacity (W yr m⁻² K⁻¹) at its cold share of the year `snow` (snowAnn): the sea's mixed
+ * layer, toward C_ICE under its ice; land's, with its lakes' open water `lake` (Climate.lakeHeat) for the
+ * share of the year they aren't frozen. The energy balance's (both paths: src/gpu/ebm.js) and the year's.
+ */
+export function heatCapacity(land, lake, snow, C = CLIMATE) {
+  return land ? C.C_LAND + lake * (1 - snow) : C.C_OCEAN + (C.C_ICE - C.C_OCEAN) * snow;
+}
 /** The latent part's share of the diffusion on an edge whose middle is at z = sin φ (CLIMATE.MSE_TROP, MSE_LAT): the eddies'. */
 export function latentShare(z, C = CLIMATE) {
   const la = Math.asin(Math.min(1, Math.abs(z))) * 180 / Math.PI;
@@ -699,6 +713,7 @@ export class Climate {
     this.soilWarm = false;
     this.lakes = null;   // src/engine/lakes.js, when there is one
     this.lakeWet = shared(Float32Array, n);        // the lakes' share of each cell, as this cycle saw it
+    this.lakeHeat = new Float32Array(n);           // W yr m⁻² K⁻¹: what its lakes' open water adds to a land cell's heat capacity (`heatCapacity`)
     this.ground = null;  // the live ground (src/engine/ground.js): its slow mean, weighed by the year's live weight
     this.upz = shared(Float64Array, 3 * n);
     this.elevPos = shared(Float64Array, n);
@@ -814,6 +829,15 @@ export class Climate {
     for (let i = 0; i < n; i++) cap[i] = this.landMask[i] && !(H && H[i] > 1) ? (reg ? reg.capacity(i) : SOIL.SMAX) : 0;
     this.soil.setCapacity(cap);
     if (this.lakes) this.lakeWet.set(this.lakes.wetY); else this.lakeWet.fill(0);   // the year's (src/engine/lakes.js): a climatology, not this month's
+    // The lakes' heat: a lake's share holds its water's down to LAKE_MIX (its depth over the wet part:
+    // `depth` is the cell's mean), over the land's (`heatCapacity`).
+    {
+      const C = CLIMATE, lw = this.lakeWet, out = this.lakeHeat, dep = L ? L.depth : null, wet = L ? L.wet : null;
+      for (let i = 0; i < n; i++) {
+        const d = dep && wet[i] > 0 ? 1000 * dep[i] / wet[i] : 0;
+        out[i] = this.landMask[i] && lw[i] > 0 ? lw[i] * Math.max(0, C.C_WATER * Math.min(d, C.LAKE_MIX) - C.C_LAND) : 0;
+      }
+    }
     gradient(this.grid, this.elevPos, this.upz);
     for (let i = 0; i < 3 * n; i++) this.upz[i] /= R_KM;   // km per km
     const f6 = this.scratch.f6;
@@ -860,11 +884,15 @@ export class Climate {
     return base + (C.ALB_SEAICE + dk - base) * ramp(-T, 1.5, 6);
   }
 
+  /** Cell i's heat capacity at its cold share of the year `snow` (`heatCapacity`, with its lakes' heat). */
+  heatCapacity(i, snow) { return heatCapacity(this.landMask[i], this.lakeHeat[i], snow); }
+
   /**
    * Each cell's albedo (`albedo`) as c0 + c1 r₁(v) + c2 ramp(−v, 0, 4.5) at v = T + o, r₁ land's
    * snow ramp(−v, −1, 5) or the sea's ice ramp(−v, 1.5, 6) (also the cell's cold share), for the
    * energy balance on the GPU (src/gpu/ebm.js): pa (o, c0, c1, c2), pb (latitude row, its weight,
-   * land, dust's forcing). o is the lapse rate's drop over land, the gyres' anomaly at sea.
+   * land as 1 + its lakes' heat (`heatCapacity`) or 0 at sea, dust's forcing). o is the lapse rate's
+   * drop over land, the gyres' anomaly at sea.
    */
   packAlbedo(pa, pb) {
     const C = CLIMATE, n = this.grid.n, z = this.zones, cv = this.cover, H = this.ice ? this.ice.H : null;
@@ -887,7 +915,7 @@ export class Climate {
         if (lw > 0) { const wa = C.ALB_OCEAN + polar; c0 = (1 - lw) * c0 + lw * wa; c1 *= 1 - lw; c2 = lw * (C.ALB_SEAICE - wa); }
       } else { c0 = C.ALB_OCEAN + polar; c1 = C.ALB_SEAICE + dk - c0; }
       pa[4 * i] = o; pa[4 * i + 1] = c0; pa[4 * i + 2] = c1; pa[4 * i + 3] = c2;
-      pb[4 * i] = this.row[i]; pb[4 * i + 1] = this.roww[i]; pb[4 * i + 2] = land; pb[4 * i + 3] = (dF ? dF[i] : 0) + (pF ? pF[i] : 0);
+      pb[4 * i] = this.row[i]; pb[4 * i + 1] = this.roww[i]; pb[4 * i + 2] = land ? 1 + this.lakeHeat[i] : 0; pb[4 * i + 3] = (dF ? dF[i] : 0) + (pF ? pF[i] : 0);
     }
   }
 
@@ -1059,7 +1087,7 @@ export class Climate {
     for (let k = 0; k < 5; k++) restrict(this.T, F[k], this.Fc[k]);
     // Heat capacity: land, open sea, and sea under ice, per cell; the coarse cells' is its mean.
     const f6 = this.scratch.f6, cap = this.scratch.c5, Cf = this.capF || (this.capF = new Float64Array(n));
-    for (let i = 0; i < n; i++) Cf[i] = this.landMask[i] ? C.C_LAND : C.C_OCEAN + (C.C_ICE - C.C_OCEAN) * this.snowAnn[i];
+    for (let i = 0; i < n; i++) Cf[i] = this.heatCapacity(i, this.snowAnn[i]);
     restrict(this.T, Cf, cap);
     const A = cg.area, dr = new Float64Array(nc), di = new Float64Array(nc);
     const br = new Float64Array(nc), bi = new Float64Array(nc);

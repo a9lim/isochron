@@ -28,6 +28,8 @@ test('the energy balance on the GPU: the CPU\'s fixed point, solved tightly', { 
   assert.ok(c.airHeat.on, 'the air\'s heat carried by the wind (src/engine/airheat.js) is on');
   assert.ok(c.clouds.stats.points >= 18, 'the clouds diagnosed from the moisture (src/engine/clouds.js)');
   assert.ok(c.mseOn, 'moist static energy\'s latent part: its edges\' factor on every level and its lagged rest (src/engine/climate.js, `latentSource`)');
+  // The lakes' heat (`heatCapacity`) on a fifth of the land, packed with the land's flag (this planet holds no lakes at level 4).
+  for (let i = 0; i < c.grid.n; i++) if (c.landMask[i] && i % 5 === 0) c.lakeHeat[i] = 1.5;
   c.ebmWs.hist = 0;
   const snap = { Tc: c.Tc.map(a => a.slice()), Tf: c.Tf.map(a => a.slice()), snow: c.snowAnn.slice(), ws: structuredClone(c.ebmWs), th: c.seaHeat.theta.slice(), deep: c.seaHeat.deep };
   const cg = CLIMATE.EBM_CG.slice();
