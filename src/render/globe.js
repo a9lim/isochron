@@ -10,7 +10,7 @@
 //                    polarity's running integral over the pixel's span of
 //                    formation times, so chrons finer than a pixel read as the
 //                    mid-tone rather than shimmering.
-//   hairlines        the coastline, and every 500 m of depth (the sea's and
+//   hairlines        the coastline (not under the ice sheets), and every 500 m of depth (the sea's and
 //                    the lakes') and height (CONTOUR)
 //   vegetation       land is coloured by the plants' cover (src/engine/life.js:
 //                    trees, grass and bare ground by warmth, as forests,
@@ -564,10 +564,10 @@ fn contour(x: f32, fx: f32) -> f32 {
   sea = mix(sea, u.text.rgb, 0.09 * contour(d, fe));
   // In the Zones map the sea is a plain wash (its temperature and currents are the Sea map's).
   var wash = mix(u.canvas.rgb, u.ocean.rgb, 0.16);
-  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian lines slanted 30° (the land's
-  // hatches are at 45°), closer where more sinks (15 px apart at ~4, the gyres, to 5 px past ~80).
+  // Export production (g C m⁻² yr⁻¹, in the zones' free slot): viridian lines at 45°, as the land's
+  // hatches, closer where more sinks (15 px apart at ~4, the gyres, to 5 px past ~80).
   let ex = smoothstep(0.6, 1.9, log(max(i.z3.z, 1e-3)) / 2.302585);
-  let exLines = hatch(T, vec2f(0.5, 0.8660254), mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
+  let exLines = hatch(T, vec2f(0.7071, 0.7071), mix(15.0, 5.0, ex) * u.mode.z, 0.9 * u.mode.z) * smoothstep(0.0, 0.15, ex);
   wash = mix(wash, u.inkA.rgb, EXPORT_INK * exLines);
   sea = select(sea, wash, climate);
   // Snow and sea ice: a light fill with a hard edge, as a map draws them.
@@ -931,8 +931,8 @@ fn contour(x: f32, fx: f32) -> f32 {
   let lakeFlat = lk * (1.0 - sheet);
   var c = select(land * select(mix(shade, 1.0 + (shade - 1.0) / 3.0, lakeFlat), 1.0, chart), sea * select(seaShade, 1.0, chart), cst < 0.0);
 
-  // The coastline.
-  c = mix(c, u.text.rgb, 0.7 * hair(abs(cst), fcst));
+  // The coastline, hidden under the ice sheets (the sheet's outline is its edge).
+  c = mix(c, u.text.rgb, 0.7 * hair(abs(cst), fcst) * (1.0 - sheet));
   // The sulfate veil (Air, People): graphite hatching along the circles of latitude (the volcanoes' and
   // a sprayed veil lie in bands; coal's haze lies where the winds carry it), denser where its optical
   // depth is (16 px apart at 0.02, 4 px at 1, by log optical depth).
