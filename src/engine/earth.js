@@ -35,7 +35,7 @@ export const EARTH = {
   AGE_DEEP: 100,       // Myr at most for floor aged by its depth (short of PARAMS.FOUNDER_AGE: forearcs don't founder)
   H_MIN: 2,            // km of crust at least
   H_MAX: 75,           // km at most
-  V_JOIN: 0.5 / 637.1, // rad/Myr (0.5 cm/yr): plates moving within this of each other all along their boundary ride as one (platesOf)
+  V_JOIN: 0.5 / 637.1, // rad/Myr (0.5 cm/yr): plates moving within this of each other all along their boundary ride as one (platesOf), while each stays within it of its own motion there
   V_DIFFUSE: 2 / 637.1, // rad/Myr: and plates closing slower than this all along an oceanic boundary (a diffuse one)
 };
 
@@ -191,35 +191,65 @@ function platesOf(d, g, plate, ocean) {
   // second a trench the slab's own pull runs away on (Capricorn raced into India at 16 cm/yr, India's
   // slab beneath it grew until it pulled India south off Asia), where Earth's diffuse zone passes the
   // Java trench's pull on to India.
+  // A join holds only while it's true: a plate that joined another for moving as one, and that the
+  // other's later merges carry off its own motion (by more than V_JOIN anywhere on the boundary they
+  // shared), stays apart, and the merges run again without that pair. Arabia joined India across the
+  // Owen fracture zone (0.36 cm/yr in the data) and rode on with India into Australia, turning about
+  // Australia's pole in Syria: the Red Sea closed as a trench, the Zagros slid as a transform.
+  const settled = label.slice(), settledArea = area.slice(), apart = new Set();
   for (;;) {
-    const pair = new Map();
-    for (let i = 0; i < n; i++) {
-      const a = find(plate[i]);
-      for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
-        const j = g.nbr[t], b = find(plate[j]);
-        if (b <= a) continue;
-        // As one: the two plates' motions as they now stand (a joined plate moves as its largest part).
-        // Closing slowly: each side's own motion in the data, at the boundaries the data draws.
-        v(a, i, va); v(b, j, vb);
-        const one = Math.hypot(vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]);
-        v(plate[i], i, va); v(plate[j], j, vb);
-        const key = a * K + b, dx = vb[0] - va[0], dy = vb[1] - va[1], dz = vb[2] - va[2], r = Math.hypot(dx, dy, dz);
-        const e = pair.get(key) || { one: 0, max: 0, close: 0, land: 0, L: 0 };
-        e.one = Math.max(e.one, one); e.max = Math.max(e.max, r); e.close -= (dx * g.tan[3 * t] + dy * g.tan[3 * t + 1] + dz * g.tan[3 * t + 2]) * g.ell[t];
-        e.L += g.ell[t];
-        if (ocean[i] < 0.5 || ocean[j] < 0.5) e.land += g.ell[t];
-        pair.set(key, e);
+    label.set(settled); area.set(settledArea);
+    const joins = [];
+    for (;;) {
+      const pair = new Map();
+      for (let i = 0; i < n; i++) {
+        const a = find(plate[i]);
+        for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) {
+          const j = g.nbr[t], b = find(plate[j]);
+          if (b <= a || apart.has(a * K + b)) continue;
+          // As one: the two plates' motions as they now stand (a joined plate moves as its largest part).
+          // Closing slowly: each side's own motion in the data, at the boundaries the data draws.
+          v(a, i, va); v(b, j, vb);
+          const one = Math.hypot(vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]);
+          v(plate[i], i, va); v(plate[j], j, vb);
+          const key = a * K + b, dx = vb[0] - va[0], dy = vb[1] - va[1], dz = vb[2] - va[2], r = Math.hypot(dx, dy, dz);
+          const e = pair.get(key) || { one: 0, max: 0, close: 0, land: 0, L: 0 };
+          e.one = Math.max(e.one, one); e.max = Math.max(e.max, r); e.close -= (dx * g.tan[3 * t] + dy * g.tan[3 * t + 1] + dz * g.tan[3 * t + 2]) * g.ell[t];
+          e.L += g.ell[t];
+          if (ocean[i] < 0.5 || ocean[j] < 0.5) e.land += g.ell[t];
+          pair.set(key, e);
+        }
       }
+      let pick = -1, pv = Infinity, join = false;
+      for (const [key, e] of pair) {
+        const one = e.one < EARTH.V_JOIN, diffuse = one || (e.max < EARTH.V_DIFFUSE && e.land < 0.25 * e.L && e.close > 0);
+        if (diffuse && e.one < pv) { pv = e.one; pick = key; join = one; }
+      }
+      if (pick < 0) break;
+      let a = Math.floor(pick / K), b = pick % K;
+      if (area[a] < area[b]) [a, b] = [b, a];
+      if (join) {
+        // The joining side's cells along the boundary, where its own motion is checked once the merges are done.
+        const at = [];
+        for (let i = 0; i < n; i++) {
+          if (find(plate[i]) !== b) continue;
+          for (let t = g.nbrOff[i]; t < g.nbrOff[i + 1]; t++) if (find(plate[g.nbr[t]]) === a) { at.push(i); break; }
+        }
+        joins.push({ key: pick, b, at });
+      }
+      label[b] = a; area[a] += area[b]; area[b] = 0;
     }
-    let pick = -1, pv = Infinity;
-    for (const [key, e] of pair) {
-      const diffuse = e.one < EARTH.V_JOIN || (e.max < EARTH.V_DIFFUSE && e.land < 0.25 * e.L && e.close > 0);
-      if (diffuse && e.one < pv) { pv = e.one; pick = key; }
+    let held = true;
+    for (const { key, b, at } of joins) {
+      const w = d.plates[find(b)].w, wb = d.plates[b].w, dw = [w[0] - wb[0], w[1] - wb[1], w[2] - wb[2]];
+      let off = 0;
+      for (const i of at) {
+        const x = g.pos[3 * i], y = g.pos[3 * i + 1], z = g.pos[3 * i + 2];
+        off = Math.max(off, Math.hypot(dw[1] * z - dw[2] * y, dw[2] * x - dw[0] * z, dw[0] * y - dw[1] * x));
+      }
+      if (off > EARTH.V_JOIN) { apart.add(key); held = false; }
     }
-    if (pick < 0) break;
-    let a = Math.floor(pick / K), b = pick % K;
-    if (area[a] < area[b]) [a, b] = [b, a];
-    label[b] = a; area[a] += area[b]; area[b] = 0;
+    if (held) break;
   }
   const keep = [], index = new Int32Array(K).fill(-1);
   for (let k = 0; k < K; k++) if (find(k) === k && area[k] > 0) { index[k] = keep.length; keep.push(k); }

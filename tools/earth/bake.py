@@ -26,7 +26,8 @@ cell) and is weighted by its area (cos latitude). Per cell, little-endian, n cel
   ocean  uint8   /255  the share of the cell with a seafloor age (Seton et al. 2020): its oceanic crust
   age    uint16  /100  Myr, the mean age over that share
   plate  uint8         an index into earth.json's plates (Müller et al. 2019's plates today: the rigid
-                       plates, then the deforming networks for the cells they leave out)
+                       plates, then the deforming networks for the cells they leave out, each by the
+                       plate it moves like; each plate one piece)
 
 Each plate's ω (rad/Myr, x y z) is its motion over the last Myr in the model's absolute frame;
 earth.json also carries the ten hotspots (Whittaker et al. 2015's compilation).
@@ -40,6 +41,8 @@ import h5py
 import numpy as np
 import pygplates
 from scipy import ndimage
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -198,10 +201,14 @@ def plates():
             names.setdefault(p, f.get_name())
     gaps = np.count_nonzero(pid < 0)
     # A network's cells go to its plate when that is one of the rigid plates. A network with a plate of
-    # its own (Southeast Asia's, East China's: plates the rigid ones don't have) goes, cell by cell, to
-    # whichever of the rigid plates bordering it moves most like it there, so Sundaland rides Eurasia
-    # (within ~0.3 cm/yr of it) rather than whatever polygon happens to be nearest (Australia, across
-    # the Java trench); compared with every plate, a distant one's motion can match by chance.
+    # its own (Southeast Asia's, East China's, Baja's: plates the rigid ones don't have) goes, cell by
+    # cell, to whichever of the rigid plates bordering it moves most like the network does there: its
+    # deforming mesh's velocity, or a rigid block's within it. So Sundaland rides Eurasia (within ~0.3
+    # cm/yr of it) rather than whatever polygon happens to be nearest (Australia, across the Java
+    # trench), and Baja's mesh splits along the Gulf of California; compared with every plate, a distant
+    # one's motion can match by chance. (The network's own plate is only its frame: matched by that
+    # rotation, Baja's offshore mesh went to North America and left the peninsula a Pacific strip
+    # between two North American ones.)
     part = pygplates.PlatePartitioner(nets, rm)
     omega = {}
     def w_of(p):
@@ -210,16 +217,24 @@ def plates():
             pole, ang = fr.get_euler_pole_and_angle() if not fr.represents_identity_rotation() else (None, 0.0)
             omega[p] = np.array(pole.to_xyz()) * ang if pole is not None else np.zeros(3)
         return omega[p]
-    net = {}
+    net, vel = {}, {}
     for i in np.flatnonzero(pid < 0):
-        rt = part.partition_point(pygplates.PointOnSphere(float(lat[i]), float(lon[i])))
+        pt = pygplates.PointOnSphere(float(lat[i]), float(lon[i]))
+        rt = part.partition_point(pt)
         if rt is None:
             continue
         q = rt.get_feature().get_reconstruction_plate_id()
         if q in names:
             pid[i] = q
+            continue
+        if isinstance(rt, pygplates.ResolvedTopologicalNetwork):
+            u = rt.get_point_velocity(pt)   # km/Myr over the last Myr, as ω's
+            if u is None:
+                continue
+            vel[i] = np.array(u.to_xyz()) / pygplates.Earth.mean_radius_in_kms
         else:
-            net.setdefault(q, []).append(i)
+            vel[i] = np.cross(w_of(q), cells[i])
+        net.setdefault(q, []).append(i)
     rigid_cells = np.flatnonzero(pid >= 0)
     near = cKDTree(cells[rigid_cells])
     spacing = 2.5 * np.sqrt(4 * np.pi / n)   # a cell and a half past the network's edge
@@ -231,15 +246,44 @@ def plates():
         if not border:
             continue
         for i in idx:
-            vq = np.cross(w_of(q), cells[i])
-            pid[i] = min(border, key=lambda p: np.linalg.norm(np.cross(w_of(p), cells[i]) - vq))
+            pid[i] = min(border, key=lambda p: np.linalg.norm(np.cross(w_of(p), cells[i]) - vel[i]))
             own += 1
-    print(f'  {gaps} cells in no rigid plate: {gaps - np.count_nonzero(pid < 0) - own} given their network\'s, {own} the plate their network moves with')
+    print(f'  {gaps} cells in no rigid plate: {gaps - np.count_nonzero(pid < 0) - own} given their network\'s, {own} the plate their network moves like there')
     # The rest (gaps between topologies) take their nearest partitioned cell's plate.
     if (pid < 0).any():
         ok = np.flatnonzero(pid >= 0)
         _, j = cKDTree(cells[ok]).query(cells[pid < 0])
         pid[pid < 0] = pid[ok[j]]
+    # Each plate one piece, as the sim keeps them (src/engine/plates.js, resolveFragments): a piece cut
+    # off from its plate's largest goes to the plate it shares the most boundary with. A network tagged
+    # with a plate across another (East Africa's western rift, tagged Somalia's, beyond the Victoria
+    # block's Nubia), a mesh's cells matched by chance, a polygon's sliver on the grid: drawn as they
+    # were, each was a lens with a ridge on one side and a trench on the other.
+    dist, k = tree.query(cells, k=7)
+    nbr = np.where(dist[:, 1:] < 1.35 * dist[:, 1:2], k[:, 1:], -1)   # the five or six neighbours, not the next ring
+    src, col = np.nonzero(nbr >= 0)
+    dst = nbr[src, col]
+    moved = 0
+    for _ in range(10):
+        same = pid[src] == pid[dst]
+        nc, comp = connected_components(coo_matrix((np.ones(same.sum()), (src[same], dst[same])), shape=(n, n)), directed=False)
+        size = np.bincount(comp, minlength=nc)
+        first = np.empty(nc, dtype=np.int64)
+        first[comp[::-1]] = np.arange(n)[::-1]
+        body = {}
+        for c in np.argsort(-size, kind='stable'):
+            body.setdefault(pid[first[c]], c)
+        cut = [c for c in range(nc) if body[pid[first[c]]] != c]
+        if not cut:
+            break
+        for c in cut:
+            idx = np.flatnonzero(comp == c)
+            around = nbr[idx].ravel()
+            around = around[around >= 0]
+            around = around[comp[around] != c]
+            pid[idx] = np.bincount(pid[around]).argmax()
+            moved += len(idx)
+    print(f'  {moved} cells in pieces cut off from their plate given to a neighbour')
     ids = sorted(set(pid.tolist()))
     out = []
     for p in ids:
@@ -300,7 +344,7 @@ fields = [
 ]
 meta = {'level': LEVEL, 'n': n, 'fields': [], 'plates': plist, 'hotspots': hot}
 off = 0
-with gzip.open(OUT / f'earth-{LEVEL}.bin.gz', 'wb', compresslevel=9, mtime=0) as fh:
+with open(OUT / f'earth-{LEVEL}.bin.gz', 'wb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, compresslevel=9, mtime=0) as fh:   # no name or time in the header
     for name, dt, a in fields:
         b = np.asarray(a).astype(dt).tobytes()
         meta['fields'].append({'name': name, 'type': dt.lstrip('<'), 'offset': off})

@@ -123,7 +123,7 @@ The climate is tuned on today's Earth at level 6 with `tools/earth/tune.mjs`; th
 | Settled at cycle (today's Earth, level 6) | 14 | | `climate-score.mjs` |
 | Doubled CO₂, ice sheets held | 3.1 K | | `climate-score.mjs` |
 | CO₂ rising 1%/yr from 280 ppm: warming at doubling (year 70) against the balance; κ, the uptake a K | 1.90 against 2.92 K (0.65); 0.51 W m⁻² K⁻¹ | Geoffroy's two layers at this λ: 0.67 of the balance, 0.59; CMIP5's κ 0.83 ± 0.41 (Forster and others 2013) | `tools/climate-ramp.mjs` |
-| Plates' opening balance rms; correlation with Müller 2019 | 4.80 cm/yr; 0.927 | 4.40 cm/yr | `plates-score.mjs` |
+| Plates' opening balance rms; correlation with Müller 2019 | 4.86 cm/yr; 0.916 (4.80, 0.927 before Arabia kept its own motion, 2026-11-27) | 4.43 cm/yr | `plates-score.mjs` |
 | Hypsometry at the opening (land, mean, 90th, 99th percentile) | 27.1%, 0.67, 1.44, 4.15 km | 27.5%, 0.63, 1.37, 4.6 (ETOPO) | `tools/hypsometry.mjs` |
 | Mean ocean depth | 3.84 km | 3.62 km | `tools/hypsometry.mjs` |
 | Floor deeper than 6 km | 0.6% of the sphere | 0.5% | `tools/hypsometry.mjs` |

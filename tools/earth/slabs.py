@@ -59,7 +59,7 @@ for t in np.arange(STEP / 2, T_MAX, STEP):
     print(f'{t:6.1f} Ma: {len(pts)} trench points, {sum(area) / STEP / 1e6:.2f} M km² a Myr', file=sys.stderr)
 
 OUT.mkdir(exist_ok=True)
-with gzip.open(OUT / f'slabs-{LEVEL}.bin.gz', 'wb', compresslevel=9, mtime=0) as fh:
+with open(OUT / f'slabs-{LEVEL}.bin.gz', 'wb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, compresslevel=9, mtime=0) as fh:   # no name or time in the header
     fh.write(bins.astype(np.float32).tobytes())
 json.dump({
     'level': LEVEL, 'n': n, 'bin': BIN, 'bins': T_MAX // BIN, 'file': f'slabs-{LEVEL}.bin.gz',

@@ -121,7 +121,7 @@ function opening() {
 
 if (myr > 0) {
   const byName = new Map(plates.map(p => [short(p.name), p.index]));
-  const watch = ['Pacific', 'Nazca', 'Australia', 'India', 'Eurasia', 'Africa', 'NAM', 'SAM', 'Antarctica'].filter(k => earth && byName.has(k));
+  const watch = ['Pacific', 'Nazca', 'Australia', 'India', 'Eurasia', 'Africa', 'Arabia ARB', 'NAM', 'SAM', 'Antarctica'].filter(k => earth && byName.has(k));
   const sl0 = tec.seaLevel;
   const head = () => log(`\n   t  rms${earth ? '  corr slope' : ' fastest'} cont/ocean  sea(m) land% age plates | ${earth ? watch.map(k => k.slice(0, 5).padStart(5)).join(' ') : 'speeds (|ω|·R, cm/yr)'}`);
   const row = () => {
