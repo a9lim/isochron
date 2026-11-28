@@ -74,7 +74,8 @@
 //             river's floodplain first (watered, renewed by its floods, cropped as often as the
 //             growing season's degree-days allow), then the land water control waters (a river's
 //             canals, the wet season's surplus held in bunds and tanks, the wells on the aquifer:
-//             cropped as the floodplain is, `water`), then the paddies (the wet season's crop in bunded,
+//             cropped as the floodplain is, `water`; a river's water what reaches the cell past the canals
+//             upstream, `canals`), then the paddies (the wet season's crop in bunded,
 //             puddled fields on the flat land its surplus ponds, where that season is warm, cropped every
 //             year at Y_PAD on a soil its pond keeps: works, as far as the crops farmed carry the paddy
 //             from their origin's wetland, `padRoom`), and then the uplands (rain-fed, cropped only as
@@ -174,7 +175,8 @@
 //             forcing at none and farms return. Misaligned, humans' control and their births follow
 //             AI's share of the work down; aligned, people leave for space as Earth fails or by
 //             choice. Food is bought with energy for those the land can't feed (speculation all).
-//   cities    `places`, `foodshed`, `feed`: farmers' urban share of their food, U_SPEND of their land
+//   cities    `places`, `foodshed`, `feed`: farmers' urban share of their food (as their people work the
+//             fields: x^{1 − LAND_SH} of it where they're x of their usual hands), U_SPEND of their land
 //             elites' take (Cantillon's landlords spending their rents in the towns, batch 3f), and
 //             industry's, sent along the routes to cities that grow by their sites and their size, less what
 //             the carriers eat; the people follow the food, and die faster in cities until
@@ -280,6 +282,8 @@ export const PEOPLE = {
   R_SEED0: 4, Z_R: 2,              // the harvest's yield on its seed at farming's start (pre-industrial grain ~4–10, from memory), ×e per Z_R of knowledge
   LIFT_MAX: 10,                    // industry's farming at most this many times the organic ceiling (modern grain against the organic economy's ~5–8×, irrigated and double-cropped more, from memory; the ceiling 400 at NPP_REF either way: at 4 × 40 the post-war boom had nowhere to grow, 2000's people 4.6 B)
   E_AG: 200,                       // W of industrial energy a person fed past the organic ceiling takes (fertilizer, machines, transport; rough, from memory)
+  T_HANDS: 200,                    // years a place's holdings take to resize to its people (`feed`'s x̄: the deserted villages after the Black Death, abandoned over a century and more; from memory, speculation)
+  LAND_SH: 0.4,                    // land's share of the fields' output, the rest labour's (`feed`: the fields yield x^{1 − LAND_SH} of their capacity worked by x of their usual hands; the Malthusian models' Cobb–Douglas land share ~⅓–½, from memory; speculation): 1 is the land's alone, every field yielding its capacity however few work it
   CO2_FERT: 0.25,                  // crops' yield × (1 + β ln(CO₂/280)), VECODE's β
   // Stores: the harvests' weather against granaries and trade (working capital's one distinct role;
   // trade pools the harvests along the routes, src/engine/routes.js)
@@ -1383,6 +1387,7 @@ export class People {
       alive: new Uint8Array(nL), p0: new Float64Array(nL), ero: new Float64Array(nL), slope: new Float64Array(nL), sigY: new Float64Array(nL), sigP: new Float64Array(nL), sigT: new Float64Array(nL), sigTy: new Float64Array(nL), sR: new Float64Array(nL), irr: new Float64Array(nL), bF: new Float64Array(nL), bW: new Float64Array(nL), bL: new Float64Array(nL), bS: new Float64Array(nL), herd: new Float64Array(nL), fg: new Float64Array(nL), sumH: new Float64Array(nL), winH: new Float64Array(nL), river: new Uint8Array(nL), arid: new Float64Array(nL),
       hot: new Float64Array(nL), tHot: new Float64Array(nL), rh: new Float64Array(nL), sun: new Float64Array(nL), arable: new Float64Array(nL), terrPot: new Float64Array(nL), irrPot: new Float64Array(nL), aridS: new Float64Array(nL), sLeach: new Float64Array(nL),
       irrQ: new Float64Array(nL), irrT: new Float64Array(nL), gDry: new Float64Array(nL), irrW: new Float64Array(nL), need: new Float64Array(nL), wCap: new Float64Array(nL), Pa: new Float64Array(nL), aqR: new Float64Array(nL),
+      iqA: new Float64Array(nL), iqB: new Float64Array(nL), Qn: new Float64Array(nL), Qin: new Float64Array(nL),   // the canals' room's parts, the river's own flow and what reaches the cell past the canals upstream (m³/s: `canals`)
       padPot: new Float64Array(nL), padS: new Float64Array(nL), phiPad: new Float64Array(nL), aPad: new Float64Array(nL),   // paddies' room (share of the cell; of its uplands), fertility and yield a km² of field
       sfp: new Float64Array(nL), phi: new Float64Array(nL), sod: new Float64Array(nL), phiFP: new Float64Array(nL), path: new Float64Array(nL), afp: new Float64Array(nL), aup: new Float64Array(nL), clim: new Float32Array(4 * nL),
       // The hungry season (`calendar`): the floodplain's and the uplands' longest gaps between harvests
@@ -1487,7 +1492,8 @@ export class People {
       // (the Nile's valley and delta, ~35,000 km², from memory), as far as ETA_IRR of the river's water
       // meets the year's deficit of rain.
       const cmd = P.K_CMD * P.W_FP * Math.sqrt(Math.max(0, f.discharge[i])) / Math.sqrt(H.area[c]), need = Math.max(P.D_MIN, def);
-      H.irrQ[c] = H.alive[c] ? Math.max(0, wetI - wet) * cold * Math.min(1 - H.sfp[c], cmd, P.IRR_MAX, P.ETA_IRR * Math.max(0, f.discharge[i]) * YEAR_S / (need * 1e6 * H.area[c])) : 0;
+      // The river's water is what reaches the cell past the canals upstream (`canals`, each step).
+      H.iqA[c] = Math.max(0, wetI - wet) * cold; H.iqB[c] = Math.min(1 - H.sfp[c], cmd, P.IRR_MAX); H.Qn[c] = Math.max(0, f.discharge[i]);
       // Water control's other sources (batch 4c, `water`): the wet season's surplus held in bunds and tanks
       // on the flat and terraced uplands, and (per step) the wells.
       let sur = 0; for (let m = 0; m < 12; m++) sur += Math.max(0, f.P12[12 * i + m] - P.PET_K * Math.max(0, f.T12[12 * i + m] + 4));
@@ -1555,7 +1561,15 @@ export class People {
       H.habA[c] = 1 - P.PATH_ANIM * H.path[c];
       H.sigY[c] = this.harvestSigma(c, 1);
     }
-    for (let c = 0; c < nL; c++) this.water(c);
+    // The rivers' drainage on the people's cells (`down`: −1 at a mouth, a closed lake or land no one holds), upstream first.
+    const dn = this.dn && this.dn.length === nL ? this.dn : (this.dn = new Int32Array(nL)), ind = new Int32Array(nL), ord = this.dOrd || (this.dOrd = new Int32Array(nL));
+    for (let c = 0; c < nL; c++) { const j = f.down ? f.down[cells[c]] : -1; dn[c] = j >= 0 ? this.loc[j] : -1; if (dn[c] === c) dn[c] = -1; }
+    for (let c = 0; c < nL; c++) if (dn[c] >= 0) ind[dn[c]]++;
+    let head = 0, tail = 0;
+    for (let c = 0; c < nL; c++) if (!ind[c]) ord[tail++] = c;
+    while (head < tail) { const d = dn[ord[head++]]; if (d >= 0 && --ind[d] === 0) ord[tail++] = d; }
+    if (tail < nL) for (let c = 0; c < nL; c++) if (ind[c] > 0) { dn[c] = -1; ord[tail++] = c; }   // a loop the coarse grid's drainage made: cut
+    this.canals();
     // Herders move within a season's reach (the cell and its neighbours): the best summer pasture and
     // the best winter one, held by the leaner (softly), on the cell's own grass.
     for (let c = 0; c < nL; c++) {
@@ -2185,7 +2199,7 @@ export class People {
       if (!H.alive[c]) { K[c] = 0; continue; }
       const z = Zs ? Zs[c] : zConst, ez = ex(P.THETA * z);
       const PF = ez / (1 + (ez - 1) / P.CAP_F);
-      let farm = 0;
+      let farm = 0, hands = 1;
       // Migrants who farm (their best knowledge past farming's) see unfarmed land as the fields
       // they'd make of it: MIGR_F of its arable land, with crops suited MIGR_S (the spread's
       // weights only: a farming people's spread is demic, Ammerman and Cavalli-Sforza's wave of
@@ -2198,6 +2212,8 @@ export class People {
         // Draft animals lift the organic ceiling's yield (TRACT); industry's machines take over above it.
         const x = ex(P.THETA * (z - P.Z_FARM)), cap = x / (1 + (x - 1) / P.CAP_A) * (1 + P.TRACT * this.animHere(c)), capI = softMin(x, P.CAP_A * P.LIFT_MAX, 1);
         const PA = cap + Math.max(ind[c], this.modern(c)) * lift * Math.max(0, capI - cap);
+        // What hands work (`feed`): the organic economy's part of the yield, and of that what industry's machines leave.
+        hands = (cap / PA) * (1 - ind[c]);
         // Less the seed kept for the next sowing (working capital's first claim), and what the store
         // loses between harvests (the hungry season).
         const seed = 1 / (P.R_SEED0 * Math.exp(Math.min(Math.max(0, z - P.Z_FARM) / P.Z_R, 50))), l = this.keepRate(z) * (1 - P.G_K * this.built(c, 'G'));
@@ -2228,6 +2244,7 @@ export class People {
         // Each way of life's food (peoples' ways): the land's, foraged or herded as herders hold it.
         const a = this.hEc[c] * this.labH[c] * H.area[c] * this.coldOK(c, z), L = (1 - fc) * Math.max(forage, herd), hs = herd > 0 ? sig(Math.log(herd / Math.max(forage, 1e-12)) / 0.3) : 0, w = this.wol, o = 5 * c;
         w[o] = a * L * (1 - hs); w[o + 1] = a * L * hs; w[o + 2] = a * sea; w[o + 3] = a * farm / sick; w[o + 4] = this.Ksyn[c] * (1 - this.boiled);
+        (this.hands || (this.hands = new Float64Array(nL)))[c] = hands;
       }
     }
   }
@@ -2277,6 +2294,30 @@ export class People {
     H.irrW[c] = Math.min(H.wCap[c], H.gDry[c] * cap / H.need[c]);
     H.irrPot[c] = Math.min(H.wCap[c], H.irrQ[c] + H.irrT[c] + H.irrW[c]);
     H.clim[4 * c + 2] = Math.log(Math.max(H.Pa[c] + (H.sfp[c] + (this.wk ? this.watered(c) : 0)) * P.P_IRR, 10));
+  }
+  /**
+   * The canals' books down the rivers (each step, and as the fields are read): in drainage order, upstream
+   * first, each cell's river brings what reaches it past the canals above (`Qin`: its own flow less what
+   * was drawn upstream, never past none), its canals' room is ETA_IRR of that against the year's deficit,
+   * and what they take (`qDraw`, m³/s: the river's share of the watered land × the deficit, the water the
+   * crops use; standard as a consumptive use) is gone from every cell below. So a long river through a
+   * desert is drawn down its length (the Amu Darya's and the Syr Darya's, the Nile's below Aswan), and
+   * written back, the lakes it fed take in less (src/engine/peoplelink.js). Synthesis.
+   */
+  canals() {
+    const P = this.P, H = this.H, nL = this.nL, dn = this.dn, ord = this.dOrd;
+    const lost = this.qLost || (this.qLost = new Float64Array(nL)), q = this.qDraw || (this.qDraw = new Float64Array(nL));
+    lost.fill(0);
+    for (let k = 0; k < nL; k++) {
+      const c = ord ? ord[k] : k, Q = Math.max(0, H.Qn[c] - lost[c]);
+      H.Qin[c] = Q;
+      H.irrQ[c] = H.alive[c] ? H.iqA[c] * Math.min(H.iqB[c], P.ETA_IRR * Q * YEAR_S / (H.need[c] * 1e6 * H.area[c])) : 0;
+      this.water(c);
+      const tot = H.irrQ[c] + H.irrT[c] + H.irrW[c];
+      q[c] = this.wk && H.irrQ[c] > 0 && tot > 0 ? this.built(c, 'C') * H.irrQ[c] * Math.min(1, H.wCap[c] / tot) * H.need[c] * 1e6 * H.area[c] / YEAR_S : 0;
+      const d = dn ? dn[c] : -1;
+      if (d >= 0) lost[d] += Math.min(lost[c], H.Qn[c]) + q[c];
+    }
   }
   /** The watered share of the cell past its floodplain: water control's room as far as its works fill it. */
   watered(c) { const H = this.H; return H.irrPot[c] > 0 ? H.irrPot[c] * this.built(c, 'C') : 0; }
@@ -2437,6 +2478,7 @@ export class People {
       this.aging[c] = Math.max(0, po.sen - this.senRef);   // aging lifts the crude rate (× medicine); a young frontier's few old are already in D_LO
       this.lfp[c] = P.LFP * po.work / COHORTS.W_REF;
     }
+    this.canals();
     this.stocks(dt);
     // Food, the industrial economy, goods; emissions and forcing.
     this.economy(dt);
@@ -3830,15 +3872,15 @@ export class People {
   /** The follow dial's rate of change (/yr; `paceOf`). */
   pace() { return paceOf(this.history, this.flags.present); }
 
-  /** The write-back on the people's grid (src/engine/peoplelink.js): each cell's farmed share, tillage's erosion and the wells' draw on the aquifer (mm/yr). */
+  /** The write-back on the people's grid (src/engine/peoplelink.js): each cell's farmed share, tillage's erosion, the wells' draw on the aquifer (mm/yr) and the canals' on the rivers (m³/s). */
   writeBack(out = null) {
     const n = this.planet.grid.n, area = this.planet.grid.area;
-    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n), s: new Float32Array(n), x: new Float32Array(n), m: new Float32Array(n), w: new Float32Array(n) };
-    out.f.fill(0); out.Ef.fill(0); out.s.fill(0); out.x.fill(0); out.m.fill(1); out.w.fill(0);
+    if (!out) out = { f: new Float32Array(n), Ef: new Float32Array(n), s: new Float32Array(n), x: new Float32Array(n), m: new Float32Array(n), w: new Float32Array(n), q: new Float32Array(n) };
+    out.f.fill(0); out.Ef.fill(0); out.s.fill(0); out.x.fill(0); out.m.fill(1); out.w.fill(0); out.q.fill(0);
     for (let c = 0; c < this.nL; c++) out.m[this.cells[c]] = this.mega[c];   // large game's share left (the cover's browsing, src/engine/vegetation.js)
     let any = false;
     for (let c = 0; c < this.nL; c++) {
-      const i = this.cells[c]; out.f[i] = this.cropped(c); out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c]; out.w[i] = this.wDraw[c];
+      const i = this.cells[c]; out.f[i] = this.cropped(c); out.Ef[i] = this.Ef[c]; out.s[i] = this.sol[c]; out.w[i] = this.wDraw[c]; out.q[i] = this.qDraw ? this.qDraw[c] : 0;
       // Where coal's sulfate is lifted, per unit area: industry's workers (src/engine/peoplelink.js carries it).
       const w = this.Ntot[c] * this.ind[c];
       if (w > 0) { out.x[i] = w / area[i]; any = true; }
@@ -3967,9 +4009,22 @@ export class People {
    * industry) feeds no one. The capacity and its migrants' (K2) move alike: the food is the
    * place's, whoever eats it. A cell's `cityShare` is the share of its food that came in as the
    * cities' (its people's share in its city).
+   *
+   * The fields as their people work them (synthesis on the standard Cobb–Douglas in land and labour): a
+   * cell's fields yield their capacity × (x/x̄)^{1 − LAND_SH} (at most one: more hands than the fields need add
+   * nothing), x = N/(K h) its crowding against the hands its fields need, K the food its people would eat
+   * were every field worked, h the share of the fields' capacity hands work (`capAt`: the organic economy's
+   * part of the yield, less what industry's machines do; industry's lift and fertilizer need none), and x̄
+   * its running mean over T_HANDS: a place's holdings are sized to the hands it usually has (an agrarian
+   * people settles well below its capacity, by its famines, diseases and wars), so a fall below them leaves
+   * fields untilled until the people come back or the holdings shrink to them. So the food a
+   * depopulated countryside sends its cities, its lords and its states falls with its people (`gF`, the
+   * fields' worked share; `work`, the cell's own food's; `Kr`, the food its people have), while the
+   * demography still reads the capacity's crowding (its equilibrium, N = K, where every field is worked).
    */
   feed(dt) {
     const P = this.P, nL = this.nL, Ntot = this.Ntot, rt = this.routes;
+    this.fedR = false;
     if (!rt || !this.dlv || !this.uShare) return;
     const u = this.uSent || (this.uSent = new Float64Array(nL)), a = 1 - Math.exp(-dt / P.T_URB);
     for (let c = 0; c < nL; c++) u[c] += (this.uShare[c] - u[c]) * a;
@@ -3977,13 +4032,34 @@ export class People {
     const imp = this.imp, ex = this.exS || (this.exS = new Float64Array(nL)), own = this.ownK || (this.ownK = new Float64Array(nL));
     imp.fill(0); ex.fill(0); own.fill(0);
     own.set(this.K);
-    for (let d = 0; d < nL; d++) {
-      if (!(u[d] > 0) || !(Ntot[d] > 0)) continue;
-      const q = u[d] * own[d]; ex[d] = u[d];
+    const send = (d, q) => {
       for (let k = off[d]; k < off[d + 1]; k++) imp[idx[k]] += q * dl[k];
       for (let k = 0; k < nt; k++) imp[top[k]] += q * dn[d * K + k];
       if (dP) for (let j = 0; j < KPOL; j++) { const c = cP[KPOL * d + j]; if (c < 0) break; imp[c] += q * dP[KPOL * d + j]; }
       if (this.tribC && this.tribC[d] >= 0) imp[this.tribC[d]] += q * this.tribP[d];
+    };
+    for (let d = 0; d < nL; d++) {
+      if (!(u[d] > 0) || !(Ntot[d] > 0)) continue;
+      ex[d] = u[d]; send(d, u[d] * own[d]);
+    }
+    // The fields as worked: x by what each cell would eat with every field worked, then the food sent again as worked.
+    const gF = this.gF && this.gF.length === nL ? this.gF : (this.gF = new Float64Array(nL)), work = this.work && this.work.length === nL ? this.work : (this.work = new Float64Array(nL));
+    gF.fill(1); work.fill(1);
+    if (P.LAND_SH < 1) {
+      const wol = this.wol, xb = this.xHands && this.xHands.length === nL ? this.xHands : (this.xHands = new Float64Array(nL)), ah = 1 - Math.exp(-dt / P.T_HANDS);
+      for (let c = 0; c < nL; c++) {
+        const k = own[c] * (1 - ex[c]) + imp[c], o = 5 * c, fd = wol[o] + wol[o + 1] + wol[o + 2] + wol[o + 3] + wol[o + 4];
+        if (!(k > 0) || !(wol[o + 3] > 0) || !(fd > 0)) continue;
+        const hd = this.hands ? this.hands[c] : 1;
+        if (!(hd > 0)) continue;
+        // Against the hands the place usually has (its holdings sized to them over T_HANDS): its crowding's running mean.
+        const x = Ntot[c] / (k * hd);
+        xb[c] = xb[c] > 0 ? xb[c] + (x - xb[c]) * ah : x;
+        gF[c] = Math.pow(Math.min(1, x / xb[c]), 1 - P.LAND_SH);
+        work[c] = 1 - (1 - gF[c]) * wol[o + 3] / fd;
+      }
+      imp.fill(0);
+      for (let d = 0; d < nL; d++) if (ex[d] > 0) send(d, u[d] * own[d] * work[d]);
     }
     const cs = this.cityShare, wl = this.econ.on ? 0 : P.S_WORK;
     for (let c = 0; c < nL; c++) { const k = own[c] * (1 - ex[c]) + imp[c]; cs[c] = k > 0 ? imp[c] / k : 0; }
@@ -3993,19 +4069,21 @@ export class People {
     lab.fill(0);
     for (let d = 0; d < nL; d++) {
       if (!(ex[d] > 0)) continue;
-      const q = u[d] * own[d];
+      const q = u[d] * own[d] * work[d];
       for (let k = off[d]; k < off[d + 1]; k++) { const c = idx[k]; if (imp[c] > 0 && S[c] > 0) lab[d] += (1 - P.F_LEARN) * P.S_WORK * S[c] * q * dl[k] / imp[c]; }
       // A capital's works go out to the places that send it their share (roads and works out from the centre).
       if (dP) for (let j = 0; j < KPOL; j++) { const c = cP[KPOL * d + j]; if (c < 0) break; if (imp[c] > 0 && S[c] > 0) lab[d] += (1 - P.F_LEARN) * P.S_WORK * S[c] * q * dP[KPOL * d + j] / imp[c]; }
       lab[d] *= 1 - this.ind[d];   // industry's own works (railways, dams, machines) are its capital's
     }
-    const Kl = this.K, K2 = this.K2;
+    const Kl = this.K, K2 = this.K2, Kr = this.Kr && this.Kr.length === nL ? this.Kr : (this.Kr = new Float64Array(nL));
     for (let c = 0; c < nL; c++) {
-      if (!(ex[c] > 0) && !(imp[c] > 0)) continue;
+      if (!(ex[c] > 0) && !(imp[c] > 0)) { Kr[c] = Kl[c] * work[c]; continue; }
       const w = 1 - wl * cs[c];
+      Kr[c] = (Kl[c] * (1 - ex[c]) * work[c] + imp[c]) * w;
       Kl[c] = (Kl[c] * (1 - ex[c]) + imp[c]) * w;
       K2[c] = (K2[c] * (1 - ex[c]) + imp[c]) * w;
     }
+    this.fedR = true;
   }
 
   /**

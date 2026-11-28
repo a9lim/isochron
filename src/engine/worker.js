@@ -42,7 +42,7 @@ import { isEarth, loadEarth } from './earth.js';
 import { PLUMES } from './plumes.js';
 import { Year, YEAR } from './year.js';
 import { monthAt } from './orbit.js';
-import { accumulatePass } from './landscape.js';
+import { accumulatePass, drawnPass } from './landscape.js';
 import { NZ } from './climate.js';
 import { surfaceFields, lakeFields } from '../render/surface.js';
 import { traceBoundaries } from '../render/lines.js';
@@ -281,15 +281,15 @@ async function sendSurface(fromStep, steps = 0, ms = 0) {
   if (rk !== riversSteps) {
     // The planet's rivers (Planet.rivers: over the ice's surface where there are sheets).
     const rt = riversRt = P.rivers().rt;
-    riversQ12 = land.monthly(P.climate.runoffM, rt);
+    riversQ12 = land.monthly(P.climate.runoffM, rt, P.canals);
     m.rivers = traceRivers(grid, land, f.coast, riversQ12, RIVER_MIN, rt, lakesDraw); riversSteps = rk;
     m.riversId = ++riversId; riversCells = m.rivers.map(r => r.cells);
   }
   post(m, [f.elevRel.buffer, f.coast.buffer, f.normals.buffer, f.tfDraw.buffer, f.felsic.buffer, m.elev.buffer]);
 }
 
-/** What the rivers were traced on: the landscape's steps, the climate's cycle, the lakes. */
-const riversKey = () => `${P.land.steps}:${P.climate.version}:${lakesKey(P.lakes)}`;
+/** What the rivers were traced on: the landscape's steps, the climate's cycle, the lakes, the people's canals. */
+const riversKey = () => `${P.land.steps}:${P.climate.version}:${lakesKey(P.lakes)}:${P.canalsV || 0}`;
 
 // The lakes as drawn: their depth from their water, and the salt flats.
 let lakesDraw = null;
@@ -347,7 +347,8 @@ function riverAnomaly() {
       w[i] = land.areaKm[i] * ro * Math.exp(e * s * Z[i] - 0.5 * e * e * s * s);
     }
   }
-  accumulatePass(rt, w, q);
+  const dr = P.canals;   // the people's canals, as the year's drawn rivers have them (Landscape.monthly)
+  if (dr) { for (let i = 0; i < n; i++) if (dr[i] > 0) w[i] -= dr[i] / toM3s; drawnPass(rt, w, q); } else accumulatePass(rt, w, q);
   let len = 0;
   for (const cs of riversCells) len += cs.length;
   const out = new Float32Array(len);

@@ -135,3 +135,54 @@ test("the rivers the people and the sea's mouths read follow the climate's runof
   for (let i = 0; i < n; i++) if (!base[i]) { land++; top = Math.max(top, Q1[i]); if (Math.abs(Q2[i] - 2 * Q1[i]) > 1e-4 * Math.max(1, Q1[i])) off++; }
   assert.ok(top > 0 && off === 0, `twice the runoff twice the discharge (${off} of ${land} land cells off)`);
 });
+
+test("the people's canals: the rivers below carry what's left, never past none, and a lake takes in less", () => {
+  const P = planet(), n = P.grid.n, L = P.lakes;
+  const R0 = P.rivers(), Qn = Float64Array.from(R0.Qn), rt = R0.rt;
+  // The largest river whose way to the sea passes no lake (its losses reach the mouth whole).
+  let i = -1;
+  for (let j = 0; j < n; j++) { if (!(Qn[j] > 0) || (i >= 0 && Qn[j] <= Qn[i])) continue; let k = j, ok = true; while (k >= 0) { if (rt.pass[k] !== 1 || rt.lake[k]) { ok = false; break; } k = rt.rcv[k]; } if (ok) i = j; }
+  assert.ok(i >= 0 && Qn[i] > 1, 'a river to test');
+  let mouth = i; while (rt.rcv[mouth] >= 0 && !P.land.base[rt.rcv[mouth]]) mouth = rt.rcv[mouth];   // the last land cell before the sea
+  const drawAt = (j, d) => { P.canals = new Float32Array(n); P.canals[j] = d; P.canalsV++; return P.rivers(); };
+  let R = drawAt(i, 0.4 * Qn[i]);
+  assert.ok(Math.abs(R.Q[i] - 0.6 * Qn[i]) < 1e-4 * Qn[i] && Math.abs(Qn[mouth] - R.Q[mouth] - 0.4 * Qn[i]) < 1e-4 * Qn[mouth], `${R.Q[i]} left of ${Qn[i]}; the mouth ${R.Q[mouth]} of ${Qn[mouth]}`);
+  assert.ok(R.Qn.every((q, j) => q === Math.fround(Qn[j])), 'the rivers\' own flow, as the people read it, unchanged');
+  R = drawAt(i, 3 * Qn[i]);
+  assert.ok(R.Q[i] === 0 && Math.abs(Qn[mouth] - R.Q[mouth] - Qn[i]) < 1e-4 * Qn[mouth], 'a draw past the river takes the river, no more');
+  // A lake's leaf takes in the draw less (km³/yr) from a cell of its catchment.
+  let c = -1;
+  for (let j = 0; j < n; j++) if (L.catch[j] >= 0 && Qn[j] > 1) { c = j; break; }
+  assert.ok(c >= 0, 'a lake\'s catchment with a river');
+  {
+    P.canals = null; P.canalsV++;
+    const { runoff, pe } = P.lakeForcing(0); L.forcing(runoff, pe); const I0 = L.I[L.catch[c]];
+    const d = Math.min(Qn[c], 0.5 * I0 * 1e9 / 3.156e7);
+    drawAt(c, d);
+    const f = P.lakeForcing(0); L.forcing(f.runoff, f.pe);
+    assert.ok(Math.abs(I0 - L.I[L.catch[c]] - d * 3.156e7 / 1e9) < 1e-5 * I0 + 1e-9, `the leaf's inflow ${I0} → ${L.I[L.catch[c]]} under ${d} m³/s`);
+  }
+  P.canals = null; P.canalsV++;
+});
+
+test("on a coarser people's grid (the page's), the drainage runs downhill without loops and a cell's draw lands on its main river", async () => {
+  const { buildGrid } = await import('../src/grid/icosphere.js');
+  const { makeTransfer } = await import('../src/grid/transfer.js');
+  const { PeopleLink, mainCells } = await import('../src/engine/peoplelink.js');
+  const P = planet(), T = makeTransfer(P.grid, buildGrid(P.grid.level - 1)), nc = T.nc;
+  const f = fieldsOf(P, null, T), R = P.rivers(), best = mainCells(T, R.Qn);
+  // Each coarse cell's way down reaches a mouth within nc steps, never itself.
+  let loops = 0, links = 0;
+  for (let p = 0; p < nc; p++) { let j = p, k = 0; while (j >= 0 && k <= nc) { const d = f.down[j]; if (d === j) { loops++; break; } j = d; k++; } if (k > nc) loops++; if (f.down[p] >= 0) links++; }
+  assert.ok(links > 0 && loops === 0, `${links} links, ${loops} loops`);
+  // The coarse cell whose main river is largest: its draw is taken there, and the rivers below carry less.
+  let p = 0; for (let q = 1; q < nc; q++) if (f.discharge[q] > f.discharge[p]) p = q;
+  assert.equal(f.discharge[p], Math.fround(R.Qn[best[p]]), "the people's river is its main cell's");
+  const link = new PeopleLink(P, T), q = new Float32Array(nc); q[p] = 0.25 * f.discharge[p];
+  link.receive({ q });
+  assert.ok(P.canals && Math.abs(P.canals[best[p]] - q[p]) < 1e-3 * q[p], 'written at the main river');
+  const R2 = P.rivers(), i = best[p];
+  assert.ok(Math.abs(R2.Q[i] - 0.75 * R2.Qn[i]) < 1e-3 * R2.Qn[i], `${R2.Q[i]} left of ${R2.Qn[i]}`);
+  link.detach();
+  assert.ok(P.canals === null && P.rivers().Q[i] === P.rivers().Qn[i], 'detached, the rivers run whole');
+});

@@ -13,6 +13,11 @@
 //               fast step, so the regolith's exact step strips it; the people read the regolith back
 //   wells       the wells' draw (mm/yr) on the aquifer beneath the groundwater, a sink in its exact
 //               step each climate cycle (src/engine/soil.js); the people read its store back
+//   canals      the canals' draw on the rivers (m³/s), taken where each people's cell's main river runs:
+//               the rivers downstream carry less (Planet.rivers, clipped at none) and the lakes they
+//               feed take in less (`lakeForcing`), so a closed lake whose rivers are drawn shrinks
+//               toward its salt flat; the people read the rivers' own flow back (`discharge`, unchanged
+//               by the draw) and keep the draw's books down their own drainage (`down`, People.canals)
 //   the years   while the dial resolves the year, each whole year's anomaly (`HarvestYears`) for
 //               the people's harvests: the year's log-rain unit and its mean T′, as moments a few
 //               times a second (src/engine/people.js, `addYears`)
@@ -40,12 +45,39 @@ import { shared } from './shared.js';
 export const SULF = { LEVEL: 5, H: 2000, VD: 0.002, SCAV: 0.07, MEE: 8 };
 
 /** The fields the people read, and how many values a cell each. */
-export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1, rh: 1, aq: 1, aqR: 1, dep: 1 };
+export const FIELDS = { elev: 1, ice: 1, T12: 12, P12: 12, ft: 1, fg: 1, npp: 1, zones: NZ, runoff: 1, discharge: 1, lake: 1, perma: 1, sigT: 1, sigTy: 1, sigP: 1, sea: 1, lakeEx: 1, reg: 1, p0: 1, ero: 1, arc: 1, phi: 1, age: 1, wind: 18, cur: 3, seaIce: 1, rh: 1, aq: 1, aqR: 1, dep: 1, down: 1 };
 /** A lake's shore: its cells wet past this share of their area, and their neighbours. */
 export const LAKE_SHORE = 0.05;
 
 /** The people's grid's level on an engine of `level`. */
 export const peopleLevel = level => Math.min(6, level);
+
+/**
+ * Each coarse cell's main river, the engine's cell within it (itself or a midpoint it parents) whose discharge
+ * Q is most: the one the people's `discharge` reads, where their canals draw. Int32Array(nc).
+ */
+export function mainCells(T, Q) {
+  const { nc, par } = T, best = new Int32Array(nc), bq = new Float64Array(nc);
+  for (let p = 0; p < nc; p++) { best[p] = p; bq[p] = Q[p]; }
+  for (let i = nc; i < Q.length; i++) for (const p of [par[2 * (i - nc)], par[2 * (i - nc) + 1]]) if (Q[i] > bq[p]) { bq[p] = Q[i]; best[p] = i; }
+  return best;
+}
+
+/**
+ * The drainage on the people's grid (each cell's downstream cell, −1 at a mouth, a closed lake or the ice):
+ * the engine's receivers, or on a coarser grid each coarse cell's main river followed down the engine's
+ * until it reaches another coarse cell's centre. Into `out` (Float32: indices are exact below 2²⁴).
+ */
+export function downOf(rcv, T, Q, out) {
+  if (!T) { for (let i = 0; i < out.length; i++) out[i] = rcv[i]; return out; }
+  const { nc } = T, best = mainCells(T, Q);
+  for (let p = 0; p < nc; p++) {
+    let j = rcv[best[p]], d = -1;
+    for (let k = 0; k < 16 && j >= 0; k++) { if (j < nc && j !== p) { d = j; break; } j = rcv[j]; }
+    out[p] = d;
+  }
+  return out;
+}
 
 /**
  * The people's fields from a live Planet, into `f` (made if absent), on its grid or, with `T`
@@ -76,7 +108,7 @@ export function fieldsOf(P, f = null, T = null) {
   const sp = P.year.spreadFine(), sigT = sp.T, ex = P.life.export, G = P.grid;
   const coastSea = i => { if (tec.sea[i] || !ex) return 0; let m = 0; for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) { const j = G.nbr[t]; if (tec.sea[j]) m = Math.max(m, ex[j] || 0); } return m; };
   const dustOut = P.aeolian && P.aeolian.dust ? P.aeolian.dust.out : null;
-  const Qr = P.rivers().Q;   // the rivers' year's mean discharge (Planet.rivers), not the landscape's own (its erosion's, read between its steps)
+  const Rv = P.rivers(), Qr = Rv.Qn;   // the rivers' year's mean discharge (Planet.rivers), not the landscape's own (its erosion's, read between its steps), and their own: the people keep their canals' books
   const pp = P.life.lakePP, lw = c.lakeWet, lakeAt = j => (!tec.sea[j] && lw[j] > LAKE_SHORE ? LIFE.E_LAKE * (pp[j] || 0) : 0);
   const shoreLake = i => { if (tec.sea[i] || !pp) return 0; let m = lakeAt(i); for (let t = G.nbrOff[i]; t < G.nbrOff[i + 1]; t++) m = Math.max(m, lakeAt(G.nbr[t])); return m; };
   const src = {
@@ -122,6 +154,7 @@ export function fieldsOf(P, f = null, T = null) {
       }
     }
   }
+  downOf(Rv.rt.rcv, T, Qr, f.down);
   f.co2 = P.carbon.pco2; f.meanT = c.stats.meanT; f.settled = c.stats.settled; f.version = c.version;
   return f;
 }
@@ -201,7 +234,7 @@ export class PeopleLink {
    * carbon (Pg C) since the last, forcing (W/m²). What isn't a finite number stops here (a cell's at 0, a
    * total's last value), said once by name: past here a NaN poisons the planet's climate and carbon.
    */
-  receive({ f, Ef, s, x, m, w, carbon = 0, F = 0, aerC = 0 }) {
+  receive({ f, Ef, s, x, m, w, q, carbon = 0, F = 0, aerC = 0 }) {
     const put = (a, out, name) => {
       let bad = 0;
       for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) { a[i] = 0; bad++; }
@@ -214,11 +247,37 @@ export class PeopleLink {
     if (f) { put(f, this.u, 'farmed share'); this.landUse(); }
     if (Ef) put(Ef, this.ef, 'tillage');
     if (w) { const soil = this.P.climate.soil; if (!soil.draw) soil.draw = new Float32Array(this.P.grid.n); put(w, soil.draw, 'wells\' draw'); }
+    if (q) this.canals(q);
     if (x) put(x, this.x, 'sulfate');
     if (m) { const veg = this.P.life.veg; if (!veg.mega) veg.mega = shared(Float32Array, this.P.grid.n).fill(1); put(m, veg.mega, 'large game'); }
     this.carbon += num(carbon, 0, 'carbon');
     this.F = num(F, this.F, 'forcing'); CLIMATE.F_PEOPLE = this.F;
     this.aerC = num(aerC, this.aerC, 'sulfate forcing'); this.applySulfate();
+  }
+  /**
+   * The canals' draw (m³/s a cell of the people's grid) onto the planet's rivers, at each cell's main river
+   * (`mainCells`), as `Planet.canals`; its version moves only when the draw does by more than a hundredth
+   * of itself and a cubic metre a second, so the rivers aren't retraced for nothing.
+   */
+  canals(q) {
+    const P = this.P, n = P.grid.n, d = this.qd || (this.qd = new Float32Array(n));
+    d.fill(0);
+    let best = null;
+    if (this.T) { const R = P.rivers(), k = R.key; if (this.qKey !== k) { this.qBest = mainCells(this.T, R.Qn); this.qKey = k; } best = this.qBest; }
+    let bad = 0;
+    for (let c = 0; c < q.length; c++) {
+      const v = q[c];
+      if (!(v > 0)) { if (!Number.isFinite(v)) bad++; continue; }
+      d[best ? best[c] : c] += v;
+    }
+    if (bad) this.warn('canals', `${bad} cells of the people's canals' draw weren't finite; taken as 0`);
+    const old = P.canals;
+    let moved = 0, tot = 0;
+    for (let i = 0; i < n; i++) { moved += Math.abs(d[i] - (old ? old[i] : 0)); tot += d[i]; }
+    if (!old && !(tot > 0)) return;
+    if (old && !(moved > 0.01 * tot + 1)) return;
+    P.canals = Float32Array.from(d); P.canalsV = (P.canalsV || 0) + 1;
+    this.stats.canals = tot;
   }
   /** A warning once for each kind. */
   warn(kind, msg) { const w = this.warned || (this.warned = new Set()); if (w.has(kind)) return; w.add(kind); console.warn(`[isochron] ${msg}`); }
@@ -291,6 +350,7 @@ export class PeopleLink {
   detach() {
     const veg = this.P.life.veg;
     veg.sEq.set(this.sEq0); veg.mega = null;
+    if (this.P.canals) { this.P.canals = null; this.P.canalsV = (this.P.canalsV || 0) + 1; }
     this.P.life.onCover = null;
     CLIMATE.F_PEOPLE = 0;
     this.P.climate.peopleForcing = null;

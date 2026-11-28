@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGrid } from '../src/grid/icosphere.js';
 import { NZ } from '../src/engine/climate.js';
-import { People } from '../src/engine/people.js';
+import { People, PEOPLE } from '../src/engine/people.js';
 
 /** Every cell land, warm, a river through it, dry but for its summer (a monsoon's or a Nile's land). */
 function dryPlanet(level, { slope = 0, rain = 20, saw = 0 } = {}) {
@@ -95,4 +95,54 @@ test('the wells draw the aquifer exactly: two steps make one, and its water is k
   const r = a.H.aqR[c], draw = a.wDraw[c] * 200, u = draw / (a.P.F_WELL * r * 200);
   const k = 1 / tau, as = r * (1 - u * a.P.F_WELL) / k, mean = as + (a0 - as) * -Math.expm1(-k * 200) / (k * 200);
   assert.ok(draw > 0 && Math.abs(r * 200 - ((a.aq[c] - a0) + mean / tau * 200 + draw)) < 1e-6 * r * 200, 'the aquifer\'s books balance');
+});
+
+test('the fields as worked: a countryside at x of its usual hands sends its city x^{1 − LAND_SH} of its food, its capacity unchanged', () => {
+  // Two cells: d farms and sends u of its food to c, its one catchment entry. Settled at its usual crowding (0.7 of
+  // its capacity's people, as famine and disease hold an agrarian people), then a step at x of that.
+  const run = (x, P) => {
+    const p = new People(dryPlanet(3), { ...quiet, ...P }), nL = p.nL, d = 1, c = 2, Kd = 1000, u = 0.2, x0 = 0.7;
+    p.places();
+    const off = new Int32Array(nL + 1); for (let k = d + 1; k <= nL; k++) off[k] = 1;
+    p.routes = { catch: { off, idx: Int32Array.of(c) } }; p.dlv = Float64Array.of(1); p.dlvN = new Float64Array(0); p.top = []; p.dlvP = null; p.capP = null;
+    p.uShare.fill(0); p.uShare[d] = u; p.uSent = Float64Array.from(p.uShare);
+    const at = (n, dt) => { p.K.fill(0); p.K2.fill(0); p.K[d] = p.K2[d] = Kd; p.wol.fill(0); p.wol[5 * d + 3] = Kd; p.Ntot.fill(0); p.Ntot[d] = n * Kd * (1 - u); p.Ntot[c] = 1; p.feed(dt); };
+    at(x0, 10);
+    const xb = p.xHands ? p.xHands[d] : x0;
+    at(x * x0, 1);
+    return { arrived: p.imp[c], Kd: p.K[d], Kr: p.Kr[d], xb, want: Math.min(1, x * x0 / ((p.xHands ? p.xHands[d] : x0))) };
+  };
+  const a = PEOPLE.LAND_SH, full = run(1), half = run(0.5), crowd = run(1.5);
+  assert.ok(a < 1 && Math.abs(full.xb - 0.7) < 1e-12, 'the usual hands are those it settled at');
+  assert.ok(Math.abs(half.arrived / full.arrived - Math.pow(half.want, 1 - a)) < 1e-12 && half.want < 0.51, `half the hands: ${half.arrived} against ${full.arrived}`);
+  assert.ok(Math.abs(crowd.arrived - full.arrived) < 1e-12 * full.arrived, 'more hands than the fields need add nothing');
+  assert.equal(half.Kd, full.Kd, "the countryside's capacity (the demography's crowding) is the land's, worked or not");
+  assert.ok(Math.abs(half.Kr / half.Kd - Math.pow(half.want, 1 - a)) < 1e-12, 'what its people have is the worked output');
+  // The land's alone (LAND_SH 1): every field yields its capacity however few work it.
+  const l0 = run(1, { LAND_SH: 1 }), l1 = run(0.5, { LAND_SH: 1 });
+  assert.equal(l1.arrived, l0.arrived);
+});
+
+test("the canals' books: down a desert river each cell draws from what reaches it, never past the river's own flow", () => {
+  // Twelve cells in a chain, the same river through each (800 m³/s, no tributaries), their canals built past their room.
+  const f = dryPlanet(3), n = f.n, L = 12;
+  f.down = new Float32Array(n).fill(-1);
+  for (let k = 0; k < L - 1; k++) f.down[k] = k + 1;
+  const books = down => {
+    const g = { ...f, down }, p = new People(g, quiet), H = p.H, P = p.P;
+    for (let c = 0; c < L; c++) p.wk.C[c] = 1e15;
+    p.canals();
+    return { p, H, P, q: Array.from({ length: L }, (_, c) => p.qDraw[c]) };
+  };
+  const { p, H, P, q } = books(f.down), Q0 = H.Qn[0];
+  for (let k = 0; k < L; k++) {
+    assert.ok(q[k] > 0 && q[k] <= P.ETA_IRR * H.Qin[k] * (1 + 1e-12), `cell ${k}: draws ${q[k]} of ${H.Qin[k]} reaching it`);
+    if (k < L - 1) assert.ok(Math.abs(H.Qin[k + 1] - (H.Qin[k] - q[k])) < 1e-9 * Q0, `cell ${k + 1} gets what ${k} left`);
+  }
+  const drawn = q.reduce((a, b) => a + b, 0);
+  assert.ok(drawn < Q0 && drawn > 0.5 * Q0, `the river drawn ${drawn} of ${Q0} m³/s down its length`);
+  assert.equal(p.writeBack().q[p.cells[3]], Math.fround(q[3]), 'written back where the cell is');
+  // Without the books (every cell its own river) the same canals drew the river several times over.
+  const none = books(new Float32Array(n).fill(-1)).q.reduce((a, b) => a + b, 0);
+  assert.ok(none > 2 * Q0, `unbooked: ${none} from a river of ${Q0}`);
 });

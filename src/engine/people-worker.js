@@ -117,7 +117,7 @@ function post(force) {
     // The forcing: waste heat, a preserving AI's sprayed sulfate and a sacrificing swarm's shade
     // global (F), coal's sulfate (aerC, its global mean) carried by the planet's winds from where it's lifted (x).
     const wb = people.writeBack(), Fo = people.forcing, F = Fo.heat + Fo.geo + (Fo.shade || 0), aerC = Fo.aer - Fo.geo;
-    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, x: wb.x, m: wb.m, w: wb.w, carbon: env.bank, F, aerC }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer, wb.x.buffer, wb.m.buffer, wb.w.buffer]);
+    port.postMessage({ type: 'writeback', f: wb.f, Ef: wb.Ef, s: wb.s, x: wb.x, m: wb.m, w: wb.w, q: wb.q, carbon: env.bank, F, aerC }, [wb.f.buffer, wb.Ef.buffer, wb.s.buffer, wb.x.buffer, wb.m.buffer, wb.w.buffer, wb.q.buffer]);
     env.bank = 0;
   }
   // To the page: the clock, the record's last row, the events; one skipped is sent once its 100 ms

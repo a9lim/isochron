@@ -415,6 +415,7 @@ export class Lakes {
     const n = this.n, A = this.areaKm, ca = this.catch, I = this.I, wts = this.wts, rcl = this.regCells;
     I.fill(0);
     for (let i = 0; i < n; i++) { const t = ca[i]; if (t >= 0) I[t] += A[i] * runoff[i] * 1e-3; }
+    for (let t = 0; t < I.length; t++) if (I[t] < 0) I[t] = 0;   // a catchment drawn past its runoff (the people's canals) sends none
     for (let k = 0; k < rcl.length; k++) { const i = rcl[k]; wts[i] = A[i] * (runoff[i] - pe[i]) * 1e-3; }
   }
 

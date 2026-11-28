@@ -159,6 +159,18 @@ export function accumulatePass({ order, count, rcv, pass }, w, out) {
   return out;
 }
 
+/** accumulatePass where w holds draws (negative): each cell's flow clipped at none before it passes on, so a draw takes only what reaches it. */
+export function drawnPass({ order, count, rcv, pass }, w, out) {
+  out.set(w);
+  for (let k = count - 1; k >= 0; k--) {
+    const i = order[k], r = rcv[i];
+    if (out[i] < 0) out[i] = 0;
+    if (r >= 0) out[r] += out[i] * pass[i];
+  }
+  for (let i = 0; i < out.length; i++) if (out[i] < 0) out[i] = 0;
+  return out;
+}
+
 /** Accumulate w (per cell) downstream: out_i = w_i + Σ donors. */
 export function accumulate(order, count, rcv, w, out) {
   out.set(w);
@@ -276,25 +288,27 @@ export class Landscape {
    * `drainage`: the rivers' own, which end at closed lakes and pass on spilling lakes'
    * overflow).
    */
-  monthly(runoffM, rt = null) {
+  monthly(runoffM, rt = null, draw = null) {
     const n = this.grid.n, out = new Float32Array(12 * n);
     if (!this.r) return out;
     const toM3s = 1e6 * 12 / 3.156e7;     // km² · m a month → m³/s
-    // The twelve months down the drainage together, in one pass over the order.
+    // The twelve months down the drainage together, in one pass over the order; a draw (m³/s, the people's
+    // canals: Planet.canals) taken evenly over the months from what reaches it, never past none.
     const q = this.q12 || (this.q12 = new Float64Array(12 * n)), base = this.base, A = this.areaKm;
     const { order, count, rcv } = rt || this.r, pass = rt ? rt.pass : null;
     for (let i = 0, o = 0; i < n; i++, o += 12) {
       if (base[i]) { for (let m = 0; m < 12; m++) q[o + m] = 0; continue; }
-      const a = A[i];
-      for (let m = 0; m < 12; m++) q[o + m] = a * runoffM[o + m];
+      const a = A[i], dr = draw && draw[i] > 0 ? draw[i] / toM3s : 0;
+      for (let m = 0; m < 12; m++) q[o + m] = a * runoffM[o + m] - dr;
     }
     for (let k = count - 1; k >= 0; k--) {
-      const i = order[k], r = rcv[i];
+      const i = order[k], r = rcv[i], oi = 12 * i;
+      if (draw) for (let m = 0; m < 12; m++) if (q[oi + m] < 0) q[oi + m] = 0;
       if (r < 0) continue;
-      const p = pass ? pass[i] : 1, oi = 12 * i, or = 12 * r;
+      const p = pass ? pass[i] : 1, or = 12 * r;
       for (let m = 0; m < 12; m++) q[or + m] += q[oi + m] * p;
     }
-    for (let i = 0, o = 0; i < n; i++, o += 12) if (!base[i]) for (let m = 0; m < 12; m++) out[o + m] = q[o + m] * toM3s;
+    for (let i = 0, o = 0; i < n; i++, o += 12) if (!base[i]) for (let m = 0; m < 12; m++) out[o + m] = (draw ? Math.max(0, q[o + m]) : q[o + m]) * toM3s;
     return out;
   }
 

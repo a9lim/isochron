@@ -18,7 +18,8 @@
 // income and the rest S_WAGE (People.regional). Beside that, stress, and famine's split.
 //
 //   claims      each way's output, its food by source (People.wol: foraging, herding, the sea's, the
-//               fields'), the city's what it takes in (People.imp) and, with industry, the place's
+//               fields' as their people work them, People.feed's `gF`: a lord whose peasants died
+//               collects less), the city's what it takes in (People.imp) and, with industry, the place's
 //               goods: a share θ_w of it the elite's, θ_w = TH_W × 1/(1 + exit/(X_EXIT (1 + K_COER h))),
 //               exit the spare room among the place's land neighbours (Polities.ex) and h its states'
 //               hold. Domar's hypothesis (1970): free land, free peasants and idle landlords can't all
@@ -131,40 +132,42 @@ export class Classes {
     // Office's revenue: each place's food sent to its states' capitals (People.foodshed: the national
     // share of its cities' food, by the share each holds, less the way's loss), and N_TAX of its goods.
     for (const k of pol.live) { const q = list[k]; q.rev = 0; q.yN = 0; q.yY = 0; q.dN = 0; q.dD = 0; q.pN = 0; q.pS = 0; }
-    const rev = this.rev, u = pp.uSent, dP = pp.dlvP, kP = pp.kP, Kown = pp.Kown;
+    // The fields as their people work them (People.feed): the food sent and the claims on the fields are the worked output's.
+    const rev = this.rev, u = pp.uSent, dP = pp.dlvP, kP = pp.kP, Kown = pp.Kown, fed = pp.fedR, work = fed ? pp.work : null, gF = fed ? pp.gF : null, Kr = fed ? pp.Kr : K;
     rev.fill(0);
     const take = this.takeBuf || (this.takeBuf = new Float64Array(nL * KP));   // each place's revenue to its KP states (by slot)
     take.fill(0);
     for (let c = 0; c < nL; c++) {
       if (!(N[c] > 0)) continue;
+      const sent = u ? u[c] * Kown[c] * (work ? work[c] : 1) : 0;
       for (let j = 0; j < KP; j++) {
         const k = pol.id[KP * c + j];
         if (k < 0) break;
         let r = 0;
-        if (u && dP && kP) for (let i = 0; i < KP; i++) if (kP[KP * c + i] === k) r += u[c] * Kown[c] * dP[KP * c + i];
+        if (u && dP && kP) for (let i = 0; i < KP; i++) if (kP[KP * c + i] === k) r += sent * dP[KP * c + i];
         if (pp.econ.on && pol.d[c] > 0) r += P.N_TAX * pol.take(k) * goods[c] * Math.min(1, pol.s[KP * c + j] / pol.d[c]);
         take[KP * c + j] = r; rev[c] += r; list[k].rev += r;
       }
       // A herders' state's tribute from the place (People.foodshed), to its office alone.
       const kt = pp.tribKk ? pp.tribKk[c] : -1;
-      if (kt >= 0 && u && list[kt].died === null) { const r = u[c] * Kown[c] * pp.tribP[c]; rev[c] += r; list[kt].rev += r; }
+      if (kt >= 0 && u && list[kt].died === null) { const r = sent * pp.tribP[c]; rev[c] += r; list[kt].rev += r; }
     }
     // Each place: its ways' claims and positions, its income a person, its stress.
     const psi = this.psi, mmp = this.mmp, emp = this.emp;
     for (let c = 0; c < nL; c++) {
       const n = N[c], t = T[c], o = WAYS * c;
       if (!(n > 0) || !(t > 0)) { psi[c] = 0; mmp[c] = 0; emp[c] = 0; this.take[c] = 0; this.eP[c] = 0; for (let w = 0; w < WAYS; w++) { e[o + w] = 0; pos[o + w] = 0; claim[o + w] = 0; } continue; }
-      const y = (K[c] + goods[c]) / n, h = pol.held(c);
+      const y = (Kr[c] + goods[c]) / n, h = pol.held(c), g3 = gF ? gF[c] : 1;
       const tk = 1 / (1 + (pol.ex ? pol.ex[c] : 0) / (P.X_EXIT * (1 + (pol.coer ? pol.coer(c) : P.K_COER) * h)));
       // Where its states administer it (their fiscal capacity κ by their shares), K_RENT of the land's rent is tax.
       let dr = 0;
       if (pol.d[c] > 0) for (let j = 0; j < KP; j++) { const k = pol.id[KP * c + j]; if (k < 0) break; dr += Math.min(1, pol.s[KP * c + j] / pol.d[c]) * (list[k].kap ?? 1); }
       const rent = 1 - P.K_RENT * Math.min(1, dr);
       let E = 0, Pw = 0;
-      const food = wol[o] + wol[o + 1] + wol[o + 2] + wol[o + 3];
-      this.take[c] = food > 0 ? TH[3] * tk * wol[o + 3] / food : 0;
+      const food = wol[o] + wol[o + 1] + wol[o + 2] + wol[o + 3] * g3;
+      this.take[c] = food > 0 ? TH[3] * tk * wol[o + 3] * g3 / food : 0;
       for (let w = 1; w < WAYS; w++) {
-        const out = w === CITY ? (imp ? imp[c] : 0) : wol[o + w], mu = this.mu(c, w);
+        const out = w === CITY ? (imp ? imp[c] : 0) : w === 3 ? wol[o + 3] * g3 : wol[o + w], mu = this.mu(c, w);
         const cl = (mu + TH[w] * tk * (w === CITY ? 1 : rent) * (1 - mu)) * out + (w === CITY && pp.econ.on ? (pp.kCap ? pp.kCap[c] : P.ALPHA) * goods[c] : 0);
         claim[o + w] = cl; pos[o + w] = cl / (P.C_E * Math.max(y, 1e-6));
         const nw = n * W[o + w] / t;
@@ -238,8 +241,9 @@ export class Classes {
     const pp = this.pp, n = pp.Ntot[c], t = pp.ids.T[c], o = WAYS * c, W = pp.ids.W;
     if (!(n > 0) || !(t > 0)) return { people: 0, income: 0 };
     let E = 0, cl = 0;
-    for (let w = 1; w < WAYS; w++) { E += this.e[o + w] * n * W[o + w] / t; cl += Math.min(this.claim[o + w], this.e[o + w] * n * W[o + w] / t * this.pp.P.C_E * (pp.K[c] + pp.goods[c]) / n); }
-    const Y = pp.K[c] + pp.goods[c];
+    const Kc = pp.fedR ? pp.Kr[c] : pp.K[c];
+    for (let w = 1; w < WAYS; w++) { E += this.e[o + w] * n * W[o + w] / t; cl += Math.min(this.claim[o + w], this.e[o + w] * n * W[o + w] / t * this.pp.P.C_E * (Kc + pp.goods[c]) / n); }
+    const Y = Kc + pp.goods[c];
     return { people: E / n, income: Y > 0 ? Math.min(1, cl / Y) : 0 };
   }
 }
